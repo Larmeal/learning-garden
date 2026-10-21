@@ -1,0 +1,60 @@
+---
+import { getCollection } from 'astro:content';
+import Base from '../layouts/Base.astro';
+import GardenScene from '../components/GardenScene.astro';
+import Plant from '../components/Plant';
+import { site } from '../site.config';
+import { lessonsOf, subjectHref, lessonHref } from '../lib/garden';
+
+const subjects = await getCollection('subjects');
+const rows = await Promise.all(
+  subjects.map(async (s) => {
+    const ls = await lessonsOf(s.id);
+    const grown = ls.filter((l) => l.data.stage !== 'seed');
+    return { s, ls, grown: grown.length, first: grown[0] ?? ls[0] };
+  }),
+);
+const start = rows[0];
+---
+
+<Base>
+  <main class="page">
+    <div class="container">
+      <section class="hero">
+        <div class="hero-copy">
+          <h1>ปลูกความรู้<br />ทีละ<span class="hl">บทเรียน</span></h1>
+          <p>{site.tagline} แต่ละบทเรียนเป็นการ์ดสั้นๆ ที่ให้ลองทำเองก่อน แล้วค่อยอธิบาย</p>
+          <div class="hero-actions">
+            {start && <a class="btn primary lg" href={lessonHref(start.first.id)}>เริ่มเรียน {start.s.data.name}</a>}
+            <a class="btn lg" href="#plots">ดูแปลงทั้งหมด</a>
+          </div>
+        </div>
+        <GardenScene />
+      </section>
+
+      <section id="plots">
+        <div class="section-title">
+          <h2>แปลงที่เปิดอยู่</h2>
+          <p>หนึ่งแปลงคือหนึ่งเรื่องที่เรียน ต้นไม้แต่ละต้นคือหนึ่งบท ยิ่งเนื้อหาโต ต้นยิ่งสูง</p>
+        </div>
+        <div class="cards">
+          {
+            rows.map(({ s, ls, grown }) => (
+              <a class="card" href={subjectHref(s.id)} style={`--subject:${s.data.accent}`}>
+                <h3>{s.data.name}</h3>
+                <p>{s.data.tagline}</p>
+                <div class="bed" aria-hidden="true">
+                  {ls.map((l) => <Plant stage={l.data.stage} size={30} />)}
+                </div>
+                <div class="card-foot">
+                  <span>{ls.length} บทเรียน · เปิดแล้ว {grown} บท</span>
+                  <span class="btn sm primary" aria-hidden="true">เปิดแปลง</span>
+                </div>
+              </a>
+            ))
+          }
+        </div>
+      </section>
+    </div>
+  </main>
+</Base>

@@ -1,0 +1,319 @@
+---
+import { getCollection, getEntry, render } from 'astro:content';
+import Base from '../../layouts/Base.astro';
+import LessonNav from '../../components/LessonNav.astro';
+import Pips from '../../components/Pips';
+import Plant from '../../components/Plant';
+import Stage from '../../components/Stage';
+import ProgressToggle from '../../components/ProgressToggle';
+import { lessonsOf, lessonHref, slugOf, subjectHref, subjectOf, pad } from '../../lib/garden';
+
+export async function getStaticPaths() {
+  const lessons = await getCollection('lessons');
+  return lessons.map((l) => ({ params: { subject: subjectOf(l.id), lesson: slugOf(l.id) }, props: { lesson: l } }));
+}
+
+const { lesson } = Astro.props;
+const subject = await getEntry('subjects', subjectOf(lesson.id));
+if (!subject) throw new Error(`${lesson.id}: no subject file src/content/subjects/${subjectOf(lesson.id)}.json`);
+
+const all = await lessonsOf(subject.id);
+const index = all.findIndex((l) => l.id === lesson.id);
+const prev = all[index - 1];
+const next = all[index + 1];
+const needs = lesson.data.requires.map((r) => all.find((l) => slugOf(l.id) === r)!);
+const unlocks = all.filter((l) => l.data.requires.includes(slugOf(lesson.id)));
+const { Content, headings } = await render(lesson);
+const outline = headings.filter((h) => h.depth === 2);
+const isSteps = lesson.data.format === 'steps';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+
+<Base title={lesson.data.title} description={lesson.data.summary} accent={subject.data.accent} accentDark={subject.data.accentDark} format={lesson.data.format}>
+  {
+    isSteps && (
+      <div class="player-bar">
+        <a class="icon-btn" href={subjectHref(subject.id)} aria-label="กลับไปแผนที่">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+        </a>
+        <div class="seg-track" data-track role="progressbar" aria-label="ความคืบหน้าในบทนี้"></div>
+        <button class="btn sm" type="button" data-toggle-view>อ่านแบบยาว</button>
+      </div>
+    )
+  }
+
+  <main class="page">
+    <div class="container wide">
+      <nav class="crumbs" aria-label="ตำแหน่งปัจจุบัน">
+        <a href={`${base}/`}>หน้าแรก</a><span>/</span>
+        <a href={subjectHref(subject.id)}>{subject.data.name}</a><span>/</span>
+        <span>{lesson.data.title}</span>
+      </nav>
+
+      <div class={`lesson-layout${outline.length > 1 ? ' with-toc' : ''}`} style="margin-top:24px">
+        <aside class="lesson-aside">
+          {
+            isSteps && (
+              <div class="mode-card">
+                <span>กำลังอ่านแบบยาว</span>
+                <button class="btn primary sm read-only-btn" type="button" data-toggle-view>เรียนทีละขั้น</button>
+              </div>
+            )
+          }
+          <LessonNav lessons={all} phases={subject.data.phases} currentId={lesson.id} />
+        </aside>
+
+        <article>
+          {
+            isSteps && (
+              <div class="mode-card mode-card-top">
+                <span>กำลังอ่านแบบยาว</span>
+                <button class="btn primary sm read-only-btn" type="button" data-toggle-view>เรียนทีละขั้น</button>
+              </div>
+            )
+          }
+          <details class="lesson-toc-mobile" style="margin-bottom:24px">
+            <summary>สารบัญหัวข้อ</summary>
+            <div style="margin-top:12px"><LessonNav lessons={all} phases={subject.data.phases} currentId={lesson.id} /></div>
+          </details>
+
+          <header class="lesson-head">
+            <h1>{lesson.data.title}</h1>
+            <p class="summary">{lesson.data.summary}</p>
+            <div class="lesson-meta">
+              <span>หัวข้อ {pad(lesson.data.order)} · ช่วง {lesson.data.phase}</span>
+              <span>ความยาก <Pips level={lesson.data.level} /></span>
+              <Stage stage={lesson.data.stage} />
+            </div>
+            {
+              needs.length > 0 && (
+                <div class="lesson-meta">
+                  <span>ควรรู้ก่อน:</span>
+                  {needs.map((n) => (
+                    <a class="chip" href={lessonHref(n.id)}>
+                      {pad(n.data.order)} {n.data.title}
+                    </a>
+                  ))}
+                </div>
+              )
+            }
+          </header>
+
+          <div class="prose" data-steps-root data-lesson-id={lesson.id} data-subject={subject.id} data-total={all.length}>
+            {
+              isSteps && (
+                <section class="step step-only step-intro" data-step data-kind="intro" tabindex="-1">
+                  <div class="intro-card">
+                    <div class="art"><Plant stage={lesson.data.stage} size={84} /></div>
+                    <h1>{lesson.data.title}</h1>
+                    <p class="summary">{lesson.data.summary}</p>
+                    <div class="lesson-meta">
+                      <span>ช่วง {lesson.data.phase}</span>
+                      <span>ความยาก <Pips level={lesson.data.level} /></span>
+                      <span data-step-count></span>
+                    </div>
+                    {
+                      needs.length > 0 && (
+                        <div class="lesson-meta">
+                          <span>ควรรู้ก่อน:</span>
+                          {needs.map((n) => (
+                            <a class="chip" href={lessonHref(n.id)}>{pad(n.data.order)} {n.data.title}</a>
+                          ))}
+                        </div>
+                      )
+                    }
+                  </div>
+                </section>
+              )
+            }
+
+            <Content />
+
+            {
+              isSteps && (
+                <section class="step step-only step-outro" data-step data-kind="outro" tabindex="-1">
+                  <div class="outro-card">
+                    <div class="art" aria-hidden="true"><span class="grow"><Plant stage="sprout" size={84} /></span></div>
+                    <h2>จบบทนี้แล้ว</h2>
+                    <p>
+                      {next ? <>บทถัดไปคือ {next.data.title}</> : <>นี่คือบทสุดท้ายของเรื่อง {subject.data.name}</>}
+                    </p>
+                    <span class="outro-count" data-done-note></span>
+                    <div class="actions">
+                      {next && <a class="btn primary lg" href={lessonHref(next.id)}>บทถัดไป</a>}
+                      <a class="btn lg" href={subjectHref(subject.id)}>กลับไปแผนที่</a>
+                    </div>
+                  </div>
+                </section>
+              )
+            }
+          </div>
+
+          <footer class="lesson-foot">
+            <div><ProgressToggle client:load lessonId={lesson.id} /></div>
+            {
+              unlocks.length > 0 && (
+                <div class="lesson-meta">
+                  <span>ใช้ต่อใน:</span>
+                  {unlocks.map((n) => (
+                    <a class="chip" href={lessonHref(n.id)}>
+                      {pad(n.data.order)} {n.data.title}
+                    </a>
+                  ))}
+                </div>
+              )
+            }
+            <div class="pager">
+              {prev && (<a class="prev" href={lessonHref(prev.id)}><small>← ก่อนหน้า</small><span>{prev.data.title}</span></a>)}
+              {next && (<a class="next" href={lessonHref(next.id)}><small>ถัดไป →</small><span>{next.data.title}</span></a>)}
+            </div>
+          </footer>
+        </article>
+
+        {
+          outline.length > 1 && (
+            <nav class="toc" aria-label="ในหน้านี้">
+              <h4>ในหน้านี้</h4>
+              <ul>
+                {outline.map((h) => (
+                  <li><a href={`#${h.slug}`}>{h.text}</a></li>
+                ))}
+              </ul>
+            </nav>
+          )
+        }
+      </div>
+    </div>
+  </main>
+
+  {
+    isSteps && (
+      <div class="player-foot" data-pfoot>
+        <div class="inner">
+          <button class="btn" type="button" data-back>ย้อนกลับ</button>
+          <span class="spacer"></span>
+          <button class="btn" type="button" data-skip hidden>ข้าม</button>
+          <button class="btn primary lg" type="button" data-next>เริ่มเรียน</button>
+        </div>
+      </div>
+    )
+  }
+
+  <script>
+    // Outline highlight for reading mode.
+    const links = [...document.querySelectorAll<HTMLAnchorElement>('.toc a')];
+    const byId = new Map(links.map((a) => [a.hash.slice(1), a]));
+    if (links.length) {
+      const io = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) {
+            if (!e.isIntersecting) continue;
+            links.forEach((a) => a.classList.remove('active'));
+            byId.get(e.target.id)?.classList.add('active');
+          }
+        },
+        { rootMargin: '0px 0px -70% 0px' },
+      );
+      byId.forEach((_, id) => {
+        const el = document.getElementById(id);
+        if (el) io.observe(el);
+      });
+    }
+  </script>
+
+  <script>
+    // Step player: shows one card at a time, gates question cards until answered, and records completion.
+    const root = document.documentElement;
+    const stage = document.querySelector<HTMLElement>('[data-steps-root]');
+
+    function setView(view: 'steps' | 'read') {
+      root.dataset.view = view;
+      try { localStorage.setItem('garden:view', view); } catch {}
+    }
+
+    if (stage && root.dataset.format === 'steps') {
+      const steps = Array.from(stage.querySelectorAll<HTMLElement>('[data-step]'));
+      const last = steps.length - 1;
+      const track = document.querySelector<HTMLElement>('[data-track]')!;
+      const foot = document.querySelector<HTMLElement>('[data-pfoot]')!;
+      const nextBtn = document.querySelector<HTMLButtonElement>('[data-next]')!;
+      const backBtn = document.querySelector<HTMLButtonElement>('[data-back]')!;
+      const skipBtn = document.querySelector<HTMLButtonElement>('[data-skip]')!;
+      const lessonId = stage.dataset.lessonId!;
+      const subjectId = stage.dataset.subject!;
+      const total = Number(stage.dataset.total);
+      const contentCount = last - 1;
+
+      steps.forEach((s, k) => s.dataset.index = String(k));
+      for (let k = 0; k < contentCount; k++) track.appendChild(document.createElement('span'));
+      const segs = Array.from(track.children) as HTMLElement[];
+      document.querySelectorAll('[data-step-count]').forEach((el) => (el.textContent = `${contentCount} ขั้น`));
+
+      let i = 0;
+      const gated = (s: HTMLElement) => s.dataset.gate === 'question' && !s.dataset.answered;
+
+      function markDone() {
+        let all: Record<string, boolean> = {};
+        try { all = JSON.parse(localStorage.getItem('garden:progress') || '{}'); } catch {}
+        all[lessonId] = true;
+        try { localStorage.setItem('garden:progress', JSON.stringify(all)); } catch {}
+        window.dispatchEvent(new Event('garden-progress'));
+        const n = Object.keys(all).filter((k) => k.startsWith(subjectId + '/')).length;
+        document.querySelectorAll('[data-done-note]').forEach((el) => (el.textContent = `เรียนแล้ว ${n} จาก ${total} บท`));
+      }
+
+      function show(n: number, focus = true) {
+        i = Math.max(0, Math.min(last, n));
+        steps.forEach((s, k) => s.classList.toggle('is-current', k === i));
+        segs.forEach((s, k) => {
+          s.classList.toggle('done', k < i - 1);
+          s.classList.toggle('current', k === i - 1);
+        });
+        track.setAttribute('aria-valuenow', String(Math.max(0, i - 1)));
+        track.setAttribute('aria-valuemax', String(contentCount));
+        foot.hidden = i === last;
+        backBtn.disabled = i === 0;
+        nextBtn.textContent = i === 0 ? 'เริ่มเรียน' : i === last - 1 ? 'จบบท' : 'ต่อไป';
+        const g = gated(steps[i]);
+        nextBtn.disabled = g;
+        skipBtn.hidden = !g;
+        if (i === last) markDone();
+        if (focus) {
+          window.scrollTo({ top: 0 });
+          steps[i].focus({ preventScroll: true });
+        }
+      }
+
+      nextBtn.addEventListener('click', () => show(i + 1));
+      backBtn.addEventListener('click', () => show(i - 1));
+      skipBtn.addEventListener('click', () => {
+        steps[i].dataset.answered = '1';
+        show(i + 1);
+      });
+      stage.addEventListener('garden:answered', (e) => {
+        const s = (e.target as HTMLElement).closest<HTMLElement>('[data-step]');
+        if (!s) return;
+        s.dataset.answered = '1';
+        if (steps[i] === s) {
+          nextBtn.disabled = false;
+          skipBtn.hidden = true;
+        }
+      });
+      document.addEventListener('keydown', (e) => {
+        if (root.dataset.view !== 'steps') return;
+        const t = e.target as HTMLElement;
+        if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') return;
+        if (e.key === 'ArrowRight' && !nextBtn.disabled && i < last) show(i + 1);
+        if (e.key === 'ArrowLeft' && i > 0) show(i - 1);
+      });
+      document.querySelectorAll('[data-toggle-view]').forEach((b) =>
+        b.addEventListener('click', () => {
+          const v = root.dataset.view === 'steps' ? 'read' : 'steps';
+          setView(v);
+          if (v === 'steps') show(i, false);
+        }),
+      );
+      show(0, false);
+    }
+  </script>
+</Base>
