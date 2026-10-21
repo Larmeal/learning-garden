@@ -1,0 +1,114 @@
+---
+title: สถาปัตยกรรม
+summary: Driver วางแผนและแจกงาน executor ลงมือทำ cluster manager จัดสรรเครื่อง SparkSession คือประตูเข้าใช้งาน
+order: 1
+phase: A
+level: 2
+stage: sprout
+format: steps
+requires: [foundations]
+updated: 2026-10-21
+---
+
+import Step from '../../../components/Step.astro';
+import Callout from '../../../components/Callout.astro';
+import ArchitectureLab from '../../../components/ArchitectureLab';
+import Question from '../../../components/Question';
+
+<Step>
+
+## ใครทำอะไร
+
+แอปพลิเคชัน Spark มีสามบทบาท driver ที่ถือโปรแกรมของคุณและวางแผน executor ที่ลงมือคำนวณ และ cluster manager ที่จัดสรรเครื่องให้
+
+<ArchitectureLab client:visible />
+
+โค้ด PySpark ของคุณรันใน Python process แล้วคุยกับ JVM ของ Spark ผ่าน Py4J การคำนวณหนักเกิดใน JVM ฝั่ง executor ยกเว้น Python UDF ที่ต้องเรียก Python process เพิ่ม (บทที่ 8)
+
+</Step>
+
+<Step>
+
+## เครื่องคุณรันแบบไหน
+
+`get_spark()` ใน `spark_session.py` สร้าง session แบบ `local[*]` driver และ executor อยู่ใน process เดียว และ executor คือ thread จำนวนเท่า core ของเครื่อง
+
+<Callout type="try" title="ลองดูในเครื่อง">
+
+```python
+from spark_session import get_spark
+
+spark = get_spark("arch")
+sc = spark.sparkContext
+print(sc.master, sc.defaultParallelism, spark.version)
+```
+
+บนเครื่องที่ใช้ทดสอบบทนี้ ได้ `local[*] 16 4.2.0` เลข 16 คือจำนวน core ของเครื่องนั้น เครื่องคุณอาจได้เลขอื่น
+
+</Callout>
+
+เพราะเหตุนี้ การเรียนแนวคิดแบบกระจายบนเครื่องเดียวจึงทำได้ task หลายตัวรันพร้อมกันจริง แต่ไม่มีเครือข่ายคั่นกลาง ใน cluster จริง ต้นทุนการส่งข้อมูลข้ามเครื่องจะสูงกว่าที่เห็นที่นี่
+
+</Step>
+
+<Step>
+
+## SparkSession
+
+`SparkSession` เป็นจุดเข้าใช้งานเดียวสำหรับอ่านข้อมูล สร้าง DataFrame และรัน SQL สร้างด้วย `SparkSession.builder...getOrCreate()` ถ้ามี session อยู่แล้วจะได้ตัวเดิมกลับมา ใน notebook หรือ Databricks มักมีตัวแปร `spark` ให้ใช้เลย
+
+</Step>
+
+<Step>
+
+## ข้อมูลมาถึง driver เมื่อไร
+
+โดยปกติข้อมูลอยู่ที่ executor และไม่ผ่าน driver คำสั่งที่ดึงข้อมูลมาที่ driver มีไม่กี่ตัว
+
+- `show()` ดึง 20 แถวแรกมาพิมพ์
+- `collect()` และ `toPandas()` ดึงผลทั้งหมด
+- `write` ให้ executor เขียนไฟล์เอง ไม่ผ่าน driver
+
+<Callout type="warn" title="ระวัง collect() กับข้อมูลใหญ่">
+ผลของ `collect()` และ `toPandas()` ต้องไปอยู่ในหน่วยความจำของ driver ตัวเดียว ถ้าผลใหญ่กว่าหน่วยความจำที่ driver มี โปรแกรมจะล้ม ให้กรองหรือรวมข้อมูลให้เล็กลงก่อนเรียกสองคำสั่งนี้
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="ใน local[*] executor คืออะไร"
+  options={['process แยกต่างหาก', 'thread ใน process เดียวกับ driver', 'เครื่องอีกเครื่องหนึ่ง']}
+  answer={1}
+  why="local[*] ไม่สร้าง process แยก ทุกอย่างอยู่ใน JVM เดียว และใช้ thread เท่าจำนวน core เป็น executor"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="คำสั่งไหนย้ายข้อมูลทั้งหมดมาอยู่ในหน่วยความจำของ driver"
+  options={['show()', 'write.parquet(...)', 'toPandas()']}
+  answer={2}
+  why="toPandas() รวมทุกแถวเป็น pandas DataFrame ใน driver ส่วน show() ดึงแค่ 20 แถวแรก และ write ให้ executor เขียนไฟล์เอง"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ใครเป็นผู้แบ่งงานเป็น task"
+  options={['driver', 'executor', 'cluster manager']}
+  answer={0}
+  why="driver สร้างแผนและแบ่งเป็น task ส่วน cluster manager แค่จัดสรร executor ให้ ไม่รู้เรื่องคำสั่งของคุณ"
+/>
+
+</Step>
