@@ -1,0 +1,110 @@
+---
+title: Execution model
+summary: โค้ดหนึ่งชุดกลายเป็น job, stage และ task จุดที่ต้อง shuffle คือรอยตัดระหว่าง stage ด่านใหญ่ที่สุดของการเรียน Spark
+order: 5
+phase: B
+level: 4
+stage: sprout
+requires: [lazy-evaluation, dataframe-sql]
+updated: 2026-10-21
+---
+
+import ShuffleDemo from '../../../components/ShuffleDemo';
+import SkewDemo from '../../../components/SkewDemo';
+import StageQuiz from '../../../components/StageQuiz';
+
+บทนี้คือจุดที่คนใช้ Spark เป็นแยกออกจากคนที่เข้าใจว่ามันทำงานอย่างไร ถ้าเข้าใจบทนี้ การอ่าน `explain()` และ Spark UI การหาสาเหตุที่ job ช้า จะเริ่มเห็นภาพ
+
+## เป้าหมายของบทนี้
+
+- อธิบายความต่างของ job, stage และ task ได้
+- แยกได้ว่าคำสั่งไหนเป็น narrow และคำสั่งไหนเป็น wide (ต้อง shuffle)
+- ดูโค้ดสั้นๆ แล้วทายจำนวน stage ได้
+- เห็นว่า data skew เกิดจาก shuffle อย่างไร
+
+## ศัพท์สามคำ
+
+| คำ | ความหมาย |
+|---|---|
+| **job** | งานที่เกิดขึ้นเมื่อคุณเรียก action หนึ่งครั้ง เช่น `write`, `count`, `show` |
+| **stage** | ชุดของ task ที่รันได้โดยไม่ต้องย้ายข้อมูลข้ามเครื่อง |
+| **task** | งานหนึ่งหน่วยที่ทำกับ partition หนึ่งก้อน ทุก task ใน stage เดียวกันทำงานเหมือนกันแต่กับข้อมูลคนละก้อน |
+
+จำง่ายๆ ว่า action สร้าง job, shuffle ตัด job เป็น stage, partition ทำให้ stage แตกเป็น task
+
+## Narrow กับ wide
+
+คำสั่งแบ่งเป็นสองประเภทตามว่าต้องใช้ข้อมูลจากหลาย partition ไหม
+
+| ประเภท | ลักษณะ | ตัวอย่าง |
+|---|---|---|
+| **narrow** | ผลของแต่ละ partition ได้จาก partition เดียว | `filter`, `select`, `withColumn`, `map` |
+| **wide** | ต้องเอาข้อมูลจากหลาย partition มารวมกัน จึงเกิด shuffle | `groupBy`, `join` (ปกติ), `distinct`, `orderBy`, `repartition` |
+
+คำสั่ง narrow ต่อกันกี่ตัวก็อยู่ใน stage เดียว พอเจอคำสั่ง wide จะเกิดรอยตัดและเริ่ม stage ใหม่
+
+## ดูมันทำงานทีละขั้น
+
+<ShuffleDemo client:visible />
+
+สิ่งที่ควรสังเกต
+
+- ใน stage 1 ไม่มีเส้นไขว้เลย แต่ละ task จบงานของตัวเองได้
+- ตอน shuffle ทุก task ต้องส่งข้อมูลให้ task ปลายทางหลายตัว เส้นจึงไขว้กัน
+- stage 2 เริ่มไม่ได้จนกว่า shuffle จะเสร็จทั้งหมด
+
+## ทำไม shuffle ถึงแพง
+
+ข้อมูลที่ต้อง shuffle จะถูกเขียนลง disk ฝั่งผู้ส่ง แล้วฝั่งผู้รับต้องดึงผ่านเครือข่ายมาอ่าน ทั้งสองฝั่งต้องแปลงข้อมูลเป็นไบต์และกลับมาเป็นข้อมูล เมื่อเทียบกับ narrow ที่ทำกับข้อมูลใน memory ของตัวเองได้เลย ต้นทุนต่างกันมาก
+
+เพราะอย่างนี้ เมื่อพูดถึงการทำให้ Spark เร็ว คำถามแรกที่ควรถามคือ shuffle กี่ครั้ง และแต่ละครั้งส่งข้อมูลเท่าไร
+
+## เมื่อ shuffle ไม่สมดุล: data skew
+
+Shuffle ส่ง key เดียวกันไปที่ task เดียวกัน ถ้า key หนึ่งมีข้อมูลมากผิดปกติ task นั้นจะทำงานนานกว่าตัวอื่นมาก และทั้ง stage ต้องรอตัวที่ช้าที่สุด
+
+<SkewDemo client:visible />
+
+เครื่องที่ว่างอยู่ช่วยอะไรไม่ได้ เพราะ key ก้อนนั้นต้องถูกประมวลผลโดย task เดียว เทคนิคแก้ เช่น salting และการเปิด AQE จะอยู่ในบทที่ 7
+
+## ทดสอบความเข้าใจ
+
+<StageQuiz client:visible />
+
+## ลองทำใน repo นี้
+
+สร้างไฟล์ที่ root ของโปรเจกต์ (ข้างๆ `main.py`) เช่น `shuffle_lab.py`
+
+```python
+from spark_session import get_spark
+
+spark = get_spark("shuffle-lab")
+
+df = spark.range(1_000_000)                       # คอลัมน์ id
+agg = df.groupBy((df.id % 3).alias("k")).count()  # wide: ต้อง shuffle
+
+agg.explain()   # หาคำว่า Exchange ในแผน
+agg.show()      # action: เริ่มทำงานจริง
+
+input("เปิด http://localhost:4040 แล้วดูแท็บ Stages จากนั้นกด Enter")
+spark.stop()
+```
+
+รันด้วย `uv run python shuffle_lab.py`
+
+สิ่งที่ควรเห็นและควรตอบให้ได้
+
+1. ในผลของ `explain()` มีบรรทัด `Exchange hashpartitioning(...)` นั่นคือ shuffle ลองลบ `groupBy` ออกแล้วรันใหม่ ว่าบรรทัดนี้หายไปไหม
+2. ใน Spark UI แท็บ Stages job นี้แตกเป็นกี่ stage ตรงกับที่ทายไหม
+3. จำนวน partition หลัง shuffle คือเท่าไร ค่าเริ่มต้นของ `spark.sql.shuffle.partitions` คือ 200 แต่ AQE อาจรวม partition เล็กให้ตอนรัน ลองเทียบตัวเลขในแผนกับที่เห็นใน UI
+
+## เช็กตัวเอง
+
+- ดูโค้ดสามบรรทัดแล้วบอกได้ไหมว่ามีกี่ stage เพราะอะไร
+- ถ้า job ช้า จะดูที่ไหนเป็นอย่างแรกเพื่อรู้ว่าติดที่ shuffle
+- `repartition(10)` เป็น narrow หรือ wide เพราะอะไร
+
+## ต่อไป
+
+- บทที่ 6 (Catalyst และ AQE): Spark ปรับแผนให้เองอย่างไร และอ่านแผนเป็น
+- บทที่ 7 (Performance tuning): เมื่อรู้ว่าติดที่ shuffle แล้ว จะลดหรือจัดการมันอย่างไร
