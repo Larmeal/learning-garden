@@ -1,5 +1,6 @@
 ---
 import { pad, lessonHref } from '../lib/garden';
+import Plant from './Plant';
 import type { Lesson } from '../lib/garden';
 
 interface Props {
@@ -23,9 +24,20 @@ const { lessons, phases, currentId } = Astro.props;
             <ul>
               {inPhase.map((l) => (
                 <li>
-                  <a href={lessonHref(l.id)} aria-current={l.id === currentId ? 'page' : undefined}>
+                  <a
+                    href={lessonHref(l.id)}
+                    aria-current={l.id === currentId ? 'page' : undefined}
+                    data-lid={l.id}
+                    data-state={l.data.stage === 'seed' ? 'seed' : 'sprout'}
+                    data-written={l.data.stage === 'seed' ? undefined : ''}
+                  >
                     <span class="n">{pad(l.data.order)}</span>
-                    <span>{l.data.title}</span>
+                    <span class="t">{l.data.title}</span>
+                    <span class="np" aria-hidden="true">
+                      <span class="p-seed"><Plant stage="seed" size={22} /></span>
+                      <span class="p-sprout"><Plant stage="sprout" size={22} /></span>
+                      <span class="p-evergreen"><Plant stage="evergreen" size={22} /></span>
+                    </span>
                   </a>
                 </li>
               ))}
@@ -36,3 +48,18 @@ const { lessons, phases, currentId } = Astro.props;
     })
   }
 </nav>
+
+<script>
+  // Show each lesson's plant by this learner's progress: seed (not written), sprout (to learn), tree (finished).
+  function paint() {
+    let done: Record<string, boolean> = {};
+    try { done = JSON.parse(localStorage.getItem('garden:progress') || '{}'); } catch {}
+    document.querySelectorAll<HTMLElement>('.lnav a[data-lid]').forEach((a) => {
+      if (a.dataset.written === undefined) return;
+      a.dataset.state = done[a.dataset.lid!] ? 'evergreen' : 'sprout';
+    });
+  }
+  paint();
+  window.addEventListener('garden-progress', paint);
+  window.addEventListener('storage', paint);
+</script>

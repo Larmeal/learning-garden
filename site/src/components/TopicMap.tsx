@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import Pips from './Pips';
 import Plant, { type PlantStage } from './Plant';
-import { useProgress } from './useProgress';
+import SubjectGarden from './SubjectGarden';
+import { plantStage, useProgress } from './useProgress';
 
 export interface MapLesson {
   id: string;
@@ -24,10 +25,11 @@ export interface MapPhase {
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
-const STAGE_LABEL = { seed: 'เมล็ด', sprout: 'ต้นอ่อน', evergreen: 'โตเต็มที่' } as const;
+const STATE_LABEL = { seed: 'เมล็ด ยังไม่เปิด', sprout: 'ต้นอ่อน', evergreen: 'โตเต็มที่' } as const;
 
 export default function TopicMap({ lessons, phases, initial }: { lessons: MapLesson[]; phases: MapPhase[]; initial: string }) {
   const [sel, setSel] = useState(initial);
+  const [hover, setHover] = useState<string | null>(null);
   const reduce = useReducedMotion();
   const { done } = useProgress();
 
@@ -60,6 +62,7 @@ export default function TopicMap({ lessons, phases, initial }: { lessons: MapLes
   return (
     <div className="map">
       <div className="map-main">
+        <SubjectGarden lessons={lessons} done={done} sel={sel} hover={hover} onSelect={setSel} onHover={setHover} />
         <div className="legend" aria-hidden="true">
           <span>
             ความยาก <Pips level={3} /> = 3 จาก 5
@@ -94,9 +97,9 @@ export default function TopicMap({ lessons, phases, initial }: { lessons: MapLes
                 .map((l) => {
                   const t = tagFor(l.slug);
                   return (
-                    <button key={l.slug} type="button" className={`tile ${t.cls}`} aria-current={l.slug === sel ? 'true' : undefined} onClick={() => setSel(l.slug)}>
+                    <button key={l.slug} type="button" className={`tile ${t.cls}`} aria-current={l.slug === sel ? 'true' : undefined} onClick={() => setSel(l.slug)} onMouseEnter={() => setHover(l.slug)} onMouseLeave={() => setHover(null)}>
                       <span className="top">
-                        <Plant stage={l.stage} size={44} />
+                        <Plant stage={plantStage(l.stage, !!done[l.id])} size={44} />
                         <span className="no">{pad(l.order)}</span>
                       </span>
                       <span className="nm">{l.title}</span>
@@ -130,11 +133,11 @@ export default function TopicMap({ lessons, phases, initial }: { lessons: MapLes
             transition={{ duration: 0.18 }}
           >
             <div className="head">
-              <Plant stage={cur.stage} size={56} />
+              <Plant stage={plantStage(cur.stage, !!done[cur.id])} size={56} sway />
               <div>
                 <h3>{cur.title}</h3>
                 <span className="sub">
-                  หัวข้อ {pad(cur.order)} · ช่วง {cur.phase} · {STAGE_LABEL[cur.stage]}
+                  หัวข้อ {pad(cur.order)} · ช่วง {cur.phase} · {STATE_LABEL[plantStage(cur.stage, !!done[cur.id])]}
                 </span>
               </div>
             </div>

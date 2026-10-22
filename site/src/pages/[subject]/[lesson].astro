@@ -4,7 +4,9 @@ import Base from '../../layouts/Base.astro';
 import LessonNav from '../../components/LessonNav.astro';
 import Pips from '../../components/Pips';
 import Plant from '../../components/Plant';
-import Stage from '../../components/Stage';
+import GrowthBadge from '../../components/GrowthBadge';
+import LessonArt from '../../components/LessonArt';
+import Outro from '../../components/Outro';
 import ProgressToggle from '../../components/ProgressToggle';
 import { lessonsOf, lessonHref, slugOf, subjectHref, subjectOf, pad } from '../../lib/garden';
 
@@ -37,6 +39,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
         </a>
         <div class="seg-track" data-track role="progressbar" aria-label="ความคืบหน้าในบทนี้"></div>
+        <span class="bar-plant" data-bar-plant aria-hidden="true"><Plant stage="sprout" size={34} sway /></span>
         <button class="btn sm" type="button" data-toggle-view>อ่านแบบยาว</button>
       </div>
     )
@@ -83,7 +86,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
             <div class="lesson-meta">
               <span>หัวข้อ {pad(lesson.data.order)} · ช่วง {lesson.data.phase}</span>
               <span>ความยาก <Pips level={lesson.data.level} /></span>
-              <Stage stage={lesson.data.stage} />
+              <GrowthBadge client:load lessonId={lesson.id} content={lesson.data.stage} />
             </div>
             {
               needs.length > 0 && (
@@ -99,12 +102,12 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
             }
           </header>
 
-          <div class="prose" data-steps-root data-lesson-id={lesson.id} data-subject={subject.id} data-total={all.length}>
+          <div class="prose" data-steps-root data-lesson-id={lesson.id}>
             {
               isSteps && (
                 <section class="step step-only step-intro" data-step data-kind="intro" tabindex="-1">
                   <div class="intro-card">
-                    <div class="art"><Plant stage={lesson.data.stage} size={84} /></div>
+                    <div class="art-wrap"><LessonArt client:load lessonId={lesson.id} content={lesson.data.stage} /></div>
                     <h1>{lesson.data.title}</h1>
                     <p class="summary">{lesson.data.summary}</p>
                     <div class="lesson-meta">
@@ -132,18 +135,16 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
             {
               isSteps && (
                 <section class="step step-only step-outro" data-step data-kind="outro" tabindex="-1">
-                  <div class="outro-card">
-                    <div class="art" aria-hidden="true"><span class="grow"><Plant stage="sprout" size={84} /></span></div>
-                    <h2>จบบทนี้แล้ว</h2>
-                    <p>
-                      {next ? <>บทถัดไปคือ {next.data.title}</> : <>นี่คือบทสุดท้ายของเรื่อง {subject.data.name}</>}
-                    </p>
-                    <span class="outro-count" data-done-note></span>
-                    <div class="actions">
-                      {next && <a class="btn primary lg" href={lessonHref(next.id)}>บทถัดไป</a>}
-                      <a class="btn lg" href={subjectHref(subject.id)}>กลับไปแผนที่</a>
-                    </div>
-                  </div>
+                  <Outro
+                    client:load
+                    lessonId={lesson.id}
+                    subjectId={subject.id}
+                    total={all.length}
+                    nextHref={next ? lessonHref(next.id) : undefined}
+                    nextTitle={next?.data.title}
+                    mapHref={subjectHref(subject.id)}
+                    subjectName={subject.data.name}
+                  />
                 </section>
               )
             }
@@ -240,8 +241,6 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       const backBtn = document.querySelector<HTMLButtonElement>('[data-back]')!;
       const skipBtn = document.querySelector<HTMLButtonElement>('[data-skip]')!;
       const lessonId = stage.dataset.lessonId!;
-      const subjectId = stage.dataset.subject!;
-      const total = Number(stage.dataset.total);
       const contentCount = last - 1;
 
       steps.forEach((s, k) => s.dataset.index = String(k));
@@ -252,15 +251,20 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       let i = 0;
       const gated = (s: HTMLElement) => s.dataset.gate === 'question' && !s.dataset.answered;
 
-      function markDone() {
-        let all: Record<string, boolean> = {};
-        try { all = JSON.parse(localStorage.getItem('garden:progress') || '{}'); } catch {}
-        all[lessonId] = true;
-        try { localStorage.setItem('garden:progress', JSON.stringify(all)); } catch {}
-        window.dispatchEvent(new Event('garden-progress'));
-        const n = Object.keys(all).filter((k) => k.startsWith(subjectId + '/')).length;
-        document.querySelectorAll('[data-done-note]').forEach((el) => (el.textContent = `เรียนแล้ว ${n} จาก ${total} บท`));
+      const barPlant = document.querySelector<HTMLElement>('[data-bar-plant]');
+      // A question counts as answered for good once it is stored; the outro asks to go back to the ones still missing.
+      function unansweredIndex() {
+        let quiz: string[] = [];
+        try { quiz = JSON.parse(localStorage.getItem('garden:quiz') || '{}')[lessonId] ?? []; } catch {}
+        return steps.findIndex((s) => {
+          const key = s.querySelector<HTMLElement>('[data-q]')?.dataset.q;
+          return s.dataset.gate === 'question' && key && !quiz.includes(key);
+        });
       }
+      window.addEventListener('garden:goto-unanswered', () => {
+        const k = unansweredIndex();
+        if (k >= 0) show(k);
+      });
 
       function show(n: number, focus = true) {
         i = Math.max(0, Math.min(last, n));
@@ -277,7 +281,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
         const g = gated(steps[i]);
         nextBtn.disabled = g;
         skipBtn.hidden = !g;
-        if (i === last) markDone();
+        barPlant?.style.setProperty('--p', String(Math.max(0, Math.min(1, (i - 1) / Math.max(1, contentCount)))));
         if (focus) {
           window.scrollTo({ top: 0 });
           steps[i].focus({ preventScroll: true });
