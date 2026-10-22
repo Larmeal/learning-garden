@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { questionKey, recordAnswer } from './useProgress';
 
 interface Props {
   q: string;
@@ -16,15 +17,18 @@ export default function Question({ q, code, options, answer, why }: Props) {
   const root = useRef<HTMLDivElement>(null);
   const done = pick !== null;
   const right = pick === answer;
+  const key = questionKey(q);
 
   const choose = (n: number) => {
     if (done) return;
     setPick(n);
+    const lesson = root.current?.closest<HTMLElement>('[data-lesson-id]')?.dataset.lessonId;
+    if (lesson) recordAnswer(lesson, key);
     root.current?.dispatchEvent(new CustomEvent('garden:answered', { bubbles: true, detail: { correct: n === answer } }));
   };
 
   return (
-    <div className="qcard" ref={root}>
+    <div className="qcard" ref={root} data-q={key}>
       <p className="q-text">{q}</p>
       {code && <pre className="q-code">{code}</pre>}
       <div className="q-opts" role="group" aria-label="ตัวเลือก">
