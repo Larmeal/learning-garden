@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useRef, type CSSProperties } from 'react';
 import Plant, { type PlantStage } from './Plant';
 import { Critter, onActivate, useGarden } from './useGarden';
-import { plantStage } from './useProgress';
+import { isFinished, plantStage } from './useProgress';
 
 export interface GardenLesson {
   id: string;
+  pages: { id: string }[];
   slug: string;
   title: string;
   order: number;
@@ -43,7 +44,7 @@ export default function SubjectGarden({ lessons, done, sel, hover, onSelect, onH
       return pad0 + i * step + g * gap;
     });
   }, [lessons]);
-  const stages = lessons.map((l) => plantStage(l.stage, !!done[l.id]));
+  const stages = lessons.map((l) => plantStage(l.stage, isFinished(done, l.pages.map((p) => p.id))));
   const bodies = useMemo(() => spots.map((x) => ({ x, base: BASE })), [spots]);
 
   const g = useGarden({ w: W, h: H, bodies, reach: 80, lean: 18, minY: 90, depths: { sun: 4, clouds: 7, far: 9, near: 14 }, fly: { y: 100, ry: 28, maxY: 180 } });

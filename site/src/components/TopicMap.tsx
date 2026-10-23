@@ -3,7 +3,8 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import Pips from './Pips';
 import Plant, { type PlantStage } from './Plant';
 import SubjectGarden from './SubjectGarden';
-import { plantStage, useProgress } from './useProgress';
+import { isFinished, plantStage, useProgress } from './useProgress';
+import { KIND_LABEL, type PageItem } from './PageList';
 
 export interface MapLesson {
   id: string;
@@ -17,6 +18,7 @@ export interface MapLesson {
   stage: PlantStage;
   format: 'steps' | 'read';
   href: string;
+  pages: PageItem[];
 }
 export interface MapPhase {
   id: string;
@@ -24,6 +26,7 @@ export interface MapPhase {
   check: string;
 }
 
+const finished = (done: Record<string, boolean>, l: MapLesson) => isFinished(done, l.pages.map((p) => p.id));
 const pad = (n: number) => String(n).padStart(2, '0');
 const STATE_LABEL = { seed: 'เมล็ด ยังไม่เปิด', sprout: 'ต้นอ่อน', evergreen: 'โตเต็มที่' } as const;
 
@@ -99,7 +102,7 @@ export default function TopicMap({ lessons, phases, initial }: { lessons: MapLes
                   return (
                     <button key={l.slug} type="button" className={`tile ${t.cls}`} aria-current={l.slug === sel ? 'true' : undefined} onClick={() => setSel(l.slug)} onMouseEnter={() => setHover(l.slug)} onMouseLeave={() => setHover(null)}>
                       <span className="top">
-                        <Plant stage={plantStage(l.stage, !!done[l.id])} size={44} />
+                        <Plant stage={plantStage(l.stage, finished(done, l))} size={44} />
                         <span className="no">{pad(l.order)}</span>
                       </span>
                       <span className="nm">{l.title}</span>
@@ -107,7 +110,7 @@ export default function TopicMap({ lessons, phases, initial }: { lessons: MapLes
                         <Pips level={l.level} />
                         <span className="tag">{t.text}</span>
                       </span>
-                      {done[l.id] && (
+                      {finished(done, l) && (
                         <span className="tick" role="img" aria-label="เรียนแล้ว">
                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                             <path d="M5 12.5l4.5 4.5L19 7.5" />
@@ -133,11 +136,11 @@ export default function TopicMap({ lessons, phases, initial }: { lessons: MapLes
             transition={{ duration: 0.18 }}
           >
             <div className="head">
-              <Plant stage={plantStage(cur.stage, !!done[cur.id])} size={56} sway />
+              <Plant stage={plantStage(cur.stage, finished(done, cur))} size={56} sway />
               <div>
                 <h3>{cur.title}</h3>
                 <span className="sub">
-                  หัวข้อ {pad(cur.order)} · ช่วง {cur.phase} · {STATE_LABEL[plantStage(cur.stage, !!done[cur.id])]}
+                  หัวข้อ {pad(cur.order)} · ช่วง {cur.phase} · {STATE_LABEL[plantStage(cur.stage, finished(done, cur))]}
                 </span>
               </div>
             </div>
@@ -148,6 +151,19 @@ export default function TopicMap({ lessons, phases, initial }: { lessons: MapLes
               </div>
               <p>{cur.summary}</p>
               <dl>
+                {cur.pages.length > 1 && (
+                  <>
+                    <dt>หน้าในบทนี้</dt>
+                    <dd className="pages">
+                      {cur.pages.map((p) => (
+                        <a key={p.id} className={`chip${done[p.id] ? ' done' : ''}`} href={p.href}>
+                          {done[p.id] && '✓ '}
+                          {KIND_LABEL[p.kind]}: {p.title}
+                        </a>
+                      ))}
+                    </dd>
+                  </>
+                )}
                 <dt>ต้องรู้มาก่อน</dt>
                 <dd>{chips(cur.requires)}</dd>
                 <dt>ใช้ต่อใน</dt>

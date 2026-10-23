@@ -8,7 +8,8 @@ import GrowthBadge from '../../components/GrowthBadge';
 import LessonArt from '../../components/LessonArt';
 import Outro from '../../components/Outro';
 import ProgressToggle from '../../components/ProgressToggle';
-import { lessonsOf, lessonHref, slugOf, subjectHref, subjectOf, pad } from '../../lib/garden';
+import PageList from '../../components/PageList';
+import { groupsOf, lessonHref, pageInfo, pageKey, parentSlug, slugOf, subjectHref, subjectOf, pad, KIND_LABEL } from '../../lib/garden';
 
 export async function getStaticPaths() {
   const lessons = await getCollection('lessons');
@@ -19,19 +20,29 @@ const { lesson } = Astro.props;
 const subject = await getEntry('subjects', subjectOf(lesson.id));
 if (!subject) throw new Error(`${lesson.id}: no subject file src/content/subjects/${subjectOf(lesson.id)}.json`);
 
-const all = await lessonsOf(subject.id);
-const index = all.findIndex((l) => l.id === lesson.id);
-const prev = all[index - 1];
-const next = all[index + 1];
-const needs = lesson.data.requires.map((r) => all.find((l) => slugOf(l.id) === r)!);
-const unlocks = all.filter((l) => l.data.requires.includes(slugOf(lesson.id)));
+const groups = await groupsOf(subject.id);
+const group = groups.find((g) => slugOf(g.main.id) === parentSlug(lesson.id))!;
+const main = group.main;
+const isSub = lesson.id !== main.id;
+const pageId = pageKey(lesson.id);
+// Reading order runs through every page: a lesson's overview, its sub-pages, then the next lesson.
+const sequence = groups.flatMap((g) => g.pages);
+const index = sequence.findIndex((l) => l.id === lesson.id);
+const prev = sequence[index - 1];
+const next = sequence[index + 1];
+const needs = isSub ? [] : main.data.requires.map((r) => groups.find((g) => slugOf(g.main.id) === r)!.main);
+const unlocks = groups.filter((g) => g.main.data.requires.includes(slugOf(main.id))).map((g) => g.main);
+const pages = group.pages.map((p) => pageInfo(p, main));
+const pageIds = pages.map((p) => p.id);
+const lessonsPages = groups.map((g) => g.pages.map((p) => pageKey(p.id)));
+const kind = isSub ? lesson.data.kind : 'main';
 const { Content, headings } = await render(lesson);
 const outline = headings.filter((h) => h.depth === 2);
 const isSteps = lesson.data.format === 'steps';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
 
-<Base title={lesson.data.title} description={lesson.data.summary} accent={subject.data.accent} accentDark={subject.data.accentDark} format={lesson.data.format}>
+<Base title={isSub ? `${main.data.title}: ${lesson.data.title}` : lesson.data.title} description={lesson.data.summary} accent={subject.data.accent} accentDark={subject.data.accentDark} format={lesson.data.format}>
   {
     isSteps && (
       <div class="player-bar">
@@ -50,6 +61,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       <nav class="crumbs" aria-label="ตำแหน่งปัจจุบัน">
         <a href={`${base}/`}>หน้าแรก</a><span>/</span>
         <a href={subjectHref(subject.id)}>{subject.data.name}</a><span>/</span>
+        {isSub && (<><a href={lessonHref(main.id)}>{main.data.title}</a><span>/</span></>)}
         <span>{lesson.data.title}</span>
       </nav>
 
@@ -63,7 +75,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
               </div>
             )
           }
-          <LessonNav lessons={all} phases={subject.data.phases} currentId={lesson.id} />
+          <LessonNav groups={groups} phases={subject.data.phases} currentId={lesson.id} />
         </aside>
 
         <article>
@@ -77,16 +89,17 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
           }
           <details class="lesson-toc-mobile" style="margin-bottom:24px">
             <summary>สารบัญหัวข้อ</summary>
-            <div style="margin-top:12px"><LessonNav lessons={all} phases={subject.data.phases} currentId={lesson.id} /></div>
+            <div style="margin-top:12px"><LessonNav groups={groups} phases={subject.data.phases} currentId={lesson.id} /></div>
           </details>
 
           <header class="lesson-head">
             <h1>{lesson.data.title}</h1>
             <p class="summary">{lesson.data.summary}</p>
             <div class="lesson-meta">
-              <span>หัวข้อ {pad(lesson.data.order)} · ช่วง {lesson.data.phase}</span>
-              <span>ความยาก <Pips level={lesson.data.level} /></span>
-              <GrowthBadge client:load lessonId={lesson.id} content={lesson.data.stage} />
+              {isSub && <span class={`pk ${kind}`}>{KIND_LABEL[kind]} ของบท {main.data.title}</span>}
+              <span>หัวข้อ {pad(main.data.order)} · ช่วง {main.data.phase}</span>
+              <span>ความยาก <Pips level={main.data.level!} /></span>
+              <GrowthBadge client:load pages={pageIds} content={main.data.stage} />
             </div>
             {
               needs.length > 0 && (
@@ -100,19 +113,21 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
                 </div>
               )
             }
+            {pages.length > 1 && <PageList client:load pages={pages} currentId={pageId} />}
           </header>
 
-          <div class="prose" data-steps-root data-lesson-id={lesson.id}>
+          <div class="prose" data-steps-root data-lesson-id={pageId}>
             {
               isSteps && (
                 <section class="step step-only step-intro" data-step data-kind="intro" tabindex="-1">
                   <div class="intro-card">
-                    <div class="art-wrap"><LessonArt client:load lessonId={lesson.id} content={lesson.data.stage} /></div>
+                    <div class="art-wrap"><LessonArt client:load pages={pageIds} content={main.data.stage} /></div>
                     <h1>{lesson.data.title}</h1>
                     <p class="summary">{lesson.data.summary}</p>
                     <div class="lesson-meta">
-                      <span>ช่วง {lesson.data.phase}</span>
-                      <span>ความยาก <Pips level={lesson.data.level} /></span>
+                      {isSub && <span class={`pk ${kind}`}>{KIND_LABEL[kind]} ของบท {main.data.title}</span>}
+                      <span>ช่วง {main.data.phase}</span>
+                      <span>ความยาก <Pips level={main.data.level!} /></span>
                       <span data-step-count></span>
                     </div>
                     {
@@ -125,6 +140,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
                         </div>
                       )
                     }
+                    {pages.length > 1 && <PageList client:load pages={pages} currentId={pageId} />}
                   </div>
                 </section>
               )
@@ -137,11 +153,12 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
                 <section class="step step-only step-outro" data-step data-kind="outro" tabindex="-1">
                   <Outro
                     client:load
-                    lessonId={lesson.id}
-                    subjectId={subject.id}
-                    total={all.length}
+                    pageId={pageId}
+                    pages={pages}
+                    lessons={lessonsPages}
                     nextHref={next ? lessonHref(next.id) : undefined}
                     nextTitle={next?.data.title}
+                    nextIsSameLesson={!!next && parentSlug(next.id) === parentSlug(lesson.id)}
                     mapHref={subjectHref(subject.id)}
                     subjectName={subject.data.name}
                   />
@@ -151,7 +168,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
           </div>
 
           <footer class="lesson-foot">
-            <div><ProgressToggle client:load lessonId={lesson.id} /></div>
+            <div><ProgressToggle client:load pageId={pageId} pages={pages} /></div>
             {
               unlocks.length > 0 && (
                 <div class="lesson-meta">

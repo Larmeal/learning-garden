@@ -1,20 +1,24 @@
 ---
-import { pad, lessonHref } from '../lib/garden';
+// Table of contents grouped by phase. A lesson with sub-pages has a chevron; its pages pop out under it,
+// and they are open by default for the lesson being read.
+import { pad, lessonHref, pageKey, slugOf, parentSlug, KIND_LABEL } from '../lib/garden';
+import type { Group } from '../lib/garden';
 import Plant from './Plant';
-import type { Lesson } from '../lib/garden';
 
 interface Props {
-  lessons: Lesson[];
+  groups: Group[];
   phases: { id: string; title: string }[];
-  currentId: string;
+  currentId: string; // entry id of the page being read
 }
-const { lessons, phases, currentId } = Astro.props;
+const { groups, phases, currentId } = Astro.props;
+const currentLesson = parentSlug(currentId);
+const currentPage = pageKey(currentId);
 ---
 
 <nav class="lnav" aria-label="สารบัญหัวข้อ">
   {
     phases.map((p) => {
-      const inPhase = lessons.filter((l) => l.data.phase === p.id);
+      const inPhase = groups.filter((g) => g.main.data.phase === p.id);
       return (
         inPhase.length > 0 && (
           <div>
@@ -22,25 +26,55 @@ const { lessons, phases, currentId } = Astro.props;
               ช่วง {p.id} · {p.title}
             </h4>
             <ul>
-              {inPhase.map((l) => (
-                <li>
-                  <a
-                    href={lessonHref(l.id)}
-                    aria-current={l.id === currentId ? 'page' : undefined}
-                    data-lid={l.id}
-                    data-state={l.data.stage === 'seed' ? 'seed' : 'sprout'}
-                    data-written={l.data.stage === 'seed' ? undefined : ''}
-                  >
-                    <span class="n">{pad(l.data.order)}</span>
-                    <span class="t">{l.data.title}</span>
-                    <span class="np" aria-hidden="true">
-                      <span class="p-seed"><Plant stage="seed" size={22} /></span>
-                      <span class="p-sprout"><Plant stage="sprout" size={22} /></span>
-                      <span class="p-evergreen"><Plant stage="evergreen" size={22} /></span>
-                    </span>
-                  </a>
-                </li>
-              ))}
+              {inPhase.map(({ main, children, pages }) => {
+                const open = slugOf(main.id) === currentLesson;
+                const written = main.data.stage !== 'seed';
+                return (
+                  <li class="lesson" data-open={open ? '' : undefined}>
+                    <div class="row">
+                      <a
+                        class="lesson-link"
+                        href={lessonHref(main.id)}
+                        aria-current={pageKey(main.id) === currentPage ? 'page' : undefined}
+                        data-lid={pageKey(main.id)}
+                        data-pages={pages.map((x) => pageKey(x.id)).join(',')}
+                        data-state={written ? 'sprout' : 'seed'}
+                        data-written={written ? '' : undefined}
+                      >
+                        <span class="n">{pad(main.data.order)}</span>
+                        <span class="t">{main.data.title}</span>
+                        <span class="np" aria-hidden="true">
+                          <span class="p-seed"><Plant stage="seed" size={22} /></span>
+                          <span class="p-sprout"><Plant stage="sprout" size={22} /></span>
+                          <span class="p-evergreen"><Plant stage="evergreen" size={22} /></span>
+                        </span>
+                      </a>
+                      {children.length > 0 && (
+                        <button class="exp" type="button" aria-expanded={open ? 'true' : 'false'} aria-label={`แสดงหรือซ่อนหน้าในบท ${main.data.title}`}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+                        </button>
+                      )}
+                    </div>
+                    {children.length > 0 && (
+                      <div class="kids-wrap">
+                        <ul class="kids">
+                          {children.map((c, i) => (
+                            <li style={`--i:${i}`}>
+                              <a class="kid" href={lessonHref(c.id)} aria-current={pageKey(c.id) === currentPage ? 'page' : undefined} data-lid={pageKey(c.id)} data-kind={c.data.kind}>
+                                <span class="pk">{KIND_LABEL[c.data.kind]}</span>
+                                <span class="t">{c.data.title}</span>
+                                <span class="ktick" aria-hidden="true">
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+                                </span>
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )
@@ -50,16 +84,32 @@ const { lessons, phases, currentId } = Astro.props;
 </nav>
 
 <script>
-  // Show each lesson's plant by this learner's progress: seed (not written), sprout (to learn), tree (finished).
+  // Plants show this learner's progress (seed: not written, sprout: to learn, tree: every page ticked);
+  // sub-pages get a tick when read. The chevron opens and closes a lesson's pages.
   function paint() {
     let done: Record<string, boolean> = {};
     try { done = JSON.parse(localStorage.getItem('garden:progress') || '{}'); } catch {}
-    document.querySelectorAll<HTMLElement>('.lnav a[data-lid]').forEach((a) => {
+    document.querySelectorAll<HTMLElement>('.lnav a.lesson-link').forEach((a) => {
       if (a.dataset.written === undefined) return;
-      a.dataset.state = done[a.dataset.lid!] ? 'evergreen' : 'sprout';
+      const pages = (a.dataset.pages ?? '').split(',').filter(Boolean);
+      a.dataset.state = pages.length > 0 && pages.every((p) => done[p]) ? 'evergreen' : 'sprout';
+    });
+    document.querySelectorAll<HTMLElement>('.lnav a.kid').forEach((a) => {
+      if (done[a.dataset.lid!]) a.setAttribute('data-done', '');
+      else a.removeAttribute('data-done');
     });
   }
   paint();
   window.addEventListener('garden-progress', paint);
   window.addEventListener('storage', paint);
+
+  document.querySelectorAll<HTMLButtonElement>('.lnav .exp').forEach((b) =>
+    b.addEventListener('click', () => {
+      const li = b.closest<HTMLElement>('li.lesson')!;
+      const open = li.hasAttribute('data-open');
+      if (open) li.removeAttribute('data-open');
+      else li.setAttribute('data-open', '');
+      b.setAttribute('aria-expanded', String(!open));
+    }),
+  );
 </script>

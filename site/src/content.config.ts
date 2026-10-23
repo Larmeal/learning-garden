@@ -15,16 +15,21 @@ const subjects = defineCollection({
   }),
 });
 
-// A lesson lives at src/content/lessons/<subject>/<slug>.mdx. Its id is "<subject>/<slug>".
-// `requires` lists slugs of lessons in the same subject.
+// A lesson is one page or a folder of pages:
+//   lessons/<subject>/<slug>.mdx             a lesson that is a single page
+//   lessons/<subject>/<slug>/index.mdx       the main page of a lesson that has sub-pages
+//   lessons/<subject>/<slug>/<child>.mdx     a sub-page: a deep dive, or the quiz (kind: quiz)
+// Main pages need order, phase and level. Sub-pages only need order (their place inside the lesson).
+// `requires` lists slugs of lessons in the same subject and is read from main pages only.
 const lessons = defineCollection({
   loader: glob({ base: './src/content/lessons', pattern: '**/*.{md,mdx}' }),
   schema: z.object({
     title: z.string(),
     summary: z.string(),
     order: z.number(),
-    phase: z.string(),
-    level: z.number().min(1).max(5),
+    phase: z.string().optional(),
+    level: z.number().min(1).max(5).optional(),
+    kind: z.enum(['deep', 'quiz']).default('deep'),
     stage: z.enum(['seed', 'sprout', 'evergreen']).default('seed'),
     // "steps" lessons are written with <Step> blocks and can be played one card at a time; "read" is a plain long page.
     format: z.enum(['steps', 'read']).default('read'),

@@ -1,15 +1,15 @@
 import Plant, { type PlantStage } from './Plant';
-import { plantStage, useProgress } from './useProgress';
+import { isFinished, plantStage, useProgress } from './useProgress';
 
 // Lower half of a subject card on the home page: one plant per lesson, grown by this learner's progress.
-export default function CardBody({ lessons, grown }: { lessons: { id: string; stage: PlantStage }[]; grown: number }) {
+export default function CardBody({ lessons, grown }: { lessons: { id: string; stage: PlantStage; pages: string[] }[]; grown: number }) {
   const { done } = useProgress();
-  const finished = lessons.filter((l) => done[l.id]).length;
+  const finished = lessons.filter((l) => isFinished(done, l.pages)).length;
   return (
     <>
       <div className="bed" aria-hidden="true">
         {lessons.map((l) => (
-          <Plant key={l.id} stage={plantStage(l.stage, !!done[l.id])} size={30} sway />
+          <Plant key={l.id} stage={plantStage(l.stage, isFinished(done, l.pages))} size={30} sway />
         ))}
       </div>
       <div className="card-foot">

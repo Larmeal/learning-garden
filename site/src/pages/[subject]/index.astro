@@ -3,7 +3,7 @@ import { getCollection } from 'astro:content';
 import Base from '../../layouts/Base.astro';
 import TopicMap from '../../components/TopicMap';
 import ContinueCta from '../../components/ContinueCta';
-import { lessonsOf, lessonHref, slugOf } from '../../lib/garden';
+import { groupsOf, lessonHref, pageInfo, pageKey, slugOf } from '../../lib/garden';
 
 export async function getStaticPaths() {
   const subjects = await getCollection('subjects');
@@ -11,23 +11,24 @@ export async function getStaticPaths() {
 }
 
 const { subject } = Astro.props;
-const lessons = await lessonsOf(subject.id);
+const groups = await groupsOf(subject.id);
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
-const mapLessons = lessons.map((l) => ({
-  id: l.id,
+const mapLessons = groups.map(({ main: l, pages }) => ({
+  id: pageKey(l.id),
   slug: slugOf(l.id),
   title: l.data.title,
-  phase: l.data.phase,
-  level: l.data.level,
+  phase: l.data.phase!,
+  level: l.data.level!,
   order: l.data.order,
   requires: l.data.requires,
   summary: l.data.summary,
   stage: l.data.stage,
   format: l.data.format,
   href: lessonHref(l.id),
+  pages: pages.map((p) => pageInfo(p, l)),
 }));
-const ctaLessons = mapLessons.map((l) => ({ id: l.id, title: l.title, href: l.href, stage: l.stage }));
+const ctaLessons = mapLessons.map((l) => ({ id: l.id, title: l.title, href: l.href, stage: l.stage, pages: l.pages }));
 // Open on the first lesson of the first phase that has real content.
 const initial = (mapLessons.find((l) => l.stage !== 'seed') ?? mapLessons[0]).slug;
 ---

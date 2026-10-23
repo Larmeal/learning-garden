@@ -4,14 +4,15 @@ import Base from '../layouts/Base.astro';
 import GardenHero from '../components/GardenHero';
 import CardBody from '../components/CardBody';
 import { site } from '../site.config';
-import { lessonsOf, subjectHref, lessonHref } from '../lib/garden';
+import { groupsOf, subjectHref, lessonHref, pageKey } from '../lib/garden';
 
 const subjects = await getCollection('subjects');
 const rows = await Promise.all(
   subjects.map(async (s) => {
-    const ls = await lessonsOf(s.id);
+    const groups = await groupsOf(s.id);
+    const ls = groups.map((g) => g.main);
     const grown = ls.filter((l) => l.data.stage !== 'seed');
-    return { s, ls, grown: grown.length, first: grown[0] ?? ls[0] };
+    return { s, groups, grown: grown.length, first: grown[0] ?? ls[0] };
   }),
 );
 const start = rows[0];
@@ -39,11 +40,11 @@ const start = rows[0];
         </div>
         <div class="cards">
           {
-            rows.map(({ s, ls, grown }) => (
+            rows.map(({ s, groups, grown }) => (
               <a class="card" href={subjectHref(s.id)} style={`--subject:${s.data.accent}`}>
                 <h3>{s.data.name}</h3>
                 <p>{s.data.tagline}</p>
-                <CardBody client:load lessons={ls.map((l) => ({ id: l.id, stage: l.data.stage }))} grown={grown} />
+                <CardBody client:load lessons={groups.map((g) => ({ id: pageKey(g.main.id), stage: g.main.data.stage, pages: g.pages.map((p) => pageKey(p.id)) }))} grown={grown} />
               </a>
             ))
           }

@@ -1,9 +1,10 @@
-import { useProgress } from './useProgress';
+import { isFinished, useProgress } from './useProgress';
 
 export interface CtaLesson {
   id: string;
   title: string;
   href: string;
+  pages: { id: string; href: string }[];
   stage: 'seed' | 'sprout' | 'evergreen';
 }
 
@@ -13,14 +14,17 @@ export default function ContinueCta({ lessons }: { lessons: CtaLesson[] }) {
   const grown = lessons.filter((l) => l.stage !== 'seed');
   if (grown.length === 0) return null;
 
-  const doneCount = grown.filter((l) => done[l.id]).length;
-  const next = grown.find((l) => !done[l.id]);
+  const fin = (l: CtaLesson) => isFinished(done, l.pages.map((p) => p.id));
+  const doneCount = grown.filter(fin).length;
+  const next = grown.find((l) => !fin(l));
   const target = next ?? grown[0];
+  // Open the first page of that lesson the learner has not ticked yet.
+  const targetHref = (next ? next.pages.find((p) => !done[p.id])?.href : undefined) ?? target.href;
   const label = doneCount === 0 ? 'เริ่มเรียนบทแรก' : next ? 'เรียนต่อ' : 'ทบทวนตั้งแต่ต้น';
 
   return (
     <div className="cta-block">
-      <a className="btn primary lg" href={target.href}>
+      <a className="btn primary lg" href={targetHref}>
         {label}
       </a>
       <span className="cta-note">

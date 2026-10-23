@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import type { PlantStage } from './Plant';
 
 // Per-browser progress, kept in localStorage so it never leaves this device.
-//   garden:progress  { "<subject>/<slug>": true }          lessons the learner ticked as finished
-//   garden:quiz      { "<subject>/<slug>": ["<key>", ...] } question cards answered (right or wrong)
+//   garden:progress  { "<page id>": true }            pages the learner ticked as read
+//   garden:quiz      { "<page id>": ["<key>", ...] }   question cards answered (right or wrong), per page
+// A page id is "<subject>/<slug>" for a main page and "<subject>/<slug>/<child>" for a sub-page.
 const KEY = 'garden:progress';
 const QUIZ = 'garden:quiz';
 const EVT = 'garden-progress';
@@ -23,6 +24,9 @@ function write(key: string, value: unknown) {
   }
   window.dispatchEvent(new Event(EVT));
 }
+
+// A lesson is finished when every one of its pages (main page and all sub-pages) is ticked.
+export const isFinished = (done: Record<string, boolean>, pages: string[]) => pages.length > 0 && pages.every((p) => done[p]);
 
 // The plant a lesson shows: a seed while its content is only an outline, a sprout once the learner can start,
 // a full tree after they answered every question and ticked the lesson.
@@ -72,8 +76,9 @@ export function useProgress() {
   return { done, quiz, toggle };
 }
 
-// Status of the lesson on the current page: how many questions it has, how many were answered, and whether it can be ticked.
-export function useLessonStatus(lessonId: string) {
+// Status of the page being read: how many questions it has, how many were answered, whether it can be ticked,
+// and whether the whole lesson (all `lessonPages`) is finished.
+export function useLessonStatus(pageId: string, lessonPages: string[] = [pageId]) {
   const { done, quiz, toggle } = useProgress();
   const [keys, setKeys] = useState<string[]>([]);
 
@@ -82,14 +87,16 @@ export function useLessonStatus(lessonId: string) {
     setKeys([...new Set(Array.from(found, (el) => el.getAttribute('data-q') ?? ''))]);
   }, []);
 
-  const answered = keys.filter((k) => (quiz[lessonId] ?? []).includes(k)).length;
+  const answered = keys.filter((k) => (quiz[pageId] ?? []).includes(k)).length;
   const total = keys.length;
   return {
-    finished: !!done[lessonId],
+    pageDone: !!done[pageId],
+    lessonFinished: isFinished(done, lessonPages),
+    remaining: lessonPages.filter((p) => !done[p] && p !== pageId),
     answered,
     total,
     left: total - answered,
     canFinish: answered >= total,
-    toggle: () => toggle(lessonId),
+    toggle: () => toggle(pageId),
   };
 }
