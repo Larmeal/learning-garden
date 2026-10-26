@@ -1,0 +1,1968 @@
+{
+  "version": "1.0.0",
+  "project": {
+    "name": "spark-sql-query-pipeline",
+    "languages": [
+      "scala"
+    ],
+    "frameworks": [],
+    "description": "Apache Spark v4.2.0 SQL engine core (stage 1): Catalyst trees, rules, logical plans and the query execution pipeline.",
+    "analyzedAt": "2026-10-23T08:26:25.071Z",
+    "gitCommitHash": "32f7299601108917fb01920a54e084595b7b3bf8"
+  },
+  "nodes": [
+    {
+      "id": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "type": "file",
+      "name": "LogicalPlan.scala",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "summary": "Defines the abstract LogicalPlan base class of Catalyst, its LeafNode/UnaryNode/BinaryNode shapes, LogicalQueryStage, and LogicalPlanIntegrity checks used to validate optimized plans. Provides attribute resolution, metadata column handling, and constraint/stat plumbing for every logical operator.",
+      "tags": [
+        "catalyst",
+        "logical-plan",
+        "query-plan",
+        "type-definition",
+        "validation"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Scala abstract class mixing in traits (AnalysisHelper, LogicalPlanStats, QueryPlanConstraints), with helper traits and objects defined in the same file."
+    },
+    {
+      "id": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala:LogicalPlan",
+      "type": "class",
+      "name": "LogicalPlan",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "lineRange": [
+        37,
+        207
+      ],
+      "summary": "Abstract base of all logical operators; extends QueryPlan and mixes in analysis helpers, stats and constraints, and offers name resolution (resolve, resolveChildren, resolveQuoted), metadata output and maxRows hooks.",
+      "tags": [
+        "logical-plan",
+        "abstract-class",
+        "resolution",
+        "catalyst"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala:LeafNode",
+      "type": "class",
+      "name": "LeafNode",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "lineRange": [
+        225,
+        231
+      ],
+      "summary": "Logical operator with no children; reports no produced attributes and default stats via computeStats.",
+      "tags": [
+        "logical-plan",
+        "leaf-node",
+        "trait"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala:LogicalQueryStage",
+      "type": "class",
+      "name": "LogicalQueryStage",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "lineRange": [
+        236,
+        258
+      ],
+      "summary": "Logical-plan leaf that wraps a physical stage (adaptive query execution) so re-optimization can see a materialized subtree.",
+      "tags": [
+        "adaptive-execution",
+        "logical-plan",
+        "query-stage"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala:UnaryNode",
+      "type": "class",
+      "name": "UnaryNode",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "lineRange": [
+        263,
+        287
+      ],
+      "summary": "Logical operator with exactly one child; derives constraints by propagating child constraints through its output expressions.",
+      "tags": [
+        "logical-plan",
+        "unary-node",
+        "constraints"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala:BinaryNode",
+      "type": "class",
+      "name": "BinaryNode",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "lineRange": [
+        292,
+        292
+      ],
+      "summary": "Marker trait for logical operators with two children (left and right).",
+      "tags": [
+        "logical-plan",
+        "binary-node",
+        "trait"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala:OrderPreservingUnaryNode",
+      "type": "class",
+      "name": "OrderPreservingUnaryNode",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "lineRange": [
+        294,
+        298
+      ],
+      "summary": "Unary logical node that preserves child ordering, exposing outputExpressions and orderingExpressions.",
+      "tags": [
+        "logical-plan",
+        "ordering",
+        "unary-node"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala:LogicalPlanIntegrity",
+      "type": "class",
+      "name": "LogicalPlanIntegrity",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "lineRange": [
+        300,
+        470
+      ],
+      "summary": "Utility object validating plan integrity: unique expression IDs, no dangling references, aggregate expression validity, and output schema consistency of optimized plans.",
+      "tags": [
+        "validation",
+        "plan-integrity",
+        "optimizer",
+        "debugging"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala:ExposesMetadataColumns",
+      "type": "class",
+      "name": "ExposesMetadataColumns",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "lineRange": [
+        475,
+        505
+      ],
+      "summary": "Trait for logical nodes that expose hidden metadata columns, resolving conflicts between metadata and regular output names.",
+      "tags": [
+        "metadata-columns",
+        "logical-plan",
+        "trait"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala",
+      "type": "file",
+      "name": "QueryExecution.scala",
+      "filePath": "core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala",
+      "summary": "Central driver of the SQL query execution pipeline: lazily moves a logical plan through analyzed, command-executed, normalized, cached, optimized, physical (sparkPlan) and executedPlan phases. Also handles explain output, transactions, observed metrics, shuffle cleanup mode and debug codegen.",
+      "tags": [
+        "query-execution",
+        "pipeline",
+        "planning",
+        "explain",
+        "entry-point"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Heavy use of lazy val phases and by-name blocks (executePhase, withAbortTransactionOnFailure) so each pipeline stage is computed once on demand and timed by QueryPlanningTracker."
+    },
+    {
+      "id": "class:core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala:QueryExecution",
+      "type": "class",
+      "name": "QueryExecution",
+      "filePath": "core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala",
+      "lineRange": [
+        67,
+        705
+      ],
+      "summary": "Holds the lazily evaluated stages of query processing: analyzed, commandExecuted, withCachedData, optimizedPlan, sparkPlan, executedPlan and toRdd, applying preparation rules before execution and rendering explain strings.",
+      "tags": [
+        "query-execution",
+        "pipeline",
+        "lazy-evaluation",
+        "explain"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala:CommandExecutionMode",
+      "type": "class",
+      "name": "CommandExecutionMode",
+      "filePath": "core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala",
+      "lineRange": [
+        707,
+        716
+      ],
+      "summary": "Enumeration controlling whether commands are eagerly executed (ALL), skipped, or only analyzed during query execution.",
+      "tags": [
+        "enumeration",
+        "command-execution",
+        "configuration"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala:ShuffleCleanupMode",
+      "type": "class",
+      "name": "ShuffleCleanupMode",
+      "filePath": "core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala",
+      "lineRange": [
+        718,
+        725
+      ],
+      "summary": "Sealed trait with DoNotCleanup, SkipMigration and RemoveShuffleFiles variants describing shuffle file cleanup after a query ends.",
+      "tags": [
+        "shuffle",
+        "cleanup",
+        "sealed-trait"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:core/src/main/scala/org/apache/spark/sql/execution/SparkOptimizer.scala",
+      "type": "file",
+      "name": "SparkOptimizer.scala",
+      "filePath": "core/src/main/scala/org/apache/spark/sql/execution/SparkOptimizer.scala",
+      "summary": "Spark's concrete Optimizer, extending the Catalyst Optimizer with SQL-engine-specific rule batches such as partition pruning, dynamic pruning, Python UDF extraction, and user-defined extra optimizations.",
+      "tags": [
+        "optimizer",
+        "rules",
+        "batches",
+        "catalyst"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:core/src/main/scala/org/apache/spark/sql/execution/SparkOptimizer.scala:SparkOptimizer",
+      "type": "class",
+      "name": "SparkOptimizer",
+      "filePath": "core/src/main/scala/org/apache/spark/sql/execution/SparkOptimizer.scala",
+      "lineRange": [
+        31,
+        127
+      ],
+      "summary": "Extends Optimizer to add execution-layer rule batches (early scan pushdown, pre/post-hoc batches, experimental extra optimizations) and registers non-excludable rules.",
+      "tags": [
+        "optimizer",
+        "rule-batches",
+        "extension-point"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala",
+      "type": "file",
+      "name": "SparkPlan.scala",
+      "filePath": "core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala",
+      "summary": "Defines the physical-plan base class SparkPlan along with LeafExecNode, UnaryExecNode and BinaryExecNode traits. Implements the execute/executeColumnar/executeBroadcast contracts, subquery preparation, metrics, and driver-side collect/take helpers.",
+      "tags": [
+        "physical-plan",
+        "execution",
+        "rdd",
+        "metrics",
+        "type-definition"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Template-method design: final execute() wraps abstract doExecute() with prepare, subquery waiting and RDD scope handling."
+    },
+    {
+      "id": "class:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala:SparkPlan",
+      "type": "class",
+      "name": "SparkPlan",
+      "filePath": "core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala",
+      "lineRange": [
+        65,
+        605
+      ],
+      "summary": "Abstract physical operator extending QueryPlan: exposes partitioning and distribution requirements, row and columnar execution paths, prepare/doExecute lifecycle, SQL metrics, logical link tracking, and executeCollect/executeTake.",
+      "tags": [
+        "physical-plan",
+        "abstract-class",
+        "template-method",
+        "rdd"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala:LeafExecNode",
+      "type": "class",
+      "name": "LeafExecNode",
+      "filePath": "core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala",
+      "lineRange": [
+        607,
+        627
+      ],
+      "summary": "Trait for physical operators without children, with produced attributes and verbose string including output.",
+      "tags": [
+        "physical-plan",
+        "leaf-node",
+        "trait"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala:UnaryExecNode",
+      "type": "class",
+      "name": "UnaryExecNode",
+      "filePath": "core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala",
+      "lineRange": [
+        636,
+        655
+      ],
+      "summary": "Trait for single-child physical operators with an unapply extractor and verbose explain output.",
+      "tags": [
+        "physical-plan",
+        "unary-node",
+        "trait"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala:BinaryExecNode",
+      "type": "class",
+      "name": "BinaryExecNode",
+      "filePath": "core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala",
+      "lineRange": [
+        657,
+        679
+      ],
+      "summary": "Trait for two-child physical operators with verbose explain output including both children.",
+      "tags": [
+        "physical-plan",
+        "binary-node",
+        "trait"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:core/src/main/scala/org/apache/spark/sql/execution/SparkPlanner.scala",
+      "type": "file",
+      "name": "SparkPlanner.scala",
+      "filePath": "core/src/main/scala/org/apache/spark/sql/execution/SparkPlanner.scala",
+      "summary": "Concrete query planner that turns an optimized LogicalPlan into SparkPlan candidates by applying an ordered list of strategies, including user-provided and extension strategies, and prunes candidates.",
+      "tags": [
+        "planner",
+        "strategies",
+        "physical-planning",
+        "catalyst"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:core/src/main/scala/org/apache/spark/sql/execution/SparkPlanner.scala:SparkPlanner",
+      "type": "class",
+      "name": "SparkPlanner",
+      "filePath": "core/src/main/scala/org/apache/spark/sql/execution/SparkPlanner.scala",
+      "lineRange": [
+        31,
+        119
+      ],
+      "summary": "Planner extending SparkStrategies that defines the strategy order, collects planLater placeholders, prunes candidate plans, and offers a pruneFilterProject helper.",
+      "tags": [
+        "planner",
+        "strategy-pattern",
+        "physical-planning"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala",
+      "type": "file",
+      "name": "QueryPlanner.scala",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala",
+      "summary": "Defines GenericStrategy and the QueryPlanner base class that turns a logical plan into candidate physical plans by applying an ordered list of strategies, with placeholder planning via planLater and plan pruning.",
+      "tags": [
+        "query-planning",
+        "strategy-pattern",
+        "catalyst",
+        "abstract-class"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "Uses Scala type parameters (PhysicalPlan <: TreeNode[PhysicalPlan]) so the planner is generic over the physical plan type; plans are produced lazily through Iterators."
+    },
+    {
+      "id": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala",
+      "type": "file",
+      "name": "RuleExecutor.scala",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala",
+      "summary": "Implements RuleExecutor, the batch-based engine that applies Catalyst rules to a tree either once or to a fixed point, with metrics tracking, plan change logging and plan integrity validation.",
+      "tags": [
+        "rule-engine",
+        "optimizer",
+        "catalyst",
+        "fixed-point",
+        "metrics"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Uses a companion object with shared QueryExecutionMetering and sealed Strategy case classes (Once, FixedPoint) to model batch execution policy."
+    },
+    {
+      "id": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "type": "file",
+      "name": "TreeNode.scala",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Core Catalyst tree abstraction: TreeNode with transform and traversal APIs, tree pattern bitsets, tags, copy and child replacement, string and JSON rendering, plus the Leaf/Unary/Binary/Ternary/Quaternary child-arity mixins.",
+      "tags": [
+        "tree",
+        "catalyst",
+        "transformation",
+        "core-abstraction",
+        "serialization"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Heavy use of F-bounded polymorphism (BaseType <: TreeNode[BaseType]), self-types, Scala reflection for makeCopy and JSON, and trait mixins for fixed child arity."
+    },
+    {
+      "id": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala:GenericStrategy",
+      "type": "class",
+      "name": "GenericStrategy",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala",
+      "summary": "Abstract planning strategy that maps a logical plan to zero or more candidate physical plans and provides the planLater placeholder hook.",
+      "tags": [
+        "strategy-pattern",
+        "query-planning",
+        "abstract-class"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        29,
+        39
+      ]
+    },
+    {
+      "id": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala:QueryPlanner",
+      "type": "class",
+      "name": "QueryPlanner",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala",
+      "summary": "Abstract planner that applies its strategies to a logical plan, expands planLater placeholders recursively, and prunes the resulting candidates.",
+      "tags": [
+        "query-planning",
+        "planner",
+        "abstract-class",
+        "catalyst"
+      ],
+      "complexity": "moderate",
+      "lineRange": [
+        55,
+        105
+      ]
+    },
+    {
+      "id": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala:plan",
+      "type": "function",
+      "name": "plan",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala",
+      "summary": "Generates an iterator of physical plans by running all strategies, substituting placeholders with recursively planned children, and pruning bad candidates.",
+      "tags": [
+        "planning",
+        "iterator",
+        "recursion"
+      ],
+      "complexity": "moderate",
+      "lineRange": [
+        59,
+        95
+      ]
+    },
+    {
+      "id": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala:RuleExecutor",
+      "type": "class",
+      "name": "RuleExecutor",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala",
+      "summary": "Abstract base for rule-driven tree transformers that runs ordered batches of rules once or to a fixed point and tracks metrics and effectiveness; the companion object holds shared metering.",
+      "tags": [
+        "rule-engine",
+        "batch-execution",
+        "abstract-class",
+        "catalyst"
+      ],
+      "complexity": "complex",
+      "lineRange": [
+        125,
+        326
+      ]
+    },
+    {
+      "id": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala:PlanChangeLogger",
+      "type": "class",
+      "name": "PlanChangeLogger",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala",
+      "summary": "Helper that logs per-rule plan changes, batch-level effectiveness and rule timing metrics at a configurable log level.",
+      "tags": [
+        "logging",
+        "plan-change",
+        "diagnostics"
+      ],
+      "complexity": "moderate",
+      "lineRange": [
+        49,
+        123
+      ]
+    },
+    {
+      "id": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala:Strategy",
+      "type": "class",
+      "name": "Strategy",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala",
+      "summary": "Sealed base describing how many iterations a rule batch may run (Once or FixedPoint with max iterations).",
+      "tags": [
+        "execution-strategy",
+        "configuration",
+        "sealed-class"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        137,
+        147
+      ]
+    },
+    {
+      "id": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala:logRule",
+      "type": "function",
+      "name": "logRule",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala",
+      "summary": "Logs the before/after plan diff when a rule changes the plan, honoring configured rule-name filters.",
+      "tags": [
+        "logging",
+        "diagnostics",
+        "rule"
+      ],
+      "complexity": "moderate",
+      "lineRange": [
+        57,
+        79
+      ]
+    },
+    {
+      "id": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala:logBatch",
+      "type": "function",
+      "name": "logBatch",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala",
+      "summary": "Logs whether a rule batch changed the plan and shows the plan diff for the batch.",
+      "tags": [
+        "logging",
+        "diagnostics",
+        "batch"
+      ],
+      "complexity": "moderate",
+      "lineRange": [
+        81,
+        105
+      ]
+    },
+    {
+      "id": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala:logMetrics",
+      "type": "function",
+      "name": "logMetrics",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala",
+      "summary": "Logs time spent, run counts and effective counts per rule from the supplied metrics.",
+      "tags": [
+        "logging",
+        "metrics",
+        "timing"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        107,
+        122
+      ]
+    },
+    {
+      "id": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala:execute",
+      "type": "function",
+      "name": "execute",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala",
+      "summary": "Core loop applying each batch's rules sequentially, repeating to fixed point or max iterations, tracking rule effectiveness, timing and plan integrity validation.",
+      "tags": [
+        "fixed-point",
+        "rule-application",
+        "metrics",
+        "validation"
+      ],
+      "complexity": "complex",
+      "lineRange": [
+        215,
+        325
+      ]
+    },
+    {
+      "id": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:TreeNode",
+      "type": "class",
+      "name": "TreeNode",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Base class of all Catalyst trees providing children access, traversals (foreach/map/collect), pruned transform down/up, copying with new children, tags, pattern bits and tree string/JSON rendering.",
+      "tags": [
+        "tree",
+        "core-abstraction",
+        "transformation",
+        "catalyst",
+        "serialization"
+      ],
+      "complexity": "complex",
+      "lineRange": [
+        70,
+        1254
+      ]
+    },
+    {
+      "id": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:TreeNodeTag",
+      "type": "class",
+      "name": "TreeNodeTag",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Typed key used to attach arbitrary metadata tags to a TreeNode.",
+      "tags": [
+        "tags",
+        "metadata",
+        "type-safe-key"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        62,
+        62
+      ]
+    },
+    {
+      "id": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:AlwaysProcess",
+      "type": "class",
+      "name": "AlwaysProcess",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Singleton condition function that always returns true, used as the default condition for pruned transforms.",
+      "tags": [
+        "pruning",
+        "predicate",
+        "default"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        65,
+        67
+      ]
+    },
+    {
+      "id": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:LeafLike",
+      "type": "class",
+      "name": "LeafLike",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Trait for tree nodes with no children, fixing children to Nil.",
+      "tags": [
+        "mixin",
+        "leaf-node",
+        "arity"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        1256,
+        1261
+      ]
+    },
+    {
+      "id": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:UnaryLike",
+      "type": "class",
+      "name": "UnaryLike",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Trait for nodes with exactly one child, supplying children, mapChildren and withNewChildrenInternal.",
+      "tags": [
+        "mixin",
+        "unary-node",
+        "arity"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        1263,
+        1286
+      ]
+    },
+    {
+      "id": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:BinaryLike",
+      "type": "class",
+      "name": "BinaryLike",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Trait for nodes with left and right children, supplying children and mapChildren implementations.",
+      "tags": [
+        "mixin",
+        "binary-node",
+        "arity"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        1288,
+        1316
+      ]
+    },
+    {
+      "id": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:TernaryLike",
+      "type": "class",
+      "name": "TernaryLike",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Trait for nodes with three children (first, second, third) and matching child mapping.",
+      "tags": [
+        "mixin",
+        "ternary-node",
+        "arity"
+      ],
+      "complexity": "moderate",
+      "lineRange": [
+        1318,
+        1349
+      ]
+    },
+    {
+      "id": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:QuaternaryLike",
+      "type": "class",
+      "name": "QuaternaryLike",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Trait for nodes with four children and matching child mapping.",
+      "tags": [
+        "mixin",
+        "quaternary-node",
+        "arity"
+      ],
+      "complexity": "moderate",
+      "lineRange": [
+        1351,
+        1385
+      ]
+    },
+    {
+      "id": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:MultiTransform",
+      "type": "class",
+      "name": "MultiTransform",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Helper object providing a cartesian product of alternative transformation results for multiTransformDown.",
+      "tags": [
+        "transformation",
+        "cartesian-product",
+        "helper"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        1387,
+        1403
+      ]
+    },
+    {
+      "id": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:getDefaultTreePatternBits",
+      "type": "function",
+      "name": "getDefaultTreePatternBits",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Computes the default tree pattern bitset by OR-ing node patterns with those of its children.",
+      "tags": [
+        "pattern-bits",
+        "pruning",
+        "optimization"
+      ],
+      "complexity": "moderate",
+      "lineRange": [
+        96,
+        110
+      ]
+    },
+    {
+      "id": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:mergeTagsFrom",
+      "type": "function",
+      "name": "mergeTagsFrom",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Copies tags from another node without overwriting tags already present.",
+      "tags": [
+        "tags",
+        "metadata",
+        "copy"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        184,
+        193
+      ]
+    },
+    {
+      "id": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:childrenFastEquals",
+      "type": "function",
+      "name": "childrenFastEquals",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Checks element-wise reference equality between two child sequences to detect unchanged children.",
+      "tags": [
+        "equality",
+        "optimization",
+        "children"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        343,
+        352
+      ]
+    },
+    {
+      "id": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:withNewChildren",
+      "type": "function",
+      "name": "withNewChildren",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Returns a copy of the node with replaced children, preserving tags and origin, and short-circuiting when children are unchanged.",
+      "tags": [
+        "copy",
+        "children",
+        "immutability"
+      ],
+      "complexity": "moderate",
+      "lineRange": [
+        363,
+        377
+      ]
+    },
+    {
+      "id": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:legacyWithNewChildren",
+      "type": "function",
+      "name": "legacyWithNewChildren",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Reflection-based fallback that rebuilds a node with new children by mapping constructor arguments.",
+      "tags": [
+        "reflection",
+        "copy",
+        "legacy"
+      ],
+      "complexity": "complex",
+      "lineRange": [
+        385,
+        428
+      ]
+    },
+    {
+      "id": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:transformDownWithPruning",
+      "type": "function",
+      "name": "transformDownWithPruning",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Applies a rule top-down (pre-order) to the tree, skipping subtrees pruned by pattern bits or the rule-ineffectiveness cache.",
+      "tags": [
+        "transform",
+        "pruning",
+        "pre-order"
+      ],
+      "complexity": "complex",
+      "lineRange": [
+        488,
+        512
+      ]
+    },
+    {
+      "id": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:transformUpWithPruning",
+      "type": "function",
+      "name": "transformUpWithPruning",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Applies a rule bottom-up (post-order), skipping pruned subtrees and marking ineffective rules.",
+      "tags": [
+        "transform",
+        "pruning",
+        "post-order"
+      ],
+      "complexity": "complex",
+      "lineRange": [
+        540,
+        564
+      ]
+    },
+    {
+      "id": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:transformUpWithBeforeAndAfterRuleOnChildren",
+      "type": "function",
+      "name": "transformUpWithBeforeAndAfterRuleOnChildren",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Bottom-up transform that runs a rule before and after child transformation for rules needing both views.",
+      "tags": [
+        "transform",
+        "post-order",
+        "rule"
+      ],
+      "complexity": "moderate",
+      "lineRange": [
+        583,
+        602
+      ]
+    },
+    {
+      "id": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:multiTransformDownWithPruning",
+      "type": "function",
+      "name": "multiTransformDownWithPruning",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Top-down transform where a rule can return multiple alternatives per node, producing a lazy stream of all alternative trees.",
+      "tags": [
+        "transform",
+        "alternatives",
+        "lazy-stream"
+      ],
+      "complexity": "complex",
+      "lineRange": [
+        671,
+        726
+      ]
+    },
+    {
+      "id": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:makeCopy",
+      "type": "function",
+      "name": "makeCopy",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Reflectively constructs a copy of the node with new constructor arguments, handling otherCopyArgs and error reporting.",
+      "tags": [
+        "reflection",
+        "copy",
+        "constructor"
+      ],
+      "complexity": "complex",
+      "lineRange": [
+        761,
+        812
+      ]
+    },
+    {
+      "id": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:clone",
+      "type": "function",
+      "name": "clone",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Overrides clone to deep-copy the node tree and children while retaining tags.",
+      "tags": [
+        "clone",
+        "copy",
+        "tree"
+      ],
+      "complexity": "complex",
+      "lineRange": [
+        814,
+        854
+      ]
+    },
+    {
+      "id": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:formatArg",
+      "type": "function",
+      "name": "formatArg",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Formats a single node argument for display, truncating by configured string length.",
+      "tags": [
+        "formatting",
+        "display",
+        "arguments"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        888,
+        899
+      ]
+    },
+    {
+      "id": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:argString",
+      "type": "function",
+      "name": "argString",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Builds the comma-separated argument string for a node's simple or verbose description.",
+      "tags": [
+        "formatting",
+        "display",
+        "arguments"
+      ],
+      "complexity": "moderate",
+      "lineRange": [
+        902,
+        929
+      ]
+    },
+    {
+      "id": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:treeString",
+      "type": "function",
+      "name": "treeString",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Renders the tree as an indented multi-line string with options for verbosity, ids and output columns.",
+      "tags": [
+        "rendering",
+        "tree-string",
+        "debugging"
+      ],
+      "complexity": "moderate",
+      "lineRange": [
+        966,
+        975
+      ]
+    },
+    {
+      "id": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:numberedTreeString",
+      "type": "function",
+      "name": "numberedTreeString",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Renders the tree string prefixed with per-node numbers for referencing nodes by index.",
+      "tags": [
+        "rendering",
+        "debugging",
+        "numbering"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        995,
+        1006
+      ]
+    },
+    {
+      "id": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:getNodeNumbered",
+      "type": "function",
+      "name": "getNodeNumbered",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Looks up a node in the tree by its pre-order number.",
+      "tags": [
+        "lookup",
+        "traversal",
+        "debugging"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        1016,
+        1028
+      ]
+    },
+    {
+      "id": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:generateTreeString",
+      "type": "function",
+      "name": "generateTreeString",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Recursively writes this node and its children (including inner children) with ASCII tree prefixes and truncation limits.",
+      "tags": [
+        "rendering",
+        "recursion",
+        "tree-string"
+      ],
+      "complexity": "complex",
+      "lineRange": [
+        1047,
+        1118
+      ]
+    },
+    {
+      "id": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:jsonFields",
+      "type": "function",
+      "name": "jsonFields",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Builds the JSON field list for a node from its constructor parameters via reflection.",
+      "tags": [
+        "json",
+        "reflection",
+        "serialization"
+      ],
+      "complexity": "moderate",
+      "lineRange": [
+        1153,
+        1170
+      ]
+    },
+    {
+      "id": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:parseToJson",
+      "type": "function",
+      "name": "parseToJson",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Converts an arbitrary constructor argument (nodes, options, collections, case classes) into a JSON value.",
+      "tags": [
+        "json",
+        "serialization",
+        "pattern-matching"
+      ],
+      "complexity": "complex",
+      "lineRange": [
+        1172,
+        1234
+      ]
+    },
+    {
+      "id": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:shouldConvertToJson",
+      "type": "function",
+      "name": "shouldConvertToJson",
+      "filePath": "catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "summary": "Decides whether a given value type can be converted to JSON.",
+      "tags": [
+        "json",
+        "predicate",
+        "serialization"
+      ],
+      "complexity": "moderate",
+      "lineRange": [
+        1236,
+        1253
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala:LogicalPlan",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala:LogicalPlan",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala:LeafNode",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala:LeafNode",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala:LogicalQueryStage",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala:LogicalQueryStage",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala:UnaryNode",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala:UnaryNode",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala:BinaryNode",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala:BinaryNode",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala:OrderPreservingUnaryNode",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala:OrderPreservingUnaryNode",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala:LogicalPlanIntegrity",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala:LogicalPlanIntegrity",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala:ExposesMetadataColumns",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala:ExposesMetadataColumns",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala",
+      "target": "class:core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala:QueryExecution",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala",
+      "target": "class:core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala:QueryExecution",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala",
+      "target": "class:core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala:CommandExecutionMode",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala",
+      "target": "class:core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala:CommandExecutionMode",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala",
+      "target": "class:core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala:ShuffleCleanupMode",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala",
+      "target": "class:core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala:ShuffleCleanupMode",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/SparkOptimizer.scala",
+      "target": "class:core/src/main/scala/org/apache/spark/sql/execution/SparkOptimizer.scala:SparkOptimizer",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/SparkOptimizer.scala",
+      "target": "class:core/src/main/scala/org/apache/spark/sql/execution/SparkOptimizer.scala:SparkOptimizer",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala",
+      "target": "class:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala:SparkPlan",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala",
+      "target": "class:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala:SparkPlan",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala",
+      "target": "class:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala:LeafExecNode",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala",
+      "target": "class:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala:LeafExecNode",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala",
+      "target": "class:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala:UnaryExecNode",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala",
+      "target": "class:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala:UnaryExecNode",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala",
+      "target": "class:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala:BinaryExecNode",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala",
+      "target": "class:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala:BinaryExecNode",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/SparkPlanner.scala",
+      "target": "class:core/src/main/scala/org/apache/spark/sql/execution/SparkPlanner.scala:SparkPlanner",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/SparkPlanner.scala",
+      "target": "class:core/src/main/scala/org/apache/spark/sql/execution/SparkPlanner.scala:SparkPlanner",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala",
+      "target": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/SparkOptimizer.scala",
+      "target": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala",
+      "target": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/SparkPlanner.scala",
+      "target": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala",
+      "target": "file:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala",
+      "target": "file:core/src/main/scala/org/apache/spark/sql/execution/SparkPlanner.scala",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala",
+      "target": "file:core/src/main/scala/org/apache/spark/sql/execution/SparkOptimizer.scala",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/SparkPlanner.scala",
+      "target": "file:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:core/src/main/scala/org/apache/spark/sql/execution/SparkPlanner.scala",
+      "target": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "class:core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala:QueryExecution",
+      "target": "class:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala:SparkPlan",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala:QueryExecution",
+      "target": "class:core/src/main/scala/org/apache/spark/sql/execution/SparkPlanner.scala:SparkPlanner",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala:QueryExecution",
+      "target": "class:core/src/main/scala/org/apache/spark/sql/execution/SparkOptimizer.scala:SparkOptimizer",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala:GenericStrategy",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala:GenericStrategy",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala:QueryPlanner",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala:QueryPlanner",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala",
+      "target": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala:plan",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala:RuleExecutor",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala:RuleExecutor",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala:PlanChangeLogger",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala:PlanChangeLogger",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala:Strategy",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala:Strategy",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala",
+      "target": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala:logRule",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala",
+      "target": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala:logBatch",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala",
+      "target": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala:logMetrics",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala",
+      "target": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala:execute",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:TreeNode",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:TreeNode",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:TreeNodeTag",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:TreeNodeTag",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:AlwaysProcess",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:AlwaysProcess",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:LeafLike",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:LeafLike",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:UnaryLike",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:UnaryLike",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:BinaryLike",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:BinaryLike",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:TernaryLike",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:TernaryLike",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:QuaternaryLike",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:QuaternaryLike",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:MultiTransform",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:MultiTransform",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:getDefaultTreePatternBits",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:mergeTagsFrom",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:childrenFastEquals",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:withNewChildren",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:legacyWithNewChildren",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:transformDownWithPruning",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:transformUpWithPruning",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:transformUpWithBeforeAndAfterRuleOnChildren",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:multiTransformDownWithPruning",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:makeCopy",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:clone",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:formatArg",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:argString",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:treeString",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:numberedTreeString",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:getNodeNumbered",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:generateTreeString",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:jsonFields",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:parseToJson",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "target": "function:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:shouldConvertToJson",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala",
+      "target": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala",
+      "target": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala",
+      "target": "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala:QueryPlanner",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:TreeNode",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala:RuleExecutor",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:TreeNode",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala:QueryPlanner",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala:GenericStrategy",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:LeafLike",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:TreeNode",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:UnaryLike",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:TreeNode",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:BinaryLike",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:TreeNode",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:TernaryLike",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:TreeNode",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:QuaternaryLike",
+      "target": "class:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala:TreeNode",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    }
+  ],
+  "layers": [
+    {
+      "id": "layer:tree-and-rule-foundation",
+      "name": "Tree and Rule Foundation",
+      "description": "Generic Catalyst machinery: the TreeNode abstraction and the RuleExecutor that applies rule batches to trees.",
+      "nodeIds": [
+        "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala",
+        "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala"
+      ]
+    },
+    {
+      "id": "layer:plan-model",
+      "name": "Logical and Physical Plan Model",
+      "description": "Base classes for logical operators (LogicalPlan) and physical operators (SparkPlan).",
+      "nodeIds": [
+        "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala",
+        "file:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala"
+      ]
+    },
+    {
+      "id": "layer:optimization-and-planning",
+      "name": "Optimization and Planning",
+      "description": "The optimizer that rewrites logical plans and the planners that turn them into physical plans.",
+      "nodeIds": [
+        "file:core/src/main/scala/org/apache/spark/sql/execution/SparkOptimizer.scala",
+        "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala",
+        "file:core/src/main/scala/org/apache/spark/sql/execution/SparkPlanner.scala"
+      ]
+    },
+    {
+      "id": "layer:query-execution-driver",
+      "name": "Query Execution Driver",
+      "description": "QueryExecution, which drives a query through the pipeline stages.",
+      "nodeIds": [
+        "file:core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala"
+      ]
+    }
+  ],
+  "tour": [
+    {
+      "order": 1,
+      "title": "The pipeline driver: QueryExecution",
+      "description": "Start here. QueryExecution exposes each stage of query processing as a member: analyzed, commandExecuted, withCachedData, optimizedPlan, sparkPlan, executedPlan and finally toRdd. It wires together the optimizer, the planner and the physical plan classes covered in the next steps.",
+      "nodeIds": [
+        "file:core/src/main/scala/org/apache/spark/sql/execution/QueryExecution.scala"
+      ]
+    },
+    {
+      "order": 2,
+      "title": "Everything is a tree: TreeNode",
+      "description": "Both logical and physical plans extend TreeNode. It provides traversal and transform APIs, which is what lets rules rewrite plans by pattern matching.",
+      "nodeIds": [
+        "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/trees/TreeNode.scala"
+      ]
+    },
+    {
+      "order": 3,
+      "title": "Applying rules: RuleExecutor",
+      "description": "RuleExecutor runs ordered batches of rules over a tree, either once or repeatedly until a fixed point. The optimizer is built on it.",
+      "nodeIds": [
+        "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/rules/RuleExecutor.scala"
+      ]
+    },
+    {
+      "order": 4,
+      "title": "Logical operators: LogicalPlan",
+      "description": "LogicalPlan is the base of all logical operators, with LeafNode, UnaryNode and BinaryNode shapes. This is the tree that analysis and optimization work on.",
+      "nodeIds": [
+        "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala"
+      ]
+    },
+    {
+      "order": 5,
+      "title": "The concrete optimizer: SparkOptimizer",
+      "description": "SparkOptimizer extends the Catalyst Optimizer with rule batches specific to the SQL engine, defined through defaultBatches. The base Optimizer is not part of this stage of the graph.",
+      "nodeIds": [
+        "file:core/src/main/scala/org/apache/spark/sql/execution/SparkOptimizer.scala"
+      ]
+    },
+    {
+      "order": 6,
+      "title": "From logical to physical: QueryPlanner and SparkPlanner",
+      "description": "QueryPlanner applies a list of strategies to a logical plan and expands planLater placeholders. SparkPlanner supplies the concrete strategy order for Spark.",
+      "nodeIds": [
+        "file:catalyst/src/main/scala/org/apache/spark/sql/catalyst/planning/QueryPlanner.scala",
+        "file:core/src/main/scala/org/apache/spark/sql/execution/SparkPlanner.scala"
+      ]
+    },
+    {
+      "order": 7,
+      "title": "Physical operators: SparkPlan",
+      "description": "SparkPlan is the base of physical operators, with LeafExecNode, UnaryExecNode and BinaryExecNode shapes. Its subclasses execute the query.",
+      "nodeIds": [
+        "file:core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala"
+      ]
+    }
+  ]
+}
