@@ -3,12 +3,17 @@ import { glob } from 'astro/loaders';
 import { z } from 'astro/zod';
 
 // A subject is one thing to learn (Spark, SQL, ...). Add src/content/subjects/<id>.json to plant a new one.
+// The id is part of every URL and saved progress key, so never rename it. `category` only groups subjects on the
+// home page (it is not a folder, for the same reason); `order` sorts subjects inside a category and the categories
+// themselves (a category sits where its first subject sits).
 const subjects = defineCollection({
   loader: glob({ base: './src/content/subjects', pattern: '*.json' }),
   schema: z.object({
     name: z.string(),
     tagline: z.string(),
     description: z.string(),
+    category: z.string().default('อื่นๆ'),
+    order: z.number().default(100),
     accent: z.string().default('#C93F0A'),
     accentDark: z.string().default('#FF8A4C'),
     phases: z.array(z.object({ id: z.string(), title: z.string(), check: z.string() })),

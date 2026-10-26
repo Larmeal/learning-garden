@@ -3,19 +3,30 @@ import { getCollection } from 'astro:content';
 import Base from '../layouts/Base.astro';
 import GardenHero from '../components/GardenHero';
 import CardBody from '../components/CardBody';
+import HomeCta from '../components/HomeCta';
 import { site } from '../site.config';
 import { groupsOf, subjectHref, lessonHref, pageKey } from '../lib/garden';
 
-const subjects = await getCollection('subjects');
+const subjects = (await getCollection('subjects')).sort((a, b) => a.data.order - b.data.order || a.data.name.localeCompare(b.data.name));
 const rows = await Promise.all(
   subjects.map(async (s) => {
     const groups = await groupsOf(s.id);
-    const ls = groups.map((g) => g.main);
-    const grown = ls.filter((l) => l.data.stage !== 'seed');
-    return { s, groups, grown: grown.length, first: grown[0] ?? ls[0] };
+    const grown = groups.filter((g) => g.main.data.stage !== 'seed').length;
+    return { s, groups, grown };
   }),
 );
-const start = rows[0];
+const ctaSubjects = rows.map(({ s, groups }) => ({
+  name: s.data.name,
+  lessons: groups.map((g) => ({
+    id: pageKey(g.main.id),
+    title: g.main.data.title,
+    href: lessonHref(g.main.id),
+    stage: g.main.data.stage,
+    pages: g.pages.map((p) => ({ id: pageKey(p.id), href: lessonHref(p.id) })),
+  })),
+}));
+// Categories keep the order of their first subject; subjects are already sorted by `order`.
+const categories = [...new Set(rows.map((r) => r.s.data.category))].map((name) => ({ name, rows: rows.filter((r) => r.s.data.category === name) }));
 ---
 
 <Base>
@@ -26,7 +37,7 @@ const start = rows[0];
           <h1>ปลูกความรู้<br />ทีละ<span class="hl">บทเรียน</span></h1>
           <p>{site.tagline} แต่ละบทเรียนเป็นการ์ดสั้นๆ ที่ให้ลองทำเองก่อน แล้วค่อยอธิบาย</p>
           <div class="hero-actions">
-            {start && <a class="btn primary lg" href={lessonHref(start.first.id)}>เริ่มเรียน {start.s.data.name}</a>}
+            <HomeCta client:load subjects={ctaSubjects} />
             <a class="btn lg" href="#plots">ดูแปลงทั้งหมด</a>
           </div>
         </div>
@@ -38,17 +49,22 @@ const start = rows[0];
           <h2>แปลงที่เปิดอยู่</h2>
           <p>หนึ่งแปลงคือหนึ่งเรื่องที่เรียน ต้นไม้แต่ละต้นคือหนึ่งบท เรียนจบบทไหน ต้นนั้นก็โตเต็มที่</p>
         </div>
-        <div class="cards">
-          {
-            rows.map(({ s, groups, grown }) => (
-              <a class="card" href={subjectHref(s.id)} style={`--subject:${s.data.accent}`}>
-                <h3>{s.data.name}</h3>
-                <p>{s.data.tagline}</p>
-                <CardBody client:load lessons={groups.map((g) => ({ id: pageKey(g.main.id), stage: g.main.data.stage, pages: g.pages.map((p) => pageKey(p.id)) }))} grown={grown} />
-              </a>
-            ))
-          }
-        </div>
+        {
+          categories.map((c) => (
+            <div class="category">
+              {categories.length > 1 && <h3 class="category-title">{c.name}</h3>}
+              <div class="cards">
+                {c.rows.map(({ s, groups, grown }) => (
+                  <a class="card" href={subjectHref(s.id)} style={`--subject:${s.data.accent}`}>
+                    <h3>{s.data.name}</h3>
+                    <p>{s.data.tagline}</p>
+                    <CardBody client:load lessons={groups.map((g) => ({ id: pageKey(g.main.id), stage: g.main.data.stage, pages: g.pages.map((p) => pageKey(p.id)) }))} grown={grown} />
+                  </a>
+                ))}
+              </div>
+            </div>
+          ))
+        }
       </section>
     </div>
   </main>
