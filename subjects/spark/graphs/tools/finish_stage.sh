@@ -14,9 +14,9 @@ const mt=JSON.parse(fs.readFileSync(".ua/meta.json","utf8")).analyzedFiles;
 const gf=g.nodes.filter(n=>n.type==="file").length;
 console.log("final: nodes",g.nodes.length,"edges",g.edges.length,"files",gf,"layers",g.layers.length,"tour",g.tour.length,"| scan",sc,"fp",fp,"meta",mt);
 if(!(sc===fp&&fp===mt&&mt===gf)){console.log("INCONSISTENT");process.exit(6)}'
-D="/e/Development/Project/learning/graphs/spark/query-pipeline-current"
+D="/e/Development/Project/learning/subjects/spark/graphs/query-pipeline-current"
 cp .ua/knowledge-graph.json .ua/meta.json .ua/.understandignore "$D/"
 find .ua/intermediate -mindepth 1 -maxdepth 1 -not -name 'scan-result.json' -exec rm -rf {} +
-echo "- $(date +%Y-%m-%d) $1" >> /e/Development/Project/learning/graphs/spark/PROGRESS.md
+echo "- $(date +%Y-%m-%d) $1" >> /e/Development/Project/learning/subjects/spark/graphs/PROGRESS.md
 git status --short | head -2
 echo "stage finished"

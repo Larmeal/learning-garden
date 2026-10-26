@@ -39,7 +39,7 @@ while (grew) {
 const ops = all.filter(d => fam.has(d.name) && d.name !== "SparkPlan");
 const concrete = ops.filter(d => d.kind !== "trait");
 const out = ops.map(d => ({ name: d.name, kind: d.kind, parents: d.parents, file: d.file, line: d.line }));
-fs.writeFileSync("E:/Development/Project/learning/graphs/spark/index/physical-operators.json", JSON.stringify({ generatedFor: "Spark v4.2.0 (32f72996)", count: out.length, operators: out }, null, 1));
+fs.writeFileSync("E:/Development/Project/learning/subjects/spark/graphs/index/physical-operators.json", JSON.stringify({ generatedFor: "Spark v4.2.0 (32f72996)", count: out.length, operators: out }, null, 1));
 const short = f => f.replace("sql/core/src/main/scala/org/apache/spark/sql/", "core/").replace("sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/", "catalyst/");
 const groups = new Map();
 out.forEach(o => { const k = short(o.file).split("/").slice(0, -1).join("/"); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(o); });
@@ -49,7 +49,7 @@ for (const k of [...groups.keys()].sort((a, b) => groups.get(b).length - groups.
   groups.get(k).sort((a, b) => a.name.localeCompare(b.name)).forEach(o => md += "- " + o.name + " [" + o.kind + "] extends " + o.parents.join(" with ") + " (" + short(o.file).split("/").pop() + ":" + o.line + ")\n");
   md += "\n";
 }
-fs.writeFileSync("E:/Development/Project/learning/graphs/spark/index/physical-operators.md", md);
+fs.writeFileSync("E:/Development/Project/learning/subjects/spark/graphs/index/physical-operators.md", md);
 console.log("family size (incl. traits)", out.length, "| concrete", concrete.length, "| groups", groups.size);
 console.log([...groups.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, 8).map(([k, v]) => k + "=" + v.length).join(" | "));
 for (const n of ["WholeStageCodegenExec", "HashAggregateExec", "SortMergeJoinExec", "BroadcastHashJoinExec", "ShuffleExchangeExec", "AdaptiveSparkPlanExec", "FileSourceScanExec", "ArrowEvalPythonExec", "WindowExec", "ShuffledHashJoinExec"]) {

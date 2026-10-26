@@ -6,7 +6,7 @@ Behavior runs: PySpark 4.2.0 from the project venv, Windows, `local[*]` with 16 
 Paths below are relative to the Spark checkout unless they start with `E:\`. Line numbers were
 re-read in the source on this commit. `SQLConf.scala` = `sql/catalyst/src/main/scala/org/apache/spark/sql/internal/SQLConf.scala`.
 Config line numbers point to the `buildConf(...)`/`ConfigBuilder(...)` line (same convention as
-`graphs/spark/index/configs.md`); the default sits 3-8 lines below.
+`subjects/spark/graphs/index/configs.md`); the default sits 3-8 lines below.
 
 Marking: VERIFIED = source line re-read and/or behavior observed in a run. UNVERIFIED = not checked,
 do not state as fact.

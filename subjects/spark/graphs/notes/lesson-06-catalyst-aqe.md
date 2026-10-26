@@ -14,7 +14,7 @@ dataframe-sql, stage seed, bullets: logical/optimized/physical plans, predicate 
 read `explain()` formatted, AQE coalesce / join strategy / skew, Tungsten short). `execution-model.mdx`
 (lesson 05) already taught job/stage/task, `Exchange hashpartitioning`, 200 shuffle partitions, "AQE may
 coalesce", and promised "salting and AQE are in chapter 7" (performance-tuning). `dataframe-sql` already
-says both APIs go to the same optimizer "Catalyst, chapter 6". Audit of lessons 00-05 (`graphs/spark/notes/audit-lessons-00-05.md`)
+says both APIs go to the same optimizer "Catalyst, chapter 6". Audit of lessons 00-05 (`subjects/spark/graphs/notes/audit-lessons-00-05.md`)
 already noted that readers will see `AdaptiveSparkPlan isFinalPlan=false` and chapter 6 should explain it.
 Tone: Thai prose, short sections, tables, a "try it in this repo" block with `get_spark(...)`, `explain()`.
 
@@ -166,7 +166,7 @@ Source for rules (line = `object` definition): `ConstantFolding` `sql/catalyst/.
 (chains `CombineFilters` `Opt:1925`, `PushPredicateThroughNonJoin` `Opt:2094`, `PushPredicateThroughJoin`
 `Opt:2355`); `InferFiltersFromConstraints` `Opt:1771`; `ReorderJoin` `sql/catalyst/.../optimizer/joins.scala:45`;
 `CostBasedJoinReorder` `sql/catalyst/.../optimizer/CostBasedJoinReorder.scala:36`. These match
-`graphs/spark/index/rules.md`. `FinishAnalysis` is listed in `Opt:177` as `Batch("Finish Analysis", FixedPoint(1), FinishAnalysis)`.
+`subjects/spark/graphs/index/rules.md`. `FinishAnalysis` is listed in `Opt:177` as `Batch("Finish Analysis", FixedPoint(1), FinishAnalysis)`.
 
 ANSI mode does NOT change the optimized plan text of casts (run, ANSI true vs false, both): analyzed plan
 shows `cast(s#0 as int)` and `cast(12 as int) + 1` folds to `13` in both modes; `try_cast(s#0 as int)` shows

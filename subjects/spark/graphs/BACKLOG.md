@@ -3,7 +3,7 @@
 Goal: cover Spark as widely as possible for a PySpark user who wants to understand it
 deeply, not only the 14 chapters of the website. The knowledge graph lives in
 `<spark repo>/.ua/` (excluded from git via `.git/info/exclude`). The newest copy is
-kept in `graphs/spark/query-pipeline-current/` (despite the name it will hold the whole graph).
+kept in `subjects/spark/graphs/query-pipeline-current/` (despite the name it will hold the whole graph).
 
 Cost model measured so far: about 65k-145k tokens per subagent regardless of file size
 (one agent handled 7 files / 2,400 lines for 144k). Plan sets of 2,000-4,500 lines per
@@ -52,7 +52,7 @@ connector/* other than possibly kafka source, docs, examples.
 
 Things that are not graphs but would help (do when cheap):
 - Lesson evidence notes: per lesson, verified facts with source references (file:line) so
-  the lesson can be written or fixed quickly. Stored in `graphs/spark/notes/`.
+  the lesson can be written or fixed quickly. Stored in `subjects/spark/graphs/notes/`.
 - Real-behavior checks with PySpark 4.2.0 in this project's venv (explain output, default
   configs, partition counts) for claims in lessons 00-05.
 
@@ -70,7 +70,7 @@ Things that are not graphs but would help (do when cheap):
 5. Verify after finalize: one connected component, no dangling edges, fingerprints and
    meta equal to the graph file count, line ranges match source, no non-ASCII characters.
 6. Add layers and tour steps by hand, then copy graph, meta and ignore file to
-   `graphs/spark/query-pipeline-current/` and append a line to `PROGRESS.md`.
+   `subjects/spark/graphs/query-pipeline-current/` and append a line to `PROGRESS.md`.
 7. If any check fails: restore the snapshot, log the failure in `PROGRESS.md`, move on.
 8. Never commit or push anything, never touch Spark source files.
 
@@ -103,7 +103,7 @@ Honest limit: full coverage costs about 35 tokens per line, so the whole repo is
 not practical. A realistic end state is 30 to 35 percent of the relevant scope by finishing S12 and S15-S23 (roughly
 60-90k more lines) and then adding the high-priority rows above only when a question or a lesson needs them.
 Rule of thumb for the next person: add a set only when a lesson claim or a debugging question points at code that
-is not in the graph; use `graphs/spark/index/*` (generated, free) for rules, configs and physical operators in the meantime.
+is not in the graph; use `subjects/spark/graphs/index/*` (generated, free) for rules, configs and physical operators in the meantime.
 
 Known small gaps to fold into the next sets: SortExec, InMemoryRelation, CacheManager, MapStatus, Spillable,
 MemoryStore, ShuffledRDD/ShuffledRowRDD, 19 Optimizer/Analyzer Rule subclasses without class nodes,

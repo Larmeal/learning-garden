@@ -30,7 +30,7 @@ for(const f of files){
   }
 }
 const seen=new Set();const uniq=confs.filter(c=>{const k=c.scope+c.key;if(seen.has(k))return false;seen.add(k);return true});
-fs.writeFileSync("E:/Development/Project/learning/graphs/spark/index/configs.json",JSON.stringify({generatedFor:"Spark v4.2.0 (32f72996)",count:uniq.length,configs:uniq},null,1));
+fs.writeFileSync("E:/Development/Project/learning/subjects/spark/graphs/index/configs.json",JSON.stringify({generatedFor:"Spark v4.2.0 (32f72996)",count:uniq.length,configs:uniq},null,1));
 console.log("configs:",uniq.length,"| sql",uniq.filter(c=>c.scope==="sql").length,"| core",uniq.filter(c=>c.scope==="core").length,"| internal",uniq.filter(c=>c.internal).length,"| unresolved keys",uniq.filter(c=>!c.resolved).length);
 for(const k of ["spark.sql.shuffle.partitions","spark.sql.ansi.enabled","spark.executor.memory","spark.sql.autoBroadcastJoinThreshold","spark.executor.cores","spark.sql.adaptive.advisoryPartitionSizeInBytes","spark.memory.fraction","spark.default.parallelism","spark.dynamicAllocation.enabled"]){const c=uniq.find(x=>x.key===k);console.log(k.padEnd(52),c?("default="+c.default+" | v"+c.version):"NOT FOUND")}
 console.log("unresolved sample:",uniq.filter(c=>!c.resolved).slice(0,5).map(c=>c.key).join(", "));
