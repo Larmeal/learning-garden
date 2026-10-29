@@ -1,0 +1,95 @@
+---
+title: ทดสอบ gate ก่อนปล่อยใช้
+summary: gate ก็เป็นโค้ด ต้องมีกรณีทดสอบที่ควรผ่านและควรหยุด ตารางกรณีทดสอบขั้นต่ำที่รันแล้ว และสิ่งที่ยังต้องทดสอบด้วยข้อมูลจริง
+order: 3
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import CaseExplorer from '../../../../components/labs/great-expectations/CaseExplorer';
+
+<Step>
+
+## กรณีทดสอบขั้นต่ำ
+
+gate ที่เขียนไว้ควรตอบถูกในกรณีที่รู้คำตอบอยู่แล้ว สคริปต์ `29_pipeline_policies.py` ส่วนที่ 3 รันสามกรณีด้วยตัวตรวจแบบ assert ธรรมดา (GX 1.24.1) ไม่ได้ใช้ pytest
+
+```python
+CASES = [
+    ("good data passes",                 cp,       DATA["good"],     False),
+    ("null id stops",                    cp,       DATA["critical"], True),
+    ("suite with no expectations stops", empty_cp, DATA["good"],     True),
+]
+for label, checkpoint, frame, should_stop in CASES:
+    try:
+        gate(checkpoint, {"dataframe": frame})
+        stopped = False
+    except QualityGateError:
+        stopped = True
+    print("PASS" if stopped == should_stop else "FAIL", label)
+```
+
+ผลที่พิมพ์
+
+```text
+PASS  good data passes
+PASS  null id stops
+PASS  suite with no expectations stops
+```
+
+</Step>
+
+<Step>
+
+## ตารางกรณีที่ควรมี
+
+เลือกกลุ่มเพื่อดูว่ากรณีไหนที่รันแล้วในเส้นทางนี้ และกรณีไหนที่ควรเพิ่มเอง
+
+<CaseExplorer
+  client:visible
+  title="กรณีทดสอบของ gate"
+  okWord="รันแล้ว"
+  badWord="ควรเพิ่มเอง"
+  cases={[
+    { label: 'ข้อมูลที่ควรผ่าน', rows: [
+      { name: 'ข้อมูลดี', ok: true, detail: '29 ส่วนที่ 3 และ 09' },
+    ], note: 'กรณีเดียวที่ควรผ่าน แต่ต้องมีเสมอ เพื่อให้รู้ว่า gate ไม่หยุดทุกอย่าง' },
+    { label: 'ข้อมูลที่ควรหยุด', rows: [
+      { name: 'null ในคอลัมน์ที่ห้ามว่าง', ok: true, detail: '29 ส่วนที่ 3' },
+      { name: 'ค่านอกช่วง', ok: true, detail: '09 (amount = 99999)' },
+      { name: 'ตารางว่าง (suite มีกฎจำนวนแถว)', ok: true, detail: '09' },
+      { name: 'ค่าซ้ำในคอลัมน์ key', ok: false, detail: 'ทดลองเป็นตัวอย่างในบทที่ 0 แต่ไม่ได้อยู่ในชุดของ gate' },
+    ] },
+    { label: 'ตัวกฎเองพัง', rows: [
+      { name: 'คอลัมน์ถูกเปลี่ยนชื่อ', ok: true, detail: '09' },
+      { name: 'suite ว่างเปล่า (ไม่มี expectation)', ok: true, detail: '29 ส่วนที่ 3 และ 09' },
+      { name: 'custom expectation โหลดไม่ขึ้นใน process อื่น', ok: true, detail: '10 (ได้ evaluated_expectations = 0)' },
+    ] },
+    { label: 'วันที่และไฟล์', rows: [
+      { name: 'ไม่มีไฟล์ของวันที่ขอ', ok: true, detail: '29 ส่วนที่ 2 (NoAvailableBatchesError)' },
+      { name: 'scheduler ลืมส่งวันที่', ok: true, detail: '29 ส่วนที่ 2 (ผ่านด้วยไฟล์ล่าสุด)' },
+      { name: 'ไฟล์ค้างเขียนไม่ครบ', ok: false, detail: 'ไม่ได้ทดลอง' },
+    ] },
+  ]}
+  caption="ตาราง 'ควรเพิ่มเอง' คือกรณีที่เส้นทางนี้ยังไม่ได้ทดลองหรือไม่ได้อยู่ในชุดทดสอบของ gate"
+/>
+
+</Step>
+
+<Step>
+
+## ข้อควรรู้
+
+1. ใช้ ephemeral context ในการทดสอบ context เริ่มว่างทุกครั้ง ไม่มีเรื่องชื่อซ้ำ (บทที่ 1)
+2. แต่ละกรณีต้องสร้าง object ใหม่ ถ้าใช้ expectation ตัวเดิมซ้ำใน suite สองตัวจะได้ `RuntimeError` (บทที่ 4 หน้า "อ่านผลที่ไม่ผ่านอย่างเป็นระบบ")
+3. ทดสอบ gate กับข้อมูลจำลองไม่ได้พิสูจน์ว่า suite จับข้อมูลจริงได้ ชุดทดสอบนี้บอกแค่ว่าการตัดสินใจหลังอ่านผลถูกต้อง ส่วนความเหมาะสมของกฎต้องเทียบกับข้อมูลเสียจริงที่เคยเกิด
+4. ถ้าใช้ pytest ห่อสามกรณีนี้เป็นฟังก์ชัน test ได้ตรงๆ (ไม่ได้ลองรัน pytest ในเส้นทางนี้)
+
+<Callout type="note" title="อ่านต่อ">
+บทที่ 12 หน้า "ทดสอบและปล่อยใช้" ว่าด้วยการทดสอบ custom expectation ซึ่งเป็นอีกชั้นของงานเดียวกัน
+</Callout>
+
+</Step>

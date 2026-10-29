@@ -87,6 +87,8 @@ Evidence levels: **ran** = observed by running code, **source** = read in the co
 | A suite stored in a file context that contains a custom expectation loads with **0 expectations** in a process that did not import the class; running it returns `success=True`, `evaluated_expectations=0` | ran (1.24.1) | `10` |
 | A custom expectation without a provider for the engine returns `success=False` with `No provider found ...` in `exception_info` | ran (SQLite) | scratch |
 | Severity: `severity="warning"` on an expectation; `result.get_max_severity_failure()` returns the worst failed level | ran | scratch |
+| `suite_result.get_max_severity_failure()` returns `None` on a pass and an enum with `.value` `"warning"` or `"critical"` on a failure. A policy that stops only on `critical` publishes a warning-only failure and stops a critical one | ran | `29` |
+| A daily checkpoint with no date parameters validates the newest file (and passes) even when the file for the day the scheduler meant does not exist; with all of year/month/day, a missing day raises `NoAvailableBatchesError`. The validated file name is in `meta['batch_spec']['path']`. Two runs of the same day store two results | ran | `29` |
 
 ## Custom expectations (lesson 12)
 
