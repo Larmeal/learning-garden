@@ -21,6 +21,8 @@ Evidence levels: **ran** = observed by running code, **source** = read in the co
 | Finding | Level | Where |
 |---|---|---|
 | Building context, source, asset, batch definition and suite computes nothing (0 engine calls) | ran | `02` |
+| `add_*` returns an object with an id; `ExpectationSuite(...)` and `ValidationDefinition(...)` have `id=None` until added or run. A validation definition serializes its suite and batch definition as name + id, and no data | ran | `17` |
+| Adding a suite or data source with an existing name raises `DataContextError`; in a file context the names persist, so a second run of the script hits it. `suites.get`, `suites.add_or_update` work on the existing name | ran | `17` |
 | `ValidationDefinition.run` adds itself to the context if its suite and data are already added; otherwise it raises `ValidationDefinitionRelatedResourcesFreshnessError` | ran | `01`, `03` |
 | `Checkpoint.add` with a validation definition that is not added raises `CheckpointRelatedResourcesFreshnessError` | ran | scratch |
 | Each result is stored in the validation results store inside `ValidationDefinition.run`, before any action | ran | `06` |

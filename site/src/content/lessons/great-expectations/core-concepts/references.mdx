@@ -1,0 +1,73 @@
+---
+title: อ้างอิงกันด้วยชื่อและ id
+summary: เปิด json ของ validation definition ดูว่ามันจำ suite และ batch definition ไว้อย่างไร อะไรไม่ถูกเก็บ และชื่อซ้ำเกิดอะไรขึ้น
+order: 2
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Variants from '../../../../components/labs/great-expectations/Variants';
+
+<Step>
+
+## json ของ validation definition
+
+object ใน GX serialize เป็น json ได้ ลองดู validation definition ที่รันแล้ว (ตัด id ให้สั้น)
+
+```json
+{
+  "name": "people_vd",
+  "data":  { "id": "e12a128a-...", "name": "whole", "partitioner": null },
+  "suite": { "name": "people_suite", "id": "3bd890de-..." },
+  "id": "d7f67960-..."
+}
+```
+
+ผลจริงจาก `17_object_chain.py` (GX 1.24.1) validation definition ไม่ได้ฝัง suite ทั้งก้อนหรือ DataFrame ไว้ข้างใน มันจำแค่ชื่อกับ id ของ suite และ batch definition พอรัน GX ค่อยไปหา object จริงจาก context
+
+ฝั่ง `data` ไม่มี id ของ asset หรือ data source อยู่เลย มีแค่ id กับชื่อของ batch definition GX หา asset จาก batch definition อย่างไร ยังไม่ได้อ่านโค้ดดู
+
+</Step>
+
+<Step>
+
+## ชื่อซ้ำและชื่อที่หาไม่เจอ
+
+สลับแท็บดูข้อความ error ของสามกรณี
+
+<Variants
+  client:visible
+  title="เมื่อชื่อชนกัน หรือหาไม่เจอ"
+  variants={[
+    { label: 'suite ชื่อซ้ำ', code: `context.suites.add(gx.ExpectationSuite(name="s_ok"))\ncontext.suites.add(gx.ExpectationSuite(name="s_ok"))`, output: `DataContextError\nCannot add ExpectationSuite with name s_ok\nbecause it already exists.`, reading: 'ชื่อเป็นกุญแจใน store ซ้ำไม่ได้', bad: true },
+    { label: 'data source ชื่อซ้ำ', code: `context.data_sources.add_pandas("dup")\ncontext.data_sources.add_pandas("dup")`, output: `DataContextError\nCan not write the fluent datasource dup because\na datasource of that name already exists\nin the data context.`, reading: 'กติกาเดียวกับ suite', bad: true },
+    { label: 'get ชื่อที่ไม่มี', code: `context.suites.get("nope")`, output: `DataContextError\nExpectationSuite with name nope was not found.`, reading: 'get raise เมื่อไม่มี ไม่ได้คืน None', bad: true },
+  ]}
+/>
+
+</Step>
+
+<Step>
+
+## ผลต่อวิธีทำงานจริง
+
+ใน context แบบ ephemeral ชื่อซ้ำไม่เกิดจากการรันสคริปต์ซ้ำ เพราะ context เริ่มว่างทุกครั้ง แต่ context แบบ file จำชื่อข้ามการรัน สคริปต์ `17` ส่วนที่ 5 ทดลองแล้ว
+
+```text
+first run  : suites = ['kept']
+second run : suites already there = ['kept']
+add the same name again: DataContextError | Cannot add ExpectationSuite with name kept because it already exists.
+```
+
+สคริปต์ที่เรียก `context.suites.add(...)` ตรงๆ จึงรันครั้งที่สองใน file context ไม่ได้ สคริปต์เดียวกันทดลองต่อ: `context.suites.get("kept")` คืน suite เดิมพร้อม id และ `context.suites.add_or_update(...)` ไม่ error คืน suite ที่ id เดิม จำนวน suite ยังเป็น 1 ตัว (add_or_update ใช้แทนค่าเนื้อหาของ suite เดิมหรือไม่ ไม่ได้ตรวจ)
+
+ตั้งชื่อให้คงที่และบอกเนื้อหา เพราะชื่อคือสิ่งที่ใช้ค้นกลับมา และเป็นสิ่งที่เห็นใน Data Docs
+
+<Callout type="warn" title="ที่ยังไม่ได้ทดลอง">
+การเปลี่ยนชื่อ object ที่มีของอื่นอ้างอยู่ (เช่น เปลี่ยนชื่อ suite ที่ validation definition ชี้อยู่) ยังไม่ได้รัน ไม่รู้ว่าผลเป็นอย่างไร
+</Callout>
+
+</Step>
