@@ -49,7 +49,7 @@ an existing id. Categories live in the subject JSON, not in folders, for the sam
 ## Current subjects
 
 - `spark` (lessons on the site, code, docs and a knowledge graph of the Spark v4.2.0 source in `subjects/spark/graphs/`).
-- `great-expectations` (14 lessons on the site with labs in `components/labs/great-expectations/`, runnable exercises in
-  `subjects/great-expectations/code/` pinned to GX 1.24.1, an overview and evidence notes in `docs/`, and a knowledge graph
+- `great-expectations` (14 lessons on the site, each with sub-pages and a quiz, labs in `components/labs/great-expectations/`,
+  numbered runnable exercises `01` to `33` in `subjects/great-expectations/code/` pinned to GX 1.24.1, an overview and evidence notes in `docs/`, and a knowledge graph
   of v1.9.3 in `graphs/`). Claims in the lessons are tagged ran/source in `docs/verified-findings.md`. Spark behaviour is
-  not verified. `code/make_lab_data.py` regenerates the data of the metric lab.
+  not verified. `code/make_lab_data.py` regenerates the data of the metric lab; `26`, `30`, `31`, `32` and `33` write the JSON that the registry, support, call-trace, version-diff and graph labs read.
