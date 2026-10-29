@@ -47,6 +47,10 @@ Evidence levels: **ran** = observed by running code, **source** = read in the co
 | A column-map expectation passes on an empty table; `between` also passes on an all-null column; `not null` does not | ran, all 5 data cases x 3 expectations | `03`, scratch |
 | An expectation that cannot be evaluated (missing column) becomes `success=False` with `exception_info`; other expectations still run | ran | `03` |
 | `Checkpoint.run` returns a `CheckpointResult` and does not raise on failed data; read `.success` | ran | `03`, `09` |
+| A checkpoint with two validation definitions: `success` is True only if both pass; both run even if the first fails; they share one `run_id`; each result is stored (2 entries) | ran | `25` |
+| `Checkpoint.run` takes only `batch_parameters`, `expectation_parameters`, `run_id`; `result_format` is a field of `Checkpoint(...)`; one parameter set goes to every validation, and a SQL whole-table validation next to a DataFrame one raises `InvalidBatchRequestError` | ran | `25` |
+| `vd.run` stores 1 result with `meta.checkpoint_id=None`; a checkpoint stores one per validation with `checkpoint_id` set | ran | `25` |
+| `CheckpointResult.describe()` has keys `success, statistics, validation_results`; each validation has `success, statistics, expectations, result_url`; each expectation has `expectation_type, success, kwargs, result` (no `exception_info`) | ran | `25` |
 | `mostly`: `(considered - unexpected) / considered >= mostly`; nulls are not considered. `[10, None, 30, 400]` between 0..120: passes at mostly 0.66, fails at 0.67 | ran | scratch |
 | Adding an equal expectation to a suite twice is silently ignored | ran | `03` |
 | `result_format` keys: BOOLEAN_ONLY gives an empty `result`; BASIC adds counts and `partial_unexpected_list`; SUMMARY adds `partial_unexpected_counts` and `partial_unexpected_index_list`; COMPLETE adds `unexpected_list`, `unexpected_index_list`, `unexpected_index_query`. Aggregates return only `observed_value` from BASIC up. `partial_unexpected_count` caps the sample (default 20); `unexpected_count` stays complete | ran | `21` |

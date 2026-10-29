@@ -7,7 +7,7 @@ level: 3
 stage: sprout
 format: steps
 requires: [expectations-suites, datasources-batches, context-stores]
-updated: 2026-10-27
+updated: 2026-10-29
 ---
 
 import Step from '../../../../components/Step.astro';
@@ -20,8 +20,8 @@ import RunFlow from '../../../../components/labs/great-expectations/RunFlow';
 
 | ชั้น | หน้าที่ | ผลที่ได้ |
 |---|---|---|
-| **Validation Definition** | ตรวจข้อมูลหนึ่งก้อนด้วย suite หนึ่งชุด | `ExpectationSuiteValidationResult` |
-| **Checkpoint** | รัน validation definition หลายตัวด้วยพารามิเตอร์ร่วมกัน แล้วสั่ง action | `CheckpointResult` |
+| Validation Definition | ตรวจข้อมูลหนึ่งก้อนด้วย suite หนึ่งชุด | `ExpectationSuiteValidationResult` |
+| Checkpoint | รัน validation definition หลายตัวด้วยพารามิเตอร์ร่วมกัน แล้วสั่ง action | `CheckpointResult` |
 
 validation definition เหมาะกับการทดลองและตรวจครั้งเดียว checkpoint คือทางหลักใน production เพราะผูก action และรวมหลายการตรวจเป็นงานเดียว
 
@@ -43,7 +43,7 @@ result = checkpoint.run(batch_parameters={"dataframe": df})
 
 <RunFlow client:visible />
 
-ขั้นที่ควรจำให้แม่น: GX **ไม่แตะข้อมูลจนถึงขั้นที่ 3** และ **ผลถูกเก็บก่อนที่ action จะเริ่ม** สองข้อนี้ตอบคำถามเรื่อง "ถ้าล้มกลางทางจะเสียอะไร" ได้ทั้งหมด
+GX ไม่แตะข้อมูลจนถึงขั้นที่ 3 และผลถูกเก็บก่อนที่ action จะเริ่ม สองข้อนี้ตอบได้ว่าถ้าล้มกลางทางจะเสียอะไร
 
 </Step>
 
@@ -60,7 +60,7 @@ result.describe()         # สรุปเป็น JSON
 
 `run_results` มีหนึ่งรายการต่อ validation definition คีย์ประกอบด้วยชื่อ suite, `run_id` และ batch id ทุก validation ใน checkpoint ได้ `run_id` เดียวกัน จึงรู้ว่าเป็นรอบรันเดียวกัน
 
-พารามิเตอร์ `batch_parameters`, `expectation_parameters` และ `result_format` ของ checkpoint ถูกส่งให้ **ทุก** validation definition เหมือนกัน ถ้า validation definition สองตัวใช้ batch definition คนละแบบ (ตัวหนึ่งรายวัน อีกตัวทั้งตาราง) พารามิเตอร์ชุดเดียวต้องเข้ากันได้กับทั้งคู่
+พารามิเตอร์ `batch_parameters` และ `expectation_parameters` ที่ส่งให้ `run()` ถูกส่งให้ทุก validation definition เหมือนกัน ส่วน `result_format` เป็นฟิลด์ของ `Checkpoint` เอง ถ้า validation definition สองตัวใช้ batch definition คนละแบบ (ตัวหนึ่งรายวัน อีกตัวทั้งตาราง) พารามิเตอร์ชุดเดียวต้องเข้ากันได้กับทั้งคู่
 
 </Step>
 
@@ -75,7 +75,7 @@ result = checkpoint.run(batch_parameters={"dataframe": bad_df})
 
 ทดลองแล้วใน `03_traps.py`: checkpoint คืนผลที่ `success=False` ตามปกติ ไม่ใช่ error เหตุผลเชิงออกแบบคือข้อมูลไม่ผ่านเป็น "ผลการตรวจ" ไม่ใช่ "ความผิดพลาดของโปรแกรม" แต่ผลข้างเคียงคือ pipeline ที่เรียก `checkpoint.run(...)` แล้วไม่ตรวจ `.success` จะเดินต่อไปเสมอ (บทที่ 10 ว่าด้วยวิธีกั้น)
 
-<Callout type="warn" title="สองอย่างที่ ทำ ให้ raise">
+<Callout type="warn" title="สิ่งที่ทำให้ raise">
 ข้อมูลไม่ผ่านไม่ทำให้ raise แต่สิ่งเหล่านี้ทำ: ไม่มี validation definition ใน checkpoint, ของที่ถูกอ้างถึงยังไม่ได้ add เข้า context, batch ที่ขอไม่มี (`NoAvailableBatchesError`) และ action ที่ error (บทที่ 9)
 </Callout>
 
@@ -85,8 +85,18 @@ result = checkpoint.run(batch_parameters={"dataframe": bad_df})
 
 ## เช็กตัวเอง
 
-- checkpoint มี validation definition สองตัว ตัวแรกไม่ผ่าน ตัวที่สองผ่าน `result.success` เป็นอะไร และ validation ตัวที่สองยังถูกรันไหม
+- checkpoint มี validation definition สองตัว ตัวแรกไม่ผ่าน ตัวที่สองผ่าน `result.success` เป็นอะไร และ validation ตัวที่สองยังถูกรันไหม (หน้า "หลาย validation ใน checkpoint เดียว" มีเฉลย)
 - ทำไม validation definition ถึงต้องถูก add เข้า context ก่อนใส่ใน checkpoint
 - ข้อมูลของวันนี้เสีย แต่โค้ดไม่ล้ม สาเหตุที่น่าจะเป็นคืออะไร
+
+</Step>
+
+<Step>
+
+## หน้าย่อยของบทนี้
+
+1. หลาย validation ใน checkpoint เดียว: ผลรวม ตัวที่ล้มไม่หยุดตัวอื่น และพารามิเตอร์ชุดเดียว
+2. อ่าน CheckpointResult: describe() กับ run_results และฟังก์ชันดึงข้อที่ล้ม
+3. validation definition หรือ checkpoint ใช้อะไรดี: ความต่างที่วัดได้
 
 </Step>
