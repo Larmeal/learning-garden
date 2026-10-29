@@ -1,0 +1,66 @@
+---
+title: domain ของ metric และ row_condition
+summary: metric ที่อยู่ domain เดียวกันถูกรวมเป็นคำสั่ง SQL เดียว row_condition เปลี่ยน domain จึงตัดการรวมนั้น ดูจำนวนคำสั่งที่เพิ่ม และ parser ที่ SQL ไม่รับ
+order: 2
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Variants from '../../../../components/labs/great-expectations/Variants';
+
+<Step>
+
+## domain คืออะไร
+
+metric หนึ่งตัวคำนวณ "บนอะไร" ส่วนนั้นเรียกว่า domain ได้แก่ตาราง คอลัมน์ และเงื่อนไขกรองแถว (`row_condition`) metric ที่มี domain เหมือนกันทุกอย่างถูกรวมเป็นคำสั่ง SQL คำสั่งเดียว (บทหลักหัวข้อ "สองแบบ") สคริปต์ `26_registry_domains.py` ส่วนที่ 2 ถึง 3 ดูว่าเมื่อ domain ต่างกันแล้ว SQL เปลี่ยนอย่างไร (GX 1.24.1, SQLite, ตาราง `users` 4 แถว)
+
+</Step>
+
+<Step>
+
+## เปรียบเทียบสามกรณี
+
+<Variants
+  client:visible
+  title="จำนวนคำสั่ง SQL กับ row_condition"
+  variants={[
+    {
+      label: 'domain เดียว',
+      code: `ExpectColumnMaxToBeBetween(column="age", ...)\nExpectColumnMeanToBeBetween(column="age", ...)`,
+      output: `two on age, same domain   statements=2 success=True`,
+      reading: 'สองกฎบนคอลัมน์เดียวกันได้ 2 คำสั่ง: หนึ่งสำหรับ row_count และอีกหนึ่งที่รวม max กับ mean ไว้ด้วยกัน',
+    },
+    {
+      label: 'เพิ่ม row_condition',
+      code: `ExpectColumnMaxToBeBetween(column="age", ...)\nExpectColumnMaxToBeBetween(column="age", ...,\n    row_condition='col("plan") == "pro"',\n    condition_parser="great_expectations")`,
+      output: `statements=4 success=True\n  SELECT count(*) AS "table.row_count" FROM (... WHERE 1 = 1)\n  SELECT count(*) AS "table.row_count" FROM (... WHERE plan = 'pro')\n  SELECT max(age) AS "column.max" FROM (... WHERE plan = 'pro')\n  SELECT max(age) AS "column.max" FROM (... WHERE 1 = 1)`,
+      reading: 'กฎที่มี row_condition มี domain ของตัวเอง จึงได้ row_count ของตัวเองและ max ของตัวเองใน WHERE ของมัน คำสั่งเพิ่มจาก 2 เป็น 4 (สองกรณีนี้เป็น suite คนละชุดที่ต่างกันที่กฎที่สอง)',
+    },
+    {
+      label: 'parser ที่ SQL ไม่รับ',
+      code: `ExpectColumnMaxToBeBetween(column="age", ...,\n    row_condition='plan == "pro"',\n    condition_parser="pandas")`,
+      output: `success: False\nexception: PassThroughCondition (pandas/spark syntax) is not\n  supported for SqlAlchemyExecutionEngine. Please use the latest\n  documented row_condition syntax, ...`,
+      reading: 'row_condition แบบ pandas ใช้บน SQL ไม่ได้ ผลคือ success=False พร้อม exception_info ไม่ใช่ข้อมูลผิด ต้องเขียนด้วยรูป col("plan") == "pro" ที่ parser great_expectations',
+      bad: true,
+    },
+  ]}
+/>
+
+</Step>
+
+<Step>
+
+## ผลต่อการออกแบบ suite
+
+1. กฎที่ตั้งใจแยกตามกลุ่ม (เช่นเฉพาะแผน pro) จ่ายเพิ่มเป็นคำสั่งต่อกลุ่ม ถ้ามี 10 กลุ่ม ก็คือ 10 ชุด ข้อมูลใหญ่บน SQL ควรนับจำนวนกลุ่มก่อนใช้
+2. `row_condition` ที่เขียนแล้วผ่านบน pandas อาจล้มบน SQL ต้องทดสอบบน engine จริง
+3. ตรวจ SQL ที่ GX ส่งได้เสมอด้วยวิธีใน `05_sql_bundling.py` และ `26` (ครอบ `SqlAlchemyExecutionEngine.execute_query` เก็บคำสั่ง)
+
+<Callout type="note" title="ขอบเขต">
+ตัวเลข 2 และ 4 เป็นผลของ suite ที่ใช้ใน `26` (result_format `BOOLEAN_ONLY`) บนตารางเล็ก จำนวนคำสั่งของ suite อื่นต่างออกไปได้ และไม่ได้ทดลองกับ Spark
+</Callout>
+
+</Step>

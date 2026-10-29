@@ -7,7 +7,7 @@ level: 4
 stage: sprout
 format: steps
 requires: [validation-checkpoints, reading-results]
-updated: 2026-10-27
+updated: 2026-10-29
 ---
 
 import Step from '../../../../components/Step.astro';
@@ -20,10 +20,10 @@ import MetricRounds from '../../../../components/labs/great-expectations/MetricR
 
 ถ้า `ExpectColumnMaxToBeBetween` เขียนโค้ดอ่านข้อมูลเอง มันต้องรู้ว่าข้อมูลอยู่ใน pandas, Spark หรือฐานข้อมูล แล้ว expectation หกสิบตัวก็ต้องเขียนใหม่ทุก backend GX แก้ด้วยการแยกงานเป็นสองส่วน
 
-- **expectation** ประกาศว่าต้องใช้ *metric* อะไร (`column.max` ของคอลัมน์ `age`) แล้วตัดสินผลจากค่าที่ได้
-- **execution engine** (pandas, Spark, SQLAlchemy) รู้วิธีคำนวณ metric นั้นบน backend ของตัวเอง
+- expectation ประกาศว่าต้องใช้ metric อะไร (`column.max` ของคอลัมน์ `age`) แล้วตัดสินผลจากค่าที่ได้
+- execution engine (pandas, Spark, SQLAlchemy) รู้วิธีคำนวณ metric นั้นบน backend ของตัวเอง
 
-**metric** คือข้อเท็จจริงที่มีชื่อเกี่ยวกับข้อมูล เช่น `table.row_count`, `column.max`, `column_values.nonnull.condition` expectation หลายข้อใช้ metric เดียวกันได้ นี่คือแกนของ GX ทั้งระบบ
+metric คือข้อเท็จจริงที่มีชื่อเกี่ยวกับข้อมูล เช่น `table.row_count`, `column.max`, `column_values.nonnull.condition` expectation หลายข้อใช้ metric เดียวกันได้ นี่คือแกนของ GX ทั้งระบบ
 
 </Step>
 
@@ -50,10 +50,10 @@ import MetricRounds from '../../../../components/labs/great-expectations/MetricR
 
 สิ่งที่ควรสังเกตจากแล็บ (ทั้งหมดวัดจาก GX 1.24.1 จริง)
 
-- **ทุก expectation ระดับคอลัมน์จ่าย "ค่าเปิดโต๊ะ" เท่ากัน**: `table.column_types`, `table.row_count` และ `table.columns` มาก่อนเสมอ ลองเลือก expectation ข้อเดียวแล้วดูรอบที่ 1 กับ 2 expectation จำนวนแถว (`ExpectTableRowCountToEqual`) ข้อเดียวใช้แค่ `table.row_count` ตัวเดียว
-- **metric ที่ใช้ร่วมกันคำนวณครั้งเดียว**: เลือก "not null id" กับ "unique id" ด้วยกัน จะเห็น `column_values.nonnull.condition` ของ `id` ปรากฏครั้งเดียว ทั้งที่สอง expectation ต่างใช้มัน
-- **รอบกำหนดโดย dependency**: metric ในรอบหนึ่งต้องไม่รอผลของกันและกัน รอบถัดไปใช้ผลของรอบก่อน (เช่น `unexpected_count` ต้องรอ `condition`)
-- **result_format เปลี่ยนรอบสุดท้าย**: สลับ BOOLEAN_ONLY เป็น SUMMARY แล้วดูรอบสุดท้ายโตขึ้นมาก เพราะต้องคำนวณตัวอย่างค่าที่ผิดและดัชนีของแถว
+- ทุก expectation ระดับคอลัมน์ต้องมี metric พื้นฐานชุดเดียวกัน: `table.column_types`, `table.row_count` และ `table.columns` มาก่อนเสมอ ลองเลือก expectation ข้อเดียวแล้วดูรอบที่ 1 กับ 2 expectation จำนวนแถว (`ExpectTableRowCountToEqual`) ข้อเดียวใช้แค่ `table.row_count` ตัวเดียว
+- metric ที่ใช้ร่วมกันคำนวณครั้งเดียว: เลือก "not null id" กับ "unique id" ด้วยกัน จะเห็น `column_values.nonnull.condition` ของ `id` ปรากฏครั้งเดียว ทั้งที่สอง expectation ต่างใช้มัน
+- รอบกำหนดโดย dependency: metric ในรอบหนึ่งต้องไม่รอผลของกันและกัน รอบถัดไปใช้ผลของรอบก่อน (เช่น `unexpected_count` ต้องรอ `condition`)
+- result_format เปลี่ยนรอบสุดท้าย: สลับ BOOLEAN_ONLY เป็น SUMMARY แล้วดูรอบสุดท้ายโตขึ้นมาก เพราะต้องคำนวณตัวอย่างค่าที่ผิดและดัชนีของแถว
 
 </Step>
 
@@ -68,15 +68,15 @@ class ColumnMax(ColumnAggregateMetricProvider):
     metric_name = "column.max"
 
     @column_aggregate_value(engine=PandasExecutionEngine)
-    def _pandas(cls, column, **kwargs):
+    def _pandas(cls, column, kwargs):
         return column.max()
 
     @column_aggregate_partial(engine=SqlAlchemyExecutionEngine)
-    def _sqlalchemy(cls, column, **kwargs):
+    def _sqlalchemy(cls, column, kwargs):
         return sa.func.max(column)
 
     @column_aggregate_partial(engine=SparkDFExecutionEngine)
-    def _spark(cls, column, **kwargs):
+    def _spark(cls, column, kwargs):
         return F.max(column)
 ```
 
@@ -92,10 +92,10 @@ class ColumnMax(ColumnAggregateMetricProvider):
 
 | แบบ | ทำอะไร | ใช้กับ |
 |---|---|---|
-| **value** | คำนวณเดี๋ยวนั้นและคืนค่า | pandas (การคำนวณเกิดทันทีใน memory) |
-| **partial** (aggregate) | คืน "นิพจน์" ที่ยังไม่รัน เช่น `sa.func.max(column)` | SQL และ Spark ที่เลื่อนการรันได้ |
+| value | คำนวณเดี๋ยวนั้นและคืนค่า | pandas (การคำนวณเกิดทันทีใน memory) |
+| partial (aggregate) | คืน "นิพจน์" ที่ยังไม่รัน เช่น `sa.func.max(column)` | SQL และ Spark ที่เลื่อนการรันได้ |
 
-เพราะ partial ยังไม่รัน GX จึง **รวมหลาย metric ที่อยู่ใน domain เดียวกันเป็นคำสั่งเดียว** ได้ จากการรันกับ SQLite (`05_sql_bundling.py`, suite 6 ข้อ, `BOOLEAN_ONLY`)
+เพราะ partial ยังไม่รัน GX จึง รวมหลาย metric ที่อยู่ใน domain เดียวกันเป็นคำสั่งเดียว ได้ จากการรันกับ SQLite (`05_sql_bundling.py`, suite 6 ข้อ, `BOOLEAN_ONLY`)
 
 ```sql
 SELECT count(*) AS "table.row_count" FROM (SELECT * FROM users WHERE 1 = 1) AS anon_1
@@ -125,7 +125,7 @@ SELECT sum(CASE WHEN (id IS NULL) THEN 1 ELSE 0 END) AS "column_values.nonnull.u
 ใน GX 1.9.3 ตัวเลขเดียวกันคือ 11, 14, 20 metric และ SQL 4 กับ 7 คำสั่ง เพราะ `table.row_count` ถูกคำนวณซ้ำหนึ่งตัวและส่งเป็นคำสั่งแยก ใน 1.24.1 ถูกรวมแล้ว หลักการเหมือนเดิม ตัวเลขขยับตามการปรับปรุงของแต่ละรุ่น อย่าเอาตัวเลขไปท่องเป็นค่าคงที่
 </Callout>
 
-ข้อมูลใหญ่ ต้นทุนหลักคือจำนวนครั้งที่ต้องไปถึงข้อมูล กับขนาดของสิ่งที่ส่งกลับมา การเลือกใช้ `BOOLEAN_ONLY` เมื่อไม่ต้องการรายละเอียด และการรวม expectation ที่ใช้คอลัมน์เดียวกัน คือคันโยกที่ทำได้ทันที
+บนข้อมูลใหญ่ ต้นทุนหลักคือจำนวนครั้งที่ต้องไปถึงข้อมูล กับขนาดของสิ่งที่ส่งกลับมา `BOOLEAN_ONLY` เมื่อไม่ต้องการรายละเอียด และการใช้ expectation กับคอลัมน์เดียวกันให้ได้ domain เดียวกัน ลดต้นทุนได้ทันที (วัดจำนวนคำสั่งไว้แล้ว ส่วนเวลาจริงบนข้อมูลใหญ่ไม่ได้วัด)
 
 </Step>
 
@@ -148,5 +148,15 @@ SELECT sum(CASE WHEN (id IS NULL) THEN 1 ELSE 0 END) AS "column_values.nonnull.u
 - suite มี 3 expectation ที่ถาม `age` ทั้งหมด `table.row_count` ถูกคำนวณกี่ครั้ง
 - ทำไมบน pandas ไม่มีการ "รวมคำสั่ง" แต่บน SQL มี
 - ข้อมูลหลายร้อยล้านแถวบน Spark ปรับอะไรที่ฝั่ง GX เพื่อลดการคำนวณได้บ้าง
+
+</Step>
+
+<Step>
+
+## หน้าย่อยของบทนี้
+
+1. ทะเบียน metric ในตัว GX: ค้นหา metric 315 ตัวว่ามีบน engine ไหน
+2. domain ของ metric และ row_condition: ทำไมเงื่อนไขกรองแถวทำให้คำสั่ง SQL เพิ่ม
+3. เมื่อ metric พัง GX ลองกี่ครั้ง: นับการเรียกฟังก์ชันที่พังเสมอ
 
 </Step>
