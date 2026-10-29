@@ -129,6 +129,10 @@ Scripts `07`, `11` to `15` in `../code/`. Scripts `07`, `11`, `12`, `13` were al
 | Actions run after all validations; `UpdateDataDocsAction` is moved to the front | ran / source | `06`, `checkpoint.py` |
 | An action that raises makes `Checkpoint.run` raise, the actions after it do not run, the results are already stored and Data Docs (if first) already built | ran | `06`, scratch |
 | `notify_on` is `all`, `success`, `failure`, or a failure severity | source | `should_notify` |
+| `SlackNotificationAction` against a local webhook: `all` always sends, `success` only on a pass, `failure` on any failure; `critical`/`warning`/`info` send only when the highest failed severity equals that level (a suite failing both warning and critical sends for `critical` and not for `warning`). The body has one key, `blocks` | ran (localhost server) | `27` |
+| A custom `ValidationAction` receives the `CheckpointResult` and an `ActionContext`; an action that raises still leaves the stored result in place | ran | `27` |
+| A file-context checkpoint that names a custom action type not imported in the loading process makes `get_context()` raise `ValidationActionRegistryRetrievalError`; this is loud, unlike the empty suite a missing custom expectation gives | ran | `27` |
+| Data Docs text (read back from HTML): the suite page lists each rule in words; the validation page shows `unknown % not null` and `--` at BOOLEAN_ONLY, and the unexpected values, counts, indexes and a retrieval query at COMPLETE | ran (HTML text only, not viewed in a browser) | `28` |
 | Built-in actions in 1.24.1: Slack, Teams, PagerDuty, Opsgenie, Email, SNS, API, UpdateDataDocs | ran (dir of module) | scratch |
 | File context layout (`gx/` with `great_expectations.yml`, `expectations/`, `checkpoints/`, `validation_definitions/`, `uncommitted/`); `gx/.gitignore` contains `uncommitted/` | ran | `06`, scratch |
 | Data Docs: `uncommitted/data_docs/local_site/index.html`, `expectations/<suite>.html`, `validations/<suite>/__none__/<run>/<batch>.html` | ran | `06` |

@@ -1,0 +1,106 @@
+---
+title: เขียน action เอง และ action ที่ล้ม
+summary: สร้าง ValidationAction ที่เขียนไฟล์สถานะ ดูว่ามันได้รับอะไร และทดลอง action ที่ raise เพื่อดูว่าผลตรวจที่เก็บไว้แล้วรอดหรือไม่
+order: 2
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import FlowFrames from '../../../../components/labs/great-expectations/FlowFrames';
+
+<Step>
+
+## action ที่เขียนไฟล์สถานะ
+
+บทหลักแสดงโครงของ `ValidationAction` ที่นี่รันจริง (`27_actions_notify.py` ส่วนที่ 3, GX 1.24.1)
+
+```python
+class WriteStatus(ValidationAction):
+    type: str = "write_status"
+    name: str = "write_status"
+    path: str = ""
+
+    def run(self, checkpoint_result, action_context=None):
+        Path(self.path).write_text("ok" if checkpoint_result.success else "failed")
+        return {"written": self.path}
+
+cp = gx.Checkpoint(name="cp_custom", validation_definitions=[vd],
+                   actions=[WriteStatus(path=str(out))])
+cp.run(batch_parameters={"dataframe": df})
+```
+
+ผลที่พิมพ์
+
+```text
+file content: failed | saw: {'context_type': 'ActionContext', 'success': False}
+```
+
+- ข้อมูลทำให้ suite ไม่ผ่าน ไฟล์จึงมีคำว่า `failed`
+- `run` ได้ `CheckpointResult` เต็ม (อ่าน `.success` ได้ และเข้าถึง `run_results` ได้เหมือนหน้า "อ่าน CheckpointResult" ของบทที่ 7) กับ `ActionContext` ตัวหนึ่ง
+- ฟิลด์ของ action (ที่นี่ `path`) ประกาศเป็นฟิลด์ pydantic แล้วส่งตอนสร้าง
+- ฟิลด์ `type` เป็นตัวบอกชื่อประเภทของ action ตอนเก็บ checkpoint ลงไฟล์ (คลาสถูกลงทะเบียนใน registry ด้วยค่า `type` ตอนนิยาม ตามคอมเมนต์ใน `MetaValidationAction` ของซอร์ส)
+
+ส่วนที่ 5 ของสคริปต์ทดลองสิ่งที่ custom expectation เจอเป็นกับดัก (บทที่ 12) กับ action: process A สร้าง checkpoint ที่มี `WriteStatus` ลงใน file context แล้ว process B ที่ไม่ได้ import คลาสนี้โหลด context
+
+```text
+B: ValidationActionRegistryRetrievalError | Invalid action configuration; no action of type write_status found.
+```
+
+ต่างจาก custom expectation ที่ suite โหลดมาว่างเงียบๆ กรณี action `get_context()` raise ทันทีและบอกชื่อ type ที่หาไม่เจอ ปัญหานี้จึงเห็นเร็วกว่า ทั้งสองกรณีมีต้นเหตุเดียวกัน คือคลาสต้องถูก import ก่อนจึงอยู่ใน registry
+
+</Step>
+
+<Step>
+
+## action ที่ raise
+
+`Boom.run` ตั้งใจ raise `RuntimeError("webhook is down")` สคริปต์รัน checkpoint ที่มี `Boom` เป็น action เดียว
+
+```text
+run raised: RuntimeError | webhook is down
+results stored anyway: 1
+```
+
+<FlowFrames
+  client:visible
+  title="เมื่อ action ล้ม ผลตรวจรอดหรือไม่"
+  width={760}
+  height={240}
+  boxes={[
+    { id: 'val', label: 'ตรวจข้อมูล', sub: 'validation', x: 10, y: 80 },
+    { id: 'store', label: 'เก็บผลลง store', sub: 'เก็บก่อน action', x: 220, y: 80, kind: 'store' },
+    { id: 'act', label: 'Action: Boom', sub: 'raise RuntimeError', x: 430, y: 80 },
+    { id: 'out', label: 'cp.run() raise', sub: 'ผลไม่ถูกคืน', x: 610, y: 80 },
+  ]}
+  arrows={[ { from: 'val', to: 'store' }, { from: 'store', to: 'act' }, { from: 'act', to: 'out' } ]}
+  frames={[
+    { title: 'ตรวจข้อมูล', text: 'validation ทำงานเสร็จ', on: ['val'], arrows: [] },
+    { title: 'เก็บผล', text: 'ผลถูกเขียนลง results store ก่อนที่ action ใดจะเริ่ม', on: ['val', 'store'], arrows: [0] },
+    { title: 'action raise', text: 'Boom.run raise RuntimeError', on: ['store', 'act'], arrows: [1] },
+    { title: 'checkpoint raise ออกมา', text: 'cp.run() raise ให้ผู้เรียก แต่ผลที่เก็บไว้แล้วยังอยู่ (นับได้ 1 รายการ)', on: ['act', 'out'], arrows: [2], tag: '27_actions_notify.py ส่วนที่ 4' },
+  ]}
+/>
+
+ดังนั้น Slack ที่ล่มไม่ทำให้ผลตรวจหาย แต่ทำให้ `cp.run()` raise และ action หลังจากนั้นไม่ถูกรัน (ทดลองใน `06_actions_docs.py`) pipeline ที่ไม่ได้ครอบ `try/except` จะล้มทั้งงานเพราะการแจ้งเตือนเสริม
+
+## รูปแบบที่ปลอดภัย
+
+```python
+def run(self, checkpoint_result, action_context=None):
+    try:
+        post_to_my_service(checkpoint_result)
+    except Exception as e:
+        logging.warning("notification failed: %s", e)
+    return {}
+```
+
+รูปนี้เป็นข้อเสนอจากพฤติกรรมที่ทดลองแล้ว (action ที่ raise ลาก checkpoint ล้ม) ตัวโค้ดนี้เองไม่ได้รัน
+
+<Callout type="note" title="ผลข้างเคียงของการกลืน error">
+action ที่กลืน error จะไม่แจ้งว่าการแจ้งเตือนล้ม ควรเขียน log ไว้เสมอ ไม่เช่นนั้นทีมจะเข้าใจว่าไม่มีเหตุ ทั้งที่ข้อความไปไม่ถึง
+</Callout>
+
+</Step>

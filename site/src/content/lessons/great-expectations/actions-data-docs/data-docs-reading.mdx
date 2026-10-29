@@ -1,0 +1,62 @@
+---
+title: อ่าน Data Docs ให้เป็น
+summary: ดึงข้อความจาก HTML ของ Data Docs มาอ่านทีละหน้า แล้วเทียบหน้าผลตรวจเมื่อ result_format เป็น BOOLEAN_ONLY กับ COMPLETE
+order: 3
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Variants from '../../../../components/labs/great-expectations/Variants';
+
+<Step>
+
+## สามหน้าที่ต้องรู้จัก
+
+`28_data_docs_text.py` สร้าง file context ที่มี suite สองกฎ (`name` ไม่เป็น null, `age` ระหว่าง 0 ถึง 120) และ checkpoint ที่มี `UpdateDataDocsAction` รันกับข้อมูลที่ล้มทั้งสองข้อ แล้วดึงข้อความที่มองเห็นจาก HTML (GX 1.24.1) ผลที่เห็น
+
+| หน้า | ข้อความที่เห็น |
+|---|---|
+| `index.html` | หัว "Data Docs created by Great Expectations" แท็บ "Validation Results" กับ "Expectation Suites" ปุ่ม Clear Filters และส่วนท้ายเชิญสมัครข่าวสาร (ปิดได้ด้วย `show_how_to_buttons`) |
+| `expectations/people_suite.html` | ชื่อ suite, เวอร์ชัน GX, "This Expectation suite currently contains 2 total Expectations across 2 columns." แล้วแยกตามคอลัมน์ เช่น `age`: "values must be greater than or equal to 0.0 and less than or equal to 120.0." และ `name`: "values must never be null." |
+| `validations/.../<run>/<batch>.html` | สถานะ Failed หรือ Passed ตาราง Statistics (Evaluated, Successful, Unsuccessful, Success Percent) ข้อมูล run และ batch แล้วแยกตามคอลัมน์ |
+
+หน้า suite เป็นภาษามนุษย์ของ expectation ซึ่งเจ้าของข้อมูลอ่านแล้วตรวจกฎได้โดยไม่ต้องอ่านโค้ด
+
+</Step>
+
+<Step>
+
+## หน้าผลตรวจ: result_format เปลี่ยนสิ่งที่เห็น
+
+รัน checkpoint เดียวกันสองครั้ง ต่างกันที่ `result_format` ของ checkpoint สลับแท็บดูข้อความของส่วน `age` และ `name` ในหน้าผลตรวจ
+
+<Variants
+  client:visible
+  title="หน้าผลตรวจที่ BOOLEAN_ONLY กับ COMPLETE"
+  variants={[
+    {
+      label: 'BOOLEAN_ONLY',
+      code: `gx.Checkpoint(..., result_format="BOOLEAN_ONLY")`,
+      output: `age\n  Status | Expectation | Observed Value\n  values must be >= 0.0 and <= 120.0 .\n  --\n\nname\n  values must never be null.\n  unknown % not null\n\n(หน้ามี 65 ส่วนข้อความ, 24.7 KB)`,
+      reading: 'หน้าบอกแค่ Failed กับข้อความของกฎ ช่องค่าที่สังเกตได้เป็น "--" และสัดส่วนเป็น "unknown % not null" ไม่มีค่าที่ผิดให้ดู',
+      bad: true,
+    },
+    {
+      label: 'COMPLETE',
+      code: `gx.Checkpoint(..., result_format="COMPLETE")`,
+      output: `age\n  values must be >= 0.0 and <= 120.0 .\n  1 unexpected values found. ≈33.33% of 3 total rows.\n  Unexpected Value | Count | Index\n  300 | 1 | 2\n  To retrieve all unexpected values...\n  df.filter(items=[2], axis=0)\n  ≈33.333% unexpected\n\nname\n  values must never be null.\n  1 unexpected values found. ≈33.33% of 3 total rows.\n  null | 1 | 1\n  df.filter(items=[1], axis=0)\n  ≈66.667% not null\n\n(หน้ามี 83 ส่วนข้อความ, 28.5 KB)`,
+      reading: 'หน้ามีจำนวนและสัดส่วนที่ผิด ตารางค่าที่ผิดพร้อมลำดับแถว และคำสั่งดึงแถวที่ผิดมาดูเอง',
+    },
+  ]}
+/>
+
+ถ้าเอา Data Docs ไปให้ทีมดู ระดับ `BOOLEAN_ONLY` ให้หน้าที่บอกได้แค่ว่าล้ม ทีมต้องไปหาเหตุเอง ระดับ `COMPLETE` ให้ค่าที่ผิดและแถวที่ผิดในหน้าเดียว ดังที่บทที่ 4 บอกว่าผลละเอียดแลกกับการคำนวณเพิ่ม
+
+<Callout type="note" title="อ่านจากข้อความ ไม่ใช่จากภาพ">
+ส่วนนี้ได้จากการดึงข้อความของ HTML ด้วยสคริปต์ ไม่ได้เปิดดูหน้าในเบราว์เซอร์ จึงไม่ได้ตรวจสี การจัดวาง หรือการกรอง "Failed Only" ที่ใช้งานได้จริง และไม่ได้ทดลองการตั้ง site ไปยัง object storage
+</Callout>
+
+</Step>
