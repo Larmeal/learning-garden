@@ -42,6 +42,8 @@ Evidence levels: **ran** = observed by running code, **source** = read in the co
 | On Spark, bundled metrics become one `df.agg(...).collect()` per domain | source only | `sparkdf_execution_engine.py` |
 | pandas computes immediately and has no bundling | source | `execution_engine.py` docstring |
 | A partitioned SQL batch becomes a WHERE clause | ran (SQLite) | scratch |
+| A daily-partitioned run on SQLite sends 3 statements: a `SELECT distinct(...)` over the date column of the whole table (no WHERE) to list batches, then `row_count` and the metric query, both wrapped in a WHERE built from `STRFTIME` casts (dialect-compiled; the default-dialect form shows `EXTRACT`) | ran (SQLite) | `30` |
+| `SUPPORTED_DATA_SOURCES` is a module-level list in each expectation file (54 modules in 1.24.1: Spark 48, Pandas 46, SQLite 51, PostgreSQL 53). It documents support; it is not checked at run time | ran (module inspection) | `30` |
 
 ## Results and traps
 
