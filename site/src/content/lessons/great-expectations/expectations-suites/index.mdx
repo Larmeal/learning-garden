@@ -7,7 +7,7 @@ level: 2
 stage: sprout
 format: steps
 requires: [first-validation]
-updated: 2026-10-27
+updated: 2026-10-29
 ---
 
 import Step from '../../../../components/Step.astro';
@@ -18,16 +18,16 @@ import MostlyLab from '../../../../components/labs/great-expectations/MostlyLab'
 
 ## expectation มีหกตระกูล
 
-GX 1.24.1 มี expectation ให้เกือบหกสิบตัวในโฟลเดอร์ `expectations/core/` ในซอร์สมันแบ่งเป็นตระกูลตามชนิดคำถาม และตระกูลนี้เองกำหนดว่า GX ต้องคำนวณอะไร (บทที่ 8)
+expectation ที่ GX ให้มาอยู่ในโฟลเดอร์ `expectations/core/` และแบ่งเป็นตระกูลตามชนิดคำถาม ตระกูลเป็นตัวกำหนดว่า GX ต้องคำนวณอะไร (บทที่ 8)
 
 | ตระกูล | ถามอะไร | ตัวอย่าง | จำนวนใน 1.9.3* |
 |---|---|---|---|
-| **column map** | ถามทุกแถวของคอลัมน์ แล้วนับสัดส่วนที่ผิด | `ExpectColumnValuesToNotBeNull`, `...ToBeBetween`, `...ToMatchRegex` | 26 |
-| **column aggregate** | ถามค่าสรุปหนึ่งค่าของคอลัมน์ | `ExpectColumnMaxToBeBetween`, `ExpectColumnMeanToBeBetween` | 15 |
-| **table** (batch) | ถามเรื่องทั้งตาราง | `ExpectTableRowCountToEqual`, `ExpectTableColumnsToMatchSet` | 13 |
-| **column pair map** | เทียบสองคอลัมน์ทีละแถว | `ExpectColumnPairValuesAToBeGreaterThanB` | 3 |
-| **multicolumn map** | ถามหลายคอลัมน์ทีละแถว | `ExpectCompoundColumnsToBeUnique` | 3 |
-| **query** | ถามผลของ SQL ที่เขียนเอง | `ExpectQueryResultsToMatchComparison` | 1 |
+| column map | ถามทุกแถวของคอลัมน์ แล้วนับสัดส่วนที่ผิด | `ExpectColumnValuesToNotBeNull`, `...ToBeBetween`, `...ToMatchRegex` | 26 |
+| column aggregate | ถามค่าสรุปหนึ่งค่าของคอลัมน์ | `ExpectColumnMaxToBeBetween`, `ExpectColumnMeanToBeBetween` | 15 |
+| table (batch) | ถามเรื่องทั้งตาราง | `ExpectTableRowCountToEqual`, `ExpectTableColumnsToMatchSet` | 13 |
+| column pair map | เทียบสองคอลัมน์ทีละแถว | `ExpectColumnPairValuesAToBeGreaterThanB` | 3 |
+| multicolumn map | ถามหลายคอลัมน์ทีละแถว | `ExpectCompoundColumnsToBeUnique` | 3 |
+| query | ถามผลของ SQL ที่เขียนเอง | `ExpectQueryResultsToMatchComparison` | 1 |
 
 \* นับจากการอ่านซอร์ส 1.9.3 ตัวเลขใน 1.24.1 อาจต่างเล็กน้อย รายการทางการอยู่ที่ Expectations Gallery บน greatexpectations.io
 
@@ -39,8 +39,8 @@ GX 1.24.1 มี expectation ให้เกือบหกสิบตัวใ
 
 ## column map กับ aggregate ตัดสินต่างกัน
 
-- **column map** นับว่าแถวไหนผิด ผลบอก `unexpected_count`, `unexpected_percent` และตัวอย่างค่าที่ผิด จึงใช้ `mostly` ได้
-- **aggregate** ได้ค่าเดียว เช่น `column.max` แล้วเทียบกับช่วงที่กำหนด ผลบอก `observed_value`
+- column map นับว่าแถวไหนผิด ผลบอก `unexpected_count`, `unexpected_percent` และตัวอย่างค่าที่ผิด จึงใช้ `mostly` ได้
+- aggregate ได้ค่าเดียว เช่น `column.max` แล้วเทียบกับช่วงที่กำหนด ผลบอก `observed_value`
 
 ตัวอย่าง `ExpectColumnMaxToBeBetween(column="age", min_value=0, max_value=120)` กับ `age = [10, None, 30, 400]` ได้ `observed_value = 400.0` และไม่ผ่าน มันไม่บอกว่าแถวไหนผิด ถ้าต้องรู้แถว ให้ใช้ `ExpectColumnValuesToBeBetween`
 
@@ -54,7 +54,7 @@ GX 1.24.1 มี expectation ให้เกือบหกสิบตัวใ
 
 `(แถวที่พิจารณา - แถวที่ผิด) / แถวที่พิจารณา ≥ mostly`
 
-แถวที่เป็น null **ไม่ถูกนับ** ในแถวที่พิจารณา (สำหรับ expectation ส่วนใหญ่ในตระกูลนี้) ทดลองแล้ว: `age = [10, None, 30, 400]` กับ `ExpectColumnValuesToBeBetween(0..120)` พิจารณา 3 แถว ผิด 1 แถว สัดส่วน 0.667 ผ่านเมื่อ `mostly=0.66` และไม่ผ่านเมื่อ `mostly=0.67`
+แถวที่เป็น null ไม่ถูกนับในแถวที่พิจารณา (สำหรับ expectation ส่วนใหญ่ในตระกูลนี้) ทดลองแล้ว: `age = [10, None, 30, 400]` กับ `ExpectColumnValuesToBeBetween(0..120)` พิจารณา 3 แถว ผิด 1 แถว สัดส่วน 0.667 ผ่านเมื่อ `mostly=0.66` และไม่ผ่านเมื่อ `mostly=0.67`
 
 <MostlyLab client:visible />
 
@@ -99,7 +99,7 @@ vd.run(batch_parameters={"dataframe": df}, expectation_parameters={"expected_row
 | ดูข้อมูลจริง | ช่วงค่า, สัดส่วน null ปกติ | ถ้าข้อมูลวันนี้เสียอยู่แล้ว จะเขียนกฎจากข้อมูลเสีย |
 | สถิติย้อนหลัง | จำนวนแถวต่อวัน | ต้องเผื่อฤดูกาลและวันหยุด |
 
-เริ่มจากกฎที่ถ้าผิดแล้วเสียหายมากที่สุดก่อน (key ห้ามซ้ำ, จำนวนแถวห้ามเป็นศูนย์) อย่าพยายามเขียนครบทุกคอลัมน์ในรอบแรก
+เริ่มจากกฎที่ถ้าผิดแล้วเสียหายมากที่สุด (key ห้ามซ้ำ จำนวนแถวห้ามเป็นศูนย์) การเขียนให้ครบทุกคอลัมน์ในรอบแรกไม่จำเป็น
 
 </Step>
 
@@ -110,5 +110,15 @@ vd.run(batch_parameters={"dataframe": df}, expectation_parameters={"expected_row
 - ต้องการรู้ว่า "อายุเกิน 120 กี่แถว" ควรใช้ expectation ตระกูลไหน
 - `mostly=0.9` กับข้อมูล 10 แถว ผิดได้กี่แถวพอดีจึงจะยังผ่าน (ไม่มี null)
 - เพิ่ม expectation เดิมซ้ำสองครั้งแล้ว `len(suite.expectations)` เป็นเท่าไร
+
+</Step>
+
+<Step>
+
+## หน้าย่อยของบทนี้
+
+1. หกตระกูลที่เห็นจากผลจริง: รัน 13 expectation แล้วเทียบผล พร้อมผังเลือกตระกูล
+2. null และลำดับของผล: แต่ละตระกูลปฏิบัติต่อ null ต่างกัน และผลไม่เรียงตาม suite
+3. แก้ suite ที่อยู่ใน context แล้ว: อะไรนับว่าซ้ำ แก้ ลบ และบันทึกอย่างไร
 
 </Step>

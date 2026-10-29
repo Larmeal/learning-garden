@@ -1,0 +1,92 @@
+---
+title: หกตระกูลที่เห็นจากผลจริง
+summary: รัน expectation สิบสามข้อจากทุกตระกูลบนตารางเดียว ดูว่าแต่ละตระกูลคืนผลหน้าตาอย่างไร แล้วใช้ผังเลือกตระกูลที่ตรงกับกฎที่กำลังจะเขียน
+order: 1
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Decision from '../../../../components/labs/great-expectations/Decision';
+
+<Step>
+
+## ตารางข้อมูลและสิบสามกฎ
+
+สคริปต์ `19_catalog_nulls.py` สร้างตาราง 5 แถว มีคอลัมน์ `id`, `age` (มี null หนึ่งแถวและค่า 400), `plan` (มี null หนึ่งแถว), `start`, `end`, `a`, `b` แล้วรัน expectation สิบสามข้อใน suite เดียว (GX 1.24.1) ผลจัดตามตระกูล
+
+| ตระกูล | ตัวอย่างที่รัน | key ใน `result` |
+|---|---|---|
+| column map | `ExpectColumnValuesToBeBetween`, `...ToBeInSet`, `...ToBeUnique`, `...ToMatchRegex` | `element_count`, `missing_count`, `unexpected_count`, `unexpected_percent`, `partial_unexpected_list` และ key ที่เกี่ยวกับ index |
+| column map ที่ทดสอบ null เอง | `ExpectColumnValuesToNotBeNull`, `...ToBeNull` | เหมือนข้างบน แต่ไม่มี `missing_count` |
+| column aggregate | `ExpectColumnMaxToBeBetween`, `...MeanToBeBetween` | `observed_value` อย่างเดียว |
+| column aggregate (ชุดค่า) | `ExpectColumnDistinctValuesToBeInSet` | `observed_value`, `unexpected_count`, `partial_unexpected_list` |
+| column pair map | `ExpectColumnPairValuesAToBeGreaterThanB` | key ชุดเดียวกับ column map |
+| multicolumn map | `ExpectCompoundColumnsToBeUnique` | key ชุดเดียวกับ column map |
+| table (batch) | `ExpectTableRowCountToEqual`, `...ColumnCountToEqual` | `observed_value` อย่างเดียว |
+
+ตระกูล map ทั้งสามแบบ (column, pair, multicolumn) ให้ผลหน้าตาเดียวกัน เพราะทั้งหมดนับแถวที่ผิด ส่วน aggregate กับ table ได้ค่าเดียว
+
+สองจุดที่ไม่ตรงกับที่คาด
+
+- `ExpectColumnDistinctValuesToBeInSet` ได้ `observed_value` เป็น `None` ทั้งที่ผ่านและไม่ผ่าน ถ้าต้องการรู้ว่ามีค่าอะไรบ้างต้องดู `partial_unexpected_list` ของมัน (ทดลองเพิ่มด้วยข้อมูลที่มีและไม่มี null ได้ผลเหมือนกัน)
+- `ExpectColumnMeanToBeBetween(0, 120)` กับ `age = [10, None, 30, 40, 400]` ได้ค่าเฉลี่ย 120.0 พอดีและผ่าน เพราะช่วงรวมปลายทั้งสองข้าง และค่าเฉลี่ยคิดจาก 4 ค่าที่ไม่ใช่ null (500 ÷ 4)
+
+</Step>
+
+<Step>
+
+## เลือกตระกูลจากคำถามที่อยากถาม
+
+ตอบทีละข้อ ผังนี้สรุปตารางข้างบนเป็นลำดับคำถาม
+
+<Decision
+  client:visible
+  title="กฎของฉันควรอยู่ตระกูลไหน"
+  start="q1"
+  nodes={[
+    { id: 'q1', q: 'กฎนี้ตัดสินจากอะไร', options: [
+      { label: 'ค่าของแต่ละแถว', to: 'q2' },
+      { label: 'ตัวเลขสรุปหนึ่งค่า', to: 'q3' },
+      { label: 'ผลของ SQL ที่ฉันเขียนเอง', to: 'a-query' } ] },
+    { id: 'q2', q: 'ใช้กี่คอลัมน์ต่อแถว', options: [
+      { label: 'หนึ่งคอลัมน์', to: 'a-map' },
+      { label: 'สองคอลัมน์เทียบกัน', to: 'a-pair' },
+      { label: 'หลายคอลัมน์รวมกัน', to: 'a-multi' } ] },
+    { id: 'q3', q: 'ตัวเลขสรุปเป็นของอะไร', options: [
+      { label: 'คอลัมน์หนึ่ง (ค่าสูงสุด ค่าเฉลี่ย ชุดของค่าที่ไม่ซ้ำ)', to: 'a-agg' },
+      { label: 'ทั้งตาราง (จำนวนแถว จำนวนหรือชื่อคอลัมน์)', to: 'a-table' } ] },
+    { id: 'a-map', answer: 'column map', text: 'ผลบอกจำนวนและตัวอย่างแถวที่ผิด ใช้ mostly ได้ เช่น ExpectColumnValuesToBeBetween' },
+    { id: 'a-pair', answer: 'column pair map', text: 'เช่น ExpectColumnPairValuesAToBeGreaterThanB ผลหน้าตาเหมือน column map' },
+    { id: 'a-multi', answer: 'multicolumn map', text: 'เช่น ExpectCompoundColumnsToBeUnique ผลหน้าตาเหมือน column map' },
+    { id: 'a-agg', answer: 'column aggregate', text: 'ได้ค่าเดียว (observed_value) ไม่บอกว่าแถวไหนผิด และไม่ใช้ mostly' },
+    { id: 'a-table', answer: 'table (batch)', text: 'เช่น ExpectTableRowCountToEqual ได้ observed_value ค่าเดียวของทั้งตาราง' },
+    { id: 'a-query', answer: 'query / unexpected rows', text: 'ใช้ UnexpectedRowsExpectation ที่รับ SQL ผลต้องไม่มีแถวเลยจึงผ่าน บทที่ 12 มีตัวอย่างที่รันแล้ว' },
+  ]}
+  caption="ผังนี้เลือกตระกูล ไม่ได้เลือกตัวที่ใช่ในตระกูล รายชื่อทั้งหมดดูที่ Expectations Gallery บนเว็บของ GX"
+/>
+
+</Step>
+
+<Step>
+
+## จำนวนแต่ละตระกูล
+
+จำนวน expectation ต่อตระกูลนับจากการอ่านซอร์ส 1.9.3 (ไม่ได้นับใหม่บน 1.24.1)
+
+| ตระกูล | จำนวนใน 1.9.3 |
+|---|---|
+| column map | 26 |
+| column aggregate | 15 |
+| table (batch) | 13 |
+| column pair map | 3 |
+| multicolumn map | 3 |
+| query | 1 |
+
+<Callout type="note" title="รายการทางการ">
+Expectations Gallery บนเว็บของ GX เป็นรายการล่าสุดและมีตัวอย่างต่อ expectation รายการที่นี่เป็นรายการที่ทดลองรันเท่านั้น
+</Callout>
+
+</Step>
