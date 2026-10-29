@@ -46,7 +46,7 @@ export default function MetricLookup() {
           placeholder="เช่น column.max หรือ nonnull"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          style={{ font: 'inherit', padding: '6px 12px', borderRadius: 10, border: '2px solid var(--line-strong)', background: 'var(--surface)', color: 'var(--fg)', minWidth: 220 }}
+          style={{ font: 'inherit', padding: '6px 12px', borderRadius: 10, border: '2px solid var(--line-strong)', background: 'var(--surface)', color: 'var(--fg)', minWidth: 280 }}
         />
         <div className="viz-steps" role="group" aria-label="ตัวกรอง">
           {([['all', 'ทั้งหมด'], ['all3', 'มีครบสาม engine'], ['no-p', 'ไม่มี pandas'], ['no-s', 'ไม่มี SQL'], ['no-k', 'ไม่มี Spark']] as [Filter, string][]).map(([k, l]) => (
@@ -65,7 +65,7 @@ export default function MetricLookup() {
 
       <ul className="gx-results" style={{ maxHeight: 340, overflowY: 'auto' }}>
         {rows.slice(0, 60).map((r) => (
-          <li key={r.name} data-ok={r.bits === 7 ? 'true' : 'false'}>
+          <li key={r.name} data-ok={r.bits === 7 ? 'true' : undefined}>
             <code>{r.name}</code>
             <span className="gx-detail">
               {ENGINES.map((e) => (r.bits & e.bit ? `✓ ${e.label}` : `✗ ${e.label}`)).join('   ')}

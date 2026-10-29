@@ -23,10 +23,10 @@ export default function FileExplorer({ title, files, caption }: Props) {
     <figure className="viz">
       <div className="viz-title">{title}</div>
       <div className="gx-split">
-        <ul className="gx-files" style={{ flex: '1 1 300px' }}>
+        <ul className="gx-filelist">
           {files.map((x, n) => (
-            <li key={x.path} data-match={k === n ? 'true' : undefined}>
-              <button type="button" className="gx-tree-key" aria-pressed={k === n} onClick={() => setK(n)} style={{ textAlign: 'left' }}>
+            <li key={x.path} data-sel={k === n ? 'true' : undefined}>
+              <button type="button" className="gx-filebtn" aria-pressed={k === n} onClick={() => setK(n)}>
                 <code>{x.path}</code>
               </button>
               <span className="gx-detail">{x.note}</span>
