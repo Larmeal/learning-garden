@@ -1,0 +1,152 @@
+---
+title: Metric และ Execution Engine
+summary: expectation ไม่อ่านข้อมูลเอง มันขอ metric ให้ engine คำนวณ นี่คือเหตุผลที่ suite เดียวรันได้หลาย backend และเป็นที่มาของต้นทุน
+order: 8
+phase: B
+level: 4
+stage: sprout
+format: steps
+requires: [validation-checkpoints, reading-results]
+updated: 2026-10-27
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import MetricRounds from '../../../../components/labs/great-expectations/MetricRounds';
+
+<Step>
+
+## expectation ไม่ได้อ่านข้อมูลเอง
+
+ถ้า `ExpectColumnMaxToBeBetween` เขียนโค้ดอ่านข้อมูลเอง มันต้องรู้ว่าข้อมูลอยู่ใน pandas, Spark หรือฐานข้อมูล แล้ว expectation หกสิบตัวก็ต้องเขียนใหม่ทุก backend GX แก้ด้วยการแยกงานเป็นสองส่วน
+
+- **expectation** ประกาศว่าต้องใช้ *metric* อะไร (`column.max` ของคอลัมน์ `age`) แล้วตัดสินผลจากค่าที่ได้
+- **execution engine** (pandas, Spark, SQLAlchemy) รู้วิธีคำนวณ metric นั้นบน backend ของตัวเอง
+
+**metric** คือข้อเท็จจริงที่มีชื่อเกี่ยวกับข้อมูล เช่น `table.row_count`, `column.max`, `column_values.nonnull.condition` expectation หลายข้อใช้ metric เดียวกันได้ นี่คือแกนของ GX ทั้งระบบ
+
+</Step>
+
+<Step>
+
+## ประกาศ แล้วค่อยตัดสิน
+
+ทุก expectation ต้องมีสองเมธอดในซอร์ส (`expectations/expectation.py`)
+
+1. `get_validation_dependencies()`: คืนรายการ metric ที่ต้องใช้
+2. `_validate(metrics=...)`: รับค่า metric ที่ได้มาแล้วคืน `success` กับ `result`
+
+ระหว่างสองขั้นนี้ GX ทำงานแทน: รวมคำขอ metric จากทุก expectation ใน suite เป็นกราฟเดียว (`Validator.graph_validate`) แล้วให้ engine คำนวณ ตัว expectation เองไม่รู้ว่า backend คืออะไร
+
+ลองนึกถึงเส้นทาง Spark ในสวนนี้: DataFrame API ที่คุณเขียนเป็นแผน ไม่ได้ลงมือทันที Catalyst ปรับแผนก่อนรัน GX มีแนวคิดคล้ายกัน expectation เป็นคำขอ แล้ว GX รวมและจัดลำดับก่อนให้ engine ลงมือ
+
+</Step>
+
+<Step>
+
+## ลองดูมันคำนวณ
+
+<MetricRounds client:visible />
+
+สิ่งที่ควรสังเกตจากแล็บ (ทั้งหมดวัดจาก GX 1.24.1 จริง)
+
+- **ทุก expectation ระดับคอลัมน์จ่าย "ค่าเปิดโต๊ะ" เท่ากัน**: `table.column_types`, `table.row_count` และ `table.columns` มาก่อนเสมอ ลองเลือก expectation ข้อเดียวแล้วดูรอบที่ 1 กับ 2 expectation จำนวนแถว (`ExpectTableRowCountToEqual`) ข้อเดียวใช้แค่ `table.row_count` ตัวเดียว
+- **metric ที่ใช้ร่วมกันคำนวณครั้งเดียว**: เลือก "not null id" กับ "unique id" ด้วยกัน จะเห็น `column_values.nonnull.condition` ของ `id` ปรากฏครั้งเดียว ทั้งที่สอง expectation ต่างใช้มัน
+- **รอบกำหนดโดย dependency**: metric ในรอบหนึ่งต้องไม่รอผลของกันและกัน รอบถัดไปใช้ผลของรอบก่อน (เช่น `unexpected_count` ต้องรอ `condition`)
+- **result_format เปลี่ยนรอบสุดท้าย**: สลับ BOOLEAN_ONLY เป็น SUMMARY แล้วดูรอบสุดท้ายโตขึ้นมาก เพราะต้องคำนวณตัวอย่างค่าที่ผิดและดัชนีของแถว
+
+</Step>
+
+<Step>
+
+## หนึ่งชื่อ หลาย implementation
+
+metric หนึ่งตัวถูกเขียนแยกตาม engine ตัวอย่างจริงจากซอร์ส `column.max`
+
+```python
+class ColumnMax(ColumnAggregateMetricProvider):
+    metric_name = "column.max"
+
+    @column_aggregate_value(engine=PandasExecutionEngine)
+    def _pandas(cls, column, **kwargs):
+        return column.max()
+
+    @column_aggregate_partial(engine=SqlAlchemyExecutionEngine)
+    def _sqlalchemy(cls, column, **kwargs):
+        return sa.func.max(column)
+
+    @column_aggregate_partial(engine=SparkDFExecutionEngine)
+    def _spark(cls, column, **kwargs):
+        return F.max(column)
+```
+
+ตอนนิยามคลาส GX ลงทะเบียนแต่ละเมธอดเข้า registry ภายใต้ชื่อ `column.max` และคลาสของ engine ตอนรัน `get_metric_provider(metric_name, engine)` หา implementation ที่ตรงกับ engine (ถ้าไม่เจอตรง จะไล่ดูคลาสแม่ตาม MRO) ถ้าไม่มี implementation สำหรับ engine นั้นเลย expectation นั้นล้มด้วย `No provider found for ...` (บทที่ 12)
+
+</Step>
+
+<Step>
+
+## สองแบบ: คำนวณทันที กับเลื่อนไว้รวม
+
+สังเกตว่า pandas ใช้ `column_aggregate_value` แต่ SQL กับ Spark ใช้ `column_aggregate_partial` ต่างกันอย่างเป็นระบบ
+
+| แบบ | ทำอะไร | ใช้กับ |
+|---|---|---|
+| **value** | คำนวณเดี๋ยวนั้นและคืนค่า | pandas (การคำนวณเกิดทันทีใน memory) |
+| **partial** (aggregate) | คืน "นิพจน์" ที่ยังไม่รัน เช่น `sa.func.max(column)` | SQL และ Spark ที่เลื่อนการรันได้ |
+
+เพราะ partial ยังไม่รัน GX จึง **รวมหลาย metric ที่อยู่ใน domain เดียวกันเป็นคำสั่งเดียว** ได้ จากการรันกับ SQLite (`05_sql_bundling.py`, suite 6 ข้อ, `BOOLEAN_ONLY`)
+
+```sql
+SELECT count(*) AS "table.row_count" FROM (SELECT * FROM users WHERE 1 = 1) AS anon_1
+SELECT avg(1.0 * age) AS "column.mean", max(age) AS "column.max" FROM (...) AS anon_1
+SELECT sum(CASE WHEN (id IS NULL) THEN 1 ELSE 0 END) AS "column_values.nonnull.unexpected_count",
+       sum(CASE WHEN (age IS NULL) THEN 1 ELSE 0 END) AS "...", ... FROM (...) AS anon_1
+```
+
+`avg` และ `max` ถูกส่งไปใน SELECT เดียวกัน และ null count ของหลายคอลัมน์รวมเป็นอีกคำสั่ง สำหรับ Spark ซอร์สทำแบบเดียวกันด้วย `df.agg(*aggregates).collect()` ครั้งเดียวต่อ domain (อ่านจากซอร์ส ยังไม่ได้รันยืนยัน)
+
+</Step>
+
+<Step>
+
+## ต้นทุนมาจากไหน
+
+จากการวัด
+
+| อะไร | เห็นอะไร |
+|---|---|
+| `result_format` | suite ตัวอย่าง (5 ข้อ) ใช้ 10, 13, 19, 19 metric สำหรับ BOOLEAN_ONLY, BASIC, SUMMARY, COMPLETE |
+| จำนวน expectation | ค่าเปิดโต๊ะจ่ายครั้งเดียว metric ของคอลัมน์เดียวกันใช้ร่วมกัน แต่ละคอลัมน์ใหม่เพิ่มของมันเอง |
+| รันซ้ำ | คำนวณใหม่ทั้งหมด (19 แล้ว 19) ไม่มี cache ข้ามรอบ |
+| backend | pandas: ทีละ metric ใน memory SQL: 6 expectation เหลือ 3 คำสั่ง (BOOLEAN_ONLY) หรือ 6 คำสั่ง (SUMMARY) |
+
+<Callout type="note" title="ตัวเลขต่างกันตามรุ่น">
+ใน GX 1.9.3 ตัวเลขเดียวกันคือ 11, 14, 20 metric และ SQL 4 กับ 7 คำสั่ง เพราะ `table.row_count` ถูกคำนวณซ้ำหนึ่งตัวและส่งเป็นคำสั่งแยก ใน 1.24.1 ถูกรวมแล้ว หลักการเหมือนเดิม ตัวเลขขยับตามการปรับปรุงของแต่ละรุ่น อย่าเอาตัวเลขไปท่องเป็นค่าคงที่
+</Callout>
+
+ข้อมูลใหญ่ ต้นทุนหลักคือจำนวนครั้งที่ต้องไปถึงข้อมูล กับขนาดของสิ่งที่ส่งกลับมา การเลือกใช้ `BOOLEAN_ONLY` เมื่อไม่ต้องการรายละเอียด และการรวม expectation ที่ใช้คอลัมน์เดียวกัน คือคันโยกที่ทำได้ทันที
+
+</Step>
+
+<Step>
+
+## เมื่อ metric พัง
+
+ใน `ValidationGraph` ถ้า metric หนึ่งคำนวณไม่สำเร็จ GX ลองซ้ำได้สูงสุด 3 ครั้ง (`MAX_METRIC_COMPUTATION_RETRIES`) ถ้ายังไม่ได้ จะ "ยกเลิก" metric นั้น แล้วทุก expectation ที่พึ่งมันได้ผล `success=False` พร้อม `exception_info` ส่วน expectation ที่ไม่เกี่ยวข้องยังถูกประเมินตามปกติ นี่คือกลไกเบื้องหลังที่บทที่ 4 เห็นเป็น "expectation พังไม่ raise"
+
+## ลองทำใน repo นี้
+
+เปิด `02_metric_rounds.py`
+
+1. เพิ่ม expectation ตัวที่หกที่ถามคอลัมน์ `name` แล้วดูว่ารอบและ metric เปลี่ยนไปเท่าไร
+2. เปลี่ยนเป็น `ResultFormat.BOOLEAN_ONLY` ทั้งสคริปต์ แล้วเทียบจำนวน metric
+3. รัน `05_sql_bundling.py` และอ่านคำสั่ง SQL ทีละบรรทัด หา `CASE WHEN` ของแต่ละ expectation
+
+## เช็กตัวเอง
+
+- suite มี 3 expectation ที่ถาม `age` ทั้งหมด `table.row_count` ถูกคำนวณกี่ครั้ง
+- ทำไมบน pandas ไม่มีการ "รวมคำสั่ง" แต่บน SQL มี
+- ข้อมูลหลายร้อยล้านแถวบน Spark ปรับอะไรที่ฝั่ง GX เพื่อลดการคำนวณได้บ้าง
+
+</Step>

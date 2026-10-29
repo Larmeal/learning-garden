@@ -1,0 +1,137 @@
+---
+title: Internals (อ่านโค้ด GX)
+summary: แผนที่ของโค้ด GX จาก knowledge graph เส้นทางเรียกจริงที่ตรวจแล้ว และวิธีอ่านซอร์สโดยใช้การทดลองช่วย
+order: 13
+phase: E
+level: 5
+stage: sprout
+format: steps
+requires: [metrics-engines, actions-data-docs, context-stores]
+updated: 2026-10-27
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import SourceMap from '../../../../components/labs/great-expectations/SourceMap';
+
+<Step>
+
+## ทำไมต้องอ่านซอร์ส
+
+บทก่อนหน้าสอนวิธีใช้ GX จากพฤติกรรมที่สังเกตได้ แต่หลายเรื่องในเส้นทางนี้ (ตารางว่างผ่าน, suite ว่างจาก custom expectation, ลำดับของ action) ไม่มีในเอกสาร และพบได้เพราะเปิดซอร์สแล้วทดลองตาม บทนี้ให้แผนที่สำหรับทำแบบนั้นต่อ เหมาะเมื่อ
+
+- ผลของ GX ไม่ตรงที่คาดและเอกสารไม่ตอบ
+- ต้องเขียน expectation, action หรือ metric เอง
+- อยากรู้ว่ารุ่นใหม่เปลี่ยนอะไรก่อนอัปเกรด
+
+</Step>
+
+<Step>
+
+## แผนที่จาก knowledge graph
+
+`subjects/great-expectations/graphs/gx-current/` เป็น graph ของ package `great_expectations` รุ่น 1.9.3 (548 ไฟล์ 1,664 node) แบ่งเป็น 9 layer
+
+| layer | node | ว่าด้วย | ไปอ่านเมื่อ |
+|---|---|---|---|
+| Foundation and Compatibility | 43 | decorator, exception, shim ของไลบรารีทางเลือก (pandas, pyspark, sqlalchemy, pydantic) | error แปลกๆ ตอนติดตั้ง หรือปัญหาเวอร์ชันของไลบรารี |
+| Core Domain Model | 39 | `ExpectationSuite`, `BatchDefinition`, `ValidationDefinition`, ผลลัพธ์ | อยากรู้โครงของ object ที่ใช้ทุกวัน |
+| Data Context and Stores | 41 | context, store, config | บทที่ 5 |
+| Datasources | 87 | fluent source, asset, batch | บทที่ 6 |
+| Execution Engines | 21 | pandas, SQLAlchemy, Spark engine | บทที่ 8 และ 11 |
+| Expectations Library | 79 | คลาส `Expectation` และ catalog | บทที่ 3 และ 12 |
+| Metrics and Metric Providers | 136 | ตัวคำนวณ metric (layer ใหญ่ที่สุด) | บทที่ 8 และ 12 |
+| Rendering and Data Docs | 73 | renderer, `SiteBuilder` | บทที่ 9 |
+| Validation and Orchestration | 29 | `Validator`, checkpoint, action | บทที่ 7 และ 9 |
+
+ข้อสังเกต: layer ของ metric ใหญ่ที่สุดเพราะ metric หนึ่งชื่อเขียนซ้ำตาม engine ส่วน layer ของ engine เล็กมาก เพราะมันแค่ประสานงาน
+
+<Callout type="warn" title="graph บอกโครงสร้าง ไม่ได้บอกลำดับการเรียก">
+เส้นใน graph เกือบทั้งหมดเป็น `imports` (2,797), `contains` (1,116), `exports` (1,037) และ `inherits` (416) ส่วนเส้น `calls` มีแค่ 44 เส้น graph จึงบอกได้ว่า "ไฟล์ไหนอยู่ใกล้ไฟล์ไหน" แต่ไม่บอกว่า `Checkpoint.run` เรียกอะไรต่อ ลำดับนั้นต้องอ่านซอร์สหรือทดลอง
+</Callout>
+
+</Step>
+
+<Step>
+
+## เส้นทางเรียกจริง
+
+เส้นทางจากคำสั่งรันถึงการตัดสินของ expectation ที่อ่านจากซอร์สและยืนยันด้วยการรัน (ชื่อไฟล์และฟังก์ชันเดียวกันทั้ง 1.9.3 และ 1.24.1)
+
+<SourceMap client:visible />
+
+อ่านตามลำดับนี้ใช้เวลาไม่นาน และได้ภาพทั้งเส้น เมื่อติดขัด ให้กลับไปที่ `02_metric_rounds.py` ดูว่าผลที่สังเกตได้ตรงกับขั้นไหน
+
+</Step>
+
+<Step>
+
+## เทคนิค: ซอร์สคู่กับการดักฟัง
+
+อย่าอ่านอย่างเดียว ให้ครอบ (monkeypatch) ฟังก์ชันที่สนใจเพื่อดูว่ามันถูกเรียกจริงด้วยอะไร เทคนิคนี้สร้างแล็บ metric ในบทที่ 8
+
+```python
+from great_expectations.execution_engine import ExecutionEngine
+
+calls = []
+original = ExecutionEngine.resolve_metrics
+
+def spy(self, metrics_to_resolve, metrics=None, runtime_configuration=None):
+    calls.append(sorted(m.metric_name for m in metrics_to_resolve))
+    return original(self, metrics_to_resolve, metrics, runtime_configuration)
+
+ExecutionEngine.resolve_metrics = spy
+```
+
+ใช้แบบเดียวกันกับ `SqlAlchemyExecutionEngine.execute_query` เพื่อเห็น SQL ที่ส่งไป (`05_sql_bundling.py`) หรือกับเมธอดของ action เพื่อดูลำดับ
+
+</Step>
+
+<Step>
+
+## อ่านความต่างระหว่างรุ่น
+
+ก่อนอัปเกรด GX เทียบโค้ดสองรุ่นตรงๆ ไม่ต้องรอ changelog ติดตั้งสองรุ่นแล้วเปรียบเทียบไฟล์แกน
+
+```bash
+diff -u --strip-trailing-cr old/great_expectations/core/validation_definition.py \
+                            new/great_expectations/core/validation_definition.py
+```
+
+ผลของการเทียบ 1.9.3 กับ 1.24.1 ที่ใช้ในเส้นทางนี้ (จำนวนบรรทัดที่เปลี่ยน)
+
+| ไฟล์ | บรรทัดที่เปลี่ยน | สาระที่ผมพบ |
+|---|---|---|
+| `validator/validation_graph.py` | 0 | แกนของการคำนวณเป็นรอบไม่เปลี่ยน |
+| `validator/metrics_calculator.py` | 2 | |
+| `core/validation_definition.py` | 187 | object จำ context เจ้าของ (`owner_resolution`) และมี `get_unexpected_rows` |
+| `validator/v1_validator.py` | 34 | เลือก context จาก owner และสร้าง validator ด้วย lock ต่อ instance |
+| `core/batch_definition.py` | 49 | หา data source ผ่าน context เจ้าของ และเพิ่มคำอธิบายว่าพารามิเตอร์ตัวเลขควรเป็นจำนวนเต็ม |
+| `expectations/expectation.py` | 532 | ส่วนที่เปลี่ยนมากที่สุด |
+
+แกนของระบบ (กราฟ metric, engine) นิ่ง ส่วนที่เปลี่ยนคือการเชื่อม object กับ context ซึ่งตรงกับพฤติกรรมที่ต่างในบทที่ 5 (context ซ้อน) และบทที่ 6 (พารามิเตอร์ตัวเลข)
+
+</Step>
+
+<Step>
+
+## ลำดับที่แนะนำสำหรับอ่านเอง
+
+1. `checkpoint/checkpoint.py`: `run`, `_run_validation_definitions`, `_run_actions`
+2. `core/validation_definition.py`: `run` และ `is_fresh`
+3. `validator/validator.py`: `graph_validate` และสามเมธอด `_generate_...`/`_resolve_...`
+4. `validator/validation_graph.py`: `_resolve` กับ `_parse` (สั้นและอ่านสนุกที่สุดในกลุ่มนี้)
+5. `execution_engine/execution_engine.py`: `resolve_metrics`, `_build_direct_and_bundled_...`
+6. `expectations/expectation.py`: `MetaExpectation`, `metrics_validate`, `ColumnMapExpectation`
+7. `expectations/metrics/column_aggregate_metrics/column_max.py` และ `metric_provider.py`: การลงทะเบียน
+8. `data_context/data_context/context_factory.py`: `ProjectManager` และ `get_context`
+
+ส่วนที่ผมยังไม่ได้อ่านและไม่ได้ตรวจในเส้นทางนี้: `render/` (Data Docs), `profile/` และ `experimental/`, GX Cloud, expectation ส่วนใหญ่ใน catalog และพฤติกรรมของ Spark ตอนรันจริง
+
+## เช็กตัวเอง
+
+- graph บอกได้ว่า `Checkpoint` กับ `ValidationDefinition` อยู่ layer ไหน แต่ไม่บอกอะไร แล้วควรไปหาคำตอบนั้นที่ไหน
+- อยากรู้ว่า expectation ข้อหนึ่งทำให้ SQL ออกมากี่คำสั่ง จะครอบฟังก์ชันไหน
+- รุ่นใหม่ออก ควรเทียบไฟล์ไหนก่อนเพื่อรู้ว่า pipeline ของคุณกระทบไหม
+
+</Step>

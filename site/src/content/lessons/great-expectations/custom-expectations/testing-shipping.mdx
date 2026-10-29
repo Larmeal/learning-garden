@@ -1,0 +1,146 @@
+---
+title: ทดสอบและปล่อยใช้
+summary: ตารางกรณีทดสอบที่จับพฤติกรรมต่าง engine, run_diagnostics, ตัวตรวจใน CI สำหรับคลาสที่หาย และสิ่งที่ควรทำซ้ำเมื่ออัปเกรด GX
+order: 5
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## เงื่อนไขเดียวกัน ผลต่างกันตาม engine
+
+ใน `14_custom_testing.py` เราเอา `ExpectColumnValuesToBeEven` (เงื่อนไข `column % 2 == 0` ที่เขียนไว้ทั้ง pandas และ SQLAlchemy) ไปรันกับข้อมูลห้าแบบ แล้วเปรียบเทียบสองฝั่ง
+
+| ข้อมูล | pandas | SQLite |
+|---|---|---|
+| `[2, 4, 6]` | ผ่าน | ผ่าน |
+| `[2, 4, 6, 7, 11]` | ล้ม, ผิด 2 | ล้ม, ผิด 2 |
+| ตารางว่าง | ผ่าน (`unexpected=0`) | ผ่าน (`unexpected=None`) |
+| null ล้วน | ผ่าน | ผ่าน |
+| ข้อความ `"a"`, `"bb"`, `"c"` | error: `not all arguments converted during string formatting` | ผ่าน (`unexpected=0`) |
+
+สามแถวแรกตรงกับที่คาด สองแถวท้ายสอนสิ่งที่ต้องรู้
+
+ตารางว่างบน SQLite ให้ `unexpected_count` เป็น `None` ไม่ใช่ `0` แต่ผลสุดท้ายยังผ่าน เพราะ `_validate` ถือว่า `None` คือ "ไม่มีอะไรให้ตัดสิน" ถ้าโค้ดของคุณอ่าน `unexpected_count` ไปทำต่อ (เช่นเอาไปหารหรือเทียบ) ต้องรับกรณี `None`
+
+คอลัมน์ข้อความแสดงว่าเงื่อนไข `%` ไม่ได้มีความหมายเดียวกันทุกที่ ใน Python `"a" % 2` คือการจัดรูปสตริง จึงเกิด `TypeError` และผลของ expectation ล้มพร้อม `result` ว่าง ส่วนใน SQLite `'a' % 2` ได้ `0` (SQLite อ่านตัวเลขนำหน้าของข้อความ ไม่มีก็เป็น 0 ทดลองแล้ว `'7x' % 2` ได้ `1`) ซึ่งเป็นเลขคู่ จึงผ่านโดยไม่มีสัญญาณเตือน
+
+<Callout type="warn" title="ข้อมูลผิดชนิดอาจผ่านเงียบๆ">
+ถ้าคอลัมน์ที่ควรเป็นตัวเลขกลายเป็นข้อความ (ไฟล์ CSV อ่านผิด, ฟิลด์ที่ผสมชนิด) expectation แบบ `%` ตัวนี้ผ่านบน SQL ให้ใส่ `ExpectColumnValuesToBeOfType` หรือ `ExpectColumnValuesToBeInTypeList` ไว้ใน suite เดียวกัน เพื่อให้ชนิดที่ผิดล้มด้วยตัวของมันเอง
+</Callout>
+
+</Step>
+
+<Step>
+
+## ชุดข้อมูลทดสอบขั้นต่ำ
+
+จากตารางข้างบน กรณีที่คุ้มกับการเขียนไว้ทุกครั้งเมื่อเขียน expectation แบบ map ใหม่
+
+| กรณี | สิ่งที่ตรวจ |
+|---|---|
+| ข้อมูลปกติทั้งหมด | `success=True` และ `unexpected_count=0` |
+| ผิดบางแถว | จำนวนที่ผิดและค่าที่ผิดตรงกับที่นับเอง |
+| ผิดบางแถวพร้อม `mostly` ที่ขอบเขต | `mostly` เท่ากับสัดส่วนที่ถูกพอดี ผ่านหรือไม่ผ่านตามสูตร `(considered - unexpected) / considered >= mostly` |
+| ตารางว่าง | ผ่านแบบ vacuous ตามที่ตั้งใจหรือไม่ |
+| null ล้วน | เหมือนข้างบน และ `missing_count` ถูก |
+| null ปนกับค่า | ค่าที่เห็นในเงื่อนไขเป็น float หรือไม่ (ดูหน้า column map) |
+| ชนิดผิด | แต่ละ engine ทำอะไร ล้ม ผ่าน หรือได้คำตอบแปลก |
+
+ทดสอบแต่ละกรณีบนทุก engine ที่คลาสรองรับ ถ้าทดสอบแค่บน pandas จะไม่เห็นว่ากรณีข้อความผ่านเงียบๆ บน SQLite
+
+</Step>
+
+<Step>
+
+## เครื่องมือที่ GX มีให้: `examples` กับ `run_diagnostics`
+
+คลาส expectation มีแอตทริบิวต์ `examples` สำหรับใส่กรณีทดสอบ แล้วเรียก `run_diagnostics()`
+
+```python
+class ExpectColumnValuesToBeEven(ColumnMapExpectation):
+    map_metric = "column_values.are_even"
+    args_keys = ("column",)
+
+    examples = [{
+        "data": {"n": [2, 4, 7]},
+        "tests": [
+            {"title": "one odd value", "exact_match_out": False, "include_in_gallery": True,
+             "in": {"column": "n"}, "out": {"success": False}},
+            {"title": "mostly lets it pass", "exact_match_out": False, "include_in_gallery": True,
+             "in": {"column": "n", "mostly": 0.6}, "out": {"success": True}},
+        ],
+    }]
+```
+
+ผลที่ทดลองคือ GX รันสองกรณีนี้บน pandas และบน sqlite (รวมสี่การทดสอบ ผ่านทั้งหมด) โดยไม่ต้องเขียนโค้ดสร้างฐานข้อมูลเอง `backend_test_result_counts` ได้ `[('pandas', 2, 0), ('sqlite', 2, 0)]`
+
+`print_diagnostic_checklist()` พิมพ์รายการ "ความสมบูรณ์" ของคลาส ในการทดลองมันติ๊กถูกข้อ "มี core logic และผ่านการทดสอบบน execution engine อย่างน้อยหนึ่งตัว" และข้อ "มี renderer ทั้งแบบ prescriptive และ diagnostic" แต่ไม่ติ๊กข้อที่ขาด เช่น `library_metadata`, docstring ที่ขึ้นต้นด้วย "Expect" และ `validate_configuration` ข้อที่ไม่ติ๊กเป็นเกณฑ์ของการส่งเข้า gallery สาธารณะของ GX ถ้าใช้ภายในทีมคุณไม่จำเป็นต้องทำให้ครบ
+
+ข้อควรรู้ตอนใช้: `run_diagnostics()` พยายามต่อ backend อื่นด้วย (mysql, bigquery, snowflake และอื่นๆ) แล้วพิมพ์ข้อความว่าต่อไม่ได้ออกมาหลายบรรทัด ไม่ใช่ความผิดพลาดของคลาสคุณ
+
+</Step>
+
+<Step>
+
+## ตัวตรวจใน CI: คลาสหายจาก suite หรือไม่
+
+กับดักใหญ่ของบทนี้ (หน้า "วงจรชีวิต") ตรวจได้ด้วยสคริปต์สั้นๆ ที่รันในโปรเซสใหม่ ซึ่งนำเข้าเฉพาะสิ่งที่โปรแกรมจริงนำเข้า
+
+```python
+import json, pathlib, sys
+import great_expectations as gx
+
+context = gx.get_context(mode="file", project_root_dir=sys.argv[1])
+for path in sorted((pathlib.Path(sys.argv[1]) / "gx" / "expectations").glob("*.json")):
+    on_disk = len(json.loads(path.read_text())["expectations"])
+    loaded = len(context.suites.get(path.stem).expectations)
+    print(f"suite {path.stem}: {on_disk} on disk, {loaded} loaded ->", "ok" if on_disk == loaded else "MISSING CLASSES")
+```
+
+ผลกับ suite ที่มี custom หนึ่งข้อกับ `ExpectColumnValuesToNotBeNull` หนึ่งข้อ ในโปรเซสที่ไม่ได้ import โมดูลของ custom: `suite mixed: 2 on disk, 1 loaded -> MISSING CLASSES` ให้สคริปต์จบด้วย exit code ไม่เป็นศูนย์เมื่อเจอ `MISSING CLASSES` แล้ว CI จะล้มก่อนที่ pipeline จริงจะรัน
+
+สำคัญที่ว่าสคริปต์นี้ต้อง import เหมือนกับโปรแกรมจริง ถ้าคุณใส่ `import my_project.expectations` ไว้ในสคริปต์ตรวจเอง มันจะผ่านเสมอและไม่ได้ตรวจอะไร
+
+</Step>
+
+<Step>
+
+## เมื่ออัปเกรด GX
+
+custom expectation เรียกใช้ของภายในของ GX หลายอย่าง ห้าอย่างที่คลาสในบทนี้นำเข้า
+
+- `ColumnMapExpectation`, `ColumnAggregateExpectation`, `ColumnPairMapExpectation`, `MulticolumnMapExpectation` จาก `great_expectations.expectations.expectation`
+- `ColumnMapMetricProvider`, `ColumnAggregateMetricProvider` จาก `great_expectations.expectations.metrics`
+- `column_condition_partial`, `column_aggregate_value`, `column_aggregate_partial` จากที่เดียวกัน
+- `ColumnPairMapMetricProvider`, `MulticolumnMapMetricProvider`, `column_pair_condition_partial`, `multicolumn_condition_partial` จาก `great_expectations.expectations.metrics.map_metric_provider`
+- `ExecutionEngine` ของแต่ละ backend จาก `great_expectations.execution_engine`
+
+ถ้าชื่อใดย้ายหรือหายไป คุณเห็นทันทีเป็น `ImportError` ตอน import ซึ่งเป็นสัญญาณที่ดี ส่วนที่เปลี่ยนเงียบๆ (พฤติกรรมของ null, รูปผลลัพธ์) ต้องใช้ชุดทดสอบจากหน้าก่อนหน้าจับ
+
+สิ่งที่ทดลองจริง: สคริปต์ `07`, `11`, `12` และ `13` รันได้ทั้งบน GX 1.9.3 และ 1.24.1 ด้วยโค้ดชุดเดียวกัน ผลต่างที่เจอคือชนิดตัวเลขในผล pair กับ multicolumn (`np.int64` กับ `int`), และข้อความ error ของ `filter_column_isnull = False` วิธีรันบนอีกรุ่นโดยไม่แตะ `.venv`
+
+```bash
+uv run --isolated --no-project --python 3.12 \
+  --with "great-expectations==1.9.3" --with "sqlalchemy>=2" python 12_custom_kinds.py
+```
+
+สองรุ่นเป็นข้อมูลน้อยเกินกว่าจะสรุปว่ารุ่นถัดไปจะเหมือนกัน แต่คำสั่งนี้ใช้ซ้ำได้ทุกครั้งที่จะอัปเกรด รันชุดทดสอบกับรุ่นใหม่ก่อนเปลี่ยน pin ใน `pyproject.toml`
+
+<Callout type="tip" title="รายการตรวจก่อนปล่อยใช้">
+1. ชื่อคลาสสะกดถูกและไม่ซ้ำกับของ GX (ค้นใน registry)
+2. มีเงื่อนไขครบทุก engine ที่ pipeline ใช้จริง และรันกับ backend จริงแล้ว
+3. ทดสอบข้อมูลห้าแบบ รวมตารางว่าง null ล้วน และชนิดผิด
+4. พารามิเตอร์ที่ metric อ่านอยู่ใน `success_keys` ของ expectation
+5. โมดูลของ custom ถูก import ที่จุดเริ่มของทุกโปรแกรมที่โหลด suite
+6. CI มีตัวตรวจจำนวน expectation ในโปรเซสใหม่
+7. gate ของ pipeline ปฏิเสธ `evaluated_expectations == 0`
+8. version ของ GX ถูก pin และมีขั้นตอนรันชุดทดสอบก่อนอัปเกรด
+</Callout>
+
+</Step>

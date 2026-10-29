@@ -1,0 +1,121 @@
+---
+title: รันบน Spark และ SQL
+summary: ใช้ suite เดิมกับตาราง SQL และ Spark DataFrame โดยให้ backend คำนวณเอง SQL ยืนยันด้วยการรันแล้ว Spark อ่านจากซอร์ส
+order: 11
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [metrics-engines, pipeline-integration]
+updated: 2026-10-27
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import BackendCompare from '../../../../components/labs/great-expectations/BackendCompare';
+
+<Step>
+
+## หลักการ: ส่งงานไปที่ข้อมูล
+
+ตั้งแต่บทที่ 8 เรารู้ว่า expectation ขอ metric และ engine ของ backend คำนวณ ผลคือเมื่อข้อมูลอยู่ในฐานข้อมูลหรือ Spark GX **ไม่ดึงข้อมูลมาที่เครื่องเดียว** มันส่งนิพจน์ (SQL หรือ Spark aggregate) ไปให้ backend คำนวณแล้วรับกลับมาแค่ตัวเลข
+
+ความต่างที่ต้องรู้ตอนย้ายจาก pandas ไป backend อื่น
+
+| | pandas | SQL | Spark |
+|---|---|---|---|
+| ข้อมูลอยู่ที่ | memory ของโปรเซส | ฐานข้อมูล | cluster หรือ local |
+| metric คำนวณ | ทันที ทีละตัว | รวม aggregate เป็น SELECT | รวม aggregate เป็น `df.agg` |
+| สถานะการยืนยัน | รันแล้ว | รันแล้ว (SQLite) | อ่านจากซอร์สเท่านั้น |
+
+</Step>
+
+<Step>
+
+## SQL: สิ่งที่รันแล้ว
+
+```python
+source = context.data_sources.add_sqlite("sales_db", connection_string="sqlite:///t.db")
+batch_definition = (
+    source.add_table_asset("sales", table_name="sales")
+    .add_batch_definition_whole_table("whole")
+)
+```
+
+หลังจากนั้นใช้ suite และ validation definition แบบเดียวกับ pandas ทุกอย่าง ต่างกันแค่ไม่ต้องส่ง `batch_parameters` สำหรับ whole table ฐานข้อมูลอื่นใช้ `add_postgres`, `add_snowflake`, `add_bigquery` และอื่นๆ (ชื่อจากรายชื่อไฟล์ของ `datasource/fluent/` ยังไม่ได้ทดลองกับฐานข้อมูลเหล่านั้น)
+
+<BackendCompare client:visible />
+
+อ่านภาพ: จำนวน metric ที่ต้องคำนวณเท่ากันทุก backend แต่ SQL ส่งน้อยคำสั่งกว่ามาก เพราะรวม aggregate หลายตัวเป็น SELECT เดียว นี่คือเหตุผลที่ backend ที่เลื่อนการรันได้เหมาะกับข้อมูลใหญ่
+
+</Step>
+
+<Step>
+
+## SQL: batch กลายเป็น WHERE
+
+ตารางที่แบ่งตามคอลัมน์วันที่ (`add_batch_definition_daily("daily", column="d")`) ทำให้การตรวจ batch หนึ่งกลายเป็นคำสั่งที่กรองที่ฐานข้อมูล ทดลองกับ SQLite
+
+```sql
+SELECT sum(CASE WHEN (amount IS NULL) THEN 1 ELSE 0 END) AS "column_values.nonnull.unexpected_count"
+FROM (SELECT * FROM sales WHERE EXTRACT(year FROM d) = 2024 AND EXTRACT(month FROM d) = 1
+      AND EXTRACT(day FROM d) = 2) AS anon_1
+```
+
+(นิพจน์วันที่ที่ส่งจริงขึ้นกับ dialect ของฐานข้อมูล บล็อกนี้คือรูปที่ SQLAlchemy แสดงแบบกลาง) ประเด็นคือ: ข้อมูลที่ไม่อยู่ใน batch ที่เลือก ฐานข้อมูลกรองทิ้งก่อนคำนวณ ไม่ต้องส่งมาให้ GX
+
+ต่างจากไฟล์ตรงที่ `get_batch_identifiers_list()` ของ batch definition แบบคอลัมน์คืนตัวเลข (`{'year': 2024, 'month': 1, 'day': 1}`) ไม่ใช่สตริง
+
+</Step>
+
+<Step>
+
+## Spark: สิ่งที่อ่านจากซอร์ส
+
+การเชื่อม Spark ใช้ API เดียวกัน (`context.data_sources.add_spark(...)` มีอยู่จริงใน 1.24.1)
+
+```python
+source = context.data_sources.add_spark("spark_src")
+batch_definition = (
+    source.add_dataframe_asset("events")
+    .add_batch_definition_whole_dataframe("all")
+)
+result = validation_definition.run(batch_parameters={"dataframe": spark_df})
+```
+
+สิ่งที่ซอร์สของ `SparkDFExecutionEngine.resolve_metric_bundle` ทำ
+
+1. เก็บ metric แบบ aggregate ทั้งหมดที่อยู่ใน domain เดียวกัน (ตารางเดียวกัน เงื่อนไขกรองเดียวกัน)
+2. เรียก `df.agg(*aggregates).collect()` **หนึ่งครั้งต่อ domain**
+3. แตกผลกลับเป็นค่าของแต่ละ metric
+
+ถ้ายึดความรู้ Spark ในสวนนี้: `agg` เป็น transformation ส่วน `collect()` เป็น action ดังนั้น metric แบบ aggregate ของทั้ง suite น่าจะรวมเป็นไม่กี่ job
+
+<Callout type="warn" title="ยังไม่ได้พิสูจน์">
+ผมไม่ได้รัน GX บน Spark ในการเขียนบทนี้ ข้อสรุป "หนึ่ง job ต่อ domain" มาจากการอ่านซอร์ส ไม่ได้มาจากการวัด วิธียืนยันเอง: ใน `subjects/spark/code` สร้าง Spark DataFrame แล้วรัน validation ข้างบน เปิด Spark UI (บทที่ 11 ของเส้นทาง Spark) ดูแท็บ Jobs ก่อนและหลังรัน แล้วเทียบจำนวน job กับจำนวนรอบในแล็บของบทที่ 8
+</Callout>
+
+metric ที่ไม่ใช่ aggregate (เช่นรายการค่าที่ผิด `unexpected_values`) ต้องดึงแถวกลับมาเป็นรายการ จำนวนแถวถูกจำกัดโดยตั้งค่าของ `result_format` อ่านเพิ่มที่ขั้นถัดไป
+
+</Step>
+
+<Step>
+
+## คุมต้นทุนบนข้อมูลใหญ่
+
+| คันโยก | ผล | หลักฐาน |
+|---|---|---|
+| `result_format="BOOLEAN_ONLY"` | metric ลดลงมาก (10 เทียบ 19 ใน suite ตัวอย่าง) และไม่ต้องดึงค่าที่ผิดกลับ | วัดแล้วกับ pandas และ SQL |
+| ใช้ batch ที่แคบ (รายวันแทนทั้งตาราง) | ฐานข้อมูลกรองก่อนคำนวณ | วัดแล้วกับ SQL |
+| ใช้ expectation แบบ aggregate แทน column map เมื่อไม่ต้องรู้แถว | metric น้อยกว่า ไม่ต้องคำนวณรายแถว | จากโครงสร้างของ metric (บทที่ 8) |
+| รวม expectation ของคอลัมน์เดียวกัน | metric ใช้ร่วมกัน | วัดแล้ว |
+
+และ expectation ทุกตัวไม่รองรับทุก backend แต่ละคลาสระบุ `SUPPORTED_DATA_SOURCES` (ดูในซอร์สของ expectation นั้น เช่น `ExpectColumnValuesToNotBeNull` รองรับ pandas, Spark, SQLite, PostgreSQL, Snowflake, BigQuery และอื่นๆ) ตัวที่ไม่มี implementation ของ metric ให้ backend นั้นล้มเป็น `success=False` พร้อม `exception_info`
+
+## เช็กตัวเอง
+
+- ข้อมูลหลายร้อยล้านแถวบน SQL ปรับอะไรได้บ้างโดยไม่ลดความครบของ suite
+- ทำไมการใช้ batch รายวันจึงถูกกว่าตรวจทั้งตารางบน SQL
+- ถ้าอยากรู้ว่า GX บน Spark รัน Spark job กี่ครั้ง จะวัดอย่างไร
+
+</Step>

@@ -1,0 +1,84 @@
+---
+title: แนวคิดหลัก
+summary: ชิ้นส่วนของ GX สิบกว่าชิ้น ใครอ้างถึงใคร อะไรถูกเก็บ อะไรส่งตอนรัน ภาพนี้ใช้ตลอดเส้นทาง
+order: 1
+phase: A
+level: 2
+stage: sprout
+format: steps
+requires: [foundations]
+updated: 2026-10-27
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import ObjectMap from '../../../../components/labs/great-expectations/ObjectMap';
+
+<Step>
+
+## สี่ขั้นของ workflow
+
+เอกสารทางการแบ่งการใช้ GX เป็นสี่ขั้น
+
+1. **ตั้ง environment**: สร้าง Data Context
+2. **เชื่อมต่อข้อมูล**: บอก GX ว่าข้อมูลอยู่ที่ไหนและจะหยิบก้อนไหน
+3. **เขียน expectation**: สิ่งที่ข้อมูลควรเป็น
+4. **รัน validation**: ตรวจและอ่านผล
+
+แต่ละขั้นมี object เฉพาะของมัน บทนี้ไล่ทีละตัว ทุกบทหลังจากนี้เป็นการเจาะลึกลงไปในชิ้นใดชิ้นหนึ่งนี้
+
+</Step>
+
+<Step>
+
+## แผนที่ของทั้งหมด
+
+<ObjectMap client:visible />
+
+อ่านภาพจากซ้ายไปขวา ฝั่งซ้ายคือ "ข้อมูลอยู่ที่ไหน" ตรงกลางคือ "ข้อมูลควรเป็นอย่างไร" และฝั่งขวาคือ "ตรวจแล้วทำอะไรต่อ" ตัวที่เชื่อมสองฝั่งแรกเข้าด้วยกันคือ Validation Definition
+
+</Step>
+
+<Step>
+
+## นิยามของแต่ละชิ้น
+
+| ชิ้นส่วน | คืออะไร | สร้างอย่างไร |
+|---|---|---|
+| **Data Context** | object ที่ถือ config, ผลตรวจ และ metadata ของทั้ง workflow | `gx.get_context()` |
+| **Data Source** | ตัวแทนของที่เก็บข้อมูลหนึ่งแห่ง พร้อมวิธีเชื่อมต่อ | `context.data_sources.add_pandas(...)` |
+| **Data Asset** | กลุ่มของระเบียนใน data source (ตาราง, ไฟล์, DataFrame) | `source.add_dataframe_asset(...)` |
+| **Batch Definition** | วิธีแบ่งและหยิบระเบียนของ asset มาตรวจ | `asset.add_batch_definition_whole_dataframe(...)` |
+| **Batch** | ระเบียนที่ถูกหยิบมาจริงตอนรัน | `batch_definition.get_batch(...)` |
+| **Expectation** | ข้อยืนยันที่ทดสอบได้หนึ่งข้อ | `gxe.ExpectColumnValuesToNotBeNull(column="id")` |
+| **Expectation Suite** | ชุดของ expectation | `context.suites.add(gx.ExpectationSuite(name=...))` |
+| **Validation Definition** | จับคู่ batch definition กับ suite | `gx.ValidationDefinition(name=..., data=..., suite=...)` |
+| **Checkpoint** | รัน validation definition หลายตัวด้วยพารามิเตอร์ร่วมกัน แล้วสั่ง action | `gx.Checkpoint(name=..., validation_definitions=[...])` |
+| **Action** | ขั้นตอนอัตโนมัติหลังตรวจ (แจ้งเตือน, อัปเดตรายงาน) | `gx.checkpoint.UpdateDataDocsAction(name=...)` |
+| **Data Docs** | หน้า HTML ของ suite และผลตรวจ | สร้างโดย `UpdateDataDocsAction` |
+
+</Step>
+
+<Step>
+
+## สิ่งที่ถูกเก็บ กับสิ่งที่ส่งตอนรัน
+
+object ส่วนใหญ่ข้างบนถูก **add เข้า context** และเก็บไว้ใน store ของมัน ส่วนที่ไม่ถูกเก็บคือสิ่งที่ส่งตอนสั่งรัน ได้แก่ DataFrame (`batch_parameters={"dataframe": df}`), พารามิเตอร์เลือก batch และค่า `expectation_parameters`
+
+เหตุผลที่แยกแบบนี้: คำจำกัดความของการตรวจ ("ตรวจตาราง `users` ด้วย suite นี้") อยู่นิ่งและเก็บเข้า git ได้ แต่ข้อมูลที่จะตรวจเปลี่ยนทุกรอบ
+
+<Callout type="note" title="Batch Definition เป็นสูตร ไม่ใช่ข้อมูล">
+สร้าง context, data source, asset, batch definition และ suite ครบแล้ว ยังไม่มีการคำนวณใดๆ กับข้อมูลเลย (วัดจากการรัน: execution engine ถูกเรียก 0 ครั้ง) GX เริ่มแตะข้อมูลเมื่อสั่งรันจริง
+</Callout>
+
+</Step>
+
+<Step>
+
+## ลำดับที่ทำให้ได้ผล
+
+ลำดับการประกอบ: context, แล้ว data source, asset, batch definition, แล้ว suite, แล้ว validation definition, แล้ว checkpoint วัตถุที่อ้างถึงกัน (validation definition อ้าง suite กับ batch definition) อ้างกันผ่านชื่อและ id ใน store จึงต้อง **add ของที่ถูกอ้างเข้า context ก่อน** ไม่งั้นรันไม่ได้ (บทที่ 5 และ 7 อธิบายละเอียด)
+
+ลองวาดภาพนี้เองสักครั้งบนกระดาษโดยไม่ดูแผนที่ ถ้าวาดได้ครบ บทต่อไปจะอ่านง่ายขึ้นมาก
+
+</Step>
