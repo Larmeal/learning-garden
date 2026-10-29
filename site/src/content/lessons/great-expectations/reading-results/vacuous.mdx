@@ -1,0 +1,78 @@
+---
+title: ผ่านโดยไม่มีข้อมูล ใครผ่านบ้าง
+summary: ตารางว่างกับคอลัมน์ที่ว่างทั้งคอลัมน์ ทดลองกับแปดกฎเพื่อดูว่ากฎแบบไหนผ่านเงียบๆ แบบไหนล้ม และต้องเขียนกฎอะไรคู่กัน
+order: 2
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import CaseExplorer from '../../../../components/labs/great-expectations/CaseExplorer';
+
+<Step>
+
+## ทำไมถึงผ่านได้
+
+expectation แบบ column map ตัดสินจากแถวที่ผิด ถ้าไม่มีแถวให้พิจารณา ก็ไม่มีแถวที่ผิด จึงผ่านตามนิยาม (ในศัพท์ตรรกะเรียกว่า vacuously true) บทหลักแสดงตารางผลสามกฎ หน้านี้ขยายเป็นแปดกฎกับข้อมูลสองแบบ ทดลองใน `21_formats_empty.py` ส่วนที่ 4 (GX 1.24.1, pandas)
+
+- ตารางว่าง: คอลัมน์ `v` ชนิด float มี 0 แถว
+- ว่างทั้งคอลัมน์: คอลัมน์ `v` มี null 3 แถว
+
+</Step>
+
+<Step>
+
+## ผลแปดกฎ
+
+<CaseExplorer
+  client:visible
+  title="กฎเดียว ข้อมูลที่ไม่มีค่าให้ตรวจ"
+  okWord="ผ่าน"
+  badWord="ไม่ผ่าน"
+  cases={[
+    { label: 'ตารางว่าง (0 แถว)', input: 'v: (ไม่มีแถว)', rows: [
+      { name: 'ExpectColumnValuesToNotBeNull', ok: true, detail: 'ไม่มีแถวให้ผิด' },
+      { name: 'ExpectColumnValuesToBeBetween', ok: true },
+      { name: 'ExpectColumnValuesToBeInSet', ok: true },
+      { name: 'ExpectColumnValuesToBeUnique', ok: true },
+      { name: 'ExpectColumnMaxToBeBetween', ok: false, detail: 'observed_value เป็น None' },
+      { name: 'ExpectColumnMeanToBeBetween', ok: false, detail: 'observed_value เป็น None' },
+      { name: 'ExpectTableRowCountToBeBetween(min=1)', ok: false, detail: 'observed_value = 0' },
+      { name: 'ExpectTableColumnCountToEqual(1)', ok: true, detail: 'ตารางยังมีหนึ่งคอลัมน์' },
+    ], note: 'กฎที่นับแถวผ่านหมด กฎที่ต้องการค่าเดียวหรือจำนวนแถวล้ม ผ่านห้าจากแปดข้อทั้งที่ตารางว่าง' },
+    { label: 'null ทั้งคอลัมน์ (3 แถว)', input: 'v: null, null, null', rows: [
+      { name: 'ExpectColumnValuesToNotBeNull', ok: false, detail: 'ผิดทั้งสามแถว' },
+      { name: 'ExpectColumnValuesToBeBetween', ok: true, detail: 'null ไม่ถูกนับ' },
+      { name: 'ExpectColumnValuesToBeInSet', ok: true },
+      { name: 'ExpectColumnValuesToBeUnique', ok: true },
+      { name: 'ExpectColumnMaxToBeBetween', ok: false, detail: 'observed_value เป็น None' },
+      { name: 'ExpectColumnMeanToBeBetween', ok: false, detail: 'observed_value เป็น None' },
+      { name: 'ExpectTableRowCountToBeBetween(min=1)', ok: true, detail: 'ตารางมี 3 แถว' },
+      { name: 'ExpectTableColumnCountToEqual(1)', ok: true },
+    ], note: 'สามกฎที่ตัดสินจากค่า (ช่วง ชุดค่า ไม่ซ้ำ) ผ่านทั้งที่ไม่มีค่าเลย มีแค่ NotBeNull ที่เห็น' },
+  ]}
+/>
+
+อ่านผล: ผลที่ล้มบน aggregate ไม่ได้มาจาก exception (ไม่มี `raised_exception`) GX ได้ `observed_value=None` แล้วเทียบกับช่วงไม่ผ่าน ผลจึงบอกว่า "ไม่ผ่าน" โดยไม่บอกเหตุผล ต้องเปิด `observed_value` เองถึงเห็นว่าเป็น `None`
+
+</Step>
+
+<Step>
+
+## กฎที่ควรเขียนคู่กัน
+
+| ต้องการกันเรื่อง | กฎที่ใช้ |
+|---|---|
+| ไฟล์หรือตารางมาว่าง | `ExpectTableRowCountToBeBetween(min_value=1)` |
+| คอลัมน์ว่างทั้งคอลัมน์ | `ExpectColumnValuesToNotBeNull(column=..., mostly=...)` คู่กับกฎช่วงค่า |
+| ค่าเฉลี่ยหรือค่าสูงสุดคำนวณไม่ได้ | ดู `observed_value` ในผลของข้อที่ล้ม |
+
+`mostly` ของ `NotBeNull` ใช้ตั้งสัดส่วน null ที่ยอมรับได้ เช่น `mostly=0.95` ยอมให้ null ได้ไม่เกิน 5% ของแถว (สูตรเดียวกับ `mostly` ของกฎอื่น ในที่นี้ไม่ได้ทดลองค่า 0.95 โดยตรง)
+
+<Callout type="warn" title="ผ่านทั้งหมดไม่ได้พิสูจน์ว่ามีข้อมูล">
+suite ที่มีแต่กฎแบบ column map อาจผ่านทั้งชุดบนตารางว่าง ตัวชี้ที่ตรวจได้ถ้าจะใส่ในโค้ดคือ `result.statistics["evaluated_expectations"]` (ต้องมากกว่า 0) และกฎจำนวนแถว
+</Callout>
+
+</Step>

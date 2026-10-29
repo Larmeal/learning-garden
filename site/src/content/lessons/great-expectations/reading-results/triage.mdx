@@ -1,0 +1,117 @@
+---
+title: อ่านผลที่ไม่ผ่านอย่างเป็นระบบ
+summary: success=False ไม่ได้มีความหมายเดียว ลำดับคำถามที่แยกสาเหตุ ฟังก์ชันที่ทดลองแล้ว และกับดักตอนใช้ expectation ตัวเดียวกันในหลาย suite
+order: 3
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Decision from '../../../../components/labs/great-expectations/Decision';
+
+<Step>
+
+## ผลหนึ่งผล สี่ความหมาย
+
+เมื่ออ่านผลของ suite มีสี่แบบที่ต้องแยกออก เพราะแต่ละแบบต้องการการตอบสนองต่างกัน
+
+| แบบ | เกิดจาก | ควรทำอะไร |
+|---|---|---|
+| ข้อมูลมีปัญหา | ค่าในข้อมูลผิดกฎ (`success=False`) | ตามหาแถวที่ผิด ตัดสินใจหยุดหรือกักข้อมูล |
+| expectation พัง | กฎใช้ไม่ได้ เช่นคอลัมน์หาย (`success=False` พร้อม `exception_info`) | แก้กฎ หรือสืบว่าโครงสร้างข้อมูลเปลี่ยนไหม |
+| suite ว่าง | ไม่มีกฎให้ประเมินเลย (`success=True`, `evaluated_expectations=0`) | ถือว่าล้ม หาสาเหตุที่กฎหาย |
+| ผ่านเงียบบนตารางว่าง | ทุกกฎเป็นแบบ column map (`success=True`) | เพิ่มกฎจำนวนแถว ดูหน้า "ผ่านโดยไม่มีข้อมูล" |
+
+สองแบบหลังทำให้ `success` เป็น `True` ทั้งที่ยังไม่ได้ตรวจอะไรจริง การดูแค่ค่า `success` จึงไม่พอ
+
+</Step>
+
+<Step>
+
+## ลำดับคำถาม
+
+ลำดับมีผล ต้องเช็กว่ามีกฎให้ประเมินก่อน แล้วเช็ก exception แล้วจึงอ่านว่าข้อมูลผิดหรือไม่
+
+<Decision
+  client:visible
+  title="ผล validation นี้บอกอะไร"
+  start="q1"
+  nodes={[
+    { id: 'q1', q: 'statistics.evaluated_expectations มากกว่า 0 ไหม', options: [
+      { label: 'เป็น 0', to: 'a-empty' },
+      { label: 'มากกว่า 0', to: 'q2' } ] },
+    { id: 'q2', q: 'มีข้อไหนที่ exception_info มี raised_exception เป็น True ไหม', options: [
+      { label: 'มี', to: 'a-broken' },
+      { label: 'ไม่มี', to: 'q3' } ] },
+    { id: 'q3', q: 'result.success เป็นอะไร', options: [
+      { label: 'False', to: 'a-data' },
+      { label: 'True', to: 'q4' } ] },
+    { id: 'q4', q: 'suite มีกฎจำนวนแถว หรือกฎอื่นที่ล้มเมื่อไม่มีข้อมูลไหม', options: [
+      { label: 'มี', to: 'a-ok' },
+      { label: 'ไม่มี มีแต่ column map', to: 'a-vacuous' } ] },
+    { id: 'a-empty', answer: 'suite ว่างเปล่า', text: 'success เป็น True ทั้งที่ไม่ได้ตรวจอะไร มักเกิดเพราะโหลด suite ในโปรเซสที่ไม่ได้ import custom expectation (บทที่ 12) ให้ถือว่าล้ม' },
+    { id: 'a-broken', answer: 'expectation พัง', text: 'ปัญหาอยู่ที่กฎหรือโครงสร้างข้อมูล ไม่ใช่ค่าข้อมูล ดู exception_info ของข้อนั้น' },
+    { id: 'a-data', answer: 'ข้อมูลมีปัญหา', text: 'อ่าน unexpected_count และ partial_unexpected_list ของข้อที่ล้ม แล้วตัดสินใจหยุดหรือกักข้อมูล' },
+    { id: 'a-ok', answer: 'ผ่านจริง ในขอบเขตของกฎที่เขียน', text: 'ผ่านหมายถึงไม่ขัดกับกฎที่เขียน ไม่ได้แปลว่าข้อมูลถูกทุกประการ (บทที่ 0: ผิดแต่ดูถูก)' },
+    { id: 'a-vacuous', answer: 'ผ่าน แต่ยังไม่รู้ว่ามีข้อมูลไหม', text: 'เพิ่มกฎจำนวนแถว เพราะตารางว่างผ่านทุกกฎ column map' },
+  ]}
+  caption="ลำดับคำถามเดียวกับฟังก์ชัน triage ด้านล่าง"
+/>
+
+</Step>
+
+<Step>
+
+## ฟังก์ชันที่ทดลองแล้ว
+
+```python
+def triage(result) -> str:
+    if result.statistics["evaluated_expectations"] == 0:
+        return "empty suite"
+    broken = [
+        x for x in result.results
+        if any(isinstance(v, dict) and v.get("raised_exception")
+               for v in (x.exception_info or {}).values())
+    ]
+    if broken:
+        return f"broken expectation ({len(broken)})"
+    if not result.success:
+        return "data problem"
+    return "ok"
+```
+
+ผลจาก `21_formats_empty.py` ส่วนที่ 5 (GX 1.24.1)
+
+| กรณี | ผลของ `triage` |
+|---|---|
+| ข้อมูลดี กฎ `age` ไม่ว่าง | `ok` |
+| ค่า 20 เกินกฎ `max=15` | `data problem` |
+| กฎอ้างคอลัมน์ `nope` ที่ไม่มี | `broken expectation (1)` |
+| suite ที่ไม่มี expectation เลย | `empty suite` |
+
+โค้ดต้องเดินผ่านค่าของ `exception_info` และกรองด้วย `isinstance(v, dict)` เพราะรูปของมันต่างกันสองแบบ ข้อที่พังได้ dict ที่ key คือ metric ที่ล้ม (เห็นในหน้า "ข้อมูลเสียแบบไหน GX จับได้" ของบทที่ 0) ส่วนข้อที่ไม่พังได้ dict แบน `raised_exception: False, exception_traceback: None, exception_message: None` ซึ่งค่าเป็น boolean และ `None` ไม่ใช่ dict
+
+<Callout type="note" title="ขอบเขต">
+ทดลองบน pandas และ context แบบ ephemeral ฟังก์ชันนี้เป็นตัวอย่างการจัดกลุ่ม ไม่ใช่ API ของ GX
+</Callout>
+
+</Step>
+
+<Step>
+
+## expectation ตัวเดียวใช้สอง suite ไม่ได้
+
+เมื่อ expectation ถูกเพิ่มเข้า suite หนึ่งแล้ว เอาไปเพิ่มใน suite อื่นตรงๆ ไม่ได้ (ส่วนที่ 6 ของสคริปต์)
+
+```text
+RuntimeError: Cannot add Expectation because it already belongs to an ExpectationSuite.
+              If you want to update an existing Expectation, please call Expectation.save().
+              If you are copying this Expectation to a new ExpectationSuite, please copy it first ...
+after copy + id=None: second suite has 1 expectation(s)
+```
+
+ทางที่ทดลองแล้ว: `copied = shared.copy()` แล้วตั้ง `copied.id = None` ก่อน `add_expectation` ทำให้ suite ที่สองมีข้อนี้ 1 ข้อ ทางที่ง่ายกว่าคือสร้างอ็อบเจ็กต์ใหม่ด้วยพารามิเตอร์เดิมทุกครั้ง สคริปต์ `21` ใช้ฟังก์ชัน factory แบบนี้
+
+</Step>
