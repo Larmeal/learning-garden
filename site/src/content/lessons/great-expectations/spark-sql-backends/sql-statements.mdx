@@ -1,0 +1,84 @@
+---
+title: SQL ที่ batch รายวันกลายเป็นจริงๆ
+summary: จับคำสั่งที่ GX ส่งให้ SQLite ตอนรัน batch รายวัน มีสามคำสั่ง ไม่ใช่สอง คำสั่งแรกคือการค้นหา batch ที่ต้องกวาดคอลัมน์วันที่ทั้งคอลัมน์
+order: 1
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import FlowFrames from '../../../../components/labs/great-expectations/FlowFrames';
+
+<Step>
+
+## จับคำสั่งตามที่ SQLite เห็น
+
+ตาราง `sales` มีสี่แถว คอลัมน์ `d` เป็นข้อความวันที่ suite มีกฎเดียวคือ `amount` ไม่เป็น null รัน batch ของวันที่ 2024-01-02 สคริปต์ `30_sql_where_support.py` ครอบ `SqlAlchemyExecutionEngine.execute_query` แล้วคอมไพล์คำสั่งด้วย dialect ของ engine เอง ผลที่เห็นคือ SQL ที่ SQLite ได้รับจริง (GX 1.24.1)
+
+```sql
+-- 1. ค้นหา batch ที่มี
+SELECT distinct(CAST(CAST(STRFTIME('%Y', d) AS INTEGER) AS VARCHAR) || CAST(CAST(STRFTIME('%m', d) AS INTEGER) AS VARCHAR)
+                || CAST(CAST(STRFTIME('%d', d) AS INTEGER) AS VARCHAR)) AS concat_distinct_values,
+       CAST(CAST(STRFTIME('%Y', d) AS INTEGER) AS INTEGER) AS year,
+       CAST(CAST(STRFTIME('%m', d) AS INTEGER) AS INTEGER) AS month,
+       CAST(CAST(STRFTIME('%d', d) AS INTEGER) AS INTEGER) AS day
+FROM sales
+
+-- 2. นับแถวของ batch
+SELECT count(*) AS "table.row_count"
+FROM (SELECT * FROM sales WHERE CAST(STRFTIME('%Y', d) AS INTEGER) = 2024
+        AND CAST(STRFTIME('%m', d) AS INTEGER) = 1 AND CAST(STRFTIME('%d', d) AS INTEGER) = 2) AS anon_1
+
+-- 3. นับ null ของ amount ใน batch
+SELECT sum(CASE WHEN (amount IS NULL) THEN 1 ELSE 0 END) AS "column_values.nonnull.unexpected_count"
+FROM (SELECT * FROM sales WHERE ... เงื่อนไขเดิม ...) AS anon_1
+```
+
+ผล `success: False` เพราะวันที่ 2 มีแถว `amount` เป็น null หนึ่งแถว
+
+</Step>
+
+<Step>
+
+## สามคำสั่ง ทำอะไร
+
+<FlowFrames
+  client:visible
+  title="สามคำสั่งของการรัน batch รายวันหนึ่งครั้ง"
+  width={760}
+  height={260}
+  boxes={[
+    { id: 'run', label: 'vd.run(year, month, day)', sub: 'ขอ batch วันที่ 2', x: 10, y: 20, w: 190 },
+    { id: 'q1', label: 'คำสั่งที่ 1', sub: 'distinct วันที่ ทั้งตาราง', x: 270, y: 20 },
+    { id: 'q2', label: 'คำสั่งที่ 2', sub: 'row_count ของ batch', x: 270, y: 100 },
+    { id: 'q3', label: 'คำสั่งที่ 3', sub: 'sum(CASE WHEN null)', x: 270, y: 180 },
+    { id: 'res', label: 'ผล', sub: 'success = False', x: 560, y: 100 },
+  ]}
+  arrows={[ { from: 'run', to: 'q1' }, { from: 'q1', to: 'q2' }, { from: 'q2', to: 'q3' }, { from: 'q3', to: 'res' } ]}
+  frames={[
+    { title: 'ขอ batch ของวันที่ 2', text: 'ส่งพารามิเตอร์ year, month, day เป็นจำนวนเต็ม', on: ['run'], arrows: [] },
+    { title: 'คำสั่งที่ 1: หา batch ทั้งหมดที่มี', text: 'SELECT distinct บนนิพจน์วันที่ ต้องอ่านคอลัมน์วันที่ของทุกแถวในตาราง ไม่ผูกกับ batch ที่ขอ เพราะ GX ต้องรู้รายการ batch ก่อนเลือก', on: ['run', 'q1'], arrows: [0], tag: 'ไม่มี WHERE' },
+    { title: 'คำสั่งที่ 2: นับแถวของ batch', text: 'ใส่ WHERE ตามวันที่ที่ขอ นี่คือ table.row_count ที่ expectation ระดับคอลัมน์ทุกตัวต้องมี (บทที่ 8)', on: ['q1', 'q2'], arrows: [1] },
+    { title: 'คำสั่งที่ 3: คำนวณ metric ของกฎ', text: 'sum(CASE WHEN amount IS NULL ...) ในขอบเขตของ batch เดียวกัน ฐานข้อมูลกรองด้วย WHERE ก่อนนับ', on: ['q2', 'q3'], arrows: [2] },
+    { title: 'ได้ผล', text: 'ตัวเลขสามคำสั่งประกอบเป็น success=False พร้อมจำนวน null', on: ['q3', 'res'], arrows: [3], tag: '30_sql_where_support.py' },
+  ]}
+/>
+
+</Step>
+
+<Step>
+
+## สิ่งที่ควรสังเกต
+
+1. คำสั่งที่ 1 ไม่มี WHERE การหา batch ต้องกวาดคอลัมน์ `d` ทั้งตาราง บนตารางเล็กไม่รู้สึก บนตารางหลายร้อยล้านแถวนี่คือต้นทุนที่แยกออกมาต่างหากจากการตรวจ batch จริง ส่วนว่ารอบการรันครั้งถัดไปทำซ้ำหรือไม่ ไม่ได้ทดลอง
+2. คำสั่งที่ 2 และ 3 มี WHERE ฐานข้อมูลกรองก่อน ข้อมูลของวันอื่นไม่ถูกนับในผล
+3. นิพจน์วันที่ต่างกันตาม dialect บน SQLite เป็น `CAST(STRFTIME('%Y', d) AS INTEGER)` ฐานข้อมูลอื่นใช้ฟังก์ชันของมัน (ไม่ได้ทดลองกับฐานข้อมูลอื่น) นิพจน์ครอบคอลัมน์ `d` ทำให้ index บนคอลัมน์นี้ใช้ไม่ได้โดยทั่วไป ข้อนี้เป็นการอนุมานจากรูปของ SQL ไม่ได้ทดลองวัดแผนการรัน
+4. บทหลักเคยแสดง SQL แบบ `EXTRACT(year FROM d)` ซึ่งเป็นรูปกลางที่ SQLAlchemy คอมไพล์เมื่อไม่ระบุ dialect ตัวที่ SQLite ได้รับคือ `STRFTIME` ด้านบน
+
+<Callout type="warn" title="ที่ไม่ได้ทดลอง">
+ไม่ได้ลองฐานข้อมูลที่ไม่ใช่ SQLite ไม่ได้ดูแผนการรัน (EXPLAIN) และไม่ได้วัดเวลาของคำสั่งที่ 1 เมื่อตารางโตขึ้น ข้อสรุปเรื่องต้นทุนจึงเป็นเรื่องรูปของคำสั่ง ไม่ใช่ตัวเลขที่วัด
+</Callout>
+
+</Step>
