@@ -1,0 +1,78 @@
+---
+title: โค้ด 0.18 กับ 1.x ต่างกันตรงไหน
+summary: รันตัวอย่างเดียวกันบนสองรุ่น เห็นว่าลำดับคิดเปลี่ยนไปอย่างไร และอ่านตัวอย่างเก่าบนเว็บให้ออกว่าเอาอะไรมาใช้ได้
+order: 3
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Variants from '../../../../components/labs/great-expectations/Variants';
+
+<Step>
+
+## งานเดียวกัน เขียนสองรุ่น
+
+ข้อมูล `age = [10, None, 30, 400]` กฎ "age ไม่เป็น null" กับ "age อยู่ระหว่าง 0 ถึง 120" สลับแท็บเพื่อเทียบ ผลมาจาก `08_legacy_018.py` (0.18.21 บน Python 3.11) และ `01_first_validation.py` (1.24.1)
+
+<Variants
+  client:visible
+  title="ตรวจ age ด้วยสองรุ่น"
+  variants={[
+    {
+      label: 'GX 0.18.21',
+      code: `validator = context.sources.pandas_default.read_dataframe(df)\nfirst = validator.expect_column_values_to_not_be_null("age")\nsecond = validator.expect_column_values_to_be_between(\n    "age", min_value=0, max_value=120)\nlen(validator.get_expectation_suite().expectations)`,
+      output: `expectation result: ExpectationValidationResult success = False\nexpectation result: ExpectationValidationResult success = False\nexpectations kept in the suite: 0`,
+      reading: 'expect_* เป็นเมธอดที่รันทันที ผลออกมาตอนเรียก และข้อที่ล้มไม่ถูกเก็บในชุดกฎ (ชุดว่าง 0 ข้อ)',
+      bad: true,
+    },
+    {
+      label: 'GX 1.24.1',
+      code: `suite = context.suites.add(gx.ExpectationSuite(name="users_suite"))\nsuite.add_expectation(gxe.ExpectColumnValuesToNotBeNull(column="age"))\nsuite.add_expectation(gxe.ExpectColumnValuesToBeBetween(\n    column="age", min_value=0, max_value=120))\nvd = gx.ValidationDefinition(name="users_vd", data=batch_definition, suite=suite)\nresult = vd.run(batch_parameters={"dataframe": df})`,
+      output: `suite success: False\nstatistics: {'evaluated_expectations': 4, 'successful_expectations': 2,\n  'unsuccessful_expectations': 2, 'success_percent': 50.0}\nexpect_column_values_to_not_be_null  success=False  unexpected_count: 1\nexpect_column_values_to_be_between   success=False  unexpected_count: 1`,
+      reading: 'expectation เป็นอ็อบเจ็กต์ที่ add เข้า suite ก่อน แล้วค่อยรันทั้งชุดผ่าน ValidationDefinition ข้อที่ล้มยังอยู่ใน suite',
+    },
+  ]}
+/>
+
+(โค้ด 1.24.1 ในกรอบย่อเหลือสองกฎ ส่วน statistics มาจากสคริปต์เต็มที่มีสี่กฎ)
+
+</Step>
+
+<Step>
+
+## ความต่างที่ทดลองเห็นจริง
+
+| เรื่อง | 0.18.21 | 1.24.1 |
+|---|---|---|
+| ที่ที่ข้อมูลเข้า | `read_dataframe(df)` ได้ Validator ทันที | DataFrame เป็นพารามิเตอร์ตอน `run(batch_parameters=...)` |
+| expectation | เมธอด `validator.expect_*` รันทันที | คลาส `gxe.Expect...` เก็บใน suite รันทีหลัง |
+| ข้อที่ล้มตอนเขียน | ไม่ถูกเก็บใน suite (เก็บ 0 ข้อหลังล้มสองข้อ) | อยู่ใน suite ตามเดิม |
+| Checkpoint | อ้าง suite ด้วยชื่อ ถ้าชื่อไม่มีใน context ได้ `DataContextError` (`expectation_suite default not found`) | รับ ValidationDefinition ที่ add เข้า context แล้ว |
+
+ทุกแถวมาจากการรัน `08` และ `01` บรรทัดผลของ 1.24.1 ในกรอบด้านบนย่อให้สั้นลง ตัวเลขและค่า success ตรงกับที่สคริปต์พิมพ์
+
+</Step>
+
+<Step>
+
+## อ่านตัวอย่างบนเว็บให้ออกว่ารุ่นไหน
+
+ดูว่าโค้ดเรียกอะไร
+
+| ถ้าเห็น | รุ่น | ทำอะไรต่อ |
+|---|---|---|
+| `context.sources.pandas_default` หรือ `context.sources.add_*` | 0.18 | ใช้ `context.data_sources.add_*` ใน 1.x |
+| `validator.expect_column_...(...)` เรียกเป็นเมธอดบน validator | 0.18 | สร้างคลาส `gxe.Expect...` แล้ว `suite.add_expectation` |
+| `add_or_update_checkpoint(... validations=[...])` | 0.18 | สร้าง `ValidationDefinition` แล้วส่งให้ `gx.Checkpoint` |
+| `gx.get_context()` แล้วตามด้วย `context.suites.add(...)` | 1.x | ใช้ได้ |
+
+สามแถวแรกเป็นรูปแบบที่ `08_legacy_018.py` ใช้จริงบน 0.18.21 ส่วน checkpoint แบบไฟล์ YAML ไม่ได้ทดลอง
+
+<Callout type="warn" title="รุ่นเก่าต้องใช้ environment แยก">
+0.18.21 ต้องใช้ NumPy ต่ำกว่า 2 และ pandas ต่ำกว่า 2.2 สคริปต์ `08` จึงรันด้วย `uv run --no-project --python 3.11 --with great-expectations==0.18.21 --with "numpy<2" --with "pandas<2.2"` ไม่ใช่ใน environment ของโปรเจกต์
+</Callout>
+
+</Step>

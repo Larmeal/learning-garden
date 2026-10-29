@@ -1,0 +1,119 @@
+---
+title: ข้อมูลเสียแบบไหน GX จับได้
+summary: เอาตารางเดียวมาทำให้เสียเก้าแบบ แล้วดูว่ากฎแปดข้อชุดเดียวกันจับแบบไหนได้ แบบไหนหลุด และทำไมกฎที่ไม่ได้เขียนถึงไม่มีใครตรวจ
+order: 1
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import CaseExplorer from '../../../../components/labs/great-expectations/CaseExplorer';
+
+<Step>
+
+## ตารางตัวอย่างกับกฎแปดข้อ
+
+ตาราง `people` มีห้าแถวและสี่คอลัมน์ ข้อมูลชุดแรกสะอาด
+
+```text
+id  age  email      country
+1   31   a@x.com    TH
+2   24   b@x.com    TH
+3   45   c@x.com    JP
+4   52   d@x.com    SG
+5   38   e@x.com    TH
+```
+
+กฎที่เขียนไว้ใน suite เดียว
+
+| กฎ | expectation |
+|---|---|
+| id ไม่ว่าง | `ExpectColumnValuesToNotBeNull(column="id")` |
+| id ไม่ซ้ำ | `ExpectColumnValuesToBeUnique(column="id")` |
+| age ไม่ว่าง | `ExpectColumnValuesToNotBeNull(column="age")` |
+| age อยู่ใน 0 ถึง 120 | `ExpectColumnValuesToBeBetween(column="age", min_value=0, max_value=120)` |
+| email มีรูปแบบอีเมล | `ExpectColumnValuesToMatchRegex(column="email", regex=...)` |
+| country อยู่ในชุดที่รู้จัก | `ExpectColumnValuesToBeInSet(column="country", value_set=["TH", "JP", "SG"])` |
+| คอลัมน์ตรงกับที่กำหนดทุกตัว | `ExpectTableColumnsToMatchSet(column_set=[...], exact_match=True)` |
+| มีแถว 1 ถึง 1000 แถว | `ExpectTableRowCountToBeBetween(min_value=1, max_value=1000)` |
+
+</Step>
+
+<Step>
+
+## ทำให้ข้อมูลเสียทีละแบบ
+
+เลือกกรณีจากปุ่มด้านบน ผลมาจากการรัน `16_defect_catalog.py` ด้วย GX 1.24.1 ซึ่งใช้ suite ชุดเดียวกับทุกกรณี
+
+<CaseExplorer
+  client:visible
+  title="suite เดียว ข้อมูลเก้าแบบ"
+  cases={[
+    { label: 'สะอาด', input: 'id age email   country\n1  31  a@x.com TH\n...', rows: [
+      { name: 'id not null', ok: true }, { name: 'id unique', ok: true }, { name: 'age not null', ok: true },
+      { name: 'age between 0 and 120', ok: true }, { name: 'email matches regex', ok: true }, { name: 'country in set', ok: true },
+      { name: 'columns match set', ok: true }, { name: 'row count 1..1000', ok: true } ], note: 'ผ่านครบ ใช้เป็นฐานเทียบ' },
+    { label: 'age เป็น null', input: 'age: 31, null, 45, 52, 38', rows: [
+      { name: 'id not null', ok: true }, { name: 'id unique', ok: true }, { name: 'age not null', ok: false },
+      { name: 'age between 0 and 120', ok: true, detail: 'null ไม่ถูกนับว่าอยู่นอกช่วง' }, { name: 'email matches regex', ok: true }, { name: 'country in set', ok: true },
+      { name: 'columns match set', ok: true }, { name: 'row count 1..1000', ok: true } ], note: 'มีกฎเดียวที่ล้ม กฎช่วงค่าไม่สนใจ null' },
+    { label: 'id ซ้ำ', input: 'id: 1, 2, 2, 4, 5', rows: [
+      { name: 'id not null', ok: true }, { name: 'id unique', ok: false }, { name: 'age not null', ok: true },
+      { name: 'age between 0 and 120', ok: true }, { name: 'email matches regex', ok: true }, { name: 'country in set', ok: true },
+      { name: 'columns match set', ok: true }, { name: 'row count 1..1000', ok: true } ] },
+    { label: 'age 450', input: 'age: 31, 24, 450, 52, 38', rows: [
+      { name: 'id not null', ok: true }, { name: 'id unique', ok: true }, { name: 'age not null', ok: true },
+      { name: 'age between 0 and 120', ok: false }, { name: 'email matches regex', ok: true }, { name: 'country in set', ok: true },
+      { name: 'columns match set', ok: true }, { name: 'row count 1..1000', ok: true } ] },
+    { label: 'อีเมลผิดรูป', input: 'email: a@x.com, b-at-x.com, ...', rows: [
+      { name: 'id not null', ok: true }, { name: 'id unique', ok: true }, { name: 'age not null', ok: true },
+      { name: 'age between 0 and 120', ok: true }, { name: 'email matches regex', ok: false }, { name: 'country in set', ok: true },
+      { name: 'columns match set', ok: true }, { name: 'row count 1..1000', ok: true } ] },
+    { label: 'ประเทศแปลก', input: 'country: TH, TH, JP, SG, XX', rows: [
+      { name: 'id not null', ok: true }, { name: 'id unique', ok: true }, { name: 'age not null', ok: true },
+      { name: 'age between 0 and 120', ok: true }, { name: 'email matches regex', ok: true }, { name: 'country in set', ok: false },
+      { name: 'columns match set', ok: true }, { name: 'row count 1..1000', ok: true } ] },
+    { label: 'เปลี่ยนชื่อคอลัมน์', input: 'age ถูกเปลี่ยนเป็น age_years', rows: [
+      { name: 'id not null', ok: true }, { name: 'id unique', ok: true }, { name: 'age not null', ok: false, detail: 'ไม่ได้ตรวจค่า: หาคอลัมน์ age ไม่เจอ' },
+      { name: 'age between 0 and 120', ok: false, detail: 'ไม่ได้ตรวจค่า: หาคอลัมน์ age ไม่เจอ' }, { name: 'email matches regex', ok: true }, { name: 'country in set', ok: true },
+      { name: 'columns match set', ok: false, detail: 'บอกตรงๆ ว่าชุดคอลัมน์ไม่ตรง' }, { name: 'row count 1..1000', ok: true } ], note: 'สาเหตุเดียวทำให้ล้มสามข้อ สองข้อในนั้นเป็น exception ที่ GX จับไว้ (success=False พร้อม exception_info)' },
+    { label: 'ไฟล์ว่าง', input: '0 แถว มีหัวคอลัมน์ครบ', rows: [
+      { name: 'id not null', ok: true }, { name: 'id unique', ok: true }, { name: 'age not null', ok: true },
+      { name: 'age between 0 and 120', ok: true }, { name: 'email matches regex', ok: true }, { name: 'country in set', ok: true },
+      { name: 'columns match set', ok: true }, { name: 'row count 1..1000', ok: false } ], note: 'มีข้อเดียวที่จับได้ คือกฎจำนวนแถว' },
+    { label: 'ผิดแต่ดูถูก', input: 'age แถวแรกเป็น 13 แทนที่จะเป็น 31', rows: [
+      { name: 'id not null', ok: true }, { name: 'id unique', ok: true }, { name: 'age not null', ok: true },
+      { name: 'age between 0 and 120', ok: true }, { name: 'email matches regex', ok: true }, { name: 'country in set', ok: true },
+      { name: 'columns match set', ok: true }, { name: 'row count 1..1000', ok: true } ], note: 'ผ่านครบ ทั้งที่ค่าผิด' },
+  ]}
+/>
+
+</Step>
+
+<Step>
+
+## อ่านผลให้ถูกที่
+
+กรณีเปลี่ยนชื่อคอลัมน์ให้ข้อสังเกตสามข้อ
+
+1. สาเหตุเดียว (คอลัมน์ `age` หาย) ทำให้ล้มสามข้อ เมื่ออ่านผลให้หาสาเหตุร่วมก่อน อย่านับทีละข้อ กฎ `columns match set` บอกสาเหตุตรงที่สุด
+2. สองข้อที่ล้มเพราะหาคอลัมน์ไม่เจอ GX จับ exception ไว้และรายงานเป็น `success=False` พร้อม `exception_info` ไม่ได้ raise ออกมา ผลลัพธ์แยกไม่ออกด้วย `success` อย่างเดียวว่าข้อมูลผิดหรือกฎใช้ไม่ได้ ต้องดู `exception_info`
+3. ลำดับของ `result.results` ไม่ตรงกับลำดับใน suite เสมอไป ในกรณีนี้ GX เอาข้อที่เกิด exception ไว้ก่อน (สคริปต์ `16` ตรวจแล้วเทียบกับลำดับเดิม ได้ `same_order=False` เฉพาะกรณีนี้ ที่เหลือลำดับตรงกัน) ถ้านำผลไปจับคู่กับ expectation ให้จับคู่ผ่าน `expectation_config` ไม่ใช่ตำแหน่งในลิสต์ การจับคู่ตามตำแหน่งในกรณีนี้ติดป้ายผิดทั้งสามข้อ (สคริปต์ฉบับแรกทำแบบนั้นและให้ผลผิด)
+
+</Step>
+
+<Step>
+
+## กรณีที่ทุกกฎผ่านทั้งที่ข้อมูลผิด
+
+กรณี "ผิดแต่ดูถูก" แก้ `age` ของแถวแรกจาก 31 เป็น 13 ค่า 13 อยู่ในช่วง 0 ถึง 120 เป็นจำนวนเต็ม ไม่ใช่ null suite จึงผ่านครบ GX ตรวจเฉพาะกฎที่เขียนไว้ ถ้าไม่มีกฎที่พูดถึงความผิดแบบนี้ มันก็ไม่มีทางเห็น
+
+กฎที่ตรวจค่ารายแถวจับความผิดแบบนี้ไม่ได้เลย ต้องมีกฎที่พูดถึงภาพรวม เช่น ช่วงของค่าเฉลี่ยหรือสัดส่วนของค่าแต่ละกลุ่ม กฎพวกนั้นก็ยังพลาดได้ถ้าความผิดเล็กกว่าช่วงที่ตั้งไว้ จำนวนกฎที่ผ่านจึงบอกคุณภาพของข้อมูลไม่ได้ มันบอกแค่ว่าข้อมูลไม่ขัดกับสิ่งที่เรารู้จะเขียน
+
+<Callout type="warn" title="สิ่งที่ตารางนี้ไม่ได้ทดลอง">
+ทุกกรณีมี 5 แถว และใช้ pandas ล้วน จำนวนกฎที่ล้มกับข้อความ exception บน SQL หรือ Spark อาจต่าง บทที่ 11 ดูเรื่องนี้ ส่วนการที่ GX ไม่แก้ DataFrame ที่ตรวจ ทดลองทุกกรณีแล้ว (ตัว DataFrame เท่าเดิมทั้งก่อนและหลังรัน) แต่เฉพาะ pandas
+</Callout>
+
+</Step>
