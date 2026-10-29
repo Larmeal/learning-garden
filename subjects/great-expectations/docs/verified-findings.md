@@ -30,6 +30,9 @@ Evidence levels: **ran** = observed by running code, **source** = read in the co
 | Each expectation declares metrics (`get_validation_dependencies`) and judges them (`_validate`) | source | `expectations/expectation.py` |
 | Metrics of all expectations form one graph resolved in rounds (all metrics whose dependencies are done). A failing metric is retried up to 3 times | ran / source | `02`, `validation_graph.py` |
 | The same metric id is computed once for many expectations | ran | `02`, `make_lab_data.py` |
+| The 1.24.1 registry holds 315 metric names: 241 with a pandas implementation, 255 SQL, 254 Spark, 184 with all three, 57 with pandas but no SQL | ran (registry listing; implementations not executed on every engine) | `26` |
+| A `row_condition` gives a metric its own domain: `max` on `age` plus `max` on `age` with `col("plan") == "pro"` costs 4 statements on SQLite versus 2 for `max` + `mean` on one domain. `condition_parser="pandas"` on SQL gives `success=False` with `PassThroughCondition ... is not supported for SqlAlchemyExecutionEngine` | ran (SQLite) | `26` |
+| A metric function that always raises is called 3 times; its expectation gets `success=False` with `exception_info`, a neighbouring expectation is unaffected | ran (pandas aggregate) | `26` |
 | Every column expectation first needs `table.column_types`, `table.row_count` and `table.columns`; `ExpectTableRowCountToEqual` alone needs only `table.row_count` | ran | lab data |
 | `result_format` changes the metric count: 10, 13, 19, 19 (BOOLEAN_ONLY, BASIC, SUMMARY, COMPLETE) for a 5-expectation suite on 1.24.1; 11, 14, 20, 20 on 1.9.3. `ValidationDefinition.run` defaults to SUMMARY | ran | `02` |
 | 1.9.3 computed `table.row_count` twice (separate SQL statements); 1.24.1 does not: SQL 6 expectations cost 4 / 7 statements on 1.9.3 and 3 / 6 on 1.24.1 | ran | `05` on both |

@@ -1,0 +1,87 @@
+---
+title: เมื่อ metric พัง GX ลองกี่ครั้ง
+summary: เขียน metric ที่พังเสมอแล้วนับว่าฟังก์ชันถูกเรียกกี่ครั้ง ดูว่ากฎข้างเคียงยังได้ผลปกติ และทำไมนี่คือสาเหตุของผล success=False ที่ไม่ได้มาจากข้อมูล
+order: 3
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import FlowFrames from '../../../../components/labs/great-expectations/FlowFrames';
+
+<Step>
+
+## ทดลอง
+
+บทหลักอ่านจากซอร์สว่า `ValidationGraph` ลอง metric ซ้ำได้สูงสุด 3 ครั้ง สคริปต์ `26_registry_domains.py` ส่วนที่ 4 ทดลองด้วย metric ที่พังเสมอ (GX 1.24.1, pandas)
+
+```python
+CALLS = [0]
+
+class ColumnAlwaysFails(ColumnAggregateMetricProvider):
+    metric_name = "column.always_fails"
+
+    @column_aggregate_value(engine=PandasExecutionEngine)
+    def _pandas(cls, column, **kwargs):
+        CALLS[0] += 1
+        raise RuntimeError("this metric never works")
+
+class ExpectColumnAlwaysFails(ColumnAggregateExpectation):
+    metric_dependencies = ("column.always_fails",)
+    args_keys = ("column",)
+    def _validate(self, metrics, runtime_configuration=None, execution_engine=None):
+        return {"success": True, "result": {"observed_value": metrics["column.always_fails"]}}
+```
+
+suite มีสองกฎ คือ `ExpectColumnAlwaysFails(column="x")` กับ `ExpectColumnMaxToBeBetween(column="x", 0..10)` บนข้อมูล `x=[1, 2, 3]`
+
+```text
+calls to the failing metric function: 3
+column_always_fails          success=False raised=True
+column_max_to_be_between     success=True  raised=False
+```
+
+</Step>
+
+<Step>
+
+## ลำดับเหตุการณ์
+
+<FlowFrames
+  client:visible
+  title="metric ที่พังหนึ่งตัวในกราฟ"
+  width={760}
+  height={260}
+  boxes={[
+    { id: 'g', label: 'กราฟ metric', sub: '2 expectation', x: 10, y: 20 },
+    { id: 'bad', label: 'column.always_fails', sub: 'พังเสมอ', x: 300, y: 20, w: 190 },
+    { id: 'good', label: 'column.max', sub: 'ปกติ', x: 300, y: 150 },
+    { id: 'e1', label: 'ผลของกฎที่พัง', sub: 'success=False + exception_info', x: 560, y: 20, w: 190 },
+    { id: 'e2', label: 'ผลของกฎปกติ', sub: 'success=True', x: 560, y: 150, w: 190 },
+  ]}
+  arrows={[ { from: 'g', to: 'bad' }, { from: 'g', to: 'good' }, { from: 'bad', to: 'e1' }, { from: 'good', to: 'e2' } ]}
+  frames={[
+    { title: 'รวมเป็นกราฟ', text: 'สอง expectation ขอ metric ต่างกัน ไม่มีการพึ่งกัน', on: ['g'], arrows: [] },
+    { title: 'คำนวณ metric ปกติสำเร็จ', text: 'column.max คำนวณได้ในรอบแรก', on: ['g', 'good'], arrows: [1] },
+    { title: 'metric ที่พังถูกลองซ้ำ', text: 'ฟังก์ชันถูกเรียก 3 ครั้ง (นับจากตัวนับในสคริปต์) แล้ว GX ยกเลิก metric นี้', on: ['g', 'bad'], arrows: [0], tag: 'CALLS = 3' },
+    { title: 'ผลต่อกฎ', text: 'กฎที่พึ่ง metric ที่พังได้ success=False พร้อม exception_info กฎอื่นไม่ถูกกระทบ ไม่มี exception ออกมานอก vd.run()', on: ['bad', 'e1', 'good', 'e2'], arrows: [2, 3] },
+  ]}
+/>
+
+</Step>
+
+<Step>
+
+## เอาไปใช้อย่างไร
+
+- ถ้าเห็น `success=False` และ `exception_info` ที่เกิดจากการคำนวณ metric แปลว่าอย่าเพิ่งไปค้นข้อมูล ให้ดูข้อความ exception ก่อน (ลำดับคำถามในบทที่ 4)
+- ฟังก์ชัน metric ที่ทำงานช้าหรือต่อภายนอก (เช่นเรียกบริการ) ถูกเรียกได้ถึง 3 ครั้งเมื่อมันพัง ออกแบบให้ไม่มีผลข้างเคียง
+- ตัวเลข 3 ตรงกับ `MAX_METRIC_COMPUTATION_RETRIES` ที่อ่านจากซอร์ส `validation_graph.py` ไม่ได้ทดลองว่ามีหน่วงเวลาระหว่างครั้งหรือไม่
+
+<Callout type="warn" title="ที่ไม่ได้ทดลอง">
+ทดลองกับ metric แบบ aggregate บน pandas เท่านั้น metric ที่พังบน SQL หรือ Spark (เช่นฐานข้อมูลตัดการเชื่อมต่อกลางทาง) อาจถูกลองซ้ำต่างกัน ไม่ได้ทดสอบ
+</Callout>
+
+</Step>

@@ -1,0 +1,55 @@
+---
+title: ทะเบียน metric ในตัว GX
+summary: เปิดทะเบียนที่ GX ใช้หา implementation ของ metric ดูว่ามีกี่ตัว ตัวไหนมีเฉพาะบาง engine และเหตุที่ expectation บางตัวใช้ได้เฉพาะบน pandas
+order: 1
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import MetricLookup from '../../../../components/labs/great-expectations/MetricLookup';
+
+<Step>
+
+## ทะเบียนมีอะไรอยู่
+
+ทุก metric ที่เขียนเป็นคลาส (เช่น `ColumnMax`) ลงทะเบียนตัวเองตอน import ลงใน `registry._registered_metrics` โดยมีชื่อ metric เป็นกุญแจ และรายการ `providers` ที่บอกว่ามี implementation สำหรับ engine ไหน สคริปต์ `26_registry_domains.py` ส่วนที่ 1 นับของ GX 1.24.1 ที่ติดตั้งไว้
+
+| นับอะไร | จำนวน |
+|---|---|
+| ชื่อ metric ที่ลงทะเบียน | 315 |
+| มี implementation สำหรับ pandas | 241 |
+| มี implementation สำหรับ SQL (SQLAlchemy) | 255 |
+| มี implementation สำหรับ Spark | 254 |
+| มีครบทั้งสาม engine | 184 |
+| มีบน pandas แต่ไม่มีบน SQL | 57 |
+
+ตัวเลขนับจาก implementation ที่ลงทะเบียน ไม่ได้รันทุก metric บนทุก engine และ Spark ไม่ได้รันเลยในเส้นทางนี้
+
+</Step>
+
+<Step>
+
+## ค้นหาเอง
+
+พิมพ์ชื่อบางส่วน เช่น `column.max`, `nonnull`, `quantile` แล้วเลือกตัวกรองดู metric ที่ขาด engine ใด
+
+<MetricLookup client:visible />
+
+</Step>
+
+<Step>
+
+## ผลของการขาด implementation
+
+ถ้า expectation ต้องใช้ metric ที่ไม่มี implementation สำหรับ engine ที่กำลังรัน GX ไม่ได้ raise ให้ แต่เก็บเป็นผล `success=False` พร้อมข้อความ `No provider found` ใน `exception_info` (ทดลองแล้วกับ custom expectation ที่เขียนเงื่อนไขไว้เฉพาะ pandas แล้วรันบน SQLite ในบทที่ 12) ผลจึงดูเหมือน "ข้อมูลไม่ผ่าน" ทั้งที่ปัญหาคือ engine ไม่รองรับ
+
+ตัวอย่างจากการนับ: metric ตระกูล `column_values.dateutil_parseable.*` มีบน pandas แต่ไม่มีบน SQL (ห้าตัวแรกในรายการ 57 ตัวคือ `column.parameterized_distribution_ks_test_p_value` และสี่ตัวของ `dateutil_parseable`) expectation ที่ต้องใช้ metric เหล่านั้นจึงไม่ควรเอาไปรันกับข้อมูลที่อยู่ในฐานข้อมูล
+
+<Callout type="warn" title="ก่อนวาง suite ลง SQL หรือ Spark">
+การมีชื่อ expectation ให้ใช้ ไม่ได้แปลว่า engine ของคุณรองรับ ให้ลองรัน suite กับข้อมูลตัวอย่างบน engine นั้นก่อน แล้วอ่านผลที่ `success=False` ทุกข้อว่ามี `No provider found` หรือไม่ (ใช้ลำดับคำถามจากหน้า "อ่านผลที่ไม่ผ่านอย่างเป็นระบบ" ในบทที่ 4) ทะเบียนนี้เป็นเพียงทางลัดดูล่วงหน้า
+</Callout>
+
+</Step>
