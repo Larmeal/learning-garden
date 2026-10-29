@@ -71,6 +71,10 @@ Evidence levels: **ran** = observed by running code, **source** = read in the co
 | Without batch parameters `get_batch()` returns the last batch. Parameters filter, then the last of the remaining is returned (year+month on a daily regex gives the last file of that month). No match raises `NoAvailableBatchesError` | ran | `04`, scratch |
 | 1.24.1: numeric batch parameters should be integers; digit strings still work with a deprecation warning (removal in 2.0) | ran | scratch |
 | File-based batch identifiers carry strings; SQL column-partitioned identifiers carry integers | ran | `04`, scratch |
+| SQL table partitioners: yearly / monthly / daily on a text date column give 1 / 2 / 4 batches for the 5-row test table; `{'year':2024,'month':2,'day':1}` returns the 2 rows of that day | ran (SQLite) | `24` |
+| An unanchored filename regex also matches files that merely contain the pattern (`backup_data_2024-03-01.csv`, `...csv.bak`): the batch list then holds a path that does not exist and `get_batch()` raises `FileNotFoundError`. `^...$` fixes it | ran | `24` |
+| `add_csv_asset` on an empty folder raises `TestConnectionError` at creation; with files but no regex match `get_batch()` raises `NoAvailableBatchesError`; `add_csv_asset(..., sep=';')` forwards the option to pandas | ran | `24` |
+| `batch.validate(expectation)` returns an `ExpectationValidationResult`; `batch.validate(suite)` works with a suite that is not in the context and stores nothing in the results store | ran (pandas CSV) | `24` |
 | `${VAR}` in a connection string is stored as text and substituted from the environment at use | ran | scratch |
 | `$PARAMETER` suite parameters are filled by `expectation_parameters` | ran | `04` |
 | A suite stored in a file context that contains a custom expectation loads with **0 expectations** in a process that did not import the class; running it returns `success=True`, `evaluated_expectations=0` | ran (1.24.1) | `10` |
