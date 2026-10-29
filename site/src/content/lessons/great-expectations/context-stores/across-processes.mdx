@@ -1,0 +1,97 @@
+---
+title: context ที่อยู่ข้ามโปรเซส
+summary: สร้างทุกอย่างในโปรเซสหนึ่ง แล้วโหลดและรัน checkpoint เดิมในอีกโปรเซสโดยไม่สร้างใหม่ ดูว่าผลตรวจสะสมอย่างไร และสิ่งที่ต้องระวัง
+order: 2
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import FlowFrames from '../../../../components/labs/great-expectations/FlowFrames';
+
+<Step>
+
+## สองโปรเซส
+
+สคริปต์ `23_persistence_config.py` เรียก Python สองโปรเซสที่ชี้โฟลเดอร์โปรเจกต์เดียวกัน (GX 1.24.1)
+
+โปรเซส A สร้างทุกอย่างและรันหนึ่งรอบ
+
+```python
+ctx = gx.get_context(mode="file", project_root_dir=root)
+src = ctx.data_sources.add_pandas("people_src")
+bdef = src.add_dataframe_asset("people").add_batch_definition_whole_dataframe("whole")
+suite = ctx.suites.add(gx.ExpectationSuite(name="people_suite"))
+suite.add_expectation(gxe.ExpectColumnValuesToNotBeNull(column="id"))
+vd = ctx.validation_definitions.add(gx.ValidationDefinition(name="people_vd", data=bdef, suite=suite))
+cp = ctx.checkpoints.add(gx.Checkpoint(name="people_cp", validation_definitions=[vd]))
+cp.run(batch_parameters={"dataframe": pd.DataFrame({"id": [1, 2]})})
+```
+
+โปรเซส B ไม่สร้างอะไรเลย แค่โหลดและรันของที่มีชื่อ
+
+```python
+ctx = gx.get_context(mode="file", project_root_dir=root)
+cp = ctx.checkpoints.get("people_cp")
+cp.run(batch_parameters={"dataframe": pd.DataFrame({"id": [1, None]})})
+```
+
+ผลที่พิมพ์ออกมา
+
+```text
+PROCESS A: ran, success = True | results stored = 1
+PROCESS B: loaded; suites = ['people_suite'] | checkpoints = ['people_cp']
+PROCESS B: ran the stored checkpoint, success = False | results stored = 2
+```
+
+โปรเซส B เห็น suite และ checkpoint ที่ A สร้าง รันได้ผลตามข้อมูลของ B (มี null จึงไม่ผ่าน) และผลตรวจสะสมจาก 1 เป็น 2 รายการ
+
+</Step>
+
+<Step>
+
+## ดูเป็นภาพ
+
+<FlowFrames
+  client:visible
+  title="ของที่อยู่ในดิสก์ ข้ามโปรเซสได้"
+  width={760}
+  height={260}
+  boxes={[
+    { id: 'a', label: 'โปรเซส A', sub: 'สร้าง + รัน', x: 10, y: 20 },
+    { id: 'disk', label: 'โฟลเดอร์ gx/', sub: 'คำนิยาม + ผล', x: 300, y: 20, kind: 'store' },
+    { id: 'b', label: 'โปรเซส B', sub: 'โหลด + รัน', x: 590, y: 20 },
+    { id: 'df1', label: 'DataFrame ของ A', sub: 'ไม่ถูกเก็บ', x: 10, y: 150, kind: 'data' },
+    { id: 'df2', label: 'DataFrame ของ B', sub: 'ไม่ถูกเก็บ', x: 590, y: 150, kind: 'data' },
+  ]}
+  arrows={[
+    { from: 'a', to: 'disk', label: 'เขียน' },
+    { from: 'disk', to: 'b', label: 'อ่านตามชื่อ' },
+    { from: 'df1', to: 'a' },
+    { from: 'df2', to: 'b' },
+    { from: 'b', to: 'disk', label: 'เพิ่มผล' },
+  ]}
+  frames={[
+    { title: 'A สร้างและรัน', text: 'data source, suite, validation definition และ checkpoint ถูกเขียนลงดิสก์ ผลของรอบแรกลง uncommitted/validations', on: ['a', 'disk', 'df1'], arrows: [0, 2] },
+    { title: 'B โหลดตามชื่อ', text: 'get_context(mode="file") อ่านโฟลเดอร์เดิม ctx.checkpoints.get("people_cp") คืน checkpoint ที่ A สร้าง', on: ['disk', 'b'], arrows: [1] },
+    { title: 'B รันกับข้อมูลของตัวเอง', text: 'DataFrame เป็นของ B ผลที่ได้ถูกเพิ่มเป็นรายการที่สอง ผลของ A ยังอยู่', on: ['b', 'df2', 'disk'], arrows: [3, 4], tag: '23_persistence_config.py' },
+  ]}
+/>
+
+</Step>
+
+<Step>
+
+## ผลของแบบแผนนี้
+
+- สคริปต์ที่รันตามเวลา (cron, orchestrator) ไม่ต้องสร้างทุกอย่างใหม่ทุกครั้ง แค่โหลดตามชื่อแล้วรัน และคำนิยามที่ commit ใน git คือสิ่งที่รัน
+- โค้ดที่สร้างด้วย `context.suites.add(...)` ตรงๆ รันซ้ำไม่ได้ เพราะชื่อซ้ำ (หน้า "อ้างอิงด้วยชื่อและ id" ของบทที่ 1) ให้แยกสคริปต์ "สร้างครั้งแรก" ออกจากสคริปต์ "รันประจำ"
+- ผลตรวจอยู่ใน `uncommitted/` ของเครื่องที่รัน ถ้าสองเครื่องรันคนละที่ ผลก็อยู่คนละที่ การรวมผลต้องพึ่ง store backend อื่น ซึ่งเส้นทางนี้ไม่ได้ทดลอง
+
+<Callout type="warn" title="ที่ยังไม่ได้ทดลอง">
+สองโปรเซสในการทดลองรันต่อกัน ไม่ได้รันพร้อมกัน ไม่รู้ว่าถ้าสองโปรเซสเขียนโฟลเดอร์ `gx/` เดียวกันพร้อมกันจะเกิดอะไรขึ้น
+</Callout>
+
+</Step>

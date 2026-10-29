@@ -26,7 +26,7 @@ Great Expectations เป็นเฟรมเวิร์ก Python สำห�
 | 2 | **Validation แรก**: `get_context`, pandas, suite เล็กๆ, อ่านผล | ⭐⭐ | ได้รันของจริงเร็วที่สุด |
 | 3 | **Expectation และ Suite**: ชนิดของ expectation, `mostly`, suite parameter | ⭐⭐ | งานจริงส่วนใหญ่คือการเลือกและเขียน expectation |
 | 4 | **อ่านผลและกับดัก**: `success` กับ `exception_info`, ตารางว่างผ่าน, `result_format` | ⭐⭐ | ผลที่ผ่านไม่ได้แปลว่าข้อมูลดี ต้องรู้ก่อนเชื่อผล |
-| 5 | **Context และ Store**: ephemeral/file/cloud, โครง `gx/`, store, singleton | ⭐⭐⭐ | `run` ต้องใช้ object ที่ add เข้า context แล้ว จึงต้องรู้ก่อน checkpoint |
+| 5 | **Context และ Store**: ephemeral/file (cloud ปิดบริการแล้ว), โครง `gx/`, store, singleton | ⭐⭐⭐ | `run` ต้องใช้ object ที่ add เข้า context แล้ว จึงต้องรู้ก่อน checkpoint |
 | 6 | **Data Source และ Batch**: fluent source, partitioner, `get_batch` | ⭐⭐⭐ | ข้อมูลจริงมาเป็นก้อนรายวัน/รายไฟล์ ต้องเลือกก้อนที่จะตรวจ |
 | 7 | **Validation Definition และ Checkpoint**: `run`, `CheckpointResult`, freshness | ⭐⭐⭐ | หน่วยที่รันซ้ำได้ใน production |
 | 8 | **Metric และ Execution Engine**: รอบการคำนวณ, `metric_value`/`metric_partial`, bundling, ต้นทุน | ⭐⭐⭐⭐ | ด่านใหญ่ที่สุดของการเรียน แยกคนใช้เป็นออกจากคนเข้าใจ |
@@ -137,5 +137,5 @@ engine ของ backend นั้นคำนวณ
 
 - graph ใน `graphs/gx-current/` วิเคราะห์ `great_expectations` v1.9.3 (commit `31bdf47`) เฉพาะ package `great_expectations/` ไม่รวม test และ docs ของ GX graph มี edge เกือบทั้งหมดเป็น imports, contains, exports และ inherits (calls มี 44 เส้น) จึงบอกลำดับการเรียกไม่ได้ ต้องอ่านซอร์ส
 - `../code/` เป็นโปรเจกต์ `uv` ที่ pin `great-expectations==1.24.1` (รุ่นล่าสุดตอนเขียน) สคริปต์ `01` ถึง `10` รันผ่าน และ `08_legacy_018.py` รันกับ 0.18.21 ไว้เทียบ ซอร์สที่อ่านเป็นรุ่น 1.9.3 จึงมีจุดที่พฤติกรรมต่างกันจริง (context ซ้อน, ตัวเลข metric) ดูตารางใน verified-findings.md
-- ยังไม่ได้ยืนยัน: พฤติกรรม Spark ตอนรันจริง, rendering ภายใน, GX Cloud, orchestrator, การแทนค่าจาก config_variables.yml และ expectation ส่วนใหญ่ของ 60 ตัวที่มีให้
+- ยังไม่ได้ยืนยัน: พฤติกรรม Spark ตอนรันจริง, rendering ภายใน, orchestrator และ expectation ส่วนใหญ่ของ 60 ตัวที่มีให้
 - ดาวความยากเป็นการประเมินของผู้เขียน ยังไม่ได้ทดสอบกับการเรียนจริง และตรงกับ `level` ในแต่ละบท (ปรับที่ใดที่หนึ่งก็ควรปรับอีกที่)
