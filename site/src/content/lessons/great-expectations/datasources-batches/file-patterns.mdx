@@ -1,0 +1,83 @@
+---
+title: regex ของชื่อไฟล์ และไฟล์ที่ไม่ควรเข้ามา
+summary: regex ที่ไม่ปิดหัวท้ายจับไฟล์สำรองเข้ามาเป็น batch ได้ และทำให้ get_batch ล้ม ทดลองกับโฟลเดอร์ที่มีไฟล์แปลกปน โฟลเดอร์ว่าง และตัวเลือกการอ่าน CSV
+order: 2
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Variants from '../../../../components/labs/great-expectations/Variants';
+
+<Step>
+
+## โฟลเดอร์ที่ไม่สะอาด
+
+pipeline จริงมักมีไฟล์อื่นปนอยู่ในโฟลเดอร์เดียวกับข้อมูล สคริปต์ `24_batch_details.py` ส่วนที่ 2 สร้างโฟลเดอร์ที่มีไฟล์เจ็ดไฟล์
+
+```text
+backup_data_2024-03-01.csv
+data_2023-12-31.csv
+data_2024-01-31.csv
+data_2024-02-01.csv
+data_2024-02-10.csv
+data_2024-03-01.csv.bak
+notes.txt
+```
+
+ไฟล์ข้อมูลจริงมีสี่ไฟล์ (`data_...csv` ที่ลงท้าย `.csv`) อีกสามไฟล์เป็นไฟล์สำรองและไฟล์อื่น ใช้ regex เดียวกับบทหลัก
+
+</Step>
+
+<Step>
+
+## regex ที่ไม่ปิดหัวท้าย
+
+สลับแท็บเทียบ regex สองแบบ
+
+<Variants
+  client:visible
+  title="regex เดียวกัน ต่างกันที่ ^ และ $"
+  variants={[
+    {
+      label: 'ไม่ปิดหัวท้าย',
+      code: `regex=r"data_(?P<year>\\d{4})-(?P<month>\\d{2})-(?P<day>\\d{2})\\.csv"\n\nby_day.get_batch_identifiers_list()\nby_day.get_batch()   # ไม่ส่งพารามิเตอร์`,
+      output: `batches seen:\n  data_2023-12-31.csv  2023 12 31\n  data_2024-01-31.csv  2024 01 31\n  data_2024-02-01.csv  2024 02 01\n  data_2024-02-10.csv  2024 02 10\n  data_2024-03-01.csv  2024 03 01   <- ไฟล์นี้ไม่มีในโฟลเดอร์\n\nget_batch() -> FileNotFoundError:\n  ...\\data_2024-03-01.csv`,
+      reading: 'ไฟล์สำรองที่ชื่อมี data_2024-03-01.csv อยู่ข้างในถูกจับเป็น batch ของวันที่ 2024-03-01 แต่ path ที่ GX ใช้เปิดคือ data_2024-03-01.csv ซึ่งไม่มีอยู่จริง จึงล้มด้วย FileNotFoundError ตอนขอ batch ล่าสุด',
+      bad: true,
+    },
+    {
+      label: 'ปิดด้วย ^ และ $',
+      code: `regex=r"^data_(?P<year>\\d{4})-(?P<month>\\d{2})-(?P<day>\\d{2})\\.csv$"\n\nanchored.get_batch_identifiers_list()\nanchored.get_batch()`,
+      output: `anchored regex sees:\n  2023-12-31, 2024-01-31, 2024-02-01, 2024-02-10\n\nget_batch() -> ...\\data_2024-02-10.csv`,
+      reading: 'เห็นแค่ไฟล์ข้อมูลสี่ไฟล์ ไฟล์สำรองและ .bak ถูกข้าม และ batch ล่าสุดคือไฟล์ของวันที่ 2024-02-10 ซึ่งมีจริง',
+    },
+  ]}
+/>
+
+ผลที่เห็น regex ไม่ได้ถูกใช้แบบ "ทั้งชื่อต้องตรง" มันหาส่วนที่ตรงกับแบบแผนจากกลางชื่อไฟล์ก็ได้ ไม่ปิดหัวท้าย ไฟล์ที่ไม่ควรเข้ามาจึงเข้ามาเป็น batch ได้ (ในการทดลอง ไฟล์ที่ถูกจับเกินมาคือไฟล์เดียวที่ชนวันที่ 2024-03-01 ไม่ได้แยกว่าเป็น `backup_data_...csv` หรือ `...csv.bak`) ใส่ `^` ต้นและ `$` ท้ายเสมอ
+
+</Step>
+
+<Step>
+
+## โฟลเดอร์ว่าง ไม่มีไฟล์ตรงกับ regex และการอ่าน CSV
+
+| สถานการณ์ | ผล (ส่วนที่ 3 และ 4 ของสคริปต์) |
+|---|---|
+| โฟลเดอร์ไม่มีไฟล์เลย แล้ว `add_csv_asset(...)` | `TestConnectionError`: `No file at base_directory path ... matched glob_directive "**/*" for DataAsset ...` ล้มตั้งแต่ตอนสร้าง asset |
+| โฟลเดอร์มีไฟล์ แต่ไม่มีไฟล์ตรงกับ regex | `get_batch_identifiers_list()` ได้ `[]` และ `get_batch()` ได้ `NoAvailableBatchesError: No available batches found.` |
+| ไฟล์ CSV คั่นด้วย `;` อ่านแบบไม่ตั้งค่า | ได้คอลัมน์เดียวชื่อ `a;b` |
+| ตั้ง `add_csv_asset("x", sep=";")` | ได้คอลัมน์ `a`, `b` ตามจริง |
+
+สองแถวสุดท้ายแสดงว่าพารามิเตอร์ของ asset ถูกส่งต่อให้ตัวอ่านของ pandas (`sep` เป็นพารามิเตอร์ของ `pandas.read_csv`) ตัวเลือกอื่นของ `read_csv` ไม่ได้ทดลอง
+
+ข้อควรระวัง: การสร้าง asset ที่ล้มเมื่อโฟลเดอร์ว่างหมายความว่า pipeline ที่สร้าง asset ก่อนไฟล์ของวันมาถึง จะล้มตั้งแต่ตั้งค่า ไม่ใช่ตอนตรวจ ถ้าสร้างและรันในสคริปต์เดียวกัน ให้เช็กว่ามีไฟล์ก่อน
+
+<Callout type="warn" title="ที่ไม่ได้ทดลอง">
+ไม่ได้ทดลองไฟล์ในโฟลเดอร์ย่อย (glob `**/*` ดูเหมือนค้นลงไปทุกชั้น) ไม่ได้ทดลองไฟล์ที่ถูกเขียนค้างอยู่ตอนอ่าน และไม่ได้ทดลองไฟล์บน S3 หรือ GCS
+</Callout>
+
+</Step>

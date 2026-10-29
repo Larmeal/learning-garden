@@ -1,0 +1,70 @@
+---
+title: batch.validate ทางลัดสำหรับลองกฎ
+summary: ลองกฎเดียวหรือ suite ที่ยังไม่ได้ add กับ batch ที่ได้มา โดยไม่ต้องสร้าง validation definition ดูว่าได้ผลแบบไหนและไม่ถูกเก็บ
+order: 3
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Variants from '../../../../components/labs/great-expectations/Variants';
+
+<Step>
+
+## เมื่ออยากลองกฎเร็วๆ
+
+ขั้นปกติคือ context, data source, asset, batch definition, suite, validation definition แล้วจึง `run()` ตอนกำลังสำรวจข้อมูลหรือเขียนกฎใหม่ นั่นหนักเกินไป batch ที่ได้จาก `get_batch()` มีเมธอด `validate(...)` ที่ตรวจกฎโดยตรง
+
+```python
+batch = batch_definition.get_batch()
+batch.validate(gxe.ExpectColumnValuesToBeBetween(column="a", min_value=0, max_value=2))
+```
+
+</Step>
+
+<Step>
+
+## สองแบบที่ทดลองแล้ว
+
+ข้อมูล: ไฟล์ CSV `a;b / 1;2 / 3;4` (ส่วนที่ 4 และ 5 ของ `24_batch_details.py`, GX 1.24.1) สลับแท็บ
+
+<Variants
+  client:visible
+  title="batch.validate รับอะไรได้"
+  variants={[
+    {
+      label: 'expectation ตัวเดียว',
+      code: `res = batch.validate(\n    gxe.ExpectColumnValuesToBeBetween(\n        column="a", min_value=0, max_value=2))`,
+      output: `type: ExpectationValidationResult\nsuccess: False\nunexpected_count: 1`,
+      reading: 'ได้ผลของกฎข้อเดียว (ExpectationValidationResult) ค่า a=3 เกิน 2 จึงไม่ผ่าน unexpected_count เป็น 1',
+    },
+    {
+      label: 'suite ที่ไม่ได้ add เข้า context',
+      code: `suite = gx.ExpectationSuite(name="adhoc")\nsuite.add_expectation(\n    gxe.ExpectColumnValuesToNotBeNull(column="b"))\nres = batch.validate(suite)`,
+      output: `type: ExpectationSuiteValidationResult\nsuccess: True\nresults store before/after: 0 0\nsuite.id: None`,
+      reading: 'รันได้โดย suite ไม่ต้องอยู่ใน context และผลไม่ถูกเก็บลง results store (จำนวนผลคงเดิมที่ 0)',
+    },
+  ]}
+/>
+
+</Step>
+
+<Step>
+
+## ใช้เมื่อไหร่ ไม่ใช้เมื่อไหร่
+
+| ต้องการ | ใช้ |
+|---|---|
+| ลองกฎใหม่กับข้อมูลจริง เห็นผลทันที | `batch.validate(expectation)` |
+| ลอง suite ทั้งชุดที่ยังร่างอยู่ | `batch.validate(suite)` |
+| ตรวจทุกวันใน pipeline และเก็บผล | `ValidationDefinition` หรือ `Checkpoint` (ผลถูกเก็บ มี action) |
+
+เหตุผลที่ไม่ควรใช้ `batch.validate` ใน pipeline คือผลไม่ถูกเก็บ (ทดลองแล้วกับ suite) และไม่มี action เช่น แจ้งเตือนหรืออัปเดต Data Docs
+
+<Callout type="warn" title="ที่ไม่ได้ทดลอง">
+ทดลองกับ batch ที่มาจากไฟล์ CSV ใน pandas เท่านั้น ไม่ได้ลองกับ batch ของ SQL และไม่ได้ตรวจว่า `batch.validate(expectation)` ที่ส่งตัวเดียวเก็บผลหรือไม่ (ทดลองเรื่องเก็บผลเฉพาะแบบ suite)
+</Callout>
+
+</Step>

@@ -1,0 +1,102 @@
+---
+title: แบ่ง batch ของตาราง SQL
+summary: ตารางเดียวแบ่งเป็น batch ตามปี เดือน หรือวันได้โดยไม่ต้องมีไฟล์แยก ดูว่า identifier หน้าตาอย่างไร และ batch หนึ่งกลายเป็นแถวไหนของตาราง
+order: 1
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import CaseExplorer from '../../../../components/labs/great-expectations/CaseExplorer';
+import FlowFrames from '../../../../components/labs/great-expectations/FlowFrames';
+
+<Step>
+
+## ตารางที่ใช้ทดลอง
+
+ตาราง `events` ใน SQLite มี 5 แถว คอลัมน์ `day` เก็บวันที่เป็นข้อความ `YYYY-MM-DD`
+
+```text
+id  day         amount
+1   2024-01-30  5
+2   2024-01-31  7
+3   2024-02-01  9
+4   2024-02-01  11
+5   2024-02-02  3
+```
+
+```python
+src = context.data_sources.add_sqlite("sq", connection_string=f"sqlite:///{db}")
+asset = src.add_table_asset("events", table_name="events")
+by_month = asset.add_batch_definition_monthly("monthly", column="day")
+```
+
+ตารางเดียวกันตัดเป็น batch ได้สามระดับ ชื่อเมธอดบอกระดับ และรับชื่อคอลัมน์วันที่ผ่านพารามิเตอร์ `column` ผลจาก `24_batch_details.py` ส่วนที่ 1 (GX 1.24.1)
+
+<CaseExplorer
+  client:visible
+  title="batch ที่ GX เห็นในตาราง events"
+  okWord="มี"
+  badWord="ไม่มี"
+  cases={[
+    { label: 'whole table', input: 'add_batch_definition_whole_table', rows: [
+      { name: 'batch เดียว', ok: true, detail: 'ทั้งตาราง 5 แถว' } ], note: 'ไม่มี identifier ไม่ต้องส่ง batch_parameters' },
+    { label: 'yearly', input: 'add_batch_definition_yearly(column="day")', rows: [
+      { name: "{'year': 2024}", ok: true, detail: '5 แถว' } ], note: '1 batch เพราะทุกแถวเป็นปี 2024' },
+    { label: 'monthly', input: 'add_batch_definition_monthly(column="day")', rows: [
+      { name: "{'year': 2024, 'month': 1}", ok: true, detail: 'แถว id 1, 2' },
+      { name: "{'year': 2024, 'month': 2}", ok: true, detail: 'แถว id 3, 4, 5' } ], note: '2 batch' },
+    { label: 'daily', input: 'add_batch_definition_daily(column="day")', rows: [
+      { name: "{'year': 2024, 'month': 1, 'day': 30}", ok: true },
+      { name: "{'year': 2024, 'month': 1, 'day': 31}", ok: true },
+      { name: "{'year': 2024, 'month': 2, 'day': 1}", ok: true, detail: 'สองแถว (id 3, 4) อยู่ใน batch นี้' },
+      { name: "{'year': 2024, 'month': 2, 'day': 2}", ok: true } ], note: '4 batch วันที่ 2024-02-01 มีสองแถวจึงเป็นหนึ่ง batch' },
+  ]}
+  caption="รายการ identifier มาจาก get_batch_identifiers_list() ของแต่ละ batch definition จำนวนแถวต่อ batch ของ monthly คำนวณจากตารางข้างบน ส่วนของ daily วันที่ 2024-02-01 ตรวจแล้วจากการรัน (ได้ 2 แถว)"
+/>
+
+</Step>
+
+<Step>
+
+## batch หนึ่งกลายเป็นแถวไหน
+
+เมื่อเรียก `get_batch(batch_parameters={"year": 2024, "month": 2, "day": 1})` GX ไม่ได้ดึงข้อมูลทั้งตารางแล้วกรองใน Python มันส่งเงื่อนไขไปให้ฐานข้อมูลกรอง ที่ทดลองแล้วใน `24` batch นี้ได้ 2 แถว ตรงกับตาราง และ `batch_spec` ของ batch ระบุชื่อ partitioner ว่า `partition_on_year_and_month_and_day`
+
+<FlowFrames
+  client:visible
+  title="จากพารามิเตอร์เป็นแถวใน batch"
+  width={760}
+  height={220}
+  boxes={[
+    { id: 'p', label: 'batch_parameters', sub: 'year 2024, month 2, day 1', x: 10, y: 20, w: 200 },
+    { id: 'bd', label: 'Batch Definition', sub: 'daily, column=day', x: 280, y: 20, w: 180 },
+    { id: 'db', label: 'ฐานข้อมูล', sub: 'WHERE ตามวันที่', x: 540, y: 20 },
+    { id: 'b', label: 'Batch', sub: '2 แถว (id 3, 4)', x: 540, y: 140 },
+  ]}
+  arrows={[ { from: 'p', to: 'bd' }, { from: 'bd', to: 'db', label: 'สร้างเงื่อนไข' }, { from: 'db', to: 'b', label: 'แถวที่ตรง' } ]}
+  frames={[
+    { title: 'ส่งพารามิเตอร์', text: 'ผู้เรียกระบุปี เดือน วัน', on: ['p'], arrows: [] },
+    { title: 'batch definition แปลงเป็นเงื่อนไข', text: 'partitioner แบบรายวันสร้างเงื่อนไขกรองบนคอลัมน์ day (ในซอร์สเรียก partition_on_year_and_month_and_day)', on: ['p', 'bd'], arrows: [0], tag: 'batch_spec.partitioner_method' },
+    { title: 'ฐานข้อมูลกรอง', text: 'ฐานข้อมูลเป็นฝ่ายกรอง ข้อมูลทั้งตารางไม่ถูกดึงมา Python', on: ['bd', 'db'], arrows: [1] },
+    { title: 'ได้ batch', text: 'batch มีสองแถวของวันที่ 2024-02-01 expectation ที่รันต่อทำงานกับสองแถวนี้เท่านั้น', on: ['db', 'b'], arrows: [2] },
+  ]}
+/>
+
+</Step>
+
+<Step>
+
+## ข้อควรรู้
+
+- ไม่ส่งพารามิเตอร์: บนไฟล์ได้ batch ล่าสุด บน SQL สคริปต์ `24` เรียก `get_batch()` โดยไม่ส่งพารามิเตอร์แล้วไม่ error แต่ไม่ได้ตรวจว่าได้ batch ไหน ถ้า pipeline รายวันของคุณอ่านตาราง ให้ส่งพารามิเตอร์ครบเสมอเหมือนกรณีไฟล์
+- identifier ของ SQL เป็นตัวเลข (`'year': 2024`) ต่างจากไฟล์ที่เป็นสตริง (บทหลัก)
+- ตัวอย่างนี้เก็บวันที่เป็นข้อความใน SQLite ฐานข้อมูลอื่นที่เก็บเป็นชนิดวันที่จริงไม่ได้ทดลอง
+
+<Callout type="warn" title="ที่ยังไม่ได้ทดลอง">
+ไม่ได้อ่าน SQL ที่ GX สร้างจริงสำหรับ partitioner ไม่ได้ทดลองคอลัมน์วันที่ที่เป็น timestamp มีเขตเวลา และไม่ได้ทดลองกับ Spark
+</Callout>
+
+</Step>

@@ -7,7 +7,7 @@ level: 3
 stage: sprout
 format: steps
 requires: [first-validation, context-stores]
-updated: 2026-10-27
+updated: 2026-10-29
 ---
 
 import Step from '../../../../components/Step.astro';
@@ -26,7 +26,7 @@ import BatchLab from '../../../../components/labs/great-expectations/BatchLab';
 | Data Asset | `add_dataframe_asset(...)`, `add_csv_asset(...)`, `add_table_asset(name, table_name=...)` |
 | Batch Definition | `add_batch_definition_whole_dataframe(...)`, `add_batch_definition_whole_table(...)`, `add_batch_definition_daily(name, regex=...)`, `add_batch_definition_monthly(...)`, `add_batch_definition_path(name, path=...)` |
 
-ที่มีใน 1.x นอกเหนือจากนี้ (อ่านจากรายชื่อไฟล์ของ `datasource/fluent/`): ไฟล์บน S3, GCS, Azure และ DBFS, Spark (`add_spark`, Spark filesystem) และฐานข้อมูลอย่าง Postgres, Snowflake, BigQuery, Redshift, Databricks SQL
+ในรายชื่อไฟล์ของ `datasource/fluent/` ยังมี (อ่านเท่านั้น ไม่ได้ทดลอง): ไฟล์บน S3, GCS, Azure และ DBFS, Spark (`add_spark`, Spark filesystem) และฐานข้อมูลอย่าง Postgres, Snowflake, BigQuery, Redshift, Databricks SQL
 
 </Step>
 
@@ -51,8 +51,8 @@ df = batch.data.dataframe                                    # pandas
 
 การแบ่งข้อมูลเป็นหลาย batch (เช่นรายวัน) ทำได้สองทาง ขึ้นกับว่าข้อมูลอยู่ในรูปไหน
 
-- **ตามชื่อไฟล์** (ข้อมูลเป็นไฟล์ในโฟลเดอร์): ใส่ regex ที่มีกลุ่มชื่อ `year`, `month`, `day` เช่น `data_(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})\.csv` GX จะรู้ว่าแต่ละไฟล์เป็น batch ไหน
-- **ตามคอลัมน์** (ข้อมูลเป็นตาราง): ใช้ชื่อคอลัมน์วันที่ เช่นรายปี/เดือน/วัน หรือค่าในคอลัมน์ มีหลายแบบใน `core/partitioners.py` (ซอร์ส 1.9.3)
+- ตามชื่อไฟล์ (ข้อมูลเป็นไฟล์ในโฟลเดอร์): ใส่ regex ที่มีกลุ่มชื่อ `year`, `month`, `day` เช่น `data_(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})\.csv` GX จะรู้ว่าแต่ละไฟล์เป็น batch ไหน
+- ตามคอลัมน์ (ข้อมูลเป็นตาราง): ใช้ชื่อคอลัมน์วันที่ เช่นรายปี/เดือน/วัน หรือค่าในคอลัมน์ มีหลายแบบใน `core/partitioners.py` (ซอร์ส 1.9.3)
 
 ทดลองกับไฟล์ `data_2024-01-01.csv` ถึง `data_2024-01-03.csv` ใน `04_batches.py`: `get_batch_identifiers_list()` คืนรายการ `{'path': ..., 'year': ..., 'month': ..., 'day': ...}` หนึ่งรายการต่อไฟล์
 
@@ -62,15 +62,15 @@ df = batch.data.dataframe                                    # pandas
 
 ## get_batch เลือกไฟล์ไหน
 
-พารามิเตอร์ที่ส่งทำหน้าที่ **กรอง** รายการ batch แล้ว GX คืน **อันสุดท้าย** ของที่เหลือ (เรียงจากน้อยไปมาก)
+พารามิเตอร์ที่ส่งทำหน้าที่กรองรายการ batch แล้ว GX คืนอันสุดท้าย ของที่เหลือ (เรียงจากน้อยไปมาก)
 
 <BatchLab client:visible />
 
 สามอย่างที่ต้องจำ (ทดลองแล้วทั้งหมด)
 
-1. **ไม่ส่งพารามิเตอร์**: ได้ batch ล่าสุด ไม่ error
-2. **ส่งไม่ครบ**: ส่ง year กับ month ให้ regex รายวัน จะเหลือหลายไฟล์ ได้ไฟล์สุดท้ายของเดือนนั้นเงียบๆ
-3. **ส่งค่าที่ไม่มีไฟล์**: `NoAvailableBatchesError`
+1. ไม่ส่งพารามิเตอร์: ได้ batch ล่าสุด ไม่ error
+2. ส่งไม่ครบ: ส่ง year กับ month ให้ regex รายวัน จะเหลือหลายไฟล์ ได้ไฟล์สุดท้ายของเดือนนั้นเงียบๆ
+3. ส่งค่าที่ไม่มีไฟล์: `NoAvailableBatchesError`
 
 <Callout type="warn" title="กับดักของ pipeline รายวัน">
 ถ้า scheduler ลืมส่งวันที่ (ตัวแปรเป็นค่าว่างแล้วไม่ถูกส่ง) pipeline ไม่ล้ม มันตรวจไฟล์ล่าสุดที่มีอยู่ซึ่งอาจเป็นไฟล์ของเมื่อวาน แล้วรายงานว่าผ่าน ให้ส่ง `year`, `month`, `day` ครบเสมอ และให้ pipeline ตรวจว่ามีค่าก่อนเรียก
@@ -91,7 +91,7 @@ df = batch.data.dataframe                                    # pandas
 | รายวัน (regex) | `year`, `month`, `day` |
 | รายเดือน (regex) | `year`, `month` |
 
-ใน 1.24.1 พารามิเตอร์ตัวเลขควรเป็น **จำนวนเต็ม** (`{"year": 2024, "month": 1, "day": 2}`) การส่งสตริงตัวเลข (`"01"`) ยังใช้ได้แต่ GX เตือนว่าเลิกสนับสนุน (ลบใน 2.0) ส่วนค่าที่ `get_batch_identifiers_list()` คืนมายังเป็นสตริง จึงต้องแปลงเป็นเลขก่อนส่งกลับ
+ใน 1.24.1 พารามิเตอร์ตัวเลขควรเป็นจำนวนเต็ม (`{"year": 2024, "month": 1, "day": 2}`) การส่งสตริงตัวเลข (`"01"`) ยังใช้ได้แต่ GX เตือนว่าเลิกสนับสนุน (ลบใน 2.0) ส่วนค่าที่ `get_batch_identifiers_list()` คืนมายังเป็นสตริง จึงต้องแปลงเป็นเลขก่อนส่งกลับ
 
 ผลที่บันทึกไม่เก็บ DataFrame ทั้งก้อน GX แทนด้วยข้อความ placeholder ใน `meta["batch_parameters"]`
 
@@ -112,5 +112,15 @@ df = batch.data.dataframe                                    # pandas
 - ทำไม `get_batch()` ที่ไม่ส่งพารามิเตอร์จึงอันตรายใน pipeline รายวัน
 - batch definition กับ batch ต่างกันอย่างไร อันไหนอ่านข้อมูลจริง
 - ข้อมูลเป็นตาราง SQL แบ่งตามคอลัมน์วันที่ กับข้อมูลเป็นไฟล์รายวัน ใช้ partitioner ตระกูลไหน
+
+</Step>
+
+<Step>
+
+## หน้าย่อยของบทนี้
+
+1. แบ่ง batch ของตาราง SQL: yearly, monthly, daily บนตารางเดียว
+2. regex ของชื่อไฟล์ และไฟล์ที่ไม่ควรเข้ามา: regex ที่ไม่ปิดหัวท้ายทำให้ get_batch ล้ม
+3. batch.validate ทางลัดสำหรับลองกฎ: ลองกฎโดยไม่ต้องสร้าง validation definition
 
 </Step>
