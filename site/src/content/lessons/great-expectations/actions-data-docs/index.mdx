@@ -7,7 +7,7 @@ level: 3
 stage: sprout
 format: steps
 requires: [validation-checkpoints]
-updated: 2026-10-27
+updated: 2026-10-29
 ---
 
 import Step from '../../../../components/Step.astro';
@@ -18,7 +18,7 @@ import ActionsLab from '../../../../components/labs/great-expectations/ActionsLa
 
 ## Action คืออะไร
 
-action คือขั้นตอนอัตโนมัติที่ checkpoint รัน **หลัง** ตรวจทุก validation definition เสร็จ มันรับ `CheckpointResult` แล้วทำอะไรก็ได้ เช่นแจ้งเตือน หรืออัปเดตรายงาน
+action คือขั้นตอนอัตโนมัติที่ checkpoint รันหลังตรวจทุก validation definition เสร็จ มันรับ `CheckpointResult` แล้วทำอะไรก็ได้ เช่นแจ้งเตือน หรืออัปเดตรายงาน
 
 action ที่ GX 1.24.1 มีให้ (ดูจาก `great_expectations.checkpoint.actions`)
 
@@ -44,9 +44,9 @@ action ที่ GX 1.24.1 มีให้ (ดูจาก `great_expectations.
 
 กฎที่ยืนยันแล้วด้วยการรัน (`06_actions_docs.py`)
 
-1. action ทำงาน **หลัง** ทุก validation และ **ผลถูกเก็บลง store ไปแล้ว**
-2. `UpdateDataDocsAction` ถูกย้ายไปรัน **ก่อน** action อื่น เพื่อให้ action อื่นที่ต้องการลิงก์ Data Docs ได้ URL ผ่าน `ActionContext`
-3. action อื่นรันตามลำดับที่ประกาศ ถ้า action หนึ่ง raise การรันหยุดตรงนั้น action ที่เหลือ **ไม่ถูกรัน** และ `Checkpoint.run()` raise ออกมา (ทดลอง: `[first, boom, third]` รันแค่ `first` และ `boom`)
+1. action ทำงานหลังทุก validation และผลถูกเก็บลง store ไปแล้ว
+2. `UpdateDataDocsAction` ถูกย้ายไปรันก่อน action อื่น เพื่อให้ action อื่นที่ต้องการลิงก์ Data Docs ได้ URL ผ่าน `ActionContext`
+3. action อื่นรันตามลำดับที่ประกาศ ถ้า action หนึ่ง raise การรันหยุดตรงนั้น action ที่เหลือไม่ถูกรัน และ `Checkpoint.run()` raise ออกมา (ทดลอง: `[first, boom, third]` รันแค่ `first` และ `boom`)
 4. การ "ไม่ส่ง" เพราะเงื่อนไขไม่ตรง ไม่ใช่ error action ยังถูกเรียกแต่เลือกที่จะเงียบ
 
 </Step>
@@ -117,7 +117,7 @@ class WriteStatusFile(ValidationAction):
 
 คลาสถูกลงทะเบียนอัตโนมัติจากฟิลด์ `type` (metaclass) เหมือน expectation `06_actions_docs.py` มีตัวอย่าง action ที่ raise ไว้ดูพฤติกรรมเมื่อ action ล้ม
 
-<Callout type="warn" title="action ที่แจ้งเตือนอย่าให้ล้มเงียบแล้วทำให้ checkpoint ล้ม">
+<Callout type="warn" title="action เสริมที่ล้มลาก checkpoint ล้มตาม">
 เพราะ action ที่ raise ทำให้ `Checkpoint.run()` raise และ action หลังจากนั้นไม่ถูกรัน ให้ดัก error ภายใน `run()` ของ action ที่เป็นการแจ้งเตือนเสริม (เช่นเขียน log) ถ้าไม่อยากให้ webhook ที่ล่มลากทั้ง pipeline ล้ม และจำไว้ว่าผลตรวจถูกเก็บไปแล้วก่อนหน้านั้นเสมอ
 </Callout>
 
@@ -130,5 +130,15 @@ class WriteStatusFile(ValidationAction):
 - checkpoint มี `[SlackAction, UpdateDataDocsAction]` ลำดับที่รันจริงคืออะไร ทำไม
 - Slack webhook ใช้ไม่ได้ ผลตรวจของรอบนี้หายไหม
 - ต้องการแจ้งเฉพาะเมื่อมีข้อมูลเสียร้ายแรง ตั้งค่าอะไรที่ expectation และอะไรที่ action
+
+</Step>
+
+<Step>
+
+## หน้าย่อยของบทนี้
+
+1. notify_on ส่งเมื่อไหร่: ตารางผลการส่ง 24 ช่องจาก Slack ตัวปลอม
+2. เขียน action เอง และ action ที่ล้ม: ผลตรวจรอดหรือไม่เมื่อ action raise
+3. อ่าน Data Docs ให้เป็น: ข้อความในแต่ละหน้า และ BOOLEAN_ONLY เทียบ COMPLETE
 
 </Step>
