@@ -29,10 +29,10 @@ export default function Decision({ title, start, nodes, caption }: Props) {
       <div className="viz-controls">
         <button type="button" className="btn sm" disabled={trail.length < 2} onClick={() => setTrail((t) => t.slice(0, -1))}>ย้อนกลับ</button>
         <button type="button" className="btn sm" disabled={trail.length < 2} onClick={() => setTrail([start])}>เริ่มใหม่</button>
-        <span className="gx-tag">ข้อที่ {trail.length}</span>
+        <span className="gx-tag">ตอบแล้ว {trail.length - 1} ข้อ</span>
       </div>
       {trail.slice(0, -1).length > 0 && (
-        <ol className="gx-steps">
+        <ol className="gx-steps gx-trail">
           {trail.slice(0, -1).map((id, i) => {
             const n = byId.get(id);
             const via = n?.options?.find((o) => o.to === trail[i + 1])?.label;

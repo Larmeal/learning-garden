@@ -32,7 +32,7 @@ export default function SupportLookup() {
           placeholder="กรองชื่อที่ไม่รองรับ"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          style={{ font: 'inherit', padding: '6px 12px', borderRadius: 10, border: '2px solid var(--line-strong)', background: 'var(--surface)', color: 'var(--fg)', minWidth: 200 }}
+          style={{ font: 'inherit', padding: '6px 12px', borderRadius: 10, border: '2px solid var(--line-strong)', background: 'var(--surface)', color: 'var(--fg)', minWidth: 260 }}
         />
       </div>
 

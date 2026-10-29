@@ -60,7 +60,7 @@ export default function CallTrace() {
 
       <ol className="gx-results" style={{ maxHeight: 360, overflowY: 'auto' }}>
         {trace.map((r, n) => (
-          <li key={n} data-ok={n <= i ? 'true' : 'false'} style={{ opacity: n <= i ? 1 : 0.35, paddingLeft: 12 + r.depth * 14 }}>
+          <li key={n} data-ok={n <= i ? 'true' : undefined} style={{ opacity: n <= i ? 1 : 0.35, paddingLeft: 12 + r.depth * 14 }}>
             <button type="button" className="gx-tree-key" onClick={() => { setPlaying(false); setI(n); }} style={{ textAlign: 'left' }}>
               <code>{r.file.split('/').pop()}</code> <b>{r.fn}</b>
             </button>

@@ -27,7 +27,7 @@ export default function BarList({ title, items, unit = '', caption }: Props) {
                 aria-hidden="true"
                 style={{ display: 'block', height: 12, borderRadius: 99, width: `${((it.value ?? 0) / max) * 100}%`, minWidth: it.value ? 4 : 0, background: 'var(--accent)' }}
               />
-              <b>{it.value === null ? 'ไม่มี' : `${it.value}${unit}`}</b>
+              <b style={{ whiteSpace: 'nowrap' }}>{it.value === null ? 'ไม่มี' : `${it.value}${unit}`}</b>
               {it.note && <span className="gx-detail">{it.note}</span>}
             </span>
           </li>
