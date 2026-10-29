@@ -49,6 +49,9 @@ Evidence levels: **ran** = observed by running code, **source** = read in the co
 | `Checkpoint.run` returns a `CheckpointResult` and does not raise on failed data; read `.success` | ran | `03`, `09` |
 | `mostly`: `(considered - unexpected) / considered >= mostly`; nulls are not considered. `[10, None, 30, 400]` between 0..120: passes at mostly 0.66, fails at 0.67 | ran | scratch |
 | Adding an equal expectation to a suite twice is silently ignored | ran | `03` |
+| Suite result keys: `success, results, suite_name, suite_parameters, statistics, meta, id`; each expectation result: `success, expectation_config, result, meta, exception_info`. `expectation_config.severity` defaults to `critical` | ran | `18` |
+| The same validation definition run on two DataFrames gives two stored results with different `run_time`; the results store holds both | ran (ephemeral, pandas) | `18` |
+| `ExpectColumnValuesToBeUnique` on `[1,2,2,4]` reports `unexpected_count=2` and `partial_unexpected_list=[2,2]` (both rows of a duplicate count) | ran | `18` |
 | `result.results` is not always in suite order: when expectations fail with an exception (missing column) GX puts them first. Match results to expectations through `expectation_config`, not by position | ran (1.24.1) | `16` |
 | A validation leaves the pandas DataFrame unchanged (9 defect cases) | ran (pandas only) | `16` |
 | One suite, nine defect cases: null, duplicate, out of range, bad format, unknown category, renamed column and empty table are each caught; a wrong value inside the allowed range (`13` instead of `31`) passes | ran | `16` |

@@ -1,0 +1,98 @@
+---
+title: โจทย์ฝึกสี่ข้อ
+summary: ลองเขียนเองก่อนเปิดเฉลย แต่ละข้อมีโจทย์ ผลที่ควรได้ และเฉลยที่รันแล้ว ฝึกอ่านผลมากกว่าฝึกจำชื่อ
+order: 3
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## วิธีฝึก
+
+ใช้ไฟล์ `01_first_validation.py` เป็นโครง หรือเขียนใหม่ในไฟล์ของคุณเอง เฉลยทุกข้อรันจริงใน `18_result_anatomy.py` ส่วนที่ 4 ด้วย GX 1.24.1 ลองก่อนแล้วค่อยเปิดเฉลย
+
+</Step>
+
+<Step>
+
+## โจทย์ 1: ทำให้ทุกข้อผ่าน
+
+เริ่มจาก DataFrame ของบทนี้ (`age` มี null กับ 400) แก้ข้อมูลอย่างเดียวโดยไม่แตะ suite ให้ทั้งสี่ข้อผ่าน
+
+ผลที่ควรได้: `result.success` เป็น `True`, `success_percent` เป็น `100.0`
+
+<details>
+<summary>เฉลย</summary>
+
+```python
+df = pd.DataFrame({"id": [1, 2, 3, 4], "age": [10, 20, 30, 40], "name": ["a", "b", "c", "d"]})
+```
+
+ใส่ `age` ให้ครบและอยู่ใน 0 ถึง 120 และมีสี่แถวพอดี ได้ `ex1 all pass: True 100.0`
+
+</details>
+
+</Step>
+
+<Step>
+
+## โจทย์ 2: หาค่า id ที่ซ้ำ
+
+ข้อมูล `id = [1, 2, 2, 4]` เขียน expectation ที่ล้มเพราะ id ซ้ำ แล้วอ่านจาก `result` ว่ามีกี่แถวที่ซ้ำและค่าอะไร
+
+<details>
+<summary>เฉลย</summary>
+
+```python
+gxe.ExpectColumnValuesToBeUnique(column="id")
+```
+
+ผล: `success=False`, `unexpected_count=2`, `partial_unexpected_list=[2, 2]` ค่า 2 ปรากฏสองครั้งเพราะทั้งสองแถวถูกนับเป็นผิด ไม่ใช่นับแค่ "แถวที่เกิน" (นับ 2 ไม่ใช่ 1)
+
+</details>
+
+</Step>
+
+<Step>
+
+## โจทย์ 3: คอลัมน์ที่ควรมีแต่ไม่มี
+
+ตารางมีคอลัมน์ `id`, `age`, `name` แต่ผู้ใช้ต้องการให้มี `email` ด้วย เขียน expectation ที่จับได้ แล้วหาว่า `result` บอกชื่อคอลัมน์ที่ขาดไว้ตรงไหน
+
+<details>
+<summary>เฉลย</summary>
+
+```python
+gxe.ExpectTableColumnsToMatchSet(column_set=["id", "age", "name", "email"], exact_match=True)
+```
+
+ผล: `success=False` `observed_value` เป็น `['age', 'id', 'name']` (เรียงตามตัวอักษร) และ `details` เป็น `{'mismatched': {'missing': ['email']}}` ชื่อที่ขาดอยู่ใน `result["details"]["mismatched"]["missing"]`
+
+</details>
+
+</Step>
+
+<Step>
+
+## โจทย์ 4: ยอมให้ผิดได้หนึ่งในสี่
+
+ข้อมูล `age = [10, 20, 30, 400]` ตั้ง `ExpectColumnValuesToBeBetween(0, 120)` ให้ผ่านโดยยังมี 400 อยู่ในข้อมูล
+
+<details>
+<summary>เฉลย</summary>
+
+```python
+gxe.ExpectColumnValuesToBeBetween(column="age", min_value=0, max_value=120, mostly=0.75)
+```
+
+ผล: `success=True`, `unexpected_percent=25.0` ผิดหนึ่งจากสี่ แถวที่ถูกเป็น 3 ใน 4 คือ 0.75 เท่ากับ `mostly` พอดีจึงผ่าน (เงื่อนไขคือไม่ต่ำกว่า) ลองตั้ง `mostly=0.8` ก็ได้ `success=False` (รันแล้วใน `18` เช่นกัน)
+
+
+</details>
+
+</Step>

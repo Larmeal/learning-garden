@@ -1,0 +1,87 @@
+---
+title: รันซ้ำกับข้อมูลของวันถัดไป
+summary: validation definition ตัวเดียวใช้ตรวจข้อมูลหลายก้อนได้ ดูว่าอะไรคงที่ อะไรเปลี่ยนในแต่ละรอบ และผลทุกรอบไปอยู่ที่ไหน
+order: 2
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import FlowFrames from '../../../../components/labs/great-expectations/FlowFrames';
+
+<Step>
+
+## เปลี่ยนแค่ DataFrame
+
+สคริปต์ `18_result_anatomy.py` ส่วนที่ 3 ใช้ validation definition ตัวเดิม รันสองครั้ง
+
+```python
+day1 = pd.DataFrame({"id": [1, 2, 3, 4], "age": [10, None, 30, 400], "name": ["a", "b", None, "d"]})
+day2 = pd.DataFrame({"id": [1, 2, 3, 4], "age": [10, 20, 30, 40],   "name": ["a", "b", "c", "d"]})
+
+r1 = vd.run(batch_parameters={"dataframe": day1})
+r2 = vd.run(batch_parameters={"dataframe": day2})
+```
+
+ผลที่พิมพ์ออกมา (GX 1.24.1)
+
+```text
+day1 success: False | day2 success: True
+run ids differ: True
+results kept in the store: 2
+```
+
+suite ชุดเดียว validation definition ตัวเดียว ได้ผลคนละแบบตามข้อมูล และผลทั้งสองรอบถูกเก็บไว้ในที่เก็บผล (validation results store) ไม่ทับกัน
+
+</Step>
+
+<Step>
+
+## อะไรคงที่ อะไรเปลี่ยน
+
+<FlowFrames
+  client:visible
+  title="สองรอบของ validation definition ตัวเดียว"
+  width={760}
+  height={300}
+  boxes={[
+    { id: 'suite', label: 'Suite', sub: 'users_suite', x: 10, y: 20 },
+    { id: 'bdef', label: 'Batch Definition', sub: 'whole dataframe', x: 10, y: 140 },
+    { id: 'vd', label: 'Validation Definition', sub: 'users_vd', x: 270, y: 80, w: 190 },
+    { id: 'd1', label: 'DataFrame วันที่ 1', sub: 'มี null และ 400', x: 560, y: 10, kind: 'data' },
+    { id: 'd2', label: 'DataFrame วันที่ 2', sub: 'ครบ ถูกต้อง', x: 560, y: 150, kind: 'data' },
+    { id: 'store', label: 'Results store', sub: '2 รายการ', x: 270, y: 225, kind: 'store' },
+  ]}
+  arrows={[
+    { from: 'suite', to: 'vd' },
+    { from: 'bdef', to: 'vd' },
+    { from: 'd1', to: 'vd', label: 'รอบที่ 1' },
+    { from: 'd2', to: 'vd', label: 'รอบที่ 2' },
+    { from: 'vd', to: 'store' },
+  ]}
+  frames={[
+    { title: 'ของที่คงที่', text: 'suite, batch definition และ validation definition ถูกสร้างครั้งเดียว ไม่เปลี่ยนระหว่างรอบ', on: ['suite', 'bdef', 'vd'], arrows: [0, 1] },
+    { title: 'รอบที่ 1 ส่ง DataFrame วันที่ 1', text: 'ผล success = False (age มี null และ 400) ผลถูกเก็บ 1 รายการ', on: ['vd', 'd1', 'store'], arrows: [2, 4] },
+    { title: 'รอบที่ 2 ส่ง DataFrame วันที่ 2', text: 'ผล success = True ผลรอบนี้เก็บเพิ่มเป็นรายการที่ 2 ไม่ได้ทับรอบแรก run_time ของสองรอบต่างกัน', on: ['vd', 'd2', 'store'], arrows: [3, 4], tag: '18_result_anatomy.py' },
+  ]}
+  caption="ตัวเลข 2 ในกล่อง Results store มาจาก len(context.validation_results_store.list_keys()) หลังรันสองรอบ"
+/>
+
+</Step>
+
+<Step>
+
+## ข้อควรรู้เมื่อรันทุกวัน
+
+1. ทุกรอบคำนวณใหม่ทั้งหมด GX ไม่จำ metric ข้ามรอบ (ทดลองใน `02`: รันซ้ำได้ 19 กับ 19 metric)
+2. `run_id` มี `run_time` ของแต่ละรอบ ใช้แยกผลเก่าจากใหม่ได้
+3. results store ใน ephemeral context อยู่ใน memory หายเมื่อสคริปต์จบ ถ้าอยากเก็บผลข้ามวัน ต้องใช้ file context หรือ cloud (บทที่ 5)
+4. ข้อมูลที่ DataFrame ต้องมาจากโค้ดของเราเอง ในตัวอย่างนี้ส่งเป็นตัวแปร ถ้าข้อมูลมาจากไฟล์หรือตาราง batch definition จะทำหน้าที่เลือกก้อนให้ (บทที่ 6)
+
+<Callout type="warn" title="ที่ไม่ได้ทดลอง">
+ข้อ 3 เป็นความรู้จากคำอธิบายของ context ในบทที่ 5 ส่วนนี้ไม่ได้ปิดสคริปต์แล้วเปิดใหม่เพื่อดูว่าผลหาย
+</Callout>
+
+</Step>
