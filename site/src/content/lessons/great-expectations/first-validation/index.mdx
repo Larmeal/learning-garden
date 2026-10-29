@@ -1,0 +1,137 @@
+---
+title: Validation แรก
+summary: สร้างทุกชิ้นของ GX ด้วยโค้ดไม่กี่บรรทัด ตรวจ DataFrame หนึ่งก้อน แล้วอ่านผลให้เป็น
+order: 2
+phase: A
+level: 2
+stage: sprout
+format: steps
+requires: [core-concepts]
+updated: 2026-10-27
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import ResultLab from '../../../../components/labs/great-expectations/ResultLab';
+
+<Step>
+
+## ข้อมูลที่จะตรวจ
+
+ตารางเล็กๆ สี่แถวที่ตั้งใจให้มีปัญหา: `age` ว่างหนึ่งแถว มีค่า 400 หนึ่งแถว และ `name` ว่างหนึ่งแถว
+
+```python
+import great_expectations as gx
+import great_expectations.expectations as gxe
+import pandas as pd
+
+df = pd.DataFrame({
+    "id": [1, 2, 3, 4],
+    "age": [10, None, 30, 400],
+    "name": ["a", "b", None, "d"],
+})
+```
+
+โค้ดเต็มอยู่ใน `subjects/great-expectations/code/01_first_validation.py` เปิดคู่กับบทนี้และรันตามได้
+
+</Step>
+
+<Step>
+
+## 1. Context และข้อมูล
+
+```python
+context = gx.get_context()
+```
+
+เมื่อไม่มีโฟลเดอร์ `gx/` และไม่มีค่าตั้งของ GX Cloud ได้ **ephemeral context** ที่อยู่ใน memory (บทที่ 5 อธิบายตัวเลือกอื่น)
+
+```python
+source = context.data_sources.add_pandas("my_source")
+asset = source.add_dataframe_asset("users")
+batch_definition = asset.add_batch_definition_whole_dataframe("all_users")
+```
+
+สามบรรทัดนี้บอก GX ว่า "มีข้อมูลแบบ pandas ชื่อ `users` และให้ตรวจทั้ง DataFrame" ยังไม่มี DataFrame จริงเข้ามาเกี่ยวข้อง
+
+</Step>
+
+<Step>
+
+## 2. Expectation และ suite
+
+```python
+suite = context.suites.add(gx.ExpectationSuite(name="users_suite"))
+suite.add_expectation(gxe.ExpectColumnValuesToNotBeNull(column="id"))
+suite.add_expectation(gxe.ExpectColumnValuesToNotBeNull(column="age"))
+suite.add_expectation(gxe.ExpectColumnValuesToBeBetween(column="age", min_value=0, max_value=120))
+suite.add_expectation(gxe.ExpectTableRowCountToEqual(value=4))
+```
+
+`context.suites.add(...)` เก็บ suite เข้า context การ add suite ก่อนเป็นขั้นที่ต้องทำ ไม่งั้นขั้นต่อไปจะ error (บทที่ 7)
+
+</Step>
+
+<Step>
+
+## 3. Validation Definition แล้วรัน
+
+```python
+vd = gx.ValidationDefinition(name="users_vd", data=batch_definition, suite=suite)
+result = vd.run(batch_parameters={"dataframe": df})
+```
+
+DataFrame เข้ามาตรงนี้เป็นพารามิเตอร์ตอนรัน ไม่ใช่ส่วนหนึ่งของการตั้งค่า ก่อน `run()` ค่า `vd.id` เป็น `None` หลังรันมี id เพราะ `run()` เพิ่ม validation definition เข้า context ให้ (เมื่อ suite กับ data source ถูก add แล้ว)
+
+</Step>
+
+<Step>
+
+## 4. อ่านผล
+
+```python
+print(result.success)        # False
+print(result.statistics)
+# {'evaluated_expectations': 4, 'successful_expectations': 2,
+#  'unsuccessful_expectations': 2, 'success_percent': 50.0}
+
+for r in result.results:
+    print(r.expectation_config.type, r.success, r.result)
+```
+
+ผลที่ได้จริงจากการรัน
+
+| expectation | success | สิ่งที่เห็นใน `result` |
+|---|---|---|
+| not null `id` | True | unexpected_count = 0 |
+| not null `age` | False | unexpected_count = 1 (แถวที่ `age` เป็น null) |
+| between `age` 0..120 | False | unexpected_count = 1 (ค่า 400) |
+| row count = 4 | True | observed_value = 4 |
+
+`result.success` ของทั้ง suite เป็น True ก็ต่อเมื่อ **ทุก** expectation ผ่าน ข้อมูลของเราจึงไม่ผ่านโดยรวม
+
+</Step>
+
+<Step>
+
+## ลองเปลี่ยนข้อมูลดู
+
+<ResultLab client:visible initial="null" withRowCount={false} />
+
+ลองสลับข้อมูลทีละแบบแล้วดูว่าข้อไหนเปลี่ยน อย่าเพิ่งรีบสรุปว่า "ผ่านแปลว่าดี" ในบทที่ 4 จะกลับมาที่กรณี "ตารางว่าง" ที่ผ่านทั้งที่ไม่มีข้อมูล
+
+<Callout type="try" title="ลองทำใน repo นี้">
+เปิด `01_first_validation.py` แล้วลองแก้ DataFrame ให้ทุกข้อผ่าน จากนั้นแก้ให้มีแค่ปัญหาเดียวทีละข้อ รันซ้ำทุกครั้งด้วย `uv run python 01_first_validation.py` สังเกตว่าบรรทัดไหนในผลเปลี่ยน
+</Callout>
+
+</Step>
+
+<Step>
+
+## เช็กตัวเอง
+
+- ก่อนเรียก `run()` GX อ่าน DataFrame ไปหรือยัง เพราะอะไร
+- `result.success` เป็น False ได้เพราะอะไรบ้าง (นึกให้ได้อย่างน้อยสองแบบ)
+- ถ้าจะตรวจ DataFrame ก้อนใหม่ในวันพรุ่งนี้ ต้องสร้างอะไรใหม่ และใช้ของเดิมได้อะไรบ้าง
+
+</Step>

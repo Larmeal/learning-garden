@@ -1,0 +1,134 @@
+---
+title: Action และ Data Docs
+summary: ตรวจเสร็จแล้วจะแจ้งใคร เมื่อไร action ทำงานตามลำดับอะไร ถ้า action ล้มเกิดอะไร และ Data Docs คืออะไร
+order: 9
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [validation-checkpoints]
+updated: 2026-10-27
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import ActionsLab from '../../../../components/labs/great-expectations/ActionsLab';
+
+<Step>
+
+## Action คืออะไร
+
+action คือขั้นตอนอัตโนมัติที่ checkpoint รัน **หลัง** ตรวจทุก validation definition เสร็จ มันรับ `CheckpointResult` แล้วทำอะไรก็ได้ เช่นแจ้งเตือน หรืออัปเดตรายงาน
+
+action ที่ GX 1.24.1 มีให้ (ดูจาก `great_expectations.checkpoint.actions`)
+
+| action | ทำอะไร |
+|---|---|
+| `SlackNotificationAction` | ส่งข้อความเข้า Slack ผ่าน webhook |
+| `MicrosoftTeamsNotificationAction` | ส่งเข้า Teams |
+| `PagerdutyAlertAction`, `OpsgenieAlertAction` | เปิด incident |
+| `EmailAction` | ส่งอีเมล |
+| `SNSNotificationAction` | ส่งเข้า AWS SNS |
+| `APINotificationAction` | เรียก HTTP endpoint ที่กำหนด |
+| `UpdateDataDocsAction` | สร้าง/อัปเดตหน้า Data Docs |
+
+ใส่ใน checkpoint เป็นรายการ: `gx.Checkpoint(name=..., validation_definitions=[vd], actions=[...])` ค่าลับอย่าง webhook ใส่เป็น `${SLACK_WEBHOOK}` ตามบทที่ 5
+
+</Step>
+
+<Step>
+
+## ลำดับและเงื่อนไข
+
+<ActionsLab client:visible />
+
+กฎที่ยืนยันแล้วด้วยการรัน (`06_actions_docs.py`)
+
+1. action ทำงาน **หลัง** ทุก validation และ **ผลถูกเก็บลง store ไปแล้ว**
+2. `UpdateDataDocsAction` ถูกย้ายไปรัน **ก่อน** action อื่น เพื่อให้ action อื่นที่ต้องการลิงก์ Data Docs ได้ URL ผ่าน `ActionContext`
+3. action อื่นรันตามลำดับที่ประกาศ ถ้า action หนึ่ง raise การรันหยุดตรงนั้น action ที่เหลือ **ไม่ถูกรัน** และ `Checkpoint.run()` raise ออกมา (ทดลอง: `[first, boom, third]` รันแค่ `first` และ `boom`)
+4. การ "ไม่ส่ง" เพราะเงื่อนไขไม่ตรง ไม่ใช่ error action ยังถูกเรียกแต่เลือกที่จะเงียบ
+
+</Step>
+
+<Step>
+
+## เงื่อนไขการแจ้ง: notify_on และ severity
+
+action แจ้งเตือนมี `notify_on` ค่าที่ใช้ได้ (อ่านจาก `should_notify()`)
+
+| ค่า | แจ้งเมื่อ |
+|---|---|
+| `all` | ทุกครั้ง |
+| `success` | ผ่านเท่านั้น |
+| `failure` | ไม่ผ่านเท่านั้น |
+| `critical` / `warning` / `info` | ไม่ผ่าน และ expectation ที่ล้มและร้ายแรงที่สุดมีระดับนี้ |
+
+severity ตั้งที่ expectation แต่ละข้อ ค่าเริ่มต้นคือ `critical`
+
+```python
+suite.add_expectation(
+    gxe.ExpectColumnValuesToBeBetween(column="age", min_value=0, max_value=120, severity="warning")
+)
+result.get_max_severity_failure()   # FailureSeverity.CRITICAL ถ้ามีข้อ critical ล้มด้วย
+```
+
+ทดลองแล้ว: ข้อที่ตั้ง `warning` ล้มและอีกข้อ `critical` ล้ม ระดับสูงสุดที่รายงานคือ critical ตั้ง PagerDuty เป็น `critical` เพื่อให้เรียกคนเฉพาะเรื่องร้ายแรง และ Slack เป็น `all` หรือ `failure` สำหรับทีม
+
+</Step>
+
+<Step>
+
+## Data Docs
+
+Data Docs คือหน้า HTML ที่ GX สร้างจาก suite และผลตรวจ `UpdateDataDocsAction` เป็นตัวสร้าง ผลจากการรันจริง
+
+```
+uncommitted/data_docs/local_site/
+  index.html                                  # หน้าแรก: รายการ suite และผลตรวจ
+  expectations/<suite>.html                   # หน้าอธิบาย suite
+  validations/<suite>/__none__/<run>/<batch>.html   # หน้าผลของแต่ละรอบ
+```
+
+เปิด `index.html` ในเบราว์เซอร์ได้ทันที แต่ละหน้าผลบอกว่า expectation ไหนผ่านหรือล้ม และตัวอย่างค่าที่ผิดตาม `result_format` ที่ใช้ (ถ้าใช้ `BOOLEAN_ONLY` หน้าจะมีรายละเอียดน้อย)
+
+Data Docs ที่สร้างใน `local_site` อยู่ในเครื่องที่รัน ถ้าต้องการให้ทีมเปิดดู ต้องเก็บไว้ที่ที่แชร์ได้ (เช่น object storage ที่ตั้ง site เป็น backend) หรือใช้ GX Cloud ซึ่งเป็นเรื่องนอกเส้นทางนี้
+
+</Step>
+
+<Step>
+
+## เขียน action เอง
+
+เมื่อ action ที่มีให้ไม่ตรงกับระบบของทีม สืบทอด `ValidationAction`
+
+```python
+from great_expectations.checkpoint.actions import ValidationAction
+
+class WriteStatusFile(ValidationAction):
+    type: str = "write_status_file"
+    name: str = "write_status_file"
+
+    def run(self, checkpoint_result, action_context=None):
+        with open("last_status.txt", "w") as f:
+            f.write("ok" if checkpoint_result.success else "failed")
+        return {}
+```
+
+คลาสถูกลงทะเบียนอัตโนมัติจากฟิลด์ `type` (metaclass) เหมือน expectation `06_actions_docs.py` มีตัวอย่าง action ที่ raise ไว้ดูพฤติกรรมเมื่อ action ล้ม
+
+<Callout type="warn" title="action ที่แจ้งเตือนอย่าให้ล้มเงียบแล้วทำให้ checkpoint ล้ม">
+เพราะ action ที่ raise ทำให้ `Checkpoint.run()` raise และ action หลังจากนั้นไม่ถูกรัน ให้ดัก error ภายใน `run()` ของ action ที่เป็นการแจ้งเตือนเสริม (เช่นเขียน log) ถ้าไม่อยากให้ webhook ที่ล่มลากทั้ง pipeline ล้ม และจำไว้ว่าผลตรวจถูกเก็บไปแล้วก่อนหน้านั้นเสมอ
+</Callout>
+
+</Step>
+
+<Step>
+
+## เช็กตัวเอง
+
+- checkpoint มี `[SlackAction, UpdateDataDocsAction]` ลำดับที่รันจริงคืออะไร ทำไม
+- Slack webhook ใช้ไม่ได้ ผลตรวจของรอบนี้หายไหม
+- ต้องการแจ้งเฉพาะเมื่อมีข้อมูลเสียร้ายแรง ตั้งค่าอะไรที่ expectation และอะไรที่ action
+
+</Step>

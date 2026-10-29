@@ -1,0 +1,214 @@
+---
+title: expectation แบบอื่น
+summary: aggregate, pair, multicolumn และ UnexpectedRowsExpectation แต่ละแบบมีตัวอย่างที่รันได้ พร้อมสิ่งที่ต้องประกาศเพิ่มเมื่อเทียบกับ column map
+order: 3
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## เปรียบเทียบสิ่งที่ต้องเขียน
+
+ทุกตัวอย่างในหน้านี้รันอยู่ใน `12_custom_kinds.py` กับตารางสั่งซื้อสี่แถว
+
+| id | price | discount | amount | card | paypal |
+|---|---|---|---|---|---|
+| 1 | 100 | 20 | 50 | c1 | (ว่าง) |
+| 2 | 80 | 50 | 12000 | (ว่าง) | p1 |
+| 3 | 60 | 10 | 700 | c3 | p3 |
+| 4 | 40 | 5 | 90 | (ว่าง) | (ว่าง) |
+
+| ชนิด | ตัวช่วยฝั่ง metric | ฝั่ง expectation ต้องมี | `_validate` |
+|---|---|---|---|
+| column aggregate | ใช้ metric ที่มีอยู่ หรือเขียนด้วย `column_aggregate_value` / `column_aggregate_partial` | `metric_dependencies`, `success_keys`, ฟิลด์ของพารามิเตอร์ | เขียนเอง |
+| column pair map | `column_pair_condition_partial` | `map_metric`, ฟิลด์ `ignore_row_if` และใส่ใน `success_keys` | สืบมา |
+| multicolumn map | `multicolumn_condition_partial` | `map_metric` | สืบมา |
+| column map | `column_condition_partial` | `map_metric` | สืบมา |
+
+กลุ่ม map สืบ `_validate` มาจากคลาสแม่ จึงเขียนแค่เงื่อนไขต่อแถว กลุ่ม aggregate ต้องเขียน `_validate` เองเพราะ GX ไม่รู้ว่าคุณจะเทียบค่าสรุปกับอะไร
+
+</Step>
+
+<Step>
+
+## aggregate จาก metric ที่มีอยู่แล้ว
+
+กฎ: "ค่ามากสุดลบค่าน้อยสุดของ `amount` ต้องไม่เกิน `max_width`" ไม่ต้องเขียน metric ใหม่ เพราะ `column.min` กับ `column.max` มีให้ทุก engine
+
+```python
+class ExpectColumnRangeToBeNarrow(ColumnAggregateExpectation):
+    max_width: float
+
+    metric_dependencies: ClassVar[tuple] = ("column.min", "column.max")
+    success_keys: ClassVar[tuple] = ("max_width",)
+    args_keys: ClassVar[tuple] = ("column", "max_width")
+
+    def _validate(self, metrics, runtime_configuration=None, execution_engine=None):
+        width = metrics["column.max"] - metrics["column.min"]
+        return {"success": bool(width <= self.max_width), "result": {"observed_value": width}}
+```
+
+`BatchExpectation.get_validation_dependencies` วนอ่าน `metric_dependencies` แล้วขอ metric เหล่านั้นให้ ผลที่ทดลอง (ค่ามากสุด 12000 ค่าน้อยสุด 50 ช่วง 11950)
+
+| ตรวจกับ | max_width | ผล |
+|---|---|---|
+| pandas | 50 | `success=False`, `observed_value=11950.0` |
+| pandas | 20000 | `success=True` |
+| SQLite | 20000 | `success=True` (ไม่ได้เขียนโค้ด SQL เลย) |
+
+ส่วนที่ได้ฟรีคือการรองรับทุก engine ที่ `column.min` กับ `column.max` รองรับ เพราะ expectation ไม่แตะข้อมูลเอง
+
+</Step>
+
+<Step>
+
+## aggregate ที่ต้องมี metric ของตัวเอง
+
+กฎ: "สัดส่วนของ `amount` ที่เกิน 500 ต้องไม่เกิน `max_share`" ไม่มี metric สำเร็จรูป ต้องเขียน และเขียนต่อ engine เหมือนกฎแบบ map
+
+```python
+class ColumnShareAbove(ColumnAggregateMetricProvider):
+    metric_name = "column.share_above"
+    value_keys = ("threshold",)
+
+    @column_aggregate_value(engine=PandasExecutionEngine)
+    def _pandas(cls, column, threshold, **kwargs):
+        return float((column > threshold).mean())
+
+    @column_aggregate_partial(engine=SqlAlchemyExecutionEngine)
+    def _sqlalchemy(cls, column, threshold, **kwargs):
+        return sa.func.avg(sa.case((column > threshold, 1.0), else_=0.0))
+```
+
+สองตัวช่วยต่างกันตามที่บทที่ 8 อธิบาย `column_aggregate_value` คืนค่าที่คำนวณเสร็จทันที (pandas) ส่วน `column_aggregate_partial` คืนนิพจน์ SQL ที่ GX เก็บไว้รวมกับ metric อื่นของคอลัมน์เดียวกันเป็น SELECT เดียว
+
+ฝั่ง expectation เหมือนตัวอย่างก่อนหน้า แต่มีพารามิเตอร์สองตัว
+
+```python
+class ExpectColumnShareAboveToBeAtMost(ColumnAggregateExpectation):
+    threshold: float
+    max_share: float
+
+    metric_dependencies: ClassVar[tuple] = ("column.share_above",)
+    success_keys: ClassVar[tuple] = ("threshold", "max_share")
+    args_keys: ClassVar[tuple] = ("column", "threshold", "max_share")
+
+    def _validate(self, metrics, runtime_configuration=None, execution_engine=None):
+        share = metrics["column.share_above"]
+        return {"success": bool(share <= self.max_share), "result": {"observed_value": share}}
+```
+
+`threshold` อยู่ใน `value_keys` ของ metric จึงต้องอยู่ใน `success_keys` ของ expectation ด้วย เหมือนกรณี `divisor` ในหน้า column map ผลที่ทดลอง (amount ที่เกิน 500 มีสองแถวจากสี่ คือ 12000 กับ 700)
+
+| ตรวจกับ | max_share | ผล |
+|---|---|---|
+| pandas | 0.5 | `success=True`, `observed_value=0.5` |
+| pandas | 0.25 | `success=False` |
+| SQLite | 0.25 | `success=False`, `observed_value=0.5` |
+
+</Step>
+
+<Step>
+
+## pair: ค่าสองคอลัมน์ในแถวเดียวกัน
+
+กฎ: "ส่วนลดต้องไม่เกินครึ่งของราคา" เงื่อนไขรับสองคอลัมน์
+
+```python
+class ColumnPairAIsAtMostHalfOfB(ColumnPairMapMetricProvider):
+    condition_metric_name = "column_pair_values.a_at_most_half_of_b"
+    condition_domain_keys = ("batch_id", "table", "column_A", "column_B",
+                             "row_condition", "condition_parser", "ignore_row_if")
+
+    @column_pair_condition_partial(engine=PandasExecutionEngine)
+    def _pandas(cls, column_A, column_B, **kwargs):
+        return column_A <= 0.5 * column_B
+
+    @column_pair_condition_partial(engine=SqlAlchemyExecutionEngine)
+    def _sqlalchemy(cls, column_A, column_B, **kwargs):
+        return column_A <= 0.5 * column_B
+
+
+class ExpectColumnPairValuesAToBeAtMostHalfOfB(ColumnPairMapExpectation):
+    ignore_row_if: Literal["both_values_are_missing", "either_value_is_missing", "neither"] = "both_values_are_missing"
+
+    map_metric: ClassVar[str] = "column_pair_values.a_at_most_half_of_b"
+    success_keys: ClassVar[tuple] = ("column_A", "column_B", "ignore_row_if", "mostly")
+    args_keys: ClassVar[tuple] = ("column_A", "column_B")
+```
+
+ผลทั้ง pandas และ SQLite เหมือนกัน: `success=False`, `unexpected_count=1`, ค่าที่ผิดคือคู่ `(50.0, 80.0)` (แถว id 2: ส่วนลด 50 จากราคา 80) ค่าที่ผิดของกลุ่มนี้เป็นคู่ ไม่ใช่ค่าเดี่ยว
+
+<Callout type="warn" title="ลืมประกาศ ignore_row_if แล้วผลว่าง">
+ถ้าคลาส expectation ไม่มีฟิลด์ `ignore_row_if` (และไม่อยู่ใน `success_keys`) ขณะที่ metric ประกาศมันใน `condition_domain_keys` GX ส่งค่า `None` ให้ metric ผลที่ทดลอง: `success=False`, `result={}` และ `exception_info` หนึ่งรายการ ข้อความ `Unrecognized value of ignore_row_if ("None")` ไม่มี exception ใดๆ ถึงโค้ดของคุณ
+</Callout>
+
+</Step>
+
+<Step>
+
+## multicolumn: ค่าหลายคอลัมน์ในแถวเดียวกัน
+
+กฎ: "ในแต่ละแถว ช่อง `card` กับ `paypal` ต้องมีค่าเพียงช่องเดียว"
+
+```python
+class MulticolumnExactlyOneFilled(MulticolumnMapMetricProvider):
+    condition_metric_name = "multicolumn_values.exactly_one_filled"
+    condition_domain_keys = ("batch_id", "table", "column_list",
+                             "row_condition", "condition_parser", "ignore_row_if")
+
+    @multicolumn_condition_partial(engine=PandasExecutionEngine)
+    def _pandas(cls, column_list, **kwargs):
+        return column_list.notnull().sum(axis=1) == 1
+
+
+class ExpectSelectColumnsToHaveExactlyOneFilled(MulticolumnMapExpectation):
+    map_metric: ClassVar[str] = "multicolumn_values.exactly_one_filled"
+    args_keys: ClassVar[tuple] = ("column_list",)
+```
+
+คลาสนี้เขียนเฉพาะ pandas (ไม่ได้ทดลอง SQL) เงื่อนไขรับ DataFrame ของคอลัมน์ที่เลือก ใช้ตัวเลือก `ignore_row_if` ของคลาสแม่ได้เลย ค่าเริ่มต้นคือ `all_values_are_missing` ผลต่างของสองค่านี้ชัดมากกับแถว id 4 ที่ทั้งสองช่องว่าง
+
+| `ignore_row_if` | unexpected | missing_count | ค่าที่ผิด |
+|---|---|---|---|
+| `all_values_are_missing` (ค่าเริ่มต้น) | 1 | 1 | `{'card': 'c3', 'paypal': 'p3'}` |
+| `never` | 2 | 0 | `{'card': 'c3', 'paypal': 'p3'}` และ `{'card': nan, 'paypal': nan}` |
+
+ค่าเริ่มต้นข้ามแถวที่ว่างทั้งหมดไปเลย ถ้ากฎของคุณคือ "ต้องกรอกอย่างน้อยและมากที่สุดหนึ่งช่อง" ต้องตั้ง `never` ไม่งั้นแถวที่ไม่กรอกอะไรเลยหลุดไป
+
+</Step>
+
+<Step>
+
+## query: เมื่อกฎเป็น SQL อยู่แล้ว
+
+`UnexpectedRowsExpectation` รับ SQL ที่คืนแถวที่ผิด ผ่านเมื่อไม่มีแถวคืนมา ไม่ต้องเขียนคลาส
+
+```python
+UnexpectedRowsExpectation(unexpected_rows_query="SELECT * FROM {batch} WHERE discount * 2 > price")
+```
+
+บน SQLite ได้ `success=False` และ `observed_value=1` ที่ `result_format="COMPLETE"` มี `details.unexpected_rows` เป็นแถวเต็ม ซอร์สใน `unexpected_rows_expectation.py` ตรวจว่า query มี `{batch}` ถ้าไม่มีจะพิมพ์คำเตือนว่าอาจไปค้นข้อมูลนอก batch ที่ตั้งไว้ บน pandas ใช้ไม่ได้: `No provider found for unexpected_rows_query.table using PandasExecutionEngine`
+
+ถ้าอยากเขียนคลาสเองที่ใช้ SQL ซอร์สมี `QueryExpectation` ให้ด้วย มันตรวจใน `validate_configuration` ว่ามี `query` และ query ใช้ `{batch}` กับตัวแทนค่า ไม่ได้ทดลองเขียนคลาสนี้ในบทนี้
+
+</Step>
+
+<Step>
+
+## เลือกแบบไหนดี
+
+| ถามตัวเองว่า | ถ้าใช่ |
+|---|---|
+| อยากรู้ว่าแถวไหนผิดและกี่เปอร์เซ็นต์ใช่ไหม | แบบ map (column, pair หรือ multicolumn) |
+| ต้องใช้ `mostly` ใช่ไหม | แบบ map เท่านั้น aggregate ไม่มี `mostly` ให้ |
+| กฎคือตัวเลขสรุปเทียบกับเกณฑ์ใช่ไหม | aggregate |
+| มี metric ของ GX ที่ให้ค่าสรุปนั้นอยู่แล้วใช่ไหม | aggregate ที่ใช้ metric เดิม (ตัวอย่าง `ExpectColumnRangeToBeNarrow`) ไม่ต้องเขียนโค้ดต่อ engine |
+| กฎเขียนเป็น SQL ได้และข้อมูลอยู่ในฐานข้อมูลใช่ไหม | `UnexpectedRowsExpectation` |
+
+</Step>

@@ -1,0 +1,116 @@
+---
+title: Data Source และ Batch
+summary: GX อ้างถึงข้อมูลอย่างไร data source ชนิดต่างๆ batch definition และกับดักของ get_batch ที่ให้ batch ล่าสุดเงียบๆ
+order: 6
+phase: B
+level: 3
+stage: sprout
+format: steps
+requires: [first-validation, context-stores]
+updated: 2026-10-27
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import BatchLab from '../../../../components/labs/great-expectations/BatchLab';
+
+<Step>
+
+## สามชั้นของการระบุข้อมูล
+
+ในบทที่ 1 มีสามชั้น: Data Source (ที่เก็บ), Data Asset (ชุดข้อมูลในที่เก็บ) และ Batch Definition (วิธีหยิบก้อนมาตรวจ) บทนี้เจาะแต่ละชั้นด้วยตัวอย่างที่รันได้จริง
+
+| ชั้น | ตัวอย่างที่ทดลองแล้ว |
+|---|---|
+| Data Source | `context.data_sources.add_pandas(...)`, `add_pandas_filesystem(name, base_directory=...)`, `add_sqlite(name, connection_string=...)` |
+| Data Asset | `add_dataframe_asset(...)`, `add_csv_asset(...)`, `add_table_asset(name, table_name=...)` |
+| Batch Definition | `add_batch_definition_whole_dataframe(...)`, `add_batch_definition_whole_table(...)`, `add_batch_definition_daily(name, regex=...)`, `add_batch_definition_monthly(...)`, `add_batch_definition_path(name, path=...)` |
+
+ที่มีใน 1.x นอกเหนือจากนี้ (อ่านจากรายชื่อไฟล์ของ `datasource/fluent/`): ไฟล์บน S3, GCS, Azure และ DBFS, Spark (`add_spark`, Spark filesystem) และฐานข้อมูลอย่าง Postgres, Snowflake, BigQuery, Redshift, Databricks SQL
+
+</Step>
+
+<Step>
+
+## batch definition เป็นสูตร ไม่ใช่ข้อมูล
+
+`add_batch_definition_...` แค่จดวิธีหยิบข้อมูลไว้ การอ่านจริงเกิดตอน `get_batch()` หรือตอน `run()` ของ validation definition (วัดแล้ว: ก่อนหน้านั้น engine ถูกเรียก 0 ครั้ง)
+
+```python
+batch = batch_definition.get_batch(batch_parameters={...})   # อ่านข้อมูลตรงนี้
+df = batch.data.dataframe                                    # pandas
+```
+
+ถ้าต้องดูว่ามี batch อะไรให้เลือกบ้าง ใช้ `batch_definition.get_batch_identifiers_list()`
+
+</Step>
+
+<Step>
+
+## partitioner สองตระกูล
+
+การแบ่งข้อมูลเป็นหลาย batch (เช่นรายวัน) ทำได้สองทาง ขึ้นกับว่าข้อมูลอยู่ในรูปไหน
+
+- **ตามชื่อไฟล์** (ข้อมูลเป็นไฟล์ในโฟลเดอร์): ใส่ regex ที่มีกลุ่มชื่อ `year`, `month`, `day` เช่น `data_(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})\.csv` GX จะรู้ว่าแต่ละไฟล์เป็น batch ไหน
+- **ตามคอลัมน์** (ข้อมูลเป็นตาราง): ใช้ชื่อคอลัมน์วันที่ เช่นรายปี/เดือน/วัน หรือค่าในคอลัมน์ มีหลายแบบใน `core/partitioners.py` (ซอร์ส 1.9.3)
+
+ทดลองกับไฟล์ `data_2024-01-01.csv` ถึง `data_2024-01-03.csv` ใน `04_batches.py`: `get_batch_identifiers_list()` คืนรายการ `{'path': ..., 'year': ..., 'month': ..., 'day': ...}` หนึ่งรายการต่อไฟล์
+
+</Step>
+
+<Step>
+
+## get_batch เลือกไฟล์ไหน
+
+พารามิเตอร์ที่ส่งทำหน้าที่ **กรอง** รายการ batch แล้ว GX คืน **อันสุดท้าย** ของที่เหลือ (เรียงจากน้อยไปมาก)
+
+<BatchLab client:visible />
+
+สามอย่างที่ต้องจำ (ทดลองแล้วทั้งหมด)
+
+1. **ไม่ส่งพารามิเตอร์**: ได้ batch ล่าสุด ไม่ error
+2. **ส่งไม่ครบ**: ส่ง year กับ month ให้ regex รายวัน จะเหลือหลายไฟล์ ได้ไฟล์สุดท้ายของเดือนนั้นเงียบๆ
+3. **ส่งค่าที่ไม่มีไฟล์**: `NoAvailableBatchesError`
+
+<Callout type="warn" title="กับดักของ pipeline รายวัน">
+ถ้า scheduler ลืมส่งวันที่ (ตัวแปรเป็นค่าว่างแล้วไม่ถูกส่ง) pipeline ไม่ล้ม มันตรวจไฟล์ล่าสุดที่มีอยู่ซึ่งอาจเป็นไฟล์ของเมื่อวาน แล้วรายงานว่าผ่าน ให้ส่ง `year`, `month`, `day` ครบเสมอ และให้ pipeline ตรวจว่ามีค่าก่อนเรียก
+</Callout>
+
+</Step>
+
+<Step>
+
+## ชนิดของพารามิเตอร์ และ DataFrame
+
+คีย์ของ `batch_parameters` ขึ้นกับ batch definition
+
+| batch definition | คีย์ |
+|---|---|
+| whole DataFrame | `dataframe` (ค่าคือ DataFrame เอง) |
+| whole table / path | ไม่มี |
+| รายวัน (regex) | `year`, `month`, `day` |
+| รายเดือน (regex) | `year`, `month` |
+
+ใน 1.24.1 พารามิเตอร์ตัวเลขควรเป็น **จำนวนเต็ม** (`{"year": 2024, "month": 1, "day": 2}`) การส่งสตริงตัวเลข (`"01"`) ยังใช้ได้แต่ GX เตือนว่าเลิกสนับสนุน (ลบใน 2.0) ส่วนค่าที่ `get_batch_identifiers_list()` คืนมายังเป็นสตริง จึงต้องแปลงเป็นเลขก่อนส่งกลับ
+
+ผลที่บันทึกไม่เก็บ DataFrame ทั้งก้อน GX แทนด้วยข้อความ placeholder ใน `meta["batch_parameters"]`
+
+</Step>
+
+<Step>
+
+## ลองทำใน repo นี้
+
+เปิด `04_batches.py` แล้วลองสามอย่าง
+
+1. เปลี่ยน `for day in (1, 2, 3)` เป็น `(1, 2, 3, 4)` เพื่อเพิ่มไฟล์ของวันที่ 4 แล้วดูว่า `get_batch()` ที่ไม่ส่งพารามิเตอร์เปลี่ยนไปอย่างไร
+2. ส่ง `{"year": 2024, "month": 1}` แล้วเดาก่อนว่าจะได้ไฟล์ไหน
+3. เปลี่ยน `add_batch_definition_daily` เป็น `add_batch_definition_monthly` (regex ไม่มีกลุ่ม `day`) แล้วเทียบ `get_batch_identifiers_list()`
+
+## เช็กตัวเอง
+
+- ทำไม `get_batch()` ที่ไม่ส่งพารามิเตอร์จึงอันตรายใน pipeline รายวัน
+- batch definition กับ batch ต่างกันอย่างไร อันไหนอ่านข้อมูลจริง
+- ข้อมูลเป็นตาราง SQL แบ่งตามคอลัมน์วันที่ กับข้อมูลเป็นไฟล์รายวัน ใช้ partitioner ตระกูลไหน
+
+</Step>

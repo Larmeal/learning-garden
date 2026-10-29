@@ -1,0 +1,163 @@
+---
+title: ใช้ใน pipeline จริง
+summary: วาง GX ไว้ตรงไหนของ pipeline เขียน quality gate ที่แยกข้อมูลเสียออกจาก expectation พัง และกับดักของงานรายวัน
+order: 10
+phase: C
+level: 4
+stage: sprout
+format: steps
+requires: [actions-data-docs, reading-results, datasources-batches]
+updated: 2026-10-27
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import PipelineGate from '../../../../components/labs/great-expectations/PipelineGate';
+
+<Step>
+
+## วางไว้ตรงไหน
+
+GX ไม่ได้อยู่ในตำแหน่งตายตัว ตำแหน่งกำหนดว่าตรวจแล้วป้องกันอะไรได้
+
+| ตำแหน่ง | ตรวจอะไร | เมื่อไม่ผ่านควร |
+|---|---|---|
+| ก่อนโหลดเข้า staging | ไฟล์ที่ได้จาก upstream (ว่างไหม คอลัมน์ครบไหม) | ปฏิเสธไฟล์และแจ้งเจ้าของแหล่งข้อมูล |
+| หลังแปลงข้อมูล | ผลของ transformation ของเราเอง (key ซ้ำ ค่านอกช่วง) | หยุดและตามหาบั๊กใน job |
+| ก่อนเผยแพร่ให้ผู้ใช้ | ตารางที่ dashboard หรือโมเดลจะอ่าน | ไม่ publish เก็บรอบเก่าไว้ |
+
+ข้อมูลเสียที่ตรวจเจอ "ก่อน" มันไหลต่อ ถูกกว่าตรวจเจอหลังจากรายงานผิดไปแล้ว แต่ทุกจุดที่ตรวจเพิ่มเวลาและต้นทุน (บทที่ 8) เริ่มจากจุดที่ความเสียหายหนักที่สุดก่อน
+
+</Step>
+
+<Step>
+
+## checkpoint ไม่ใช่ gate
+
+จากบทที่ 7: `checkpoint.run()` คืนผลเสมอ ไม่ raise เมื่อข้อมูลไม่ผ่าน ถ้า pipeline เขียนแค่
+
+```python
+checkpoint.run(batch_parameters=...)
+publish()
+```
+
+ข้อมูลเสียจะถูก publish ไปด้วย ต้องมีโค้ดที่อ่านผลแล้วตัดสินใจ
+
+<PipelineGate client:visible />
+
+ลองสลับ "ตารางว่าง" ระหว่างสองรูปแบบโค้ด: gate ธรรมดา (`if not result.success`) ปล่อยตารางว่างผ่านไป publish ถ้า suite ไม่มี expectation จำนวนแถว ผลจึงสะอาดแต่ไม่มีข้อมูล
+
+</Step>
+
+<Step>
+
+## quality gate ที่แยกสาเหตุได้
+
+ตัวอย่างที่รันได้ใน `09_pipeline_gate.py`
+
+```python
+def raised_exception(info) -> bool:
+    if not info:
+        return False
+    if "raised_exception" in info:
+        return bool(info["raised_exception"])
+    return True            # metric ที่คำนวณไม่ได้มาในรูป dict ของ metric id
+
+def classify(checkpoint_result):
+    bad_data, broken = [], []
+    for suite_result in checkpoint_result.run_results.values():
+        for r in suite_result.results:
+            if r.success:
+                continue
+            (broken if raised_exception(r.exception_info) else bad_data).append(r.expectation_config.type)
+    return bad_data, broken
+
+def gate(checkpoint, batch_parameters):
+    result = checkpoint.run(batch_parameters=batch_parameters)
+    # suite ว่าง (เช่น custom expectation โหลดไม่ขึ้น) "ผ่าน" โดยไม่ได้ประเมินอะไรเลย
+    if any(r.statistics["evaluated_expectations"] == 0 for r in result.run_results.values()):
+        raise QualityGateError("no expectations were evaluated")
+    if result.success:
+        return result
+    bad_data, broken = classify(result)
+    if broken:
+        raise QualityGateError(f"expectations could not be evaluated: {broken}")
+    raise QualityGateError(f"data failed: {bad_data}")
+```
+
+รันกับห้ากรณีได้ผลจริง
+
+| ข้อมูล | ผลของ gate |
+|---|---|
+| ดี | publish |
+| suite ที่ไม่มี expectation เลย | STOP: no expectations were evaluated |
+| `order_id` มี null และ `amount` = 99999 | STOP: data failed (not null, between) |
+| ตารางว่าง (suite มี row count) | STOP: data failed (row count) |
+| คอลัมน์ `amount` ถูกเปลี่ยนชื่อ | STOP: expectations could not be evaluated (between) |
+
+กรณีสุดท้ายสำคัญ: ข้อมูลไม่ได้ "เสีย" แต่ schema เปลี่ยน คนที่ได้รับแจ้งควรเป็นเจ้าของ pipeline ไม่ใช่เจ้าของข้อมูล การแยกสองกลุ่มนี้ในข้อความแจ้งเตือนช่วยให้ถูกคนถูกเรื่อง
+
+กรณีแรกสุดคือกับดักที่อันตรายที่สุดในเส้นทางนี้ และมาจากบทที่ 12: ถ้า suite มี custom expectation แล้วโปรเซสที่โหลด suite ไม่ได้ import คลาสนั้น GX โหลด suite มา **ว่างเปล่า** แล้ว `run()` ได้ `success=True` กับ `evaluated_expectations = 0` ไม่มี error ใดๆ (ทดลองแล้วใน `10_missing_import.py`) การตรวจ `evaluated_expectations` ใน gate คือด่านสุดท้ายที่กันเรื่องนี้
+
+</Step>
+
+<Step>
+
+## เลือกนโยบายเมื่อไม่ผ่าน
+
+| นโยบาย | ทำอะไร | เหมาะกับ |
+|---|---|---|
+| **หยุด** | raise ก่อน publish | ข้อมูลที่ผิดแล้วเสียหายจริง (การเงิน) |
+| **กัก** | ย้ายข้อมูลไปที่พัก เก็บรอบเก่าไว้ให้ผู้ใช้ | ตารางที่ผู้ใช้อ่านตลอดเวลา |
+| **เตือนแล้วไปต่อ** | ส่งแจ้งเตือน แต่ publish | ปัญหาที่ยอมรับได้ชั่วคราว |
+
+ผูกกับ severity ได้: expectation ที่ตั้ง `severity="warning"` ล้มแล้วเตือน ส่วน `critical` ล้มแล้วหยุด ตัวช่วยคือ `suite_result.get_max_severity_failure()` ที่คืนระดับสูงสุดของข้อที่ล้ม
+
+</Step>
+
+<Step>
+
+## งานรายวัน: ส่งพารามิเตอร์ให้ครบ
+
+จากบทที่ 6 `get_batch()` ที่ไม่ได้รับพารามิเตอร์คืน batch ล่าสุดเงียบๆ ใน pipeline รายวันให้บังคับ
+
+```python
+from datetime import date
+
+def params_for(day: date) -> dict:
+    return {"year": day.year, "month": day.month, "day": day.day}   # จำนวนเต็ม ใน 1.24.1
+
+result = gate(checkpoint, params_for(run_date))
+```
+
+และให้ `run_date` มาจาก scheduler ที่กำหนดชัดเจน (ไม่ใช่ "วันนี้" ที่คำนวณในโค้ด) เพื่อให้รันย้อนหลัง (backfill) และรันซ้ำได้ผลเหมือนเดิม GX รันซ้ำคำนวณใหม่ทั้งหมดและเก็บผลรอบใหม่เพิ่ม ไม่ทับรอบเก่า
+
+<Callout type="note" title="orchestrator">
+GX เป็นไลบรารี Python ธรรมดา เรียกจาก task ของ Airflow, Dagster, Prefect หรือ cron ได้โดยตรง ตัวอย่างในเส้นทางนี้ไม่ได้ทดลองกับ orchestrator ตัวใดโดยเฉพาะ หลักที่ต้องคงไว้เหมือนกัน: สร้าง context ใน task เอง (file context ชี้ไปที่โฟลเดอร์ `gx/` ในโปรเจกต์), ส่งพารามิเตอร์ batch ชัดเจน และให้ task ล้มเมื่อ gate ล้ม
+</Callout>
+
+</Step>
+
+<Step>
+
+## ทดสอบ suite เหมือนทดสอบโค้ด
+
+suite ก็คือโค้ดของ pipeline ควรมีการทดสอบ
+
+- เก็บตัวอย่างข้อมูลเล็กๆ ที่ **ควรผ่าน** และที่ **ควรล้ม** (ตารางว่าง, null, ค่านอกช่วง, คอลัมน์หาย) แล้วทดสอบด้วย ephemeral context ใน CI ว่า gate ตัดสินถูก `09_pipeline_gate.py` เป็นต้นแบบ
+- รีวิวการเปลี่ยน suite ผ่าน pull request (file context เก็บ suite เป็น JSON ในโฟลเดอร์ `gx/expectations/`)
+- ตั้ง `mostly` และช่วงค่าจากการสังเกตข้อมูลจริงหลายรอบ ไม่ใช่รอบเดียว แล้วทบทวนเมื่อธุรกิจเปลี่ยน
+
+## ลองทำใน repo นี้
+
+1. เปิด `09_pipeline_gate.py` ลบ `ExpectTableRowCountToBeBetween` ออก แล้วดูว่า "empty table" เปลี่ยนเป็นอะไร
+2. เพิ่ม expectation ที่ตั้ง `severity="warning"` แล้วเปลี่ยน `gate` ให้หยุดเฉพาะเมื่อมีข้อ `critical` ล้ม
+3. ลองส่ง `batch_parameters` เป็น dict ว่างกับ batch definition รายวันแล้วดูว่าได้ batch ไหน
+
+## เช็กตัวเอง
+
+- ทำไม `checkpoint.run()` ตามด้วย `publish()` ตรงๆ ถึงอันตราย
+- gate ที่ตรวจแค่ `result.success` พลาดอะไร (นึกถึงตารางว่าง และ expectation ที่พัง)
+- ทำไมการรันย้อนหลังควรได้พารามิเตอร์วันที่จาก scheduler
+
+</Step>

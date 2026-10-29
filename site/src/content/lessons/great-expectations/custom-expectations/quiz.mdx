@@ -1,0 +1,110 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 8 ข้อ เพื่อเช็กว่าเข้าใจบทนี้แค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="เขียน ColumnMapExpectation ใหม่ ต้องเขียนอะไรเองบ้าง"
+  options={['ตรรกะนับแถวที่ผิด การคำนวณ mostly และการจัดรูปผล', 'เงื่อนไข boolean รายแถวต่อ engine และชื่อ map_metric ในคลาส expectation', 'ลงทะเบียนคลาสเข้า registry ด้วยฟังก์ชัน register']}
+  answer={1}
+  why="ColumnMapExpectation จัดการนับ, mostly และรูปผลให้ ส่วนการลงทะเบียนเกิดอัตโนมัติตอนนิยามคลาส (metaclass) สิ่งที่ต้องเขียนคือเงื่อนไขรายแถวต่อ engine (column_condition_partial) กับ map_metric"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="คอลัมน์ n เป็น [2, 4, None, 7] เงื่อนไขของ ColumnMapMetricProvider ที่รันบน pandas (ค่าเริ่มต้น) ได้รับค่าอะไรเข้ามา"
+  options={['[2.0, 4.0, 7.0] เฉพาะแถวที่ไม่ใช่ null และเป็น float เพราะ pandas แปลงคอลัมน์ที่มี None', '[2, 4, None, 7] ทั้งสี่แถว เงื่อนไขต้องจัดการ None เอง', '[2, 4, 7] เป็นจำนวนเต็มเหมือนข้อมูลเดิม']}
+  answer={0}
+  why="ตัวห่อของ column_condition_partial กรอง notnull ก่อนเรียกเงื่อนไข (filter_column_isnull ค่าเริ่มต้น True) และ pandas เก็บคอลัมน์จำนวนเต็มที่มี None เป็น float จึงเห็น 2.0, 4.0, 7.0"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ตั้ง filter_column_isnull = False ใน metric แล้วรันกับข้อมูลที่มี null อยู่ เกิดอะไรขึ้นกับ GX 1.24.1"
+  options={['null ถูกนับเป็นความผิดและผลออกมาถูกต้อง', 'GX ตัด null ออกให้เหมือนเดิม สวิตช์นี้ไม่มีผล', 'unexpected_count รวม null แต่ตัวหารไม่รวม เปอร์เซ็นต์เกิน 100 GX สร้างผลไม่ได้ และได้ success=False พร้อม exception_info']}
+  answer={2}
+  why="_validate คิด nonnull_count = total - null_count เสมอ ส่วน unexpected_count ในกรณีนี้นับ null เข้าไปด้วย ตัวอย่าง [2, None, 7, None] ได้ unexpected 3 แถวจากแถวที่ไม่ใช่ null 2 แถว (150%) ทางที่ถูกคือเพิ่ม ExpectColumnValuesToNotBeNull ข้างๆ"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เขียน custom expectation เฉพาะ PandasExecutionEngine แล้วรันกับ SQLite ผลเป็นอย่างไร"
+  options={['raise exception จาก run()', 'ข้อนั้นได้ success=False พร้อม exception_info ว่าไม่พบ provider', 'GX แปลงเงื่อนไขเป็น SQL ให้เอง']}
+  answer={1}
+  why="ไม่มี implementation ของ metric สำหรับ engine นั้น GX จับ error แล้วให้ผลที่ล้มพร้อม exception_info (No provider found for ... using ...) ทดลองแล้วกับ SQLite"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="คอลัมน์ข้อความ ['a', 'bb', 'c'] ถูกตรวจด้วยเงื่อนไข column % 2 == 0 ที่เขียนไว้ทั้ง pandas และ SQLAlchemy ผลของสอง engine เป็นอย่างไร"
+  options={['ล้มทั้งคู่ เพราะข้อความหารสองไม่ได้', 'ผ่านทั้งคู่', 'pandas เกิด TypeError (success=False, result ว่าง) ส่วน SQLite ผ่านเพราะ SQLite มอง "a" เป็น 0']}
+  answer={2}
+  why="ใน Python 'a' % 2 คือการจัดรูปสตริงและ raise TypeError ใน SQLite ข้อความที่ไม่ขึ้นต้นด้วยตัวเลขเท่ากับ 0 ซึ่งเป็นเลขคู่ จึงผ่านเงียบๆ ทดสอบทุก engine ด้วยข้อมูลชนิดผิดก่อนปล่อยใช้"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ตั้ง expectation_type = 'my_chosen_name' ไว้ในคลาส ExpectSomethingElse ชื่อประเภทที่ลงทะเบียนคืออะไร"
+  options={['expect_something_else', 'my_chosen_name', 'ทั้งสองชื่อลงทะเบียนพร้อมกัน']}
+  answer={0}
+  why="MetaExpectation.__new__ ตั้ง expectation_type = camel_to_snake(ชื่อคลาส) ทุกครั้ง ค่าที่ตั้งไว้ถูกเขียนทับ ทดลองแล้วบน GX 1.9.3 และ 1.24.1 ผลของการเปลี่ยนชื่อคลาสจึงเท่ากับการเปลี่ยนชื่อประเภทที่เก็บใน suite"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="บันทึก suite ที่มี custom expectation ลง file context แล้วโหลดในโปรเซสใหม่ที่ไม่ได้ import คลาส เกิดอะไรขึ้น"
+  options={['error ชัดเจนทันทีที่โหลด', 'ได้ suite ว่างเปล่า (บันทึก ERROR ใน log) และ run() ได้ success=True โดยไม่ประเมินอะไร', 'GX หาคลาสเองจากชื่อประเภท']}
+  answer={1}
+  why="ExpectationSuite.__init__ จับ InvalidExpectationConfigurationError แล้วลง logger.exception ก่อนไปรายการถัดไป ผลคือ suite ว่าง และ success=True กับ evaluated_expectations=0 ทดลองแล้วใน 10_missing_import.py และ 13_custom_registry.py"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เจ้าหน้าที่ใหม่ clone repo มารัน pipeline แล้ว suite ผ่านหมดทั้งที่ข้อมูลเสีย สงสัยอะไรเป็นอย่างแรก"
+  options={['ข้อมูลเสียไม่ตรงกับกฎ ต้องแก้กฎ', 'GX เวอร์ชันใหม่เกินไป', 'evaluated_expectations เป็น 0 หรือไม่ และโมดูล custom expectation ถูก import ก่อนโหลด suite หรือเปล่า']}
+  answer={2}
+  why="อาการ success=True โดยไม่ประเมินอะไรคือรอยของ suite ที่โหลดมาว่างเพราะคลาสไม่ถูก import ตรวจ result.statistics['evaluated_expectations'] และเทียบจำนวน expectation ใน JSON กับที่โหลดได้"
+/>
+
+</Step>
