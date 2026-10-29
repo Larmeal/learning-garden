@@ -47,6 +47,9 @@ Evidence levels: **ran** = observed by running code, **source** = read in the co
 | `Checkpoint.run` returns a `CheckpointResult` and does not raise on failed data; read `.success` | ran | `03`, `09` |
 | `mostly`: `(considered - unexpected) / considered >= mostly`; nulls are not considered. `[10, None, 30, 400]` between 0..120: passes at mostly 0.66, fails at 0.67 | ran | scratch |
 | Adding an equal expectation to a suite twice is silently ignored | ran | `03` |
+| `result.results` is not always in suite order: when expectations fail with an exception (missing column) GX puts them first. Match results to expectations through `expectation_config`, not by position | ran (1.24.1) | `16` |
+| A validation leaves the pandas DataFrame unchanged (9 defect cases) | ran (pandas only) | `16` |
+| One suite, nine defect cases: null, duplicate, out of range, bad format, unknown category, renamed column and empty table are each caught; a wrong value inside the allowed range (`13` instead of `31`) passes | ran | `16` |
 | A second `get_context()` replaces the global project. 1.9.3: objects of the first context then fail to run. 1.24.1: they still run (objects remember their owner context) | ran on both | `03` |
 | `get_context()` order: cloud (env vars), then file (a `gx/` folder), then ephemeral | source / ran | `context_factory.py`, `06` |
 | Without batch parameters `get_batch()` returns the last batch. Parameters filter, then the last of the remaining is returned (year+month on a daily regex gives the last file of that month). No match raises `NoAvailableBatchesError` | ran | `04`, scratch |
