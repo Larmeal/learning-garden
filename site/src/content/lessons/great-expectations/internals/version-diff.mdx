@@ -1,0 +1,96 @@
+---
+title: สิ่งที่เปลี่ยนจาก 1.9.3 ถึง 1.24.1
+summary: เทียบโค้ดสองรุ่นทีละไฟล์ด้วยสคริปต์ ไฟล์แกนที่แทบไม่ขยับ ไฟล์ที่เปลี่ยนมาก และไฟล์ที่ถูกเพิ่มหรือลบ รวมถึงผลต่อสิ่งที่เรียนในเส้นทางนี้
+order: 3
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import BarList from '../../../../components/labs/great-expectations/BarList';
+
+<Step>
+
+## วิธีเทียบ
+
+สคริปต์ `32_version_diff.py` เทียบไฟล์ `.py` ของ package `great_expectations` ที่ checkout รุ่น 1.9.3 (รุ่นที่ knowledge graph วิเคราะห์) กับรุ่น 1.24.1 ที่ติดตั้งในโปรเจกต์ นับบรรทัดที่เพิ่มรวมกับบรรทัดที่ลบด้วย `difflib` และตัดความต่างของการขึ้นบรรทัดใหม่ (CRLF กับ LF) ออก
+
+| | จำนวน |
+|---|---|
+| ไฟล์ `.py` ใน 1.9.3 | 482 |
+| ไฟล์ `.py` ใน 1.24.1 | 497 |
+| มีในทั้งสองรุ่น | 473 |
+| เหมือนกันทุกบรรทัด | 242 |
+| ต่างกัน | 231 |
+| มีเฉพาะ 1.9.3 | 9 |
+| มีเฉพาะ 1.24.1 | 24 |
+
+ไฟล์ที่ติดตั้งมาจาก PyPI ส่วน 1.9.3 มาจาก checkout ของ repo ผลที่ต่างอาจรวมความต่างของการบรรจุ (เช่นไฟล์ `_version.py`) ด้วย
+
+</Step>
+
+<Step>
+
+## ไฟล์แกนที่เรียนมา
+
+จำนวนบรรทัดที่เปลี่ยน (เพิ่มรวมลบ) ของไฟล์ที่เป็นหัวใจของเส้นทางนี้
+
+<BarList
+  client:visible
+  title="บรรทัดที่เปลี่ยนจาก 1.9.3 ถึง 1.24.1"
+  unit=" บรรทัด"
+  items={[
+    { label: 'validator/validation_graph.py', value: 0, note: 'กราฟ metric เป็นรอบ' },
+    { label: 'expectations/metrics/metric_provider.py', value: 0, note: 'การลงทะเบียน metric' },
+    { label: 'validator/metrics_calculator.py', value: 2 },
+    { label: 'expectations/registry.py', value: 9 },
+    { label: 'execution_engine/execution_engine.py', value: 27 },
+    { label: 'validator/v1_validator.py', value: 35 },
+    { label: 'core/expectation_suite.py', value: 35 },
+    { label: 'checkpoint/checkpoint.py', value: 51 },
+    { label: 'core/batch_definition.py', value: 53 },
+    { label: 'checkpoint/actions.py', value: 61 },
+    { label: 'execution_engine/pandas_execution_engine.py', value: 64 },
+    { label: 'data_context/data_context/context_factory.py', value: 74 },
+    { label: 'validator/validator.py', value: 84 },
+    { label: 'execution_engine/sparkdf_execution_engine.py', value: 90 },
+    { label: 'core/validation_definition.py', value: 199 },
+    { label: 'execution_engine/sqlalchemy_execution_engine.py', value: 209 },
+    { label: 'expectations/expectation.py', value: 558 },
+    { label: 'data_context/data_context/cloud_data_context.py', value: 669, note: 'GX Cloud ปิดบริการ' },
+  ]}
+  caption="ผลของ 32_version_diff.py ส่วนที่ 'key files' ตัวเลขบางตัวต่างจากที่ตารางเก่าของบทนี้เคยแสดง (เช่น validation_definition เป็น 199 ไม่ใช่ 187) เพราะตารางเก่านับครั้งก่อนด้วยวิธีหรือรุ่นย่อยที่ต่างกัน ใช้ตัวเลขชุดนี้"
+/>
+
+อ่านภาพ: สองไฟล์ที่เป็นแกนของ "เรียก metric เป็นรอบ" และ "ลงทะเบียน metric" ไม่เปลี่ยนเลยสักบรรทัด สิ่งที่เรียนในบทที่ 8 จึงใช้ได้ทั้งสองรุ่น ส่วนที่เปลี่ยนมากคือ `expectation.py` (558 บรรทัด) `cloud_data_context.py` (669 บรรทัด ตรงกับการปิดบริการ GX Cloud) และ `sqlalchemy_execution_engine.py` (209 บรรทัด)
+
+</Step>
+
+<Step>
+
+## ไฟล์ที่ถูกเพิ่มและลบ
+
+ตัวอย่างจากสคริปต์ (ไม่ใช่รายการเต็ม)
+
+| มีเฉพาะ 1.24.1 | มีเฉพาะ 1.9.3 |
+|---|---|
+| `core/owner_resolution.py` | `data_context/store/database_store_backend.py` |
+| `datasource/fluent/batch_parameter_normalization.py` | `data_context/store/query_store.py` |
+| `datasource/fluent/fabric_datasource.py` | `expectations/regex_based_column_map_expectation.py` |
+| `agent_skills/installer.py` | `expectations/set_based_column_map_expectation.py` |
+| `compatibility/pyodbc.py` | `profile/` (ทั้ง package) |
+
+ที่เกี่ยวกับสิ่งที่เรียนมา
+
+- `owner_resolution.py` ตรงกับพฤติกรรมที่ context เจ้าของถูกจำใน object (บทที่ 5: การสร้าง context ที่สองไม่ทำให้ object เก่าพังใน 1.24.1)
+- `batch_parameter_normalization.py` ตรงกับเรื่องพารามิเตอร์ตัวเลขที่ควรเป็นจำนวนเต็มพร้อมคำเตือนเลิกสนับสนุน (บทที่ 6) ข้อนี้เป็นการเชื่อมจากชื่อไฟล์กับพฤติกรรมที่ทดลองเห็น ไม่ได้อ่านเนื้อไฟล์
+- `regex_based_column_map_expectation.py` และ `set_based_column_map_expectation.py` ที่หายไปคือคลาสแม่แบบสำหรับเขียน expectation แบบ regex หรือแบบชุดค่า ใน 1.24.1 ไม่มีสองไฟล์นี้ บทที่ 12 ใช้ `ColumnMapExpectation` ตรงๆ ซึ่งยังมีอยู่ ตัวอย่างบนเว็บที่สืบทอดจากสองคลาสนี้จึงรันไม่ได้ใน 1.24.1 (สรุปจากการที่ไฟล์หายไป ไม่ได้ลองสืบทอดคลาสนั้น)
+- `profile/` ทั้ง package หายไป ใครเคยใช้ profiler ของรุ่นเก่าต้องหาทางอื่น
+
+<Callout type="warn" title="ก่อนอัปเกรด pipeline จริง">
+ตารางนี้บอกว่าอะไรเปลี่ยน ไม่ได้บอกว่า pipeline ของคุณได้รับผลอย่างไร เทียบไฟล์ที่ pipeline ของคุณเรียก แล้วรัน suite ทดสอบของ gate (บทที่ 10) บนรุ่นใหม่ก่อนปล่อย
+</Callout>
+
+</Step>

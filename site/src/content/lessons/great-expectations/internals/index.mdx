@@ -7,7 +7,7 @@ level: 5
 stage: sprout
 format: steps
 requires: [metrics-engines, actions-data-docs, context-stores]
-updated: 2026-10-27
+updated: 2026-10-29
 ---
 
 import Step from '../../../../components/Step.astro';
@@ -60,7 +60,7 @@ import SourceMap from '../../../../components/labs/great-expectations/SourceMap'
 
 <SourceMap client:visible />
 
-อ่านตามลำดับนี้ใช้เวลาไม่นาน และได้ภาพทั้งเส้น เมื่อติดขัด ให้กลับไปที่ `02_metric_rounds.py` ดูว่าผลที่สังเกตได้ตรงกับขั้นไหน
+เมื่อติดขัด กลับไปที่ `02_metric_rounds.py` ดูว่าผลที่สังเกตได้ตรงกับขั้นไหน หน้า "ตามรอยฟังก์ชันของ GX ใน checkpoint หนึ่งครั้ง" บันทึกลำดับเดียวกันจากการรันจริง
 
 </Step>
 
@@ -68,7 +68,7 @@ import SourceMap from '../../../../components/labs/great-expectations/SourceMap'
 
 ## เทคนิค: ซอร์สคู่กับการดักฟัง
 
-อย่าอ่านอย่างเดียว ให้ครอบ (monkeypatch) ฟังก์ชันที่สนใจเพื่อดูว่ามันถูกเรียกจริงด้วยอะไร เทคนิคนี้สร้างแล็บ metric ในบทที่ 8
+แทนที่จะอ่านอย่างเดียว ให้ครอบ (monkeypatch) ฟังก์ชันที่สนใจเพื่อดูว่ามันถูกเรียกจริงด้วยอะไร เทคนิคนี้สร้างแล็บ metric ในบทที่ 8
 
 ```python
 from great_expectations.execution_engine import ExecutionEngine
@@ -98,16 +98,16 @@ diff -u --strip-trailing-cr old/great_expectations/core/validation_definition.py
                             new/great_expectations/core/validation_definition.py
 ```
 
-ผลของการเทียบ 1.9.3 กับ 1.24.1 ที่ใช้ในเส้นทางนี้ (จำนวนบรรทัดที่เปลี่ยน)
+ผลของการเทียบ 1.9.3 กับ 1.24.1 ที่ใช้ในเส้นทางนี้ (จำนวนบรรทัดที่เปลี่ยน จาก `32_version_diff.py` หน้า "สิ่งที่เปลี่ยนจาก 1.9.3 ถึง 1.24.1" มีตารางเต็ม)
 
-| ไฟล์ | บรรทัดที่เปลี่ยน | สาระที่ผมพบ |
+| ไฟล์ | บรรทัดที่เปลี่ยน | สาระ |
 |---|---|---|
 | `validator/validation_graph.py` | 0 | แกนของการคำนวณเป็นรอบไม่เปลี่ยน |
 | `validator/metrics_calculator.py` | 2 | |
-| `core/validation_definition.py` | 187 | object จำ context เจ้าของ (`owner_resolution`) และมี `get_unexpected_rows` |
-| `validator/v1_validator.py` | 34 | เลือก context จาก owner และสร้าง validator ด้วย lock ต่อ instance |
-| `core/batch_definition.py` | 49 | หา data source ผ่าน context เจ้าของ และเพิ่มคำอธิบายว่าพารามิเตอร์ตัวเลขควรเป็นจำนวนเต็ม |
-| `expectations/expectation.py` | 532 | ส่วนที่เปลี่ยนมากที่สุด |
+| `core/validation_definition.py` | 199 | object จำ context เจ้าของ (`owner_resolution`) และมี `get_unexpected_rows` |
+| `validator/v1_validator.py` | 35 | เลือก context จาก owner และสร้าง validator ด้วย lock ต่อ instance |
+| `core/batch_definition.py` | 53 | หา data source ผ่าน context เจ้าของ และเพิ่มคำอธิบายว่าพารามิเตอร์ตัวเลขควรเป็นจำนวนเต็ม |
+| `expectations/expectation.py` | 558 | ส่วนที่เปลี่ยนมากที่สุด |
 
 แกนของระบบ (กราฟ metric, engine) นิ่ง ส่วนที่เปลี่ยนคือการเชื่อม object กับ context ซึ่งตรงกับพฤติกรรมที่ต่างในบทที่ 5 (context ซ้อน) และบทที่ 6 (พารามิเตอร์ตัวเลข)
 
@@ -126,12 +126,22 @@ diff -u --strip-trailing-cr old/great_expectations/core/validation_definition.py
 7. `expectations/metrics/column_aggregate_metrics/column_max.py` และ `metric_provider.py`: การลงทะเบียน
 8. `data_context/data_context/context_factory.py`: `ProjectManager` และ `get_context`
 
-ส่วนที่ผมยังไม่ได้อ่านและไม่ได้ตรวจในเส้นทางนี้: `render/` (Data Docs), `profile/` และ `experimental/`, GX Cloud, expectation ส่วนใหญ่ใน catalog และพฤติกรรมของ Spark ตอนรันจริง
+ส่วนที่เส้นทางนี้ไม่ได้อ่านและไม่ได้ตรวจ: โค้ดของ `render/` (อ่านเฉพาะข้อความในหน้า Data Docs ที่สร้างออกมา) `experimental/` และ expectation ส่วนใหญ่ใน catalog (`profile/` ไม่มีใน 1.24.1 แล้ว และ GX Cloud ปิดบริการแล้ว) กับพฤติกรรมของ Spark ตอนรันจริง
 
 ## เช็กตัวเอง
 
 - graph บอกได้ว่า `Checkpoint` กับ `ValidationDefinition` อยู่ layer ไหน แต่ไม่บอกอะไร แล้วควรไปหาคำตอบนั้นที่ไหน
 - อยากรู้ว่า expectation ข้อหนึ่งทำให้ SQL ออกมากี่คำสั่ง จะครอบฟังก์ชันไหน
 - รุ่นใหม่ออก ควรเทียบไฟล์ไหนก่อนเพื่อรู้ว่า pipeline ของคุณกระทบไหม
+
+</Step>
+
+<Step>
+
+## หน้าย่อยของบทนี้
+
+1. ตามรอยฟังก์ชันของ GX ใน checkpoint หนึ่งครั้ง: บันทึกด้วย sys.setprofile แล้วเล่นตามทีละขั้น
+2. ถามคำถามกับ knowledge graph: import, การสืบทอด และสิ่งที่ graph ตอบไม่ได้
+3. สิ่งที่เปลี่ยนจาก 1.9.3 ถึง 1.24.1: เทียบทีละไฟล์ ไฟล์ที่เพิ่มและลบ
 
 </Step>

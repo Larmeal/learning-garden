@@ -1,0 +1,55 @@
+---
+title: ตามรอยฟังก์ชันของ GX ใน checkpoint หนึ่งครั้ง
+summary: บันทึกฟังก์ชันที่ถูกเรียกจริงด้วย sys.setprofile เทียบกับลำดับที่อ่านจากซอร์ส ได้ภาพลำดับที่ตรวจซ้ำได้ และเห็นจุดที่ซอร์สอย่างเดียวไม่บอก
+order: 1
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import CallTrace from '../../../../components/labs/great-expectations/CallTrace';
+
+<Step>
+
+## วิธีบันทึก
+
+การอ่านซอร์สบอกว่าฟังก์ชันหนึ่งเรียกอะไรได้ แต่ไม่บอกว่ารอบนี้เรียกอะไรจริง สคริปต์ `31_call_trace.py` ใช้ `sys.setprofile` ตั้งตัวดักที่ทุกการเรียกและคืนของฟังก์ชัน Python แล้วเก็บเฉพาะฟังก์ชันของ GX ที่คัดไว้ 17 ตำแหน่ง ได้ลำดับและความลึกของการเรียก
+
+```python
+sys.setprofile(profiler)
+result = cp.run(batch_parameters={"dataframe": df})
+sys.setprofile(None)
+```
+
+suite มีสองกฎ (`id` ไม่เป็น null, `age` ค่าสูงสุดอยู่ในช่วง) บนข้อมูล 2 แถว ผลที่ได้บันทึกการเรียก 33 ครั้ง ซึ่งเมื่อยุบการเรียกซ้ำที่ความลึกเดียวกันเหลือ 17 บรรทัด (GX 1.24.1)
+
+</Step>
+
+<Step>
+
+## เล่นตามทีละขั้น
+
+<CallTrace client:visible />
+
+</Step>
+
+<Step>
+
+## เทียบกับที่อ่านจากซอร์ส
+
+ลำดับที่บทนี้ใช้มาตลอด (`Checkpoint.run` ไป `ValidationDefinition.run` ไป `Validator` ไป `ValidationGraph` ไป engine ไป expectation) ตรงกับที่บันทึกได้ และมีสี่เรื่องที่การรันเปิดเผยเพิ่ม
+
+1. `process_expectations_for_validation` ถูกเรียกก่อน `graph_validate` เป็นตัวจัดกลุ่ม expectation ตามคอลัมน์ ซึ่งอธิบายลำดับของผลที่ไม่ตรงกับ suite (บทที่ 3)
+2. `get_validation_dependencies` ถูกเรียกซ้อนกันสามระดับ (x2, x4, x3 ในบันทึก) คลาสของ expectation แต่ละตัวเรียกเมธอดของคลาสแม่ต่อกันตามลำดับชั้น (`ExpectColumnValuesToNotBeNull` ไป `ColumnMapExpectation` ไป `BatchExpectation` ไป `Expectation` ตามกราฟสืบทอดในหน้า "ถามคำถามกับ knowledge graph") ตัวเลขเหล่านี้นับครั้งของทั้งสอง expectation รวมกัน
+3. `resolve_metrics` ถูกเรียก 5 ครั้ง เท่ากับ 5 รอบของกราฟ metric ในบทที่ 8 (รอบที่ห้าเป็นรอบว่าง) และ `resolve_metric_bundle` ของ pandas ถูกเรียก 4 ครั้ง คือรอบที่มี metric จริง
+4. `store_validation_results` ถูกเรียกก่อน `_run_actions` ยืนยันที่บทที่ 9 บอกว่าผลถูกเก็บก่อน action
+
+`_validate` ของสองกฎอยู่ในไฟล์ของแต่ละ expectation (`expect_column_values_to_not_be_null.py` และ `expect_column_max_to_be_between.py`) ไม่ได้อยู่ในไฟล์ฐาน
+
+<Callout type="note" title="ขอบเขตของบันทึก">
+บันทึกนี้มาจาก pandas และ suite เล็กๆ เส้นทางบน SQL หรือ Spark ผ่านฟังก์ชันอื่นในชั้น engine (เช่น `resolve_metric_bundle` ของ SQL) และการรันที่มี action จะมีฟังก์ชันเพิ่ม `sys.setprofile` ทำให้ช้าลง ใช้เพื่อศึกษา ไม่ใช่ในงานจริง
+</Callout>
+
+</Step>
