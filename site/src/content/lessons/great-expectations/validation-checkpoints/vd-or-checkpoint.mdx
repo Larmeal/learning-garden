@@ -1,0 +1,82 @@
+---
+title: validation definition หรือ checkpoint ใช้อะไรดี
+summary: เทียบการรันตรงกับการรันผ่าน checkpoint ในเรื่องที่ตรวจได้ ผลที่เก็บ checkpoint_id ใน meta result_format และ action ตอนนี้ result_format ตั้งที่ไหน
+order: 3
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Variants from '../../../../components/labs/great-expectations/Variants';
+
+<Step>
+
+## ผลที่เหมือนกัน และที่ต่าง
+
+ทั้งสองทางตรวจข้อมูลและเก็บผลลง results store เหมือนกัน สคริปต์ `25_checkpoint_shapes.py` ส่วนที่ 5 และ 6 วัดความต่างที่มองเห็นได้ (GX 1.24.1)
+
+| เรื่อง | `vd.run(...)` | `checkpoint.run(...)` |
+|---|---|---|
+| ผลที่เก็บลง store | 1 รายการต่อการรัน | 1 รายการต่อ validation (2 validation ได้ 2) |
+| `meta["checkpoint_id"]` ของผล | `None` | มีค่า |
+| คืนอะไร | `ExpectationSuiteValidationResult` | `CheckpointResult` (มี `run_results`) |
+| `result_format` ตั้งที่ไหน | พารามิเตอร์ของ `run()` | ฟิลด์ของ `Checkpoint(...)` (ไม่ใช่พารามิเตอร์ของ `run()`) |
+| พารามิเตอร์ของ `run()` (จาก `inspect.signature`) | `checkpoint_id`, `batch_parameters`, `expectation_parameters`, `result_format`, `run_id` | `batch_parameters`, `expectation_parameters`, `run_id` |
+| action | ไม่มี | ใส่ได้ที่ `Checkpoint(actions=[...])` (บทที่ 9) |
+
+</Step>
+
+<Step>
+
+## result_format ย้ายที่
+
+สลับแท็บดูว่า `result_format` ที่เคยส่งให้ `vd.run` ไปอยู่ที่ไหนเมื่อใช้ checkpoint
+
+<Variants
+  client:visible
+  title="result_format ตอนรันตรง กับตอนใช้ checkpoint"
+  variants={[
+    {
+      label: 'vd.run',
+      code: `vd.run(\n    batch_parameters={"dataframe": df},\n    result_format="COMPLETE")`,
+      output: `# บทที่ 4 (21_formats_empty.py)\nkeys ใน result ของ column map: เพิ่ม unexpected_list,\nunexpected_index_list, unexpected_index_query`,
+      reading: 'result_format เป็นพารามิเตอร์ของ run()',
+    },
+    {
+      label: 'checkpoint',
+      code: `cp = gx.Checkpoint(\n    name="cp_COMPLETE",\n    validation_definitions=[vd],\n    result_format="COMPLETE")\ncp.run(batch_parameters={"dataframe": df})`,
+      output: `Checkpoint.run parameters: ['batch_parameters', 'expectation_parameters', 'run_id']\nCheckpoint(result_format='BOOLEAN_ONLY') -> keys in the first result: 0\nCheckpoint(result_format='COMPLETE')     -> keys in the first result: 9`,
+      reading: 'result_format ตั้งตอนสร้าง Checkpoint แล้วใช้กับทุก validation ใน checkpoint นั้น ส่งให้ cp.run() ตรงๆ ไม่ได้ (TypeError)',
+    },
+    {
+      label: 'ส่งให้ cp.run ตรงๆ',
+      code: `cp.run(batch_parameters={"dataframe": df},\n       result_format="BOOLEAN_ONLY")`,
+      output: `TypeError: Checkpoint.run() got an unexpected keyword argument 'result_format'`,
+      reading: 'ไม่ได้ผล ต้องตั้งที่ตัว Checkpoint',
+      bad: true,
+    },
+  ]}
+/>
+
+ตัวเลข 0 กับ 9 คือจำนวน key ใน `result` ของข้อแรกของ suite `vd_age` ที่ `BOOLEAN_ONLY` และ `COMPLETE` ตามลำดับ ตรงกับสิ่งที่บทที่ 4 เห็นว่า BOOLEAN_ONLY ทำให้ `result` ว่าง
+
+</Step>
+
+<Step>
+
+## เลือกอย่างไร
+
+| สถานการณ์ | เลือก |
+|---|---|
+| ลองกฎ เขียนสคริปต์ทดลอง ตรวจครั้งเดียว | `vd.run(...)` หรือ `batch.validate(...)` (บทที่ 6) |
+| ตรวจประจำใน pipeline | `Checkpoint` เพราะรวมหลายตรวจเป็นรอบเดียว (`run_id` เดียวกัน) และแนบ action ได้ |
+| ต้องการรู้ว่าผลมาจาก checkpoint ไหน | `Checkpoint` (มี `checkpoint_id` ใน meta) |
+| ต้องการ `result_format` ต่างกันในแต่ละการตรวจ | สร้าง checkpoint แยกตามระดับที่ต้องการ |
+
+<Callout type="note" title="สรุปที่ไม่ได้ทดลอง">
+ตารางนี้สรุปจากความต่างที่ทดลองแล้วในหัวข้อแรก ส่วนข้อดีข้อเสียเชิงการใช้งานอื่นๆ (เช่น ความง่ายในการ review checkpoint ใน git) มาจากโครงสร้างไฟล์ที่เห็นในบทที่ 5 ไม่ได้ทดลองวัด
+</Callout>
+
+</Step>

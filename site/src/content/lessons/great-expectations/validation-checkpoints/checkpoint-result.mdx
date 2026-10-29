@@ -1,0 +1,110 @@
+---
+title: อ่าน CheckpointResult
+summary: เปิดผลของ checkpoint ทีละชั้น describe() ให้อะไร run_results ให้อะไร และฟังก์ชันสั้นๆ ที่ดึงรายการ expectation ที่ล้มออกมาได้
+order: 2
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import JsonTree from '../../../../components/labs/great-expectations/JsonTree';
+
+<Step>
+
+## สองทางอ่านผล
+
+`CheckpointResult` อ่านได้สองทางที่ให้ข้อมูลคนละระดับ
+
+| ทาง | คืนอะไร | ใช้เมื่อ |
+|---|---|---|
+| `result.describe()` | JSON สรุป (สตริง) ของทั้ง checkpoint | ส่งออกเป็นข้อความ log หรือ API |
+| `result.run_results` | dict: `ValidationResultIdentifier` ไปยัง `ExpectationSuiteValidationResult` | เขียนโค้ดวนดูผลเอง เข้าถึงทุกฟิลด์ของผล |
+
+ผลจากสคริปต์ `25_checkpoint_shapes.py` ส่วนที่ 2 และ 7 (GX 1.24.1) `describe()` มี key ระดับบน 3 ตัว คือ `success`, `statistics` และ `validation_results`
+
+</Step>
+
+<Step>
+
+## เปิดต้นไม้ของ describe()
+
+ข้อมูลในกรอบคือ describe() ของ checkpoint ที่มีสอง validation (ตัดบาง key ของ result ให้สั้น) กดชื่อ key ดูความหมาย
+
+<JsonTree
+  client:visible
+  title="describe() ของ checkpoint ที่มี 2 validation"
+  open={['statistics', 'validation_results', 'validation_results.[]']}
+  data={{
+    success: false,
+    statistics: { evaluated_validations: 2, success_percent: 50.0, successful_validations: 1, unsuccessful_validations: 1 },
+    validation_results: [
+      {
+        success: true,
+        statistics: { evaluated_expectations: 1, successful_expectations: 1, unsuccessful_expectations: 0, success_percent: 100.0 },
+        expectations: [{ expectation_type: 'expect_column_values_to_be_unique', success: true, kwargs: { column: 'id' }, result: { element_count: 3, unexpected_count: 0 } }],
+        result_url: null,
+      },
+      {
+        success: false,
+        statistics: { evaluated_expectations: 2, successful_expectations: 0, unsuccessful_expectations: 2, success_percent: 0.0 },
+        expectations: [{ expectation_type: 'expect_column_values_to_be_between', success: false, kwargs: { column: 'age', min_value: 0.0, max_value: 120.0 }, result: { element_count: 3, unexpected_count: 1, partial_unexpected_list: [400.0] } }],
+        result_url: null,
+      },
+    ],
+  }}
+  notes={{
+    success: 'True เมื่อทุก validation ผ่าน',
+    statistics: 'ตัวเลขสรุประดับ checkpoint: จำนวน validation ที่ประเมิน ผ่าน ไม่ผ่าน และเปอร์เซ็นต์',
+    evaluated_validations: 'จำนวน validation definition ที่รันใน checkpoint นี้',
+    validation_results: 'รายการผลต่อ validation definition เรียงตามลำดับใน checkpoint',
+    expectations: 'รายการ expectation ของ validation นั้น แต่ละตัวมี expectation_type, success, kwargs และ result',
+    result_url: 'เป็น null ในการทดลองนี้',
+    kwargs: 'argument ของ expectation (ตัด batch_id ออกจากภาพ)',
+    result: 'ตัวเลขรายละเอียดของข้อนั้น ตามที่เรียนในบทที่ 4',
+  }}
+  caption="รูปของ describe() ยืนยันจากสคริปต์: validation_results[i] มี key success, statistics, expectations, result_url และ expectations[j] มี expectation_type, success, kwargs, result ส่วนค่าในภาพย่อจากผลจริง (ส่วน expectations ของตัวที่สองแสดงเพียงข้อเดียว)"
+/>
+
+describe() เป็นสรุปที่ตัดข้อมูลบางอย่างออก (เช่น `meta`, `exception_info` ของแต่ละข้อ) เหมาะกับการดูภาพรวม ถ้าต้องการ `exception_info` ต้องเข้าทาง `run_results`
+
+ส่วนว่า describe() ตัด `exception_info` ออกจริงหรือไม่ ตรวจจาก key ที่พิมพ์ได้: `expectations[0]` มี 4 key คือ `expectation_type`, `success`, `kwargs`, `result` ไม่มี `exception_info`
+
+</Step>
+
+<Step>
+
+## ดึงรายการที่ล้มออกมา
+
+วนผ่าน `run_results` ตรงๆ
+
+```python
+def failed_expectations(res):
+    out = []
+    for key, vres in res.run_results.items():
+        for r in vres.results:
+            if not r.success:
+                out.append((
+                    key.expectation_suite_identifier.name,
+                    r.expectation_config.type,
+                    r.expectation_config.kwargs.get("column"),
+                    r.result.get("unexpected_count"),
+                ))
+    return out
+```
+
+ผลบน checkpoint ข้างบน
+
+```text
+('suite_age', 'expect_column_values_to_not_be_null', 'age', 1)
+('suite_age', 'expect_column_values_to_be_between', 'age', 1)
+```
+
+ข้อ `suite_ids` ผ่านจึงไม่ถูกลิสต์ ฟังก์ชันนี้ไม่แยกว่าล้มเพราะข้อมูลหรือเพราะ exception ถ้าต้องแยก ใช้ลำดับคำถามจากบทที่ 4 หน้า "อ่านผลที่ไม่ผ่านอย่างเป็นระบบ"
+
+<Callout type="note" title="ตั้งชื่อ run ได้">
+`cp.run(..., run_id=RunIdentifier(run_name="nightly-2024-02-01"))` ตั้งชื่อรอบรัน และทดลองแล้วว่าชื่อนี้ไปอยู่ใน `run_results` ทุกรายการ (`RunIdentifier` import จาก `great_expectations.core.run_identifier`) `Checkpoint.run` รับพารามิเตอร์สามตัวเท่านั้น: `batch_parameters`, `expectation_parameters`, `run_id`
+</Callout>
+
+</Step>

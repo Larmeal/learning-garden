@@ -1,0 +1,112 @@
+---
+title: หลาย validation ใน checkpoint เดียว
+summary: checkpoint ที่มี validation definition สองตัว ผลรวมคิดอย่างไร ตัวที่สองยังรันไหมเมื่อตัวแรกล้ม และเหตุที่พารามิเตอร์ชุดเดียวต้องเข้ากับทุกตัว
+order: 1
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import FlowFrames from '../../../../components/labs/great-expectations/FlowFrames';
+import CaseExplorer from '../../../../components/labs/great-expectations/CaseExplorer';
+
+<Step>
+
+## สองตัว หนึ่ง checkpoint
+
+สคริปต์ `25_checkpoint_shapes.py` สร้าง validation definition สองตัวและใส่ใน checkpoint เดียว (GX 1.24.1, pandas)
+
+| validation definition | suite | ข้อมูลที่ตรวจ |
+|---|---|---|
+| `vd_ids` | `id` ต้องไม่ซ้ำ | DataFrame `id=[1,2,3]` |
+| `vd_age` | `age` ไม่เป็น null และอยู่ใน 0 ถึง 120 | `age=[10, None, 400]` |
+
+```python
+cp = context.checkpoints.add(gx.Checkpoint(name="cp", validation_definitions=[vd_ids, vd_age]))
+result = cp.run(batch_parameters={"dataframe": frame})
+```
+
+ผลที่พิมพ์ออกมา
+
+```text
+type: CheckpointResult | success: False
+run_results entries: 2
+  suite=suite_ids  success=True   evaluated=1
+  suite=suite_age  success=False  evaluated=2
+distinct run ids across validations: 1
+results stored by this run: 2
+```
+
+- `success` ของ checkpoint เป็น `False` เพราะตัวที่สองไม่ผ่าน ผลรวมคือ "ทุกตัวผ่านเท่านั้นจึงผ่าน"
+- `run_results` มีหนึ่งรายการต่อ validation definition
+- ทั้งสองได้ `run_id` เดียวกัน (distinct = 1) ตัวนี้บอกว่าอยู่ในรอบรันเดียวกัน
+- ผลถูกเก็บลง store สองรายการ หนึ่งต่อ validation
+
+</Step>
+
+<Step>
+
+## ตัวที่ล้มไม่หยุดตัวที่เหลือ
+
+<CaseExplorer
+  client:visible
+  title="validation แรกล้ม ตัวที่สองยังรัน"
+  okWord="ผ่าน"
+  badWord="ไม่ผ่าน"
+  cases={[
+    { label: 'ตัวแรกล้ม ตัวที่สองผ่าน', input: 'vd_bad: id ไม่ซ้ำ บนข้อมูล [1, 1, 2]\nvd_ok: จำนวนแถวเท่ากับ 3', rows: [
+      { name: 'suite_bad (validation ตัวแรก)', ok: false, detail: 'ค่า 1 ซ้ำ' },
+      { name: 'suite_ok (validation ตัวที่สอง)', ok: true, detail: 'ยังถูกรัน และมีผลของมันเอง' } ], note: 'success ของ checkpoint = False แต่ run_results มีครบสองตัว' },
+    { label: 'ผ่านทั้งคู่', input: 'vd_ids และ vd_age บนข้อมูลที่ถูกต้อง', rows: [
+      { name: 'suite_ids', ok: true }, { name: 'suite_age', ok: true } ], note: 'ไม่ได้รันแยก: ตามนิยามของผลรวม ผลที่ได้คือ success=True' },
+  ]}
+  caption="กรณีแรกมาจากส่วนที่ 3 ของสคริปต์ (suite_bad เป็น False และ suite_ok เป็น True) กรณีที่สองเป็นผลที่ตามจากนิยาม ไม่ได้รันแยก"
+/>
+
+ตอบคำถามท้ายบทหลักได้ตรงๆ: validation ตัวที่สองยังถูกรัน และ `result.success` เป็น `False` เพราะผลรวมต้องผ่านทุกตัว
+
+</Step>
+
+<Step>
+
+## พารามิเตอร์ชุดเดียวไปถึงทุกตัว
+
+`batch_parameters` ที่ส่งให้ `cp.run(...)` ถูกส่งต่อให้ทุก validation definition ถ้า validation หนึ่งใช้ DataFrame asset (ต้องการ key `dataframe`) กับอีกตัวใช้ตาราง SQL ทั้งตาราง (ไม่ต้องมี key) ชุดพารามิเตอร์เดียวเข้ากับทั้งคู่ไม่ได้ ส่วนที่ 4 ของสคริปต์ทดลองตรงนี้
+
+```text
+raised: InvalidBatchRequestError | batch parameters should only contain keys from the following set: set()
+        but your specified keys contain {'dataframe'} which is not valid.
+```
+
+ข้อความบอกว่า batch ของ SQL รับ key ได้ศูนย์ตัว แต่ได้ `dataframe` มา ผลคือ `cp.run(...)` raise ทั้งก้อน ไม่ได้คืนผลของตัวที่ผ่านไปแล้ว ส่วนว่าตัวแรกของคู่ถูกรันก่อนหรือไม่ ไม่ได้ตรวจ
+
+<FlowFrames
+  client:visible
+  title="พารามิเตอร์ชุดเดียว ถึงทุก validation"
+  width={760}
+  height={260}
+  boxes={[
+    { id: 'p', label: 'batch_parameters', sub: '{ dataframe: df }', x: 10, y: 100 },
+    { id: 'v1', label: 'vd_ids', sub: 'DataFrame asset', x: 300, y: 20 },
+    { id: 'v2', label: 'vd_sql', sub: 'ตาราง SQL ทั้งตาราง', x: 300, y: 180 },
+    { id: 'ok', label: 'รับ key dataframe', sub: 'ใช้ได้', x: 580, y: 20 },
+    { id: 'no', label: 'InvalidBatchRequestError', sub: 'key ที่รับ = {}', x: 560, y: 180, w: 190 },
+  ]}
+  arrows={[ { from: 'p', to: 'v1' }, { from: 'p', to: 'v2' }, { from: 'v1', to: 'ok' }, { from: 'v2', to: 'no' } ]}
+  frames={[
+    { title: 'ส่งพารามิเตอร์หนึ่งชุด', text: 'checkpoint.run รับ batch_parameters ครั้งเดียว', on: ['p'], arrows: [] },
+    { title: 'แจกให้ทุก validation definition', text: 'ไม่มีการแยกพารามิเตอร์ต่อตัว', on: ['p', 'v1', 'v2'], arrows: [0, 1] },
+    { title: 'ตัวที่เข้ากันได้ผ่าน', text: 'DataFrame asset ต้องการ key dataframe', on: ['v1', 'ok'], arrows: [2] },
+    { title: 'ตัวที่ไม่เข้ากันทำให้ทั้งการรัน raise', text: 'batch ของตาราง SQL ไม่รับ key ใดเลย ผลคือ InvalidBatchRequestError ออกจาก cp.run', on: ['v2', 'no'], arrows: [3], tag: '25_checkpoint_shapes.py ส่วนที่ 4' },
+  ]}
+/>
+
+แนวทางที่ปลอดภัยคือจัดกลุ่ม validation definition ใน checkpoint ตามชนิดของ batch definition (ที่ใช้ key ชุดเดียวกัน) และมี checkpoint แยกต่อกลุ่ม
+
+<Callout type="warn" title="ที่ไม่ได้ทดลอง">
+ไม่ได้ทดลองกรณีที่ validation สองตัวใช้ key ชุดเดียวกันแต่ความหมายต่างกัน (เช่น ตัวหนึ่งไฟล์รายวัน อีกตัวไฟล์รายเดือน) และไม่ได้ทดลองการรันขนานกันของ validation ในหนึ่ง checkpoint
+</Callout>
+
+</Step>
