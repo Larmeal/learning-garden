@@ -1,0 +1,98 @@
+---
+title: งานรายวัน ส่งวันที่ให้ชัดและรันซ้ำได้
+summary: ทดลองไฟล์รายวันที่วันที่สองไม่มาถึง ดูว่าส่งวันที่ครบกับลืมส่งได้ผลต่างกันอย่างไร และการรันซ้ำวันเดิมเก็บผลอย่างไร
+order: 2
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import FlowFrames from '../../../../components/labs/great-expectations/FlowFrames';
+import Variants from '../../../../components/labs/great-expectations/Variants';
+
+<Step>
+
+## ตั้งสถานการณ์
+
+โฟลเดอร์มีไฟล์ของวันที่ 1 และ 3 มกราคม 2024 ส่วนไฟล์ของวันที่ 2 ไม่เคยมา (`29_pipeline_policies.py` ส่วนที่ 2, GX 1.24.1) checkpoint ตรวจจำนวนแถวไม่ต่ำกว่า 1 ผ่าน batch definition รายวันที่ regex ปิดหัวท้าย (ตามหน้า "regex ของชื่อไฟล์" ของบทที่ 6)
+
+```python
+def run_for(day: date):
+    return daily_cp.run(batch_parameters={"year": day.year, "month": day.month, "day": day.day})
+```
+
+</Step>
+
+<Step>
+
+## ส่งวันที่ครบ กับลืมส่ง
+
+<Variants
+  client:visible
+  title="scheduler ส่งวันที่ กับลืมส่ง"
+  variants={[
+    {
+      label: 'ส่งวันที่ครบ',
+      code: `for d in (1, 2, 3):\n    run_for(date(2024, 1, d))`,
+      output: `day 1: validated data_2024-01-01.csv success=True\nday 2: NoAvailableBatchesError | No available batches found.\nday 3: validated data_2024-01-03.csv success=True`,
+      reading: 'วันที่ไม่มีไฟล์ล้มดังๆ ด้วย NoAvailableBatchesError ทีมรู้ทันทีว่าข้อมูลของวันนั้นไม่มา',
+    },
+    {
+      label: 'ลืมส่งวันที่',
+      code: `daily_cp.run(batch_parameters={})   # ตัวแปรวันที่ว่างแล้วไม่ถูกส่ง`,
+      output: `validated data_2024-01-03.csv success=True\n(ขอวันที่ 2 ซึ่งไม่มีไฟล์)`,
+      reading: 'ไม่ error ตรวจไฟล์ล่าสุดที่มี (วันที่ 3) แล้วรายงานว่าผ่าน ข้อมูลของวันที่ 2 ไม่เคยถูกตรวจและไม่มีใครรู้',
+      bad: true,
+    },
+  ]}
+/>
+
+กรณีที่สองคือกับดักของบทที่ 6 ที่ยืนยันในระดับ checkpoint ด้วย ผลบอกชื่อไฟล์ที่ตรวจอยู่ใน `meta["batch_spec"]["path"]` ของผลแต่ละ validation สคริปต์ใช้ฟิลด์นี้พิมพ์ชื่อไฟล์
+
+</Step>
+
+<Step>
+
+## ภาพรวมของการรันรายวันที่ปลอดภัย
+
+<FlowFrames
+  client:visible
+  title="จาก scheduler ถึงผลตรวจ"
+  width={760}
+  height={250}
+  boxes={[
+    { id: 'sch', label: 'Scheduler', sub: 'run_date = 2024-01-02', x: 10, y: 20 },
+    { id: 'task', label: 'Task', sub: 'แปลง run_date เป็น batch_parameters', x: 230, y: 20, w: 210 },
+    { id: 'gx', label: 'Checkpoint.run', sub: 'หา batch ของวันนั้น', x: 530, y: 20 },
+    { id: 'ok', label: 'มีไฟล์', sub: 'ตรวจและเก็บผลของวันนั้น', x: 530, y: 150, w: 200 },
+    { id: 'miss', label: 'ไม่มีไฟล์', sub: 'NoAvailableBatchesError', x: 250, y: 150, w: 200 },
+  ]}
+  arrows={[ { from: 'sch', to: 'task' }, { from: 'task', to: 'gx' }, { from: 'gx', to: 'ok' }, { from: 'gx', to: 'miss' } ]}
+  frames={[
+    { title: 'scheduler กำหนดวันที่', text: 'run_date มาจาก scheduler ไม่ใช่ date.today() ในโค้ด จึงรันย้อนหลังได้ผลเท่ากับรันวันนั้นจริง', on: ['sch'], arrows: [] },
+    { title: 'task แปลงเป็นพารามิเตอร์ครบ', text: 'year, month, day เป็นจำนวนเต็ม ส่งครบทุกตัวเสมอ', on: ['sch', 'task'], arrows: [0] },
+    { title: 'ส่งให้ checkpoint', text: 'GX กรอง batch ตามพารามิเตอร์ที่ได้ ไม่ได้ใช้ "ล่าสุด"', on: ['task', 'gx'], arrows: [1] },
+    { title: 'มีไฟล์: ตรวจวันนั้น', text: 'ผลของวันนั้นถูกเก็บ ชื่อไฟล์อยู่ใน meta ให้ตรวจย้อนได้', on: ['gx', 'ok'], arrows: [2] },
+    { title: 'ไม่มีไฟล์: ล้มดังๆ', text: 'NoAvailableBatchesError ทำให้ task ล้ม แล้ว scheduler แจ้งเตือนตามระบบของมัน', on: ['gx', 'miss'], arrows: [3], tag: '29_pipeline_policies.py' },
+  ]}
+/>
+
+</Step>
+
+<Step>
+
+## รันซ้ำวันเดิม
+
+รัน `run_for(date(2024, 1, 3))` สองครั้ง จำนวนผลใน results store เพิ่มขึ้น 2 (ไม่ใช่ 1) ผลรอบเก่าไม่ถูกทับ ทุกรอบมี `run_time` ของมันเอง (หน้า "รันซ้ำกับข้อมูลของวันถัดไป" ของบทที่ 2) ผลที่ตามมา
+
+- backfill ย้อนหลังทำได้ตรงๆ แค่ส่งวันที่เก่า ผลรอบเก่าอยู่ครบ
+- ถ้าต้องการรู้ว่าวันหนึ่งผ่านหรือไม่ ต้องเลือกผลล่าสุดของวันนั้นเอง GX ไม่ได้ทำให้
+- ผลที่ซ้ำกันของวันเดียวกันอาจขัดกัน (รอบแรกล้ม รอบสองผ่านหลังแก้ไฟล์) ระบบที่อ่านผลต้องรู้ว่าจะเชื่อรอบไหน
+
+<Callout type="warn" title="ที่ไม่ได้ทดลอง">
+ทดลองกับไฟล์ CSV ในโฟลเดอร์เดียวและ ephemeral context เท่านั้น ไม่ได้ทดลองกับ scheduler จริง ไม่ได้ทดลองการรันสองงานพร้อมกัน และไม่ได้ทดลองแหล่งข้อมูลที่เป็นตาราง SQL แม้หลักการส่งพารามิเตอร์ครบจะใช้ได้เหมือนกัน
+</Callout>
+
+</Step>

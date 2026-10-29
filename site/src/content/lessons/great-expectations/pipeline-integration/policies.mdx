@@ -1,0 +1,96 @@
+---
+title: หยุด กัก หรือเตือนแล้วไปต่อ
+summary: เขียนสามนโยบายจริงแล้วรันกับข้อมูลสามแบบ ใช้ severity แยกข้อที่ร้ายแรงจากข้อที่เตือน ดูว่าข้อมูลไหนถูก publish ถูกกัก หรือถูกหยุด
+order: 1
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import CaseExplorer from '../../../../components/labs/great-expectations/CaseExplorer';
+
+<Step>
+
+## suite ที่มีสองระดับ
+
+บทหลักเสนอสามนโยบาย หน้านี้เขียนมันจริง (`29_pipeline_policies.py` ส่วนที่ 1, GX 1.24.1) suite ของตาราง orders มีสองกฎ
+
+```python
+gxe.ExpectColumnValuesToNotBeNull(column="order_id")          # severity เริ่มต้น: critical
+gxe.ExpectColumnValuesToBeBetween(column="amount", min_value=0, max_value=1000,
+                                  mostly=0.99, severity="warning")
+```
+
+และข้อมูลสามแบบ
+
+| ข้อมูล | เป็นอย่างไร | ระดับสูงสุดของข้อที่ล้ม |
+|---|---|---|
+| good | `order_id=[1, 2]`, `amount=[10, 20]` | ไม่มี (`None`) |
+| warning only | `amount` มี 5000 (เกิน 1000) | `warning` |
+| critical | `order_id` มี null | `critical` |
+
+ระดับสูงสุดอ่านจาก `suite_result.get_max_severity_failure()` ของแต่ละ validation ใน `run_results` (คืน `None` ถ้าผ่านหมด และมี `.value` เป็นสตริง `"warning"` หรือ `"critical"`)
+
+</Step>
+
+<Step>
+
+## สามนโยบาย
+
+```python
+def apply(policy, name, result, state):
+    sev = severity_of(result)
+    if result.success:
+        state["published"].append(name)
+    elif policy == "stop":
+        state["stopped"].append(name)
+    elif policy == "quarantine":
+        state["quarantine"].append(name)
+    elif policy == "warn then continue":
+        if sev == "critical":
+            state["stopped"].append(name)
+        else:
+            state["published"].append(name)
+            state["alerts"].append(name)
+```
+
+เลือกนโยบายเพื่อดูว่าข้อมูลแต่ละแบบไปจบที่ไหน ผลมาจากการรันจริงทั้งหมด
+
+<CaseExplorer
+  client:visible
+  title="ข้อมูลสามแบบ กับสามนโยบาย"
+  okWord="publish"
+  badWord="ไม่ publish"
+  cases={[
+    { label: 'หยุด', input: 'ไม่ผ่านแล้วหยุดทั้งหมด', rows: [
+      { name: 'good', ok: true },
+      { name: 'warning only', ok: false, detail: 'หยุด' },
+      { name: 'critical', ok: false, detail: 'หยุด' } ], note: 'ปลอดภัยที่สุด แต่กฎระดับ warning ก็หยุด pipeline เหมือนกัน' },
+    { label: 'กัก', input: 'ข้อมูลที่ไม่ผ่านไปที่พัก ผู้ใช้เห็นรอบเก่า', rows: [
+      { name: 'good', ok: true },
+      { name: 'warning only', ok: false, detail: 'อยู่ในที่กัก' },
+      { name: 'critical', ok: false, detail: 'อยู่ในที่กัก' } ], note: 'ได้ข้อมูลไว้ตรวจต่อ โดยผู้ใช้ไม่เห็นข้อมูลเสีย' },
+    { label: 'เตือนแล้วไปต่อ', input: 'warning ผ่านพร้อมแจ้งเตือน, critical หยุด', rows: [
+      { name: 'good', ok: true },
+      { name: 'warning only', ok: true, detail: 'publish และมีแจ้งเตือน' },
+      { name: 'critical', ok: false, detail: 'หยุด' } ], note: 'แยกตามความร้ายแรง ต้องตั้ง severity ในทุกกฎให้ตรงกับความหมาย' },
+  ]}
+/>
+
+</Step>
+
+<Step>
+
+## เลือกอย่างไร
+
+- ถ้าไม่ได้ตั้ง `severity` ทุกกฎเป็น `critical` นโยบาย "เตือนแล้วไปต่อ" จึงหยุดทุกกรณีที่ล้ม ผลเท่ากับ "หยุด"
+- `mostly=0.99` ทำให้กฎ `amount` ยอมให้ผิดได้ไม่เกิน 1% ข้อมูลทดลองมี 2 แถว แถวที่เกินคิดเป็น 50% จึงล้ม
+- นโยบาย "กัก" ในสคริปต์เป็นเพียงลิสต์ในโปรแกรม ในงานจริงต้องมีที่พักจริงและกลไกให้ผู้ใช้เห็นรอบเก่า ส่วนนี้ไม่ได้ทดลอง
+
+<Callout type="warn" title="เลือกนโยบายที่ต้นทาง">
+นโยบายขึ้นกับว่าความเสียหายจากข้อมูลเสียกับความเสียหายจากข้อมูลล่าช้าอย่างไหนแพงกว่า ข้อนี้เป็นการตัดสินใจของทีมและเจ้าของข้อมูล GX ให้เครื่องมืออ่านผลและแยกระดับ ไม่ได้เลือกให้
+</Callout>
+
+</Step>
