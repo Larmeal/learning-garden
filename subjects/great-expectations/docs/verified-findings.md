@@ -49,6 +49,10 @@ Evidence levels: **ran** = observed by running code, **source** = read in the co
 | `Checkpoint.run` returns a `CheckpointResult` and does not raise on failed data; read `.success` | ran | `03`, `09` |
 | `mostly`: `(considered - unexpected) / considered >= mostly`; nulls are not considered. `[10, None, 30, 400]` between 0..120: passes at mostly 0.66, fails at 0.67 | ran | scratch |
 | Adding an equal expectation to a suite twice is silently ignored | ran | `03` |
+| Result order follows `Validator.process_expectations_for_validation`: expectations are grouped by their `column` argument (groups in order of first appearance, those without `column` form one group). With 13 expectations on 7 columns the result order differs from the suite order even when nothing raises | ran + source | `19`, `validator.py` |
+| Null handling: range/set/regex/unique ignore null and report `missing_count`; `NotBeNull`/`BeNull` have no `missing_count` and count null (or non-null) as unexpected; max/mean use the non-null values (mean of `[10,None,30,40,400]` = 120.0) | ran | `19` |
+| `ExpectColumnDistinctValuesToBeInSet` returns `observed_value=None` and reports the offending values in `partial_unexpected_list`, with or without a null in the column | ran | `19` |
+| Two expectations count as the same in a suite only if type and all kwargs match; `mostly` and `severity` are part of the identity. `expectation.save()` after assigning a field persists it; `suite.delete_expectation` persists the delete | ran | `20` |
 | Suite result keys: `success, results, suite_name, suite_parameters, statistics, meta, id`; each expectation result: `success, expectation_config, result, meta, exception_info`. `expectation_config.severity` defaults to `critical` | ran | `18` |
 | The same validation definition run on two DataFrames gives two stored results with different `run_time`; the results store holds both | ran (ephemeral, pandas) | `18` |
 | `ExpectColumnValuesToBeUnique` on `[1,2,2,4]` reports `unexpected_count=2` and `partial_unexpected_list=[2,2]` (both rows of a duplicate count) | ran | `18` |

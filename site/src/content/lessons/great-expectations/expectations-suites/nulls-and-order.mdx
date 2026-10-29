@@ -1,0 +1,107 @@
+---
+title: null และลำดับของผล
+summary: แต่ละตระกูลปฏิบัติต่อ null ต่างกัน ผลลัพธ์ไม่ได้เรียงตามลำดับที่เขียนใน suite และสองเรื่องนี้ทำให้อ่านผลผิดได้ง่ายที่สุด
+order: 2
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import CaseExplorer from '../../../../components/labs/great-expectations/CaseExplorer';
+import FlowFrames from '../../../../components/labs/great-expectations/FlowFrames';
+
+<Step>
+
+## null ในคอลัมน์ age
+
+สคริปต์ `19_catalog_nulls.py` ใช้ `age = [10, None, 30, 40, 400]` (null หนึ่งแถว) กับ `plan` ที่มี null หนึ่งแถว ผลของแต่ละ expectation (GX 1.24.1)
+
+| expectation | ผล | `element_count` | `missing_count` | `unexpected_count` / `observed_value` |
+|---|---|---|---|---|
+| `ExpectColumnValuesToNotBeNull(age)` | ไม่ผ่าน | 5 | ไม่มี key นี้ | unexpected 1 (แถว null) |
+| `ExpectColumnValuesToBeNull(age)` | ไม่ผ่าน | 5 | ไม่มี key นี้ | unexpected 4 (แถวที่ไม่ใช่ null) |
+| `ExpectColumnValuesToBeBetween(age, 0..120)` | ไม่ผ่าน | 5 | 1 | unexpected 1 (ค่า 400) |
+| `ExpectColumnValuesToBeInSet(plan, [free, pro])` | ไม่ผ่าน | 5 | 1 | unexpected 1 (`gold`) |
+| `ExpectColumnValuesToBeUnique(id)` | ผ่าน | 5 | 0 | unexpected 0 |
+| `ExpectColumnValuesToMatchRegex(plan)` | ผ่าน | 5 | 1 | unexpected 0 |
+| `ExpectColumnMaxToBeBetween(age, 0..120)` | ไม่ผ่าน | | | observed 400.0 |
+| `ExpectColumnMeanToBeBetween(age, 0..120)` | ผ่าน | | | observed 120.0 |
+
+ที่เห็นจากตาราง
+
+1. expectation ที่ทดสอบช่วง ชุดค่า หรือรูปแบบ ไม่นับ null เป็นผิด แต่รายงาน `missing_count` แยกให้
+2. คู่ `NotBeNull` กับ `BeNull` ถือ null เป็นเป้าของตัวเอง จึงไม่มี `missing_count` ในผล และ `BeNull` นับแถวที่ไม่ใช่ null เป็นผิด
+3. aggregate (`max`, `mean`) คิดจากค่าที่ไม่ใช่ null: ค่าเฉลี่ยที่รายงานคือ 120.0 ซึ่งเท่ากับ (10 + 30 + 40 + 400) ÷ 4 ถ้าหาร 5 จะได้ 96.0
+
+</Step>
+
+<Step>
+
+## ผลที่ได้ถ้าเปลี่ยนจำนวน null
+
+กดเลือกกรณีเพื่อดูว่ากฎสองข้อนี้ตอบอย่างไร กรณีแรกมาจากสคริปต์ `19` กรณีที่สองมาจาก `03_traps.py` (null ทั้งคอลัมน์)
+
+<CaseExplorer
+  client:visible
+  title="กฎสองข้อกับ null"
+  cases={[
+    { label: 'age มี null หนึ่งแถว', input: 'age: 10, null, 30, 40, 400', rows: [
+      { name: 'ExpectColumnValuesToBeBetween(0..120)', ok: false, detail: 'ผิด 1 (ค่า 400) null ไม่ถูกนับ' },
+      { name: 'ExpectColumnValuesToNotBeNull', ok: false, detail: 'ผิด 1 (แถว null)' },
+    ], note: 'สองกฎตอบต่างกันเพราะถามคนละเรื่อง' },
+    { label: 'null ทั้งคอลัมน์', input: 'age: null, null, null', rows: [
+      { name: 'ExpectColumnValuesToBeBetween(0..120)', ok: true, detail: 'ไม่มีแถวให้พิจารณาจึงผ่าน (ทดลองในบทที่ 4 และ 03_traps.py)' },
+      { name: 'ExpectColumnValuesToNotBeNull', ok: false, detail: 'ผิดทั้งสามแถว' },
+    ], note: 'กฎช่วงค่าผ่านเงียบๆ ต้องมี NotBeNull คู่กันจึงจะเห็น' },
+  ]}
+/>
+
+</Step>
+
+<Step>
+
+## ลำดับของผลไม่ใช่ลำดับของ suite
+
+ตอนอ่านผลเป็นลิสต์ เรามักสมมติว่า `result.results[i]` ตรงกับ `suite.expectations[i]` สคริปต์ `19` พิมพ์สองลำดับเทียบกัน
+
+```text
+suite order : not_be_null(age), be_null(age), between(age), in_set(plan), unique(id),
+              regex(plan), max(age), mean(age), distinct(plan), pair, compound, row_count, column_count
+result order: not_be_null(age), be_null(age), between(age), max(age), mean(age),
+              in_set(plan), regex(plan), distinct(plan), unique(id), pair, compound, row_count, column_count
+```
+
+`max(age)` และ `mean(age)` ย้ายขึ้นมาอยู่ติดกับกฎ `age` ตัวอื่น ส่วน `in_set`, `regex`, `distinct` ของ `plan` ก็ไปอยู่ด้วยกัน
+
+สาเหตุอยู่ในซอร์สของ `Validator.process_expectations_for_validation` ซึ่งรวม expectation ตามค่า argument ชื่อ `column` ก่อนประเมิน (ชื่อเมธอดบอกไว้ว่า "sort by column") ลำดับของกลุ่มคือลำดับที่แต่ละคอลัมน์โผล่ครั้งแรก ภายในกลุ่มคงลำดับเดิม expectation ที่ไม่มี argument `column` (กฎของตาราง กฎของคู่คอลัมน์) ถูกรวมเป็นอีกกลุ่มหนึ่งที่ใช้กติกาเดียวกัน คือเรียงตามที่โผล่ครั้งแรก
+
+<FlowFrames
+  client:visible
+  title="GX จัดกลุ่มตามคอลัมน์ก่อนประเมิน"
+  width={760}
+  height={230}
+  boxes={[
+    { id: 'in', label: 'ลำดับใน suite', sub: 'age, plan, id, age, plan, age', x: 10, y: 20, w: 220 },
+    { id: 'g1', label: 'กลุ่ม age', sub: 'ข้อที่ 1, 4, 6', x: 330, y: 0, w: 150, h: 50 },
+    { id: 'g2', label: 'กลุ่ม plan', sub: 'ข้อที่ 2, 5', x: 330, y: 70, w: 150, h: 50 },
+    { id: 'g3', label: 'กลุ่ม id', sub: 'ข้อที่ 3', x: 330, y: 140, w: 150, h: 50 },
+    { id: 'out', label: 'ลำดับของผล', sub: 'age, age, age, plan, plan, id', x: 540, y: 60, w: 210 },
+  ]}
+  arrows={[
+    { from: 'in', to: 'g1' }, { from: 'in', to: 'g2' }, { from: 'in', to: 'g3' },
+    { from: 'g1', to: 'out' }, { from: 'g2', to: 'out' }, { from: 'g3', to: 'out' },
+  ]}
+  frames={[
+    { title: 'ลำดับที่เขียน', text: 'ตัวอย่างสมมติ: suite มีหกข้อ เรียงคอลัมน์ age, plan, id, age, plan, age', on: ['in'], arrows: [] },
+    { title: 'จัดกลุ่มตามชื่อคอลัมน์', text: 'กลุ่มเรียงตามลำดับที่คอลัมน์โผล่ครั้งแรก: age, plan, id ภายในกลุ่มคงลำดับเดิม', on: ['in', 'g1', 'g2', 'g3'], arrows: [0, 1, 2], tag: 'validator.py: process_expectations_for_validation' },
+    { title: 'ผลเรียงตามกลุ่ม', text: 'ผลออกมาเป็น age ทั้งสามข้อ ตามด้วย plan สองข้อ แล้ว id (ภาพนี้วาดจากโค้ดของเมธอด ตัวอย่างจริงที่ทดลองคือผลของสคริปต์ 19 ด้านบน)', on: ['g1', 'g2', 'g3', 'out'], arrows: [3, 4, 5] },
+  ]}
+/>
+
+<Callout type="warn" title="จับคู่ผลกับกฎผ่านตัว config">
+ถ้าเขียนโค้ดที่ zip `suite.expectations` กับ `result.results` ตามตำแหน่ง ผลจะติดป้ายผิดเมื่อ suite สลับคอลัมน์ ให้จับคู่ด้วย `r.expectation_config.type` และ `kwargs` อย่างที่ `16_defect_catalog.py` และ `19_catalog_nulls.py` ทำ ในบทที่ 0 มีอีกกรณีที่ลำดับเปลี่ยน: expectation ที่เกิด exception ถูกย้ายมาไว้ก่อน
+</Callout>
+
+</Step>
