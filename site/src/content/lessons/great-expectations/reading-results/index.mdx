@@ -7,7 +7,7 @@ level: 2
 stage: sprout
 format: steps
 requires: [first-validation, expectations-suites]
-updated: 2026-10-27
+updated: 2026-10-29
 ---
 
 import Step from '../../../../components/Step.astro';
@@ -47,10 +47,10 @@ expectation แบบ column map ที่ไม่มีแถวให้พ�
 | ข้อมูล | not null `age` | between `age` | row count ≥ 1 |
 |---|---|---|---|
 | ปกติ | ผ่าน | ผ่าน | ผ่าน |
-| มี null | **ไม่ผ่าน** | ผ่าน | ผ่าน |
-| ค่านอกช่วง | ผ่าน | **ไม่ผ่าน** | ผ่าน |
-| ตารางว่าง | ผ่าน | ผ่าน | **ไม่ผ่าน** |
-| `age` null ทั้งหมด | **ไม่ผ่าน** | ผ่าน | ผ่าน |
+| มี null | ไม่ผ่าน | ผ่าน | ผ่าน |
+| ค่านอกช่วง | ผ่าน | ไม่ผ่าน | ผ่าน |
+| ตารางว่าง | ผ่าน | ผ่าน | ไม่ผ่าน |
+| `age` null ทั้งหมด | ไม่ผ่าน | ผ่าน | ผ่าน |
 
 วิธีกัน: ใส่ expectation ที่รู้ว่าตารางต้องมีแถว (`ExpectTableRowCountToBeBetween(min_value=1)`) และ `ExpectColumnValuesToNotBeNull` สำหรับคอลัมน์ที่ห้ามว่าง
 
@@ -60,7 +60,7 @@ expectation แบบ column map ที่ไม่มีแถวให้พ�
 
 ## กับดักที่ 2: expectation ที่พังไม่ raise
 
-ถ้า expectation ประเมินไม่ได้ เช่นอ้างคอลัมน์ที่ไม่มี GX **ไม่ raise** แต่ใส่ `success=False` พร้อม `exception_info` ในผลของข้อนั้น และข้ออื่นยังถูกประเมินต่อ (เพราะ `catch_exceptions` ของ expectation ตั้งไว้เป็น true)
+ถ้า expectation ประเมินไม่ได้ เช่นอ้างคอลัมน์ที่ไม่มี GX ไม่ raise แต่ใส่ `success=False` พร้อม `exception_info` ในผลของข้อนั้น และข้ออื่นยังถูกประเมินต่อ (เพราะ `catch_exceptions` ของ expectation ตั้งไว้เป็น true)
 
 ```python
 suite.add_expectation(gxe.ExpectColumnValuesToNotBeNull(column="no_such_column"))
@@ -81,7 +81,7 @@ result = vd.run(batch_parameters={"dataframe": df})
 
 ## result_format: ยิ่งละเอียด ยิ่งแพง
 
-`result_format` กำหนดรายละเอียดของผล และมีผลต่อ **จำนวน metric ที่ต้องคำนวณ** ด้วย
+`result_format` กำหนดรายละเอียดของผล และมีผลต่อ จำนวน metric ที่ต้องคำนวณ ด้วย
 
 | ค่า | ได้อะไร | metric ใน suite ตัวอย่าง (5 ข้อ, pandas)* |
 |---|---|---|
@@ -92,7 +92,7 @@ result = vd.run(batch_parameters={"dataframe": df})
 
 \* วัดจาก GX 1.24.1 ใน `02_metric_rounds.py` (ใน 1.9.3 ได้ 11, 14, 20) ที่มาของตัวเลขอธิบายในบทที่ 8
 
-บนข้อมูลเล็กไม่รู้สึก แต่บนข้อมูลใหญ่ ผลละเอียดต้องแลกด้วยการคำนวณเพิ่ม ถ้า pipeline ต้องการแค่ผ่านหรือไม่ผ่าน ลองใช้ `BOOLEAN_ONLY`
+ผลละเอียดต้องแลกด้วยการคำนวณเพิ่ม ข้อมูลเล็กไม่รู้สึก ส่วนข้อมูลใหญ่ไม่ได้วัดไว้ในเส้นทางนี้ ถ้า pipeline ต้องการแค่ผ่านหรือไม่ผ่าน `BOOLEAN_ONLY` เหมาะกว่า
 
 </Step>
 
@@ -103,5 +103,15 @@ result = vd.run(batch_parameters={"dataframe": df})
 - suite ผ่านทั้งหมด พิสูจน์ได้ไหมว่าตารางมีข้อมูล เพราะอะไร
 - `success=False` ข้อหนึ่งมี `exception_info` ที่เป็น error จริง ควรสงสัยอะไรเป็นอย่างแรก
 - ข้อมูลใหญ่มากและ pipeline ต้องการแค่ผ่านหรือไม่ ควรตั้ง `result_format` เป็นอะไร
+
+</Step>
+
+<Step>
+
+## หน้าย่อยของบทนี้
+
+1. result_format ทีละระดับ: key ที่เพิ่มขึ้นทีละระดับ และตัวเลือกหาแถวที่ผิด
+2. ผ่านโดยไม่มีข้อมูล ใครผ่านบ้าง: แปดกฎบนตารางว่างและคอลัมน์ว่าง
+3. อ่านผลที่ไม่ผ่านอย่างเป็นระบบ: ลำดับคำถามและฟังก์ชัน triage ที่ทดลองแล้ว
 
 </Step>
