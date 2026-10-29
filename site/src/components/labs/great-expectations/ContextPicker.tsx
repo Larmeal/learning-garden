@@ -1,24 +1,23 @@
 import { useState } from 'react';
 
-type Kind = 'cloud' | 'file' | 'ephemeral';
+type Kind = 'file' | 'ephemeral';
 
-// Mirrors ProjectManager._build_context with mode=None: cloud first (needs its settings), then a gx/ folder, then memory.
+// Mirrors ProjectManager._build_context with mode=None: cloud settings first (GX 1.24.1 raises, the service is shut down),
+// then a gx/ folder, then memory.
 function choose(mode: string, cloud: boolean, folder: boolean): { kind: Kind | 'error'; why: string } {
   if (mode === 'ephemeral') return { kind: 'ephemeral', why: 'mode="ephemeral" บังคับให้อยู่ใน memory' };
   if (mode === 'file') return { kind: 'file', why: folder ? 'mode="file" ใช้โฟลเดอร์ gx/ ที่มีอยู่' : 'mode="file" สร้างโฟลเดอร์ gx/ ใหม่ในโฟลเดอร์โปรเจกต์' };
-  if (mode === 'cloud') {
-    return cloud ? { kind: 'cloud', why: 'mode="cloud" และมีค่าตั้งของ GX Cloud ครบ' } : { kind: 'error', why: 'mode="cloud" แต่ไม่มี GX_CLOUD_ORGANIZATION_ID / GX_CLOUD_ACCESS_TOKEN จึง error' };
-  }
-  if (cloud) return { kind: 'cloud', why: 'เจอค่าตั้งของ GX Cloud (env var) จึงเลือก cloud ก่อนอย่างอื่น' };
+  const shut = 'GX Cloud ถูกปิดบริการแล้ว: GX 1.24.1 raise GreatExpectationsError ทันที ไม่ได้คืน CloudDataContext';
+  if (mode === 'cloud') return { kind: 'error', why: `mode="cloud" ${shut}` };
+  if (cloud) return { kind: 'error', why: `เจอค่าตั้งของ GX Cloud (env var) ซึ่งทำให้ get_context() เลือกทางของ cloud ก่อน แต่ ${shut} (ข้อนี้อ่านจากคำอธิบายในซอร์ส ไม่ได้ทดลองด้วย env var)` };
   if (folder) return { kind: 'file', why: 'ไม่มี cloud แต่พบโฟลเดอร์ gx/ จึงใช้ file context' };
   return { kind: 'ephemeral', why: 'ไม่พบทั้ง cloud และโฟลเดอร์ gx/ จึงอยู่ใน memory' };
 }
 
 const KIND_LABEL: Record<Kind | 'error', string> = {
-  cloud: 'CloudDataContext',
   file: 'FileDataContext',
   ephemeral: 'EphemeralDataContext',
-  error: 'GXCloudConfigurationError',
+  error: 'GreatExpectationsError',
 };
 
 const TREE: { path: string; note: string; git: boolean }[] = [
@@ -51,7 +50,7 @@ export default function ContextPicker() {
         </div>
         <label className="check">
           <input type="checkbox" checked={cloud} onChange={(e) => setCloud(e.target.checked)} />
-          ตั้ง env var ของ GX Cloud
+          ตั้ง env var ของ GX Cloud (ไว้เทียบ)
         </label>
         <label className="check">
           <input type="checkbox" checked={folder} onChange={(e) => setFolder(e.target.checked)} />
@@ -78,9 +77,6 @@ export default function ContextPicker() {
       )}
       {res.kind === 'ephemeral' && (
         <p className="viz-caption">ทุกอย่างอยู่ใน memory ของโปรเซสนี้ ปิดโปรแกรมแล้วหายหมด เหมาะกับการทดลองและสคริปต์ที่สร้าง object ใหม่ทุกครั้ง</p>
-      )}
-      {res.kind === 'cloud' && (
-        <p className="viz-caption">suite, checkpoint และผลถูกเก็บที่ GX Cloud เส้นทางนี้ไม่ได้ครอบคลุมในบทเรียน</p>
       )}
     </figure>
   );

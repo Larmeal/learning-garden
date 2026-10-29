@@ -64,7 +64,10 @@ Evidence levels: **ran** = observed by running code, **source** = read in the co
 | A validation leaves the pandas DataFrame unchanged (9 defect cases) | ran (pandas only) | `16` |
 | One suite, nine defect cases: null, duplicate, out of range, bad format, unknown category, renamed column and empty table are each caught; a wrong value inside the allowed range (`13` instead of `31`) passes | ran | `16` |
 | A second `get_context()` replaces the global project. 1.9.3: objects of the first context then fail to run. 1.24.1: they still run (objects remember their owner context) | ran on both | `03` |
-| `get_context()` order: cloud (env vars), then file (a `gx/` folder), then ephemeral | source / ran | `context_factory.py`, `06` |
+| `get_context()` order: cloud settings, then file (a `gx/` folder), then ephemeral. In 1.24.1 the cloud branch raises `GreatExpectationsError` ("GX Cloud has been shut down") | source / ran (`mode="cloud"`) | `context_factory.py`, `06`, `23` |
+| A file context survives between processes: process A builds and runs, process B loads it, gets the checkpoint by name and runs it; the results store grows from 1 to 2 | ran | `23` |
+| `uncommitted/config_variables.yml` is read: `${MY_DB_URL}` resolves from the file when the environment variable is unset, and the environment variable wins when both exist | ran | `23` |
+| A file context writes `.gitignore` (`uncommitted/`), `great_expectations.yml`, `expectations/`, `checkpoints/`, `validation_definitions/`, `plugins/`, `uncommitted/config_variables.yml`, `uncommitted/validations/`, `uncommitted/data_docs/`. A stored validation definition lists the datasource, asset and batch definition by name + id | ran | `22` |
 | Without batch parameters `get_batch()` returns the last batch. Parameters filter, then the last of the remaining is returned (year+month on a daily regex gives the last file of that month). No match raises `NoAvailableBatchesError` | ran | `04`, scratch |
 | 1.24.1: numeric batch parameters should be integers; digit strings still work with a deprecation warning (removal in 2.0) | ran | scratch |
 | File-based batch identifiers carry strings; SQL column-partitioned identifiers carry integers | ran | `04`, scratch |
@@ -136,6 +139,5 @@ plus query expectations. A column-map metric is one boolean condition per engine
 ## Not verified
 
 - Spark runtime behaviour. Only the source of the bundling was read; no Spark job was measured.
-- Rendering internals, GX Cloud, the `profile` and `experimental` packages, most of the 60 built-in expectations.
-- Substitution from `uncommitted/config_variables.yml` (only environment variables were tested).
+- Rendering internals, the `profile` and `experimental` packages, most of the 60 built-in expectations.
 - Orchestrators (Airflow, Dagster, Prefect): no integration was tried.

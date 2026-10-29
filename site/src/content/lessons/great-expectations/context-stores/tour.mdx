@@ -1,0 +1,73 @@
+---
+title: เดินดูโฟลเดอร์ gx/
+summary: สร้าง file context แล้วเปิดไฟล์ทุกไฟล์ที่ GX เขียนลงดิสก์ ดูว่าอะไรเข้า git อะไรไม่เข้า และข้อมูลจริงถูกเก็บไว้ในผลตรวจหรือไม่
+order: 1
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import FileExplorer from '../../../../components/labs/great-expectations/FileExplorer';
+
+<Step>
+
+## สร้างแล้วดูของที่ได้
+
+สคริปต์ `22_file_context_tour.py` สร้าง file context ในโฟลเดอร์ชั่วคราว เพิ่ม data source, suite สองกฎ, validation definition, checkpoint ที่มี `UpdateDataDocsAction` แล้วรันหนึ่งรอบ (GX 1.24.1)
+
+```python
+context = gx.get_context(mode="file", project_root_dir=root)
+# ... add_pandas, suites.add, validation_definitions.add, checkpoints.add ...
+result = checkpoint.run(batch_parameters={"dataframe": df})
+```
+
+ไฟล์ที่เกิดขึ้นใต้ `gx/` (ตัดไฟล์ฟอนต์และรูปของ Data Docs ออก)
+
+```text
+.gitignore
+great_expectations.yml
+expectations/people_suite.json
+expectations/.ge_store_backend_id
+validation_definitions/people_vd.json
+checkpoints/people_cp.json
+plugins/custom_data_docs/styles/data_docs_custom_styles.css
+uncommitted/config_variables.yml
+uncommitted/validations/people_suite/__none__/<run>/people_src-people.json
+uncommitted/data_docs/local_site/index.html            (และไฟล์ย่อย)
+```
+
+กดไฟล์ในกรอบด้านล่างเพื่อดูเนื้อหา
+
+<FileExplorer
+  client:visible
+  title="ไฟล์ที่ file context เขียน"
+  files={[
+    { path: '.gitignore', note: 'GX สร้างให้', git: true, text: 'uncommitted/' },
+    { path: 'great_expectations.yml', note: 'ตั้งค่า context (3.9 KB)', git: true, text: '# Welcome to Great Expectations! Always know what to expect from your data.\n# ...(คอมเมนต์อธิบาย)...\nconfig_version: 4.0\n\n# This config file supports variable substitution ...\n# Environment variables take precedence over variables defined here.' },
+    { path: 'expectations/people_suite.json', note: 'suite เป็น JSON', git: true, text: '{\n  "expectations": [\n    {\n      "id": "e4c9694a-...",\n      "kwargs": { "column": "id" },\n      "meta": {},\n      "severity": "critical",\n      "type": "expect_column_values_to_not_be_null"\n    },\n    {\n      "id": "cb3cf781-...",\n      "kwargs": { "column": "age", "max_value": 120.0, "min_value": 0.0 },\n      "meta": {},\n      "severity": "critical",\n      "type": "expect_column_values_to_be_between"\n    }\n  ],\n  "id": "6800ebe9-...",\n  "meta": { "great_expectations_version": "1.24.1" },\n  "name": "people_suite",\n  "notes": null\n}' },
+    { path: 'validation_definitions/people_vd.json', note: 'ชื่อ + id ของสิ่งที่อ้างถึง', git: true, text: '{\n  "data": {\n    "asset": { "id": "b5c72983-...", "name": "people" },\n    "batch_definition": { "id": "ba074519-...", "name": "whole" },\n    "datasource": { "id": "619609c4-...", "name": "people_src" }\n  },\n  "id": "f39bd95b-...",\n  "name": "people_vd",\n  "suite": { "id": "6800ebe9-...", "name": "people_suite" }\n}' },
+    { path: 'checkpoints/people_cp.json', note: 'checkpoint และ action', git: true, text: '{\n  "actions": [\n    { "name": "docs", "site_names": [], "type": "update_data_docs" }\n  ],\n  "id": "5d5d7036-...",\n  "name": "people_cp",\n  "result_format": "SUMMARY",\n  "validation_definitions": [\n    { "id": "f39bd95b-...", "name": "people_vd" }\n  ]\n}' },
+    { path: 'uncommitted/config_variables.yml', note: 'ตัวแปรและค่าลับ', git: false, text: '# This config file supports variable substitution which enables: 1) keeping\n# secrets out of source control & ...\n# Environment variables take precedence over variables defined here.\n\ninstance_id: 9ee08596-...' },
+    { path: 'uncommitted/validations/people_suite/__none__/<run>/people_src-people.json', note: 'ผลตรวจหนึ่งรอบ', git: false, text: '{\n  "meta": {\n    "active_batch_definition": {\n      "batch_identifiers": { "dataframe": "<DATAFRAME>" },\n      "data_asset_name": "people",\n      "datasource_name": "people_src"\n    },\n    "batch_markers": {\n      "ge_load_time": "20261029T064738.933866Z",\n      "pandas_data_fingerprint": "9d42daae8e0002b8985838fd67c6c6da"\n    },\n    "batch_parameters": { "dataframe": "<DATAFRAME>" },\n    "batch_spec": { "batch_data": "PandasDataFrame" },\n    "checkpoint_id": "3ad45b7f-...",\n    "run_id": { "run_name": null, "run_time": "2026-10-29T13:47:38.929791+07:00" },\n    "validation_id": "99c79cda-..."\n  },\n  "results": [ ... ]\n}' },
+    { path: 'uncommitted/data_docs/local_site/index.html', note: 'รายงาน HTML (18 KB)', git: false },
+  ]}
+  caption="เนื้อหาย่อบางส่วนด้วย ... แต่ข้อความและโครงสร้างที่เห็นคือที่ไฟล์ในเครื่องมีจริง ค่า id ถูกตัดให้สั้น"
+/>
+
+</Step>
+
+<Step>
+
+## สามข้อที่เห็นจากไฟล์
+
+1. validation definition ที่เก็บในไฟล์อ้างสามชั้นด้วยชื่อ + id: datasource, asset และ batch definition ต่างจากผลของ `.json()` ใน memory ที่หน้า "อ้างอิงด้วยชื่อและ id" (บทที่ 1) ซึ่งมีแค่ batch definition การ serialize ลงไฟล์จึงเก็บสายอ้างอิงเต็มกว่า
+2. ผลตรวจไม่เก็บข้อมูลจริง ที่ `batch_parameters.dataframe` เขียนไว้ว่า `<DATAFRAME>` มีแค่ลายนิ้วมือของข้อมูล (`pandas_data_fingerprint`) ไว้ตรวจว่าเป็นข้อมูลก้อนเดียวกันหรือไม่ (ไม่ได้ทดลองกรณีลายนิ้วมือเปลี่ยน)
+3. `.gitignore` ที่ GX สร้างมีบรรทัดเดียวคือ `uncommitted/` ผลตรวจ รายงาน และ `config_variables.yml` จึงไม่เข้า git โดยค่าเริ่มต้น ส่วน `expectations/`, `checkpoints/`, `validation_definitions/` และ `great_expectations.yml` เข้า git ได้ ทีมจึงรีวิว suite ผ่าน pull request ได้เหมือนโค้ด
+
+<Callout type="note" title="ไม่ได้เปิดดู">
+ไม่ได้เปิดไฟล์ HTML ของ Data Docs ในเบราว์เซอร์ และไม่ได้ทดลองว่าไฟล์ JSON ของ suite ที่แก้ด้วยมือถูกโหลดกลับถูกต้องหรือไม่
+</Callout>
+
+</Step>
