@@ -1,0 +1,215 @@
+---
+title: Data quality dimensions
+summary: A dimension is a word for talking about a rule, not a fixed list. This lesson checks real data one dimension at a time with SQL and reads each result as a percent that passes and a percent that fails.
+order: 1
+phase: A
+level: 2
+stage: sprout
+format: steps
+requires: [assurance-basics]
+updated: 2026-11-02
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import DimensionLab from '../../../../components/labs/data-quality/DimensionLab';
+
+<Step>
+
+## A dimension is a word for talking about a rule
+
+DMBOK2 defines a **data quality dimension** as a measurable feature of data. The name "dimension" is borrowed from measuring objects (length, width, height). Dimensions give you vocabulary for writing quality requirements, setting rules you can measure, and reporting results, both in the first assessment and in ongoing measurement (book: DMBOK2 §1.3.3).
+
+The book's example: if the email field of customers is incomplete, you cannot send product information by email and you lose sales. So you measure "the percent of customers with a usable email" and improve the process until it reaches at least 98%. The dimension (completeness) says what to measure. The business impact says why it is worth measuring.
+
+</Step>
+
+<Step>
+
+## No single set of dimensions is agreed
+
+The book describes three influential sets of dimensions and then concludes that "there is no single agreed-upon set of dimensions, but all of them share common ideas" (book: DMBOK2 §1.3.3).
+
+| Set | Character |
+|---|---|
+| Strong-Wang (1996) | Starts from how users perceive data: 15 dimensions in 4 groups (intrinsic, contextual, representational, accessibility) |
+| Redman (1996) | Starts from data structure, split into model, value and representation, with more than two dozen dimensions |
+| English (1999) | Splits characteristics into inherent (independent of use) and pragmatic (dependent on presentation and use) |
+| DAMA UK (2013) | Six core dimensions: completeness, uniqueness, timeliness, validity, accuracy, consistency |
+
+This path uses the six DAMA UK dimensions plus **integrity** and **reasonability**, which DMBOK2 Table 29 adds, because they can be measured with SQL most directly. Remember that dimension names are the team's shared language. If your team uses another set, that works too, as long as everyone uses it the same way.
+
+</Step>
+
+<Step>
+
+## The dataset used throughout this path
+
+500 customers (`customers`), 3,020 order rows (`orders`) and 2,553 payments (`payments`), built by `dqlab.py` with a fixed seed. **Every kind of defect is planted in a number we chose**, for example 40 blank emails and 30 order rows whose customer does not exist. So when our SQL finds the same count that was planted, we know the rule works. Every exercise ends with this kind of check.
+
+The result of each rule is reported the way DMBOK2 Table 30 does it: **both the part that passes and the part that fails, as percents**. For example, checking 1,000,000 rows and finding 2,000 that arrived late gives 99.8% passing and 0.20% failing.
+
+</Step>
+
+<Step>
+
+## Completeness, validity, uniqueness
+
+**Completeness**: is the data that should be there all there? It can be measured at dataset, row or column level. You have to separate mandatory fields, conditional fields and inapplicable fields (book: DMBOK2 Table 29).
+
+```sql
+SELECT count(*) FILTER (WHERE email IS NULL), count(*) FROM customers;
+-- 40 of 500
+```
+
+**Validity**: is the value inside the defined domain? A domain can be a list of values, a range or a rule, including data type and format (book: DMBOK2 Table 29).
+
+```sql
+-- email format (only rows that are not null)
+SELECT count(*) FILTER (WHERE NOT regexp_matches(email, '^[^@\s]+@[^@\s]+\.[^@\s]+$')), count(email) FROM customers;
+-- 15 of 460
+
+-- values outside the list
+SELECT count(*) FILTER (WHERE country NOT IN ('TH','SG','JP','US')), count(*) FROM customers;
+-- 25 of 500
+```
+
+**Uniqueness**: no entity is recorded more than once. It is measured by testing against the key structure (book: DMBOK2 Table 29).
+
+```sql
+SELECT count(*) - count(DISTINCT order_id), count(*) FROM orders;
+-- 20 surplus rows out of 3,020
+```
+
+(ran: `02_dimensions.py`, every number matches the planted count)
+
+<Callout type="warn" title="NULL and NOT IN">
+The column `orders.customer_id` has 15 NULL rows, which is a completeness problem. If you check integrity with `NOT IN (SELECT customer_id FROM customers)`, a row whose `customer_id` is NULL evaluates to "unknown", so it is not counted as an orphan. And if the subquery list contains even one NULL, the whole result comes back empty. Use `NOT EXISTS` and count the NULL rows in the completeness rule instead.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Consistency, integrity
+
+**Consistency**: are values represented consistently within and across datasets? The book separates three levels: within the same row (record-level), across rows (cross-record) and across time (temporal). It also warns against confusing consistency with accuracy (book: DMBOK2 Table 29).
+
+```sql
+-- status SHIPPED must have a ship time
+SELECT count(*) FILTER (WHERE status = 'SHIPPED' AND shipped_ts IS NULL),
+       count(*) FILTER (WHERE status = 'SHIPPED') FROM orders;
+-- 25 of 1,794
+
+-- ship time must not be before order time
+SELECT count(*) FILTER (WHERE shipped_ts < order_ts), count(shipped_ts) FROM orders;
+-- 10 of 1,769
+```
+
+In both cases each value looks fine on its own and the values contradict each other when you look at them together. A rule like this can never be seen by checking one column at a time.
+
+**Integrity**: the book mainly means referential integrity, which is consistency between objects through reference keys. When it is missing you get an orphan (a reference key with nothing behind it) or a duplicate (book: DMBOK2 Table 29).
+
+```sql
+SELECT count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM customers c WHERE c.customer_id = o.customer_id)),
+       count(customer_id)
+FROM orders o WHERE customer_id IS NOT NULL;
+-- 30 orphans out of 3,005
+```
+
+</Step>
+
+<Step>
+
+## Timeliness, accuracy
+
+**Timeliness**: does the data reflect reality at the time it is needed? Read it together with how often the data changes (volatility). The book separates *currency* (is the value the latest version?) from *latency* (the time from when the data is created until it is ready to use) (book: DMBOK2 Table 29).
+
+```sql
+-- row level: did it reach the warehouse within 24 hours?
+SELECT count(*) FILTER (WHERE ingested_at - order_ts > INTERVAL 24 HOUR), count(*) FROM orders;
+-- 40 of 3,020
+```
+
+Table level: the newest order is from 29 Oct, and the question was asked on 1 Nov at 08:00, which is a bit over 2 days 8 hours late. If the promise was an update within 24 hours, the promise is broken (ran: `02_dimensions.py`).
+
+**Accuracy**: how closely does the data match the real object or event? The book says plainly that it is **hard to measure**, unless the data collection can be repeated or confirmed by hand. Most measurement relies on comparing with a source confirmed to be correct, such as a system of record (book: DMBOK2 Table 29).
+
+We use the payment system as the reference and compare the order amount with the sum of its payments.
+
+```sql
+WITH o AS (SELECT DISTINCT order_id, total_amount FROM orders WHERE status <> 'CANCELLED'),
+     p AS (SELECT order_id, sum(amount) AS paid FROM payments GROUP BY order_id)
+SELECT count(*) FILTER (WHERE abs(o.total_amount - p.paid) > 0.005), count(*)
+FROM o JOIN p USING (order_id);
+-- 35 mismatches out of 2,533
+```
+
+A caution from the book: data can be **valid but not accurate**. A birth date of 1990-01-01 passes a year-range rule, but if the customer was born in 1985 it is wrong.
+
+</Step>
+
+<Step>
+
+## All 14 rules together
+
+| Dimension | Rule | Fail | Total | Pass % | Fail % |
+|---|---|---:|---:|---:|---:|
+| completeness | customers.email is filled | 40 | 500 | 92.00 | 8.00 |
+| completeness | orders.customer_id is filled | 15 | 3,020 | 99.50 | 0.50 |
+| validity | email has the format a@b.c | 15 | 460 | 96.74 | 3.26 |
+| validity | country is in the list | 25 | 500 | 95.00 | 5.00 |
+| validity | birth_date is between 1900 and today | 6 | 500 | 98.80 | 1.20 |
+| validity | orders.total_amount is not negative | 12 | 3,020 | 99.60 | 0.40 |
+| uniqueness | one email per customer | 10 | 460 | 97.83 | 2.17 |
+| uniqueness | one row per order_id | 20 | 3,020 | 99.34 | 0.66 |
+| consistency | SHIPPED must have shipped_ts | 25 | 1,794 | 98.61 | 1.39 |
+| consistency | shipped_ts is not before order_ts | 10 | 1,769 | 99.43 | 0.57 |
+| integrity | orders.customer_id exists in customers | 30 | 3,005 | 99.00 | 1.00 |
+| integrity | payments.order_id exists in orders | 20 | 2,553 | 99.22 | 0.78 |
+| timeliness | order arrives within 24 h | 40 | 3,020 | 98.68 | 1.32 |
+| accuracy | amount matches the payment system | 35 | 2,533 | 98.62 | 1.38 |
+
+Notice that "Total" is not the same for every rule: emails with a bad format are counted out of 460 (blank rows are left out) because the completeness rule has already caught the blank rows. Choosing the denominator this way keeps one error from being counted twice in two rules.
+
+</Step>
+
+<Step>
+
+## Try the matching yourself
+
+<DimensionLab lang="en" client:visible />
+
+One defective row can belong to several dimensions. For example, `ไทย` in the country field is outside the list (validity) and is written differently from the `TH` that other rows use (consistency). DMBOK2 Figure 92 shows dimensions overlapping like this. Do not worry about picking "the one right answer". What matters is that the team agrees which dimension a rule counts under, so the report does not count it twice.
+
+<Callout type="try" title="Try it in this repo">
+Run `uv run python 02_dimensions.py` and add a rule of your own, such as "total_amount is at most 10,000" or "signup_date is not in the future". Both should return 0, because we did not plant that kind of defect. This is how you check that your rule does not raise false alarms.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- If one team uses 6 dimensions and another uses 15, can their reports be compared? What do they have to agree on?
+- The rule "SHIPPED must have shipped_ts" can count as consistency or as (conditional) completeness. If you had to choose one, what criterion would you use?
+- Which dimension in the table above cannot be proven correct by SQL alone? What else is needed?
+
+</Step>
+
+<Step>
+
+## Sources of this lesson
+
+| Statement | Source |
+|---|---|
+| Definition of a dimension, the three influential sets, the six DAMA UK dimensions, "no single agreed set" | book: DMBOK2 §1.3.3 |
+| Meaning and measurement of each dimension, integrity, reasonability | book: DMBOK2 Table 29 |
+| Reporting pass % and fail % | book: DMBOK2 §2.7.2 and Table 30 |
+| Dimensions overlap | book: DMBOK2 Figure 92 |
+| The numbers for all 14 rules and the check against the planted counts | ran: `02_dimensions.py` |
+| The SQL used (DuckDB SQL) and the reading of which rule counts under which dimension | author |
+| Reasonability has no exercise in this lesson | Lesson 7 covers it by watching distribution and volume |
+
+</Step>

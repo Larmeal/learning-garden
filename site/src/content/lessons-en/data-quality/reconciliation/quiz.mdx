@@ -1,0 +1,79 @@
+---
+title: Check your understanding
+summary: Answer 5 questions to check how well you understood this lesson.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-02
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  lang="en"
+  client:visible
+  q="Our database fully supports unique constraints and transactions, so we do not need to reconcile the destination. What is DDIA's counter-argument?"
+  options={['There is no counter-argument. A good database guarantees it', 'Lower-level guarantees reduce the chance of error but are not enough. Bugs at the sending end, the receiving end or in the application can still happen, so you need an end-to-end check', 'You should stop using constraints because they are unreliable']}
+  answer={1}
+  why="The end-to-end argument: lower-level functions reduce the probability of problems at higher levels but are not sufficient on their own. DDIA also gives examples of widely used databases that had uniqueness bugs, and of many applications that use constraints incorrectly. It does not say to stop using constraints."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  lang="en"
+  client:visible
+  q="Reconciling the mart with the payment system found +17 rows and +48,977.68 in this lesson. What is the cause?"
+  options={['The payment system is missing 17 records', '17 duplicated (non-cancelled) order rows make the plain join add rows and double-count the amount', 'Decimal rounding']}
+  answer={1}
+  why="The orders table has 20 planted duplicate rows, 17 of which are not CANCELLED. When joined to payments, each duplicate row pairs with the same payment, so both the rows and the amount increase. Using SELECT DISTINCT * FROM orders before the join makes everything match exactly."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  lang="en"
+  client:visible
+  q="After reconciling orders with payments, the 'still unexplained' part is 12.40 baht out of a 6 million total. What should you conclude?"
+  options={['It passes, because it is tiny compared with the total', 'There is still a problem you do not know about. Find the cause before concluding, because the goal is for every unit of the difference to be explained. What remainder is acceptable is something the data owners have to agree on', 'Delete the rows that cause the difference']}
+  answer={1}
+  why="In the exercise the unexplained part is 0.00 because the whole difference comes from two known causes. An unexplained remainder, even a small one, can be the sign of a new bug that no rule covers yet. How large a remainder to accept is a decision to make together with the data consumer."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  lang="en"
+  client:visible
+  q="The unit test of the transforming SQL in this lesson fails the plain join on which case, and why?"
+  options={['The cancelled-order case, because a join does not know about status', 'The duplicated order row case, because it gets 200 instead of 100', 'Every case']}
+  answer={1}
+  why="The plain join passes the normal case and the cancelled case (it has WHERE status <> 'CANCELLED'), but the duplicate-row case gets 200 instead of 100 because the duplicate row pairs with the same payment twice. This case was written from what the profile found: that duplicate order_id values really exist."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  lang="en"
+  client:visible
+  q="DQF names limits of tests written as code. Which one is NOT a limit the book mentions?"
+  options={['Maintenance burden: when a model changes, its tests must change', 'Test fatigue: tests with no reason behind them get deleted when they get in the way', 'Tests cannot be written in SQL']}
+  answer={2}
+  why="The book mentions maintenance burden, test fatigue and limited visibility (a test may fail because of a hidden upstream problem). Most dbt tests are already written in SQL (a singular test is SQL that returns the bad rows)."
+/>
+
+</Step>

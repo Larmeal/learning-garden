@@ -1,0 +1,149 @@
+---
+title: Capstone project
+summary: Put together every piece from lessons 1 to 10 into one small pipeline that takes daily data, checks the contract, quarantines bad rows, monitors volume, decides whether to publish or stop, and opens a ticket to the owner. Then try six scenarios.
+order: 10
+phase: D
+level: 5
+stage: sprout
+format: steps
+requires: [ownership-scorecard]
+updated: 2026-11-02
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## The task
+
+Receive daily order data, decide whether to **publish it to the report or hold it back**, and make sure the data owner finds out when there is a problem, using only what you have learned.
+
+| Step | What it does | From lesson |
+|---|---|---|
+| 1 | Check the schema of the incoming batch against the contract. If it does not match, reject it before loading | 6 |
+| 2 | If there are no rows at all, treat the source as silent | 7 |
+| 3 | Check row by row: duplicate, no customer_id, no real customer, negative amount. Quarantine the failing rows with the reason | 4, 5 |
+| 4 | If more than 10% of rows are bad, stop (circuit breaker). If the good rows are fewer than 50% of the median of the same weekday in earlier weeks, stop | 5, 7 |
+| 5 | Publish, or stop and open a ticket to the owner as the contract says (notification channel, response time) | 6, 9, 10 |
+
+The thresholds of 10% and 50% are examples the author set, not from the books. In real work they come from an agreement with the data consumer (lessons 1, 4 and 10).
+
+The pipeline lives in the script `11_capstone.py`, about 100 lines that use the `dqlab.py`, `dqrules.py` and `dqcontract.py` written in earlier lessons.
+
+</Step>
+
+<Step>
+
+## Six scenarios
+
+The data for 2026-10-20 (a Tuesday) has 30 rows. The median of the four previous Tuesdays is 26 rows. The batches fed into the pipeline come in six forms, all adapted from the same day's data (ran: `11_capstone.py`).
+
+| # | Scenario | Result | Reason |
+|---|---|---|---|
+| 1 | A normal day | Publish | Volume is 113% of the baseline |
+| 2 | One duplicated row | Publish, and quarantine 1 bad row | 1 duplicate order_id, under the 10% threshold |
+| 3 | Many bad rows | **Stop** | 26% of rows fail the row checks (4 duplicates, 3 negative amounts, 2 with no real customer), over the 10% threshold |
+| 4 | Column renamed | **Stop** | Contract: no column `total_amount` |
+| 5 | No data arrived at all | **Stop** | The source is silent |
+| 6 | Only part was loaded (30%) | **Stop** | Volume is 34% of the baseline (threshold 50%) |
+
+The four scenarios that stop open four tickets. Every one goes to the `orders-platform` team through the `#orders-data` channel within 2 hours, as contract v1 says.
+
+| From scenario | Severity | Subject |
+|---|---|---|
+| 3 | High | 26% of rows fail the row checks |
+| 4 | High | contract: missing column total_amount |
+| 5 | High | no rows arrived (source silent) |
+| 6 | Medium | Volume is 34% of the baseline |
+
+Scenarios 1 and 2 are the same day. Publishing uses the day as the key (an upsert), so rerunning replaces the existing rows and adds no new ones, which is the lesson from lessons 8 and 9: loads that are safe to repeat.
+
+</Step>
+
+<Step>
+
+## Decisions in this pipeline worth questioning
+
+The code works, but many of its decisions are the author's, and there is no single right answer.
+
+- **Stop at 10% bad rows.** If the business can accept 20%, move the threshold. If it can accept 0%, it will stop every day (lesson 4: the accepted threshold).
+- **Stop below 50% volume, but pass at 51%.** Is a day that dropped by half and passed acceptable to you? Try the ThresholdLab (lesson 7) to see whether this threshold suits data with a weekly cycle.
+- **Stopping the whole batch when many rows are bad** may not suit you if most rows are still good. An alternative is to publish the good part and announce that it is incomplete (lesson 5: intrusive versus nonintrusive).
+- **Every ticket goes to the same team.** In scenario 3 the problem might be in the CRM team or the payments team (lesson 9: walk the lineage to find the real owner).
+- **No freshness monitor on the report table.** If the pipeline stops, the downstream report gets older and older and nothing says so (lesson 7).
+- **Accuracy is not checked** against the payment system, because that has to wait until the payment side's data arrives (lesson 8: reconciliation is a separate step that runs later).
+
+</Step>
+
+<Step>
+
+## Extension tasks
+
+Do these in the script one at a time. Each uses the lesson named.
+
+1. **Add scenario 7: a silent schema drift.** The type of `customer_id` changes from BIGINT to a numeric string (lesson 6). Does the pipeline detect it? If not, what has to be added?
+2. **Add a reconciliation after publishing.** Compare the row count and sum of the published rows with the source minus the quarantined rows. The difference must equal the quarantined rows exactly (lesson 8).
+3. **Add a freshness rule.** If the latest `order_ts` is older than 24 hours compared with the run time, open a ticket (lessons 6 and 7).
+4. **Make the ticket smarter.** Attach the list of affected downstream tables (the blast radius) from a lineage graph like the one in lesson 9.
+5. **Write a one-line log per day.** Store each day's result (published or stopped, the number of quarantined rows) in a table, then compute the monthly data downtime against the SLO (lesson 10).
+6. **Try wiring it to GX.** Rewrite the row-check step as a Great Expectations expectation suite and compare it with your SQL (see the lesson "Using it in a real pipeline" in the Great Expectations path).
+
+<Callout type="try" title="Try it in this repo">
+Start with task 2, the smallest. Add a reconciliation at the end of the `run_pipeline` function, then test that scenario 2 (one duplicated row) gives a difference of 1 row and scenario 1 gives 0.
+</Callout>
+
+</Step>
+
+<Step>
+
+## The path so far, and what it has not covered
+
+A review of what each lesson gave you:
+
+| Lesson | What you got |
+|---|---|
+| 1 | Quality is fitness for use; assurance is the system that keeps it |
+| 2 | Dimensions are vocabulary; check each dimension with SQL; report both the passing and failing parts |
+| 3 | Look at the profile before writing rules; a profile says what is there, not what should be there |
+| 4 | A rule needs an owner, a threshold, an impact and someone who confirmed it |
+| 5 | Check at several points; choose between let through, quarantine and stop |
+| 6 | A contract is data you can check; separate the changes that break consumers |
+| 7 | Monitor what you did not anticipate; every threshold trades false alerts against misses |
+| 8 | Reconcile across the whole line; the difference must be fully explained; test SQL on small data |
+| 9 | Respond to an incident in five steps; a blameless postmortem |
+| 10 | Measure without fooling yourself; who is responsible; certify data |
+
+What this path **does not yet cover**:
+
+- **Reasonability** (DMBOK2 Table 29) appears only as monitoring volume and distribution against the past (lesson 7). There is no dedicated exercise.
+- **Personal data and privacy** (PII), which DMBOK2 and DQF discuss, is a separate subject.
+- **Data quality for machine learning models** and genuine streaming data (lesson 5 touches on in-stream only lightly).
+- **Specific tools.** This path does not teach any particular tool. GX is in the Great Expectations path.
+- **Organizational culture and politics.** DMBOK2 has a chapter on organizational change and DQF on organizing data teams. This path touches only roles and certification.
+
+The truth to remember is that **this path uses synthetic data that is much cleaner than real work**. Every number that "worked well" should be seen as an example of a way of thinking, not the result you will get at your workplace.
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- If you could only do three things from this path in your team today, which would you pick, and why? (Hint: look at the TTD figures in lesson 10.)
+- When does your pipeline stop publishing, and who knows first that it stopped, a consumer or the team?
+- What is your first important dataset, and where does its contract live?
+
+</Step>
+
+<Step>
+
+## Sources of this lesson
+
+| Statement | Source |
+|---|---|
+| The results of the six scenarios, the 4 tickets, publishing as an upsert | ran: `11_capstone.py` |
+| The idea behind each step | The books cited in lessons 1 to 10 |
+| The order of the pipeline steps, the 10% and 50% thresholds, the extension tasks, the list of what is not covered | author |
+
+</Step>

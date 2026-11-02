@@ -1,0 +1,79 @@
+---
+title: Check your understanding
+summary: Answer 5 questions to check how well you understood this lesson.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-02
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  lang="en"
+  client:visible
+  q="According to DMBOK2 Table 31, can the rule 'order_id is unique' be checked in-stream, one row at a time as data arrives?"
+  options={['Yes, because looking at one row is enough', 'Not on its own. It is a dataset-level rule, so it also has to see the rows that arrived earlier. Dataset-level measurement usually cannot be done in-stream', 'No, because uniqueness can only ever be done in batch']}
+  answer={1}
+  why="Value-level and row-level rules can be done in-stream, but uniqueness needs to know whether the same value has already come in, so it needs the whole set or at least an index of the keys already seen. It is not 'always' impossible, because a system that keeps state about keys can check in the stream, but the book takes the view that it usually cannot be done."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  lang="en"
+  client:visible
+  q="In the exercise, policy A (let it through) gives revenue of 6,414,003.75 and policy B (quarantine) gives 6,368,087.92. Where does the 45,915.83 difference come from?"
+  options={['Taxes and fees that were deducted', 'Duplicate orders counted twice (+48,977.68) plus rows with a negative amount (-3,061.85)', 'Customers that do not exist are counted only in policy A']}
+  answer={1}
+  why="Running 05_checkpoints.py explains it fully: 48,977.68 - 3,061.85 = 45,915.83. Customers that do not exist and customer_id values that are NULL are already dropped on both sides by the inner join, so they create no difference."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  lang="en"
+  client:visible
+  q="After the bad rows are quarantined, the circuit breaker is still open because 3 more error rules fail. Which conclusion is appropriate?"
+  options={['Add more error rules, to be safe', 'Review whether each remaining rule really should be error or warn, because an open circuit means nothing is published, even though most of the data is still good', 'Turn the circuit breaker off permanently']}
+  answer={1}
+  why="DQF warns that stopping a pipeline should be used only for serious events, otherwise it also halts other work that is of good quality. A rule's severity is a business decision, not a tool default."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  lang="en"
+  client:visible
+  q="Medallion separates 'intrusive' from 'nonintrusive' at the Bronze layer. Which statement is correct?"
+  options={['Intrusive stops the pipeline and keeps the failing data aside, while nonintrusive carries on, keeping both kinds in the same destination to be dealt with in the next layer', 'Intrusive deletes the failing data, while nonintrusive checks nothing at all', 'Both stop the pipeline, and they only differ in the tool used']}
+  answer={0}
+  why="The book says that if the destination cannot accept the problem, stop and keep the failing data aside. If it can, carry on and keep both passing and failing data in the destination, then fix it in Silver. This differs from 'not checking at all', because nonintrusive still checks and records the result."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  lang="en"
+  client:visible
+  q="DQF says tests only catch problems anticipated in advance (known unknowns). Which is an example of something a written test does not catch?"
+  options={['An email is NULL in a column with a not_null rule', 'A table\'s schema grows from 6 columns to 600 because another team changed it, nobody told you, and there is no rule for it', 'order_id is duplicated in a table with a unique rule']}
+  answer={1}
+  why="Options 1 and 3 already have rules (known unknowns). A big schema change with no rule behind it is an example of the unknown unknowns that the book names, and it needs monitoring that compares against normal behavior (lesson 7)."
+/>
+
+</Step>

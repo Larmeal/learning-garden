@@ -1,0 +1,187 @@
+---
+title: Where in the pipeline to check
+summary: Bad data travels down the conveyor belt and hurts the destination. This lesson compares where to check (Bronze, Silver, before publishing), the policy when a check fails (let it through, quarantine the rows, stop the whole line) and the tools you can use.
+order: 4
+phase: B
+level: 3
+stage: sprout
+format: steps
+requires: [rule-design]
+updated: 2026-11-02
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Bad data really hurts the destination
+
+Look at what happens to the defects found in lesson 2 when you let them flow all the way to a "revenue by country" report, built by joining orders to customers (ran: `05_checkpoints.py`):
+
+| country | Revenue | Orders |
+|---|---:|---:|
+| TH | 4,098,059.59 | 1,642 |
+| Thailand | 56,526.87 | 25 |
+| THA | 64,202.16 | 23 |
+| th | 50,744.19 | 23 |
+| ไทย | 59,145.33 | 21 |
+| T.H. | 61,395.79 | 20 |
+| SG | 802,996.33 | 296 |
+| JP | 756,154.01 | 294 |
+| US | 464,779.48 | 168 |
+
+The revenue from Thai customers whose country was written in five wrong formats adds up to 292,014.34. It fell out of the `TH` group into rows of its own. Anyone who reads this report and concludes that Thailand made 4.10 million is off by about 7% of Thai revenue, and no warning message appeared anywhere.
+
+The relevant DMBOK2 principle: look after quality across the whole data lifecycle, so **every link in the chain must pass on high-quality data** (book: DMBOK2 §1.2). DQF says most organizations agree that catching and fixing problems at ingestion lowers the chance that bad data flows downstream (book: DQF ch.5).
+
+</Step>
+
+<Step>
+
+## At what level to check, and can it be done in the stream
+
+DMBOK2 Table 31 splits measurement into three levels of granularity, and says each can be done two ways: **in-stream**, while the data moves through the system, and **batch**, with queries or profiling tools on data that is already stored. It also says dataset-level measurement usually cannot be done in-stream, because it needs the whole set (book: DMBOK2 §2.7.2).
+
+| Level | Example rule | In-stream? | Found in the dataset |
+|---|---|---|---:|
+| One value (element) | email has the format a@b.c | Yes, it looks at one value | 15 |
+| Whole row (record) | shipped_ts is not before order_ts | Yes, it looks at one row | 10 |
+| Whole set (data set) | order_id is unique | No, it needs to see the whole set | 20 |
+| Whole set (data set) | The newest order is no more than 24 hours old | No, it needs to see the whole set | 1 (failing) |
+
+(ran: `05_checkpoints.py`. The numbers match what was planted, and the last row counts as 1 to mean "failing".)
+
+The practical consequence: rules about one value or one row can sit at the point where data is received, cheap and fast, but rules about duplicates and freshness have to wait until the whole batch is there. DQF adds that at an operational transformation step that needs low latency, it is better to pick light checks, such as comparing the old schema with the incoming one, rather than expensive checks such as data drift (book: DQF ch.3).
+
+</Step>
+
+<Step>
+
+## Pipeline layers: Bronze and Silver
+
+*Building Medallion Architectures* splits data into layers, and says that moving from Bronze to Gold means better data quality, structure and validation (book: Medallion ch.1). The quality duties of the first two layers:
+
+| Layer | Quality duty |
+|---|---|
+| **Bronze** | The "first gate" for technical checks and observability. Errors caught here do not spread to Silver and Gold. The book recommends keeping metadata about the source schema so that check rules can be enforced automatically. |
+| **Silver** | Clean and upgrade: make date formats the same, enforce reference data, rename things, remove duplicates, check functional quality and drop low-quality rows. Not yet combined with other sources. |
+
+(book: Medallion ch.3, the Bronze Layer and Silver Layer sections)
+
+The book stresses another point: cleaning can be automated at load time, but **quality problems should be fixed at the source, where the data is created**, so they do not pop up elsewhere. Building the cleaning step usually takes several rounds, because sometimes you only find a problem when you are in the Gold layer and have to go back and fix Silver or even Bronze.
+
+</Step>
+
+<Step>
+
+## When a check fails: let it through, quarantine, or stop
+
+Medallion separates the policy for data that fails at Bronze into two kinds (book: Medallion ch.3):
+
+- **Intrusive**: if you expect the destination to fail, or consumers cannot accept the problem, **stop the pipeline** and keep the failing data in a separate folder or table, out of the real Bronze layer.
+- **Nonintrusive**: if you can accept the problem, carry on, keep both passing and failing data in the same destination, and deal with it in the next layer (usually Silver).
+
+The exercise simulates three policies on the same data, where policies B and C are the two halves of intrusive (**this pairing is the author's**):
+
+| Policy | What it does | Total revenue published |
+|---|---|---:|
+| A. Let it through unchecked (worse than nonintrusive, since it does not even record which rows failed) | Join the raw data and publish | 6,414,003.75 |
+| B. Quarantine rows that fail the technical rules | Keep the 77 bad rows aside with the reason, the rest carry on | 6,368,087.92 |
+| C. Stop the whole line | If any error rule fails, publish nothing | (no new report) |
+
+The difference between A and B is 45,915.83 and it is fully explained: duplicate orders counted twice, **+48,977.68**, and rows with a negative amount, **-3,061.85** (rows whose customer does not exist or is NULL drop out on both sides because of the join). The quarantined rows by reason:
+
+| Reason | Rows | Total amount |
+|---|---:|---:|
+| Customer does not exist | 30 | 59,636.36 |
+| Duplicate order_id | 20 | 56,069.27 |
+| customer_id is NULL | 15 | 45,911.89 |
+| Negative amount | 12 | -3,269.55 |
+
+(ran: `05_checkpoints.py`, all four reasons match the planted counts)
+
+</Step>
+
+<Step>
+
+## Circuit breaker: stop only when it is serious
+
+DQF describes the circuit breaker, borrowed from CI/CD: the pipeline stops when the data fails a quality threshold. There are two states, a closed circuit (data flows) and an open circuit (data does not flow). A person quoted in the book (Sandeep Uttamchandi, a former Chief Data Architect at Intuit) says you need three things: lineage, profiling along the whole pipeline, and the ability to open the circuit automatically from problems that profiling finds (book: DQF ch.3).
+
+The result in the exercise: on the raw data the circuit opens because 6 error rules fail. After quarantining the bad rows, the rules still standing drop to 3.
+
+| Step | Error rules still failing |
+|---|---|
+| Raw data | CUST-COUNTRY-DOMAIN, ORD-CUST-POPULATED, ORD-ID-UNIQUE, ORD-CUST-EXISTS, PAY-ORDER-EXISTS, ORD-TOTAL-MATCHES-PAID |
+| After quarantine | CUST-COUNTRY-DOMAIN, PAY-ORDER-EXISTS, ORD-TOTAL-MATCHES-PAID |
+
+Quarantine fixes the technical rules of the orders table. What remains is **a problem that needs a person to decide**: the badly formatted country values live in the customers table, there are payments with no order, and 35 order amounts do not match the payment system. If all three were severity error, the circuit would open every day and the pipeline would publish nothing, even though most of the data is still good enough.
+
+DQF warns about this: stopping a pipeline should be used only for events that are serious for the company. Used carelessly, a circuit breaker or a SQL check operator will also stop other, unrelated work that is of good quality (book: DQF ch.3). So the severity of each rule (`error` or `warn`, lesson 4) is a business decision that needs an owner.
+
+</Step>
+
+<Step>
+
+## Tools that "assert the data is as expected"
+
+DQF gives an overview of data testing tools (book: DQF ch.3, the source of everything below):
+
+| Tool | Character |
+|---|---|
+| **dbt tests** | Tied to transformations done with dbt. There are singular tests (one SQL that returns the bad rows) and generic tests that take parameters. Four come built in: `unique`, `not_null`, `accepted_values`, `relationships`. |
+| **Great Expectations** | A Python library that works with many kinds of transformers, with readable reports (Data Docs) and alerts through Slack or email. |
+| **Deequ** | An AWS library on Spark, written in Scala, with incremental metric computation and built-in anomaly detection. |
+| **Airflow** | At the orchestration layer: set task SLAs and build a circuit breaker or SQL check operator. |
+
+A dbt singular test uses the same idea as our exercises: write a query that returns the **bad rows**, and treat it as passing when there are none (book). The four built-in tests match the dimensions we learned: `unique` is uniqueness, `not_null` is completeness, `accepted_values` is validity, and `relationships` is integrity (**this pairing is the author's**).
+
+DQF concludes that tests only cover problems we **already anticipated** (known unknowns). What we did not anticipate needs monitoring (lesson 7). If you specifically want to write expectations in GX, see the "First validation" lesson in the Great Expectations path.
+
+</Step>
+
+<Step>
+
+## Prevent it at the source
+
+DMBOK2 suggests ways to prevent problems that do not wait for the pipeline (book: DMBOK2 §4.1):
+
+- **Data entry controls**: keep wrong values out of the system.
+- **Train the people who create data**, and measure their work by correctness and completeness, not just speed.
+- **A "data firewall"**: a table of quality rules that is checked before data enters an application such as a data warehouse. If quality is below the threshold, alert the analyst.
+- **Demand quality from outside data suppliers**, and inspect their processes, structure and sources.
+- **Formal change control**: no editing the data directly outside the normal process.
+
+The five spellings of country in the example at the top of this lesson can be prevented at the source (a country picker instead of free typing), which is cheaper than fixing the report every run.
+
+<Callout type="try" title="Try it in this repo">
+Open `05_checkpoints.py` and change policy B so it also quarantines rows whose `country` is not in the list. See how total revenue and TH revenue change. Then try "convert to TH" instead of quarantining. Compare the two approaches: which one hides the problem at the source more, and which one exposes it more?
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- Can the rule "order_id is unique" be moved to an in-stream check as each row arrives? What would you need to add?
+- If `PAY-ORDER-EXISTS` is severity error but fails because the payment system sends data slightly later than the orders, what happens to the pipeline every morning? Do you fix it at the rule or at the source?
+- Does your team use an intrusive or a nonintrusive policy at the first layer of the pipeline today? Do the downstream consumers know?
+
+</Step>
+
+<Step>
+
+## Sources of this lesson
+
+| Statement | Source |
+|---|---|
+| Every link must pass on high-quality data; prevention beats correction; preventive tools | book: DMBOK2 §1.2, §4.1 |
+| The three measurement levels, in-stream versus batch | book: DMBOK2 §2.7.2 and Table 31 |
+| Duties of Bronze and Silver, intrusive and nonintrusive, fix at the source | book: Medallion ch.3 |
+| Circuit breaker, dbt/GX/Deequ/Airflow, tests only catch what was anticipated | book: DQF ch.3 and ch.5 |
+| The revenue-by-country table, A versus B versus C, the quarantine reasons, the rules still failing after quarantine | ran: `05_checkpoints.py` |
+| Pairing B and C as two halves of intrusive, pairing dbt tests with dimensions | author |
+
+</Step>
