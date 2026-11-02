@@ -1,0 +1,26 @@
+# A data contract for the orders dataset, as the producer promises it to its consumers.
+# The fields are the ones DMBOK2 2.7.4 lists for a data quality SLA (data elements, expectations per dimension,
+# measurement, thresholds, who is told, how fast, escalation) plus a schema, in the YAML-in-Git style that
+# Building Medallion Architectures shows for data contracts. The numbers are examples written for this course.
+dataset: orders
+version: 1
+owner: orders-platform
+consumers: [finance, marketing]
+purpose: Daily revenue reporting and customer campaigns
+schema:
+  - {name: order_id, type: BIGINT, nullable: false, unique: true}
+  - {name: customer_id, type: BIGINT, nullable: false}
+  - {name: order_ts, type: TIMESTAMP, nullable: false}
+  - {name: ingested_at, type: TIMESTAMP, nullable: false}
+  - {name: status, type: VARCHAR, nullable: false, allowed: [PLACED, SHIPPED, CANCELLED]}
+  - {name: total_amount, type: DOUBLE, nullable: false}
+  - {name: shipped_ts, type: TIMESTAMP, nullable: true}
+quality:
+  rules: [ORD-ID-UNIQUE, ORD-CUST-POPULATED, ORD-CUST-EXISTS, ORD-TOTAL-MATCHES-PAID]
+freshness:
+  column: order_ts
+  max_age_hours: 24
+on_breach:
+  notify: "#orders-data"
+  respond_within_hours: 2
+  resolve_within_business_days: 1
