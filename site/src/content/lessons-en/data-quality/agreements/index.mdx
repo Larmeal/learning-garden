@@ -1,0 +1,171 @@
+---
+title: Agreements between producer and consumer
+summary: A data quality SLA and a data contract are promises a producer gives to consumers. This lesson writes a contract as a YAML file, checks data against it in code, and classifies each change to the contract by whether it breaks consumers.
+order: 5
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [checkpoints]
+updated: 2026-11-02
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import ContractLab from '../../../../components/labs/data-quality/ContractLab';
+
+<Step>
+
+## Why you need a contract
+
+A quality rule written on the consumer side can tell you the data is bad, but it does not say **who is responsible**, or whom to tell when the producer is about to change the data. DMBOK2 talks about two levels:
+
+- **Data quality SLA**: states the expected response and resolution for problems in each system (book: DMBOK2 §2.7.4).
+- **Data sharing agreement**: states which data may be shared and under what conditions. Whoever is responsible for the sharing environment has an obligation to downstream consumers to provide high-quality data, and depends on the source systems. So it should have SLAs and metrics for availability and quality, a process for fixing root causes, and a standard way to communicate when there is a problem (book: DMBOK2, Reference and Master Data chapter §4.4).
+
+*Building Medallion Architectures* uses the term **data contract** for the same thing in the modern world.
+
+</Step>
+
+<Step>
+
+## What a data contract is, and a caution about the term
+
+The book defines a data contract as a formal agreement between the producer and the consumer of data. It states the data format, quality, availability, security policy and each party's responsibilities. A contract focuses on the **interface** of the data, while the data product is the definition and content of the data itself (book: Medallion ch.12).
+
+The book warns directly that **the term is ambiguous and has no standard industry definition**. So an organization has to define it clearly for itself, or everyone will understand it differently. A contract is also not usable everywhere. Mostly it is about controlling the flow of data, and it is kept as metadata in the platform.
+
+The book lists several ways to store contracts: in a catalog (such as Microsoft Purview or Unity Catalog), in a home-built metastore, as YAML files with GitOps, and following open specifications such as the Open Data Contract Standard and the Data Contract Specification (book: Medallion ch.12). This lesson uses YAML in Git because it is easy to read and the exercise can check it with code.
+
+</Step>
+
+<Step>
+
+## A sample contract
+
+The file `contracts/orders.v1.yaml` contains what DMBOK2 §2.7.4 says an SLA should have (the data covered, the impact, the dimensions and expectations, how to measure, thresholds, who must be notified, time frames, escalation), plus a schema section in the style of Medallion's YAML (**the choice to combine them is the author's, and all the numbers are examples**).
+
+```yaml
+dataset: orders
+version: 1
+owner: orders-platform
+consumers: [finance, marketing]
+purpose: Daily revenue reporting and customer campaigns
+schema:
+  - {name: order_id,    type: BIGINT, nullable: false, unique: true}
+  - {name: customer_id, type: BIGINT, nullable: false}
+  - {name: order_ts,    type: TIMESTAMP, nullable: false}
+  - {name: status,      type: VARCHAR, nullable: false, allowed: [PLACED, SHIPPED, CANCELLED]}
+  - {name: total_amount, type: DOUBLE, nullable: false}
+  - {name: shipped_ts,  type: TIMESTAMP, nullable: true}
+quality:
+  rules: [ORD-ID-UNIQUE, ORD-CUST-POPULATED, ORD-CUST-EXISTS, ORD-TOTAL-MATCHES-PAID]
+freshness: {column: order_ts, max_age_hours: 24}
+on_breach: {notify: "#orders-data", respond_within_hours: 2, resolve_within_business_days: 1}
+```
+
+(Some columns are left out to keep it short. The full file is in the repo.) Notice that `quality.rules` points at ids in the rule registry of lesson 4. The contract does not write the rules again. It names which rules are the promise for this dataset.
+
+</Step>
+
+<Step>
+
+## Check the data against the contract
+
+The functions in `dqcontract.py` check three parts (ran: `06_contract.py`).
+
+**1. Schema** gives two findings:
+
+```text
+column order_id must be unique but has 20 extra rows
+column customer_id must not be null but has 15 nulls
+```
+
+The column types and names all match the contract, so nothing is reported about those.
+
+**2. The quality rules the contract refers to** all four fail:
+
+| Rule | Fail % | Allowed % |
+|---|---:|---:|
+| ORD-CUST-POPULATED | 0.50 | 0.0 |
+| ORD-ID-UNIQUE | 0.66 | 0.0 |
+| ORD-CUST-EXISTS | 1.00 | 0.1 |
+| ORD-TOTAL-MATCHES-PAID | 1.38 | 0.1 |
+
+**3. Freshness**: the newest order is 56.0 hours old, and the contract allows at most 24 hours. The promise is broken.
+
+When the contract is breached, it has already said who must do what: notify the `#orders-data` channel, respond within 2 hours, resolve within 1 business day. This is what sets it apart from a rule that merely fails.
+
+</Step>
+
+<Step>
+
+## How to change a contract without breaking anyone
+
+A producer can always change the data, but some consumers will break when it does. In the exercise, `orders.v1.yaml` is compared with `orders.v2.yaml`, and each difference is classified from the point of view of a consumer who reads the data (**the classification criteria are the author's, not a standard**).
+
+| Difference | Kind | Reason |
+|---|---|---|
+| `total_amount` renamed to `amount_total` | breaking | Queries that select the old name fail at once |
+| `customer_id` changed from BIGINT to VARCHAR | breaking | Joining to the customers table needs a cast |
+| `order_ts` changed from not null to nullable | breaking | Consumers relied on it never being empty |
+| `status` gains the value `RETURNED` | review (ask consumers) | Code that covers three values may miss the new one |
+| Column `channel` added (optional) | safe | Does not affect queries that select by name |
+| Column `currency` added (required) | safe | The burden falls on the producer |
+
+The result from `diff()`: 3 breaking, 1 review, 2 safe.
+
+<ContractLab lang="en" client:visible />
+
+</Step>
+
+<Step>
+
+## How to enforce a contract: test after loading, or reject before loading
+
+Medallion describes contracts in two forms that differ in where they are enforced (book: Medallion ch.12):
+
+- **A contract on the structure of the data produced**: dbt calls it a "model contract". It specifies the schema, column types and constraints of a model. **Unlike a test, if the logic or the incoming data does not match the contract, the model fails to build**, instead of building and then telling you it is wrong.
+- **A contract at ingestion**: incoming data must match the promised format, schema and quality. If it does not, it is rejected, similar to an SLA in software work.
+
+The exercise compares the two approaches when the producer renames `total_amount` to `amount_total` and sends a dataset:
+
+| Approach | Result |
+|---|---|
+| Test after loading | The table already has the new shape. The test says `column total_amount is missing` and `column amount_total is not in the contract` |
+| Reject before loading | `enforce_on_ingest()` rejects the dataset and the table is not touched. The reason: `customer_id arrived as VARCHAR, expected BIGINT; missing column total_amount` |
+
+Rejecting before loading protects consumers more, but it also makes the producer feel the contract sooner, and there has to be a way to fix and resend. The right choice depends on how much a consumer can tolerate a broken batch (lesson 5 on intrusive versus nonintrusive).
+
+(In the exercise the "test after loading" part uses a fresh empty table with the new column names to show the test's messages. It does not load real data.)
+
+<Callout type="warn" title="A contract does not solve a cultural problem">
+DQF warns about SLAs: setting an SLA just to have one, without the investment and accountability to meet it, leaves the team worse off than before. An SLA needs agreement from producers, engineers, analysts and consumers first (book: DQF ch.5). A contract the producer does not know exists is just a YAML file.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- A producer wants to change a column type from INT to BIGINT. Which kind should that be under your rules, and who needs to know first?
+- For a dataset you look after, which parts of its contract live in people's heads and are not written down anywhere?
+- If a new team asks "what does your data contract mean?", how do you answer in one sentence?
+
+</Step>
+
+<Step>
+
+## Sources of this lesson
+
+| Statement | Source |
+|---|---|
+| What a data quality SLA should contain | book: DMBOK2 §2.7.4 |
+| Data sharing agreement and the obligation to downstream consumers | book: DMBOK2, Reference and Master Data chapter §4.4 |
+| Definition of a data contract, the term is ambiguous, ways to store contracts, YAML + GitOps, dbt's model contract, contract at ingestion | book: Medallion ch.12 |
+| An SLA needs agreement and investment behind it | book: DQF ch.5 |
+| The results of checking data against the contract, 3 breaking items, the messages of the two enforcement approaches | ran: `06_contract.py` |
+| The breaking, review, safe criteria; the choice of what a contract contains; all the numbers in the YAML | author |
+
+</Step>

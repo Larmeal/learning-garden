@@ -1,0 +1,211 @@
+---
+title: Data owners and scorecards
+summary: How to measure data quality without fooling yourself, who is responsible when it breaks, and when a dataset deserves a "certified" label. This lesson builds three kinds of scorecard from the same rule registry, looks at the trend, and sets an SLO for data downtime.
+order: 9
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [incidents]
+updated: 2026-11-02
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Who to report data quality to, and what to report
+
+Assessment and incident handling are of no use if nobody sees the results. DMBOK2 §2.7.5 lists what should be reported (book):
+
+- **A data quality scorecard**: an overview of scores by metric, reported to the various levels of the organization against thresholds.
+- **Trends**: is quality getting better or worse over time?
+- **SLA metrics**: does the team diagnose and respond to incidents on time?
+- **Issue management**: the status of problems and fixes.
+- **Compliance with governance policy** by the quality, IT and business teams.
+- **The benefits of improvement projects.**
+
+This lesson does the first three with the 14-rule registry of lesson 4, then moves on to the SLO and certification.
+
+</Step>
+
+<Step>
+
+## The same result, read three ways
+
+The result of running the rule registry (ran: `10_scorecard.py`) can be read like this:
+
+| How you read it | Result | The feeling you get |
+|---|---|---|
+| Average of valid% over all 14 rules | **98.03%** | Looks good |
+| Rules that meet their own threshold | **0 of 14** | Not one passes |
+| Failing rules at severity error (can block the pipeline) | **6** | Something serious |
+
+The average misleads because it mixes many slightly wrong rules with a badly wrong one, and ignores severity. A rule that is wrong only 1% of the time may be a payment that does not match the order amount, which matters many times more than the email rule that is wrong 8% of the time. This matches the DMBOK2 principle that a metric must be tied to business impact (lesson 4). So report all three views, and open it up to be examined rule by rule.
+
+The worst rule of each dimension, and who gets called:
+
+| Dimension | Worst rule | Wrong % | Owner |
+|---|---|---:|---|
+| completeness | CUST-EMAIL-POPULATED | 8.00 | crm-team |
+| validity | CUST-COUNTRY-DOMAIN | 5.00 | crm-team |
+| uniqueness | CUST-EMAIL-UNIQUE | 2.17 | crm-team |
+| consistency | ORD-SHIPPED-HAS-TS | 1.39 | orders-platform |
+| accuracy | ORD-TOTAL-MATCHES-PAID | 1.38 | payments-team |
+| timeliness | ORD-ARRIVES-24H | 1.32 | orders-platform |
+| integrity | ORD-CUST-EXISTS | 1.00 | orders-platform |
+
+Failing rules grouped by owner: crm-team 5, orders-platform 7, payments-team 2.
+
+</Step>
+
+<Step>
+
+## The trend: the average moves less than reality
+
+Simulate an improvement in five steps, applying each to a copy of the data and recomputing the scores.
+
+| Step | Rules meeting threshold | Failing errors | Average valid% |
+|---|---:|---:|---:|
+| Start | 0/14 | 6 | 98.03 |
+| Remove duplicate orders | 1/14 | 5 | 98.07 |
+| Make country values TH | 2/14 | 4 | 98.43 |
+| Drop orders whose customer does not exist | 4/14 | 2 | 98.42 |
+| Drop payments with no order | 5/14 | 1 | 98.59 |
+| Use the payment amount as the order amount | 6/14 | 0 | 98.69 |
+
+Two observations:
+
+1. The failing errors go from 6 to 0, but the average moves only 0.66 points. The most important improvement is almost invisible in the average.
+2. At the step "drop orders with no customer" the average **falls** slightly (98.43 → 98.42) even though the failing errors drop from 4 to 2. Checking rule by rule shows that `ORD-CUST-POPULATED` and `ORD-CUST-EXISTS` improve to 100%, but `PAY-ORDER-EXISTS` gets **worse**, from 20 rows to 58 rows (valid 99.22% to 97.73%), because once the orders are deleted, their payments immediately become orphans. The next step ("drop payments with no order") exists to clean up this side effect. The lesson: fixing one table can create a problem in the table that depends on it, and the average can hide this.
+
+After all five steps, 8 rules still fail (3 email rules, birth date, the negative amount that is still proposed, SHIPPED with no ship time, ship time before order time, late arrival), all at severity warn.
+
+<Callout type="warn" title="These five steps edit data in a copy">
+In the exercise, each step overwrites data in a copy to see the effect on the scores. In a real system this would be a fix at the source or a quarantine of rows, not a quiet edit. And the last step (using the payment amount as the order amount) needs the finance data owner to confirm first that the payment system is the reference. DMBOK2 §4.2 warns that editing data directly in production is extremely risky.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Who is responsible
+
+DQF uses the term **blast radius** to explain that when data breaks, the impact flows downstream and hits everyone who depends on the data, and says the answer to "who owns data quality?" depends on the size and needs of the company. The authors describe the roles involved: the chief data officer (CDO), BI analyst, analytics engineer, data scientist, data governance lead, data engineer and data product manager, and use a RACI table (Responsible, Accountable, Consulted, Informed) to match roles with responsibilities (book: DQF ch.8). The book concludes that "ultimately it is everyone's responsibility", but at most companies the burden of monitoring and alerting tends to fall on data engineers and data product managers, and the pain tends to fall on BI analysts.
+
+DQF also points out a common problem: **a data engineer is not a data catalog**. Analysts have to guess whether data can be trusted, and teams build the same model six different ways without anyone knowing which is the latest. The result is lower trust and higher downtime (book: DQF ch.8).
+
+DMBOK2 sets out a clearer principle: business process owners are responsible for the quality of the data their process creates and must enforce standards in their own process, while system owners must enforce requirements through the system (book: DMBOK2 §1.2).
+
+A condensed RACI for one data incident (**this table was drafted by the author of this path** and is not a DQF table). Each row must have exactly one A.
+
+| Task | ingest team | analytics eng. | finance | incident commander |
+|---|---|---|---|---|
+| Detect and raise the incident | R | R | I | A |
+| Root cause analysis | R | R | C | A |
+| Fix at the source | A/R | C | I | I |
+| Decide whether to correct the wrong figures retroactively | C | C | A/R | I |
+| Write the postmortem | R | R | C | A |
+
+</Step>
+
+<Step>
+
+## Data downtime as an SLO
+
+DQF proposes three steps for setting a reliability target: **define with an SLA, measure with an SLI, track with an SLO**. It says a good SLA is "specific and detailed", not "data is reliable all the time": it must say why it matters, what the expectation is, when and how to do it, where the data is, who is affected, and what the team will do when the SLA is not met (book: DQF ch.5, ch.8). DMBOK2 §2.7.4 lists nine contents of an SLA (lesson 6).
+
+The metric DQF uses as its core is **data downtime = number of incidents × (time to detect + time to fix)**. An example SLO: table X has no more than Y hours of downtime per year.
+
+In the exercise (the incident data and the SLO **are assumptions**):
+
+| Incident | Late to notice (h) | Fix (h) | Total |
+|---|---:|---:|---:|
+| INC-101 duplicate load | 30 | 6 | 36 |
+| INC-102 country spelled differently | 72 | 8 | 80 |
+| INC-103 partner file arrived late | 4 | 3 | 7 |
+| INC-104 column renamed | 1 | 2 | 3 |
+| **Total in the quarter** | | | **126** |
+
+Against an SLO of 80 hours per quarter: **it fails**, and **85% of the downtime is time spent not knowing it was broken**. If detection were twice as fast, the total would be 72 hours, which passes. This is the numerical reason to invest in lesson 7 (monitoring) rather than in rushing the fix.
+
+A caution from DQF: an SLO must be realistic for current capability. Without automated monitoring tools, the TTD part of the SLO has to be more generous than at an organization that has them, and "setting an SLA just to have one" without investment behind it leaves the team worse off.
+
+</Step>
+
+<Step>
+
+## Data certification
+
+DQF defines data certification as the process of approving a data asset for use across the organization after it meets agreed SLAs on quality, observability, ownership, resolution and communication, and proposes seven steps (book: DQF ch.8).
+
+| Step | What to do |
+|---|---|
+| 1 | Build observability capability (freshness, volume, schema, distribution) |
+| 2 | Assign data owners |
+| 3 | Understand what "good" data looks like from the consumers (KPIs) |
+| 4 | Set SLAs, SLOs and SLIs for key datasets |
+| 5 | Develop communication and incident management processes |
+| 6 | Find a mechanism to label an asset "certified" |
+| 7 | Train the team and downstream consumers, and tune the alert level to fit |
+
+The book's practical advice: do not "boil the ocean". Do it **going forward** first, then go back and handle old assets. Start by certifying the most important tables (most value, users and dependencies). Some teams use bronze, silver and gold levels to signal different service levels.
+
+The exercise checks the six items of the seven steps that code can check (step 7 is about people, which code cannot check) against two datasets:
+
+| Dataset | Result |
+|---|---|
+| orders | Missing only: not yet labeled "certified" |
+| customers | Missing 5: no monitor, no rules, no SLA, no incident channel and process, not yet labeled (only has an owner) |
+
+</Step>
+
+<Step>
+
+## What to invest in first
+
+DMBOK2 §2.6 gives variables for judging whether fixing a problem is worth it (book):
+
+- The importance of the affected data
+- The volume of affected data
+- The age of the data
+- The number and kinds of business processes affected
+- The number of customers, suppliers or employees affected
+- The associated risk
+- The cost of fixing the root cause
+- The cost of a temporary workaround
+
+The book stresses that "nobody cares about the completeness of a field if it has no business impact", and that an improvement must have a positive return. An example target: raise the completeness of customer data from 90% to 95% by improving the process and system edits, then measure the benefits, such as fewer complaints and less time spent fixing errors.
+
+DQF proposes a formula for the yearly cost of bad data: labor cost + regulatory risk + opportunity cost. The authors themselves admit it is a "starting point". The supporting figures (such as regulatory risk of 4% of revenue in a footnote) are the book authors' estimates, to be used as a way of thinking and not as reference numbers (book: DQF ch.5).
+
+<Callout type="try" title="Try it in this repo">
+Open `10_scorecard.py` and add a 5th incident to the downtime table. See how the SLO changes. Then try weighting the rules by importance (error counts 5, warn counts 1) and compute a weighted score. Compare it with the plain average: how does it differ at each step of the trend?
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- What is your team's overall score? If you changed from the average to "the number of failing error rules", would the overall picture change?
+- In your team's RACI table, is there any task that has no A or has two As?
+- For the dataset your consumers depend on most, which of the seven certification steps is missing?
+
+</Step>
+
+<Step>
+
+## Sources of this lesson
+
+| Statement | Source |
+|---|---|
+| What to report; the variables for whether a fix is worth it; the example target of 90% to 95% | book: DMBOK2 §2.7.5, §2.6 |
+| Business process owners are responsible for the data their process creates | book: DMBOK2 §1.2 |
+| Blast radius, roles, RACI (the book has a table, not copied here), data downtime, the three steps of SLA/SLI/SLO, the seven certification steps, the yearly cost formula | book: DQF ch.5, ch.8 |
+| The scorecard numbers, the 5-step trend, the certification check results | ran: `10_scorecard.py` |
+| The incidents in the quarter (INC-101 to 104), the 80-hour SLO, the condensed RACI table, the rule weights | author (invented examples) |
+
+</Step>

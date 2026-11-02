@@ -1,0 +1,194 @@
+---
+title: Monitoring data
+summary: Rules catch what we anticipated. Monitoring catches what has changed from normal. This lesson builds detectors for freshness, volume and null rate, scores them with precision and recall, and shows how moving a threshold changes what you see.
+order: 6
+phase: C
+level: 4
+stage: sprout
+format: steps
+requires: [agreements]
+updated: 2026-11-02
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import ThresholdLab from '../../../../components/labs/data-quality/ThresholdLab';
+
+<Step>
+
+## Rules catch what we anticipated. What about the rest?
+
+DQF splits data quality problems into two kinds (book: DQF ch.4):
+
+- **Known unknowns**: problems that can be predicted, such as null values, specific freshness problems, or schema changes from a system that is updated regularly. They can be tested for in advance.
+- **Unknown unknowns**: problems that no amount of careful testing covers, such as the distribution of a key field changing until a dashboard breaks, another team changing a JSON so that 6 columns become 600, an ETL change that stops the tests from running, data that is incomplete or stale for weeks without anyone noticing, and data drift.
+
+The book concludes that tests and circuit breakers handle known unknowns, while **monitoring and anomaly detection** cover unknown unknowns by comparing with past behavior: if you know what "good" data looks like, "bad" data is easier to see.
+
+There are five pillars to watch: **freshness, distribution, volume, schema, lineage** (book: DQF ch.5). This lesson does the first three. Schema is in lesson 6 (comparing contracts) and lineage is in lesson 9.
+
+</Step>
+
+<Step>
+
+## Data with known answers, so detectors can be scored
+
+To say a detector is "good" you have to know which days the real incidents were. The book itself admits that accuracy cannot be computed without ground truth, so it sets the labels itself in the example (book: DQF ch.4). We build a daily dataset of 120 days where **the answers are known** (**this data is synthetic**, not real).
+
+- Rows loaded per day, with a weekly cycle: about 1,000 on weekdays, about 520 on Saturdays, about 430 on Sundays.
+- The first 28 days are clean and are used for calibration.
+- Real incidents: volume falls to 40% for six days; loads disappear for 2, 3 and 4 days in a row, once each; the null rate jumps for six days (0.20 to 0.60 compared with a normal of about 0.06).
+- **Not incidents**: three planned load pauses (1, 1 and 2 days), which make an over-sensitive detector raise false alerts.
+
+(ran: `07_monitoring.py`. The calculation in the lab is TypeScript code that has been checked against Python for all 33 parameter settings with `verify_monitoring.mts`.)
+
+</Step>
+
+<Step>
+
+## Freshness: how long a gap counts as an incident
+
+DQF builds a freshness detector by counting "days since the last update" and setting a threshold for how many is too many. The book points out that this number is **a model parameter and has no "correct" value**. The smaller it is, the more real incidents it catches (high recall) but the more false alerts it raises. The larger it is, the more often an alert is right (high precision) but it may miss things (book: DQF ch.4).
+
+The result on our dataset (3 stretches are real incidents of 2, 3 and 4 days; 3 stretches are planned pauses of 1, 1 and 2 days):
+
+| Alert when no load for at least | Alerts | Correct | False | Missed | precision | recall |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 day | 6 | 3 | 3 | 0 | 0.50 | 1.00 |
+| 2 days | 4 | 3 | 1 | 0 | 0.75 | 1.00 |
+| 3 days | 2 | 2 | 0 | 1 | 1.00 | 0.67 |
+| 4 days | 1 | 1 | 0 | 2 | 1.00 | 0.33 |
+| 5 days | 0 | 0 | 0 | 3 | n/a (0) | 0.00 |
+
+No threshold is perfect: the two-day planned pause (days 85 and 86) is as long as the shortest real incident. Telling them apart needs extra information, such as a holiday calendar or advance notice from the producer (which ties to the contract in lesson 6).
+
+</Step>
+
+<Step>
+
+## Volume: seasonality fools the z-score
+
+The simplest method is the z-score: subtract the mean, divide by the standard deviation, and call values beyond a threshold abnormal. DQF points out that for data quality work it is not enough, for two reasons (book: DQF ch.4):
+
+1. The central limit theorem relies on independent, random observations, but business data usually depends on other variables. The book's example: a shop closed on Sundays has a daily customer count of 0 one day in seven, which is not bell-shaped.
+2. "Abnormal" is not the same as "interesting". Some values far from the mean do not help us fix downtime.
+
+Try it on our dataset. The mean of the first 28 days is 857 rows and the standard deviation is 242 (one number for data with a weekly cycle). Compare that with a detector that compares **with the median of the same weekday in previous weeks**:
+
+| Detector | Threshold | Correct | False | Missed | precision | recall | F1 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Plain z-score | z < -1.5 | 6 | 12 | 0 | 0.33 | 1.00 | 0.50 |
+| Plain z-score | z < -2.0 | 1 | 0 | 5 | 1.00 | 0.17 | 0.29 |
+| Plain z-score | z < -3.0 | 0 | 0 | 6 | 0.00 | 0.00 | 0.00 |
+| Same weekday | below 90% | 6 | 1 | 0 | 0.86 | 1.00 | 0.92 |
+| Same weekday | below 70% | 6 | 0 | 0 | 1.00 | 1.00 | 1.00 |
+| Same weekday | below 40% | 1 | 0 | 5 | 1.00 | 0.17 | 0.29 |
+
+(ran: `07_monitoring.py`) The plain z-score reaches an F1 of only 0.50 at best, because a weekday that falls to 400 rows (z of about -1.9) looks "not abnormal" against the overall mean, while a normal Saturday or Sunday already looks low.
+
+<Callout type="warn" title="Do not trust the 1.00 in this table">
+This dataset is clean and regular, and was built so that the weekly cycle is the only complication. A detector that compares with the same weekday therefore scores almost perfectly. Real data has holidays, campaigns, growth and incidents that nobody labeled. Treat this result as a picture of the **direction**, that knowing the cycle of your data helps a lot, not as a number you will get in real work.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Null rate: the threshold should come from the data, not from fear
+
+DQF uses a daily null rate as an example. It first sets a threshold of 0.9, then drops it as a "blunt instrument". Real data has seasonality or noise, so it switches to comparing against a **moving average** and only caring about **upward spikes** (a sudden drop in nulls may not need an alert). The book also suggests filtering out repeat alerts on consecutive days (book: DQF ch.4).
+
+DMBOK2 offers another method: **Statistical Process Control (SPC)**, which treats data as the output of a process. If the process and its inputs are stable, the output is stable. There are two kinds of causes of variation: common causes (built into the process) and special causes (unexpected or occasional). A control chart shows a center line and upper and lower control limits. A value outside the limits in a process that has settled points to a special cause (book: DMBOK2 §4.5).
+
+Over the clean first 28 days the null rate has a mean of 0.0605 and a standard deviation of 0.0126. The control limits at ±3σ are 0.0228 to 0.0983 (ran: `07_monitoring.py`).
+
+| Detector | Parameter | Correct | False | Missed | precision | recall |
+|---|---:|---:|---:|---:|---:|---:|
+| Fixed threshold | > 90% (the book's starting value) | 0 | 0 | 6 | 0.00 | 0.00 |
+| Fixed threshold | > 30% | 4 | 0 | 2 | 1.00 | 0.67 |
+| Fixed threshold | > 15% | 6 | 0 | 0 | 1.00 | 1.00 |
+| Fixed threshold | > 8% | 6 | 6 | 0 | 0.50 | 1.00 |
+| Control limit (SPC) | mean + 1σ | 6 | 15 | 0 | 0.29 | 1.00 |
+| Control limit (SPC) | mean + 3σ | 6 | 0 | 0 | 1.00 | 1.00 |
+| Jump from the 14-day median | over 5 points | 6 | 0 | 0 | 1.00 | 1.00 |
+
+The 90% threshold sees none of the incidents in this set, because the real incidents sit at 20% to 60%. A control limit computed from the calibration window (3σ) works well without guessing, **because the first 28 days really are clean**. If the calibration window has incidents mixed in, the limits become too wide and things are missed. Any method that uses a baseline has to trust that the baseline is clean.
+
+</Step>
+
+<Step>
+
+## Measuring how good a detector is: precision, recall, F
+
+DQF defines four outcomes of a detector: a correct alert (true positive), a false alert (false positive: like "the boy who cried wolf", until nobody believes it), a missed real incident (false negative: like a "sleeping guard dog") and a correct non-alert (true negative) (book: DQF ch.4).
+
+```text
+precision = TP / (TP + FP)    of all the alerts, how many were real incidents
+recall    = TP / (TP + FN)    of all the real incidents, how many were caught
+```
+
+Raising one costs the other: never alerting gives perfect precision and zero recall, while alerting on everything gives perfect recall and terrible precision. The F-score combines the two into one number:
+
+```text
+F-beta = (1 + β²) × precision × recall / (β² × precision + recall)
+```
+
+β = 1 weighs them equally. β > 1 says "I worry more about missing an incident than about the occasional false alert" (recall counts more). β < 1 is the opposite. The book uses the example of a warning system where a false negative is far worse, so F2 or F3 should be used instead of F1.
+
+The book also warns about **accuracy**: a detector that always answers "not abnormal" gets very high accuracy when incidents are rare. In our dataset, a detector that never alerts on the null rate (92 evaluated days, 6 with incidents) gets 93.5% accuracy while catching nothing. So look at precision and recall, not accuracy.
+
+</Step>
+
+<Step>
+
+## Move the threshold yourself
+
+<ThresholdLab lang="en" client:visible />
+
+Try three things:
+
+1. On the "Volume (row count)" tab with the "Plain z-score" detector, move k. No value gives good precision and good recall at the same time. Then switch to "Same weekday".
+2. On the "Null rate" tab, set the fixed threshold to 90% (the book's value), then lower it step by step. See where it starts to see the incidents and where it starts to raise false alerts.
+3. Switch between F1 and F2 and notice that the "best" value changes with what you worry about more.
+
+<Callout type="try" title="Try it in this repo">
+Open `07_monitoring.py` and add a real incident that rides on the weekly cycle, such as volume falling to 70% on a weekday (add a day to `VOLUME_DROPS` and multiply by 0.7 instead of 0.4). See where a threshold that used to work starts to miss. The calculation is in one file. Run it with `--write` to send the new data to the lab.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Caution: monitoring alone is not enough, and too many alerts do harm
+
+DQF stresses that anomaly detection is a tool, not a silver bullet. Relying on it alone is a single point of failure. You also need testing, versioning, observability, lineage and incident response (book: DQF ch.6). An executive the book quotes says "knowing there is a problem is good, but it is hard to know what to do next. You need to know what broke, who is affected, why and where" (lesson 9 continues from here).
+
+On alerts, DQF says that getting an alert that needs no action is sometimes fine (for example a table grew because a new data source was added, which the team should know about), but **alert fatigue is real**. If the team starts ignoring alerts, that is a sign to tune the monitor or split the communication channels (book: DQF ch.8). That is false positives piling up.
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- Your team has a table whose volume differs a lot between weekdays and holidays. What do you alert with today, and what could fool it?
+- For your team's past data incidents, how long did it take to find them, and who found them, the consumer or a detector?
+- If missing one incident costs more than ten false alerts, will you weigh precision or recall more, and what should β be?
+
+</Step>
+
+<Step>
+
+## Sources of this lesson
+
+| Statement | Source |
+|---|---|
+| Known and unknown unknowns, the five pillars | book: DQF ch.4, ch.5 |
+| Freshness detector and the threshold as a parameter; limits of the z-score; seasonality; null spikes against a moving average | book: DQF ch.4 |
+| precision, recall, F-beta, the misleading accuracy | book: DQF ch.4 |
+| Statistical Process Control, common and special causes, control limits | book: DMBOK2 §4.5 |
+| Anomaly detection is not the only option; alert fatigue | book: DQF ch.6, ch.8 |
+| Every table of numbers in this lesson, the lab's calculation matching Python for all 33 settings | ran: `07_monitoring.py`, `verify_monitoring.mts` |
+| The synthetic dataset, the labels of real incidents and the thresholds chosen to try; the comparison with the same-weekday median | author |
+
+</Step>

@@ -1,0 +1,189 @@
+---
+title: Profiling, look at the data before writing rules
+summary: Before writing rules, look at what the data really looks like through nulls, distinct values, value ranges, formats and frequencies. Then turn what you see into rules that someone who knows the business has to confirm.
+order: 2
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [dimensions]
+updated: 2026-11-02
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Why look before writing rules
+
+Data quality rules are often not written down anywhere. DMBOK2 says rules may have to be "reverse engineered" from business processes, policies, system code, triggers, the use of status codes, and common sense (book: DMBOK2 §2.3). For the initial assessment, the book says the most important part is to **go and look at the real data**: query it to understand its content and relationships, then compare it with the rules and expectations. The first time you do this you usually find relationships nobody documented, redundant values, and values that contradict each other (book: DMBOK2 §2.4).
+
+One observation makes it easier to start: **you do not need to know all the rules before you begin the assessment.** Discovering and refining rules is an ongoing process, and a good way to find them is to show the assessment results to the people involved, because the results often make them remember the rules they need (book: DMBOK2 §2.3).
+
+</Step>
+
+<Step>
+
+## Profile every column without knowing what it means
+
+Profiling is a statistical analysis of the content of the data: the share of nulls, the number of distinct values, and the minimum and maximum. These five numbers come from one query per column.
+
+```sql
+SELECT count(*),
+       count(*) FILTER (WHERE "col" IS NULL),
+       count(DISTINCT "col"),
+       min("col")::VARCHAR, max("col")::VARCHAR
+FROM tbl;
+```
+
+The result on our dataset (only the rows with something to look at) (ran: `03_profiling.py`):
+
+| Column | Rows | null% | Distinct | min .. max |
+|---|---:|---:|---:|---|
+| customers.email | 500 | 8.0% | 450 | (text, see below) |
+| customers.country | 500 | 0.0% | 9 | JP .. ไทย |
+| customers.birth_date | 500 | 0.0% | 490 | 1850-01-01 .. 2030-01-01 |
+| orders.order_id | 3,020 | 0.0% | 3,000 | 1 .. 3000 |
+| orders.customer_id | 3,020 | 0.5% | 530 | 1 .. 9030 |
+| orders.total_amount | 3,020 | 0.0% | 2,993 | -475.33 .. 4998.25 |
+| orders.shipped_ts | 3,020 | 41.4% | 1,752 | 2026-07-02 .. 2026-10-31 |
+
+Reading it row by row:
+
+- `email`: 8% null and 450 distinct out of 460 non-empty values, which means some emails are duplicated.
+- `country`: it should have only a few values, but it has 9.
+- `birth_date`: the years 1850 and 2030 are not real customer birth dates.
+- `order_id`: 3,020 rows but only 3,000 distinct, so some rows are duplicated.
+- `customer_id` in orders: the maximum is 9030, but customers only run from 1 to 500.
+- `total_amount`: the minimum is negative.
+
+A caution: the minimum and maximum of **text** sort alphabetically. For `email` you get `user100...` to `user9...`, which tells you nothing. They are only useful for numbers and dates. For text, look at the format instead (next step).
+
+`shipped_ts` being 41.4% empty is **not a defect**, because an order that has not shipped or was cancelled has no ship time. A null count alone cannot tell you it is wrong. You have to know what the column means.
+
+</Step>
+
+<Step>
+
+## Look at the format of text
+
+A method that works well: turn every value into a "shape" by replacing each run of letters with `a` and each run of digits with `9`, then count how many shapes there are.
+
+```sql
+SELECT regexp_replace(regexp_replace(email, '[A-Za-z]+', 'a', 'g'), '[0-9]+', '9', 'g') AS shape,
+       count(*) AS rows
+FROM customers GROUP BY 1 ORDER BY 2 DESC;
+```
+
+| Shape | Rows | Meaning |
+|---|---:|---|
+| `a9@a.a` | 445 | Normal email |
+| (null) | 40 | Empty |
+| `a9a.a` | 15 | No `@` |
+
+A column that should have one format (email, postal code, phone number, product code) but has two shapes is a clear sign that there is a validity rule to write.
+
+</Step>
+
+<Step>
+
+## Look at the frequency of values in columns with only a few values
+
+```sql
+SELECT country, count(*) FROM customers GROUP BY 1 ORDER BY 2 DESC;
+```
+
+| country | Rows |
+|---|---:|
+| TH | 330 |
+| SG | 58 |
+| JP | 56 |
+| US | 31 |
+| Thailand, T.H., th, THA, ไทย | 5 each |
+
+The first four values have substantial volume. The last five have five rows each, and all five look like they were meant to be Thailand. Seeing this does not tell you what to do. You could fix everything to `TH`, or stop people entering it this way, or build a mapping table. That is a decision to discuss (lessons 4 and 9).
+
+</Step>
+
+<Step>
+
+## From what you see to proposed rules
+
+| What the profile shows | Proposed rule | Who to ask |
+|---|---|---|
+| email has nulls and a second shape | completeness and validity of email | Who requires the email to be filled in? |
+| country has 9 values | A list of accepted values, or a mapping table | Who owns the country codes? |
+| birth_date 1850 to 2030 | A range rule, then ask where the real limits are | What age does the business accept for customers? |
+| order_id repeated | uniqueness of order_id | Can the source system send duplicates? |
+| customer_id in orders too high | referential integrity to customers | Can a customer who was deleted still have orders? |
+| total_amount negative | A sign rule, **if** refunds are not stored here | Ask first |
+
+The last row is the important point: a negative value may be a legitimate refund. A profile tells you **what is there**, not **what should be there**. DMBOK2 confirms that profiling "helps identify problems but does not identify causes, and does not determine the impact on business processes". The impact has to come from stakeholders along the data chain (book: DMBOK2 §2.5). So a proposed rule is only a proposal until a subject matter expert (SME) confirms it.
+
+</Step>
+
+<Step>
+
+## Look at the whole column, not just a sample
+
+Profiling with aggregates is already cheap on DuckDB or most warehouses. There is no reason to sample, because rare defects slip through.
+
+Compare: out-of-range birth dates are 6 rows out of 500. Take a 10% sample:
+
+```sql
+SELECT count(*) FROM (SELECT * FROM customers USING SAMPLE 10% (bernoulli, 7))
+WHERE birth_date NOT BETWEEN DATE '1900-01-01' AND DATE '2026-11-01';
+```
+
+| What was checked | Bad birth dates found |
+|---|---:|
+| Whole table | 6 |
+| 10% sample (seed 7) | 0 |
+
+The 0 depends on the seed chosen, so the script repeats the sample with 40 seeds: 23 seeds find 0 rows, 12 seeds find 1 row, 5 seeds find 2 rows, and **no seed finds all 6** (ran: `03_profiling.py`). Rare errors are likely to miss the sample, and a sample that "looks clean" misleads you into thinking the whole table is clean.
+
+</Step>
+
+<Step>
+
+## pandas can do it too
+
+```python
+c = frames["customers"]
+c["email"].isna().mean()   # 0.08
+c["email"].nunique()       # 450
+```
+
+The result matches the SQL (8.0% empty, 450 distinct). Choose the tool by where the data lives: if it is already in a warehouse, SQL is better than pulling it out.
+
+<Callout type="try" title="Try it in this repo">
+Run `uv run python 03_profiling.py` and compare the profile of `payments.amount` with `orders.total_amount`. The minimum and maximum of the two columns are exactly the same (-475.33 and 4998.25), even though 35 orders have a mismatched amount. The differences are between 1 and 120 baht, and none of them moved a value to the edge of the range. So a column-level profile cannot see a problem that needs a comparison order by order, which is what the accuracy rule in lesson 2 does.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- The `orders` table has `shipped_ts` empty in 41.4% of rows. Would you write a completeness rule for this column? Why?
+- You find the value `-475.33` in `total_amount`. Who should you ask before writing a rule?
+- The team takes a 1% sample to profile a table with 100 million rows to save time. What is the risk?
+
+</Step>
+
+<Step>
+
+## Sources of this lesson
+
+| Statement | Source |
+|---|---|
+| Rules are often not written down and must be reverse engineered; you do not need all the rules before assessing | book: DMBOK2 §2.3 |
+| The most important part of an assessment is looking at the real data | book: DMBOK2 §2.4 |
+| Profiling does not identify causes or impact | book: DMBOK2 §2.5 |
+| The numbers in the profile, the shapes of email, the frequency of country | ran: `03_profiling.py` |
+| A 10% sample does not find the bad birth dates | ran: `03_profiling.py` (depends on the seed) |
+| The `a` and `9` shape technique, the proposed-rules table, the advice to profile the whole column | author |
+
+</Step>
