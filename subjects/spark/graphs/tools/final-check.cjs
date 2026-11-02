@@ -27,7 +27,11 @@ const par = new Map(); const find = x => { while (par.get(x) !== x) { par.set(x,
 g.nodes.forEach(n => par.set(n.id, n.id));
 g.edges.forEach(e => par.set(find(e.source), find(e.target)));
 const comps = new Set(g.nodes.map(n => find(n.id)));
-ok("one connected component", comps.size === 1, "components " + comps.size);
+const known = new Set(fs.readFileSync(process.env.S + "/known-islands.txt", "utf8").split("\n").filter(l => l && !l.startsWith("#")).map(l => "file:" + l.split(/\s+#/)[0].trim()));
+const compNodes = new Map(); g.nodes.forEach(n => { const r = find(n.id); if (!compNodes.has(r)) compNodes.set(r, []); compNodes.get(r).push(n); });
+let big = 0, strays = [];
+for (const ns of compNodes.values()) { const fl = ns.filter(n => n.type === "file").map(n => n.id); if (ns.length > 200) big++; else if (fl.every(f => known.has(f))) console.log("note: known island", fl.map(f => f.split("/").pop()).join(",")); else strays.push(fl.join(",") || ns[0].id); }
+ok("one connected component (known islands aside)", big === 1 && strays.length === 0, "components " + comps.size + (strays.length ? " unexpected: " + strays.join(" | ") : ""));
 
 const inLayer = new Map();
 let layerDup = 0, layerBad = 0;

@@ -73,3 +73,30 @@ must point at it) and `ROOT` = the Spark repo.
 - `s*-layers.cjs`: layers and tour scripts of past stages (templates).
 - `idx_*.cjs`: generators of the indexes in `index/`.
 Graph text is English (`.ua/config.json`). Lesson text on the website is Thai.
+
+## Updates after the first version of this file
+- The learning repo was reorganized: this folder now lives at `E:\Development\Project\learning\subjects\spark\graphs\`
+  (earlier text refers to `learning\spark`). `tools/finish_stage.sh` already uses the new path; the other scripts have a
+  scratch-folder `S=` line that you must set yourself (see the procedure).
+- A stage may add at most 30 new files: above that prepare-incremental plans FULL_UPDATE (rebuild everything) and
+  `prep_stage.sh` stops. The `.understandignore` snapshot is taken after you append the new lines, so to undo a failed
+  prepare restore `.understandignore` from `query-pipeline-current/`, not from the snapshot.
+- Graph at S15a: 276 files, 4,847 nodes, 12,384 edges, 23 layers, tour 48, one component. Next in order: S15b (read/write Java
+  interfaces of DataSource V2), then the rest of `BACKLOG.md`.
+
+## Core completion (waves C1..C21, finished 2026-10-28)
+- Every file under `core/src/main` is in the graph except the 10 `package-info.java` files (documentation only, skipped by the scanner).
+  State after C21: 960 files, 11,576 nodes, 33,146 edges, 39 layers, tour 78. Core is 99.3% of its lines.
+- Each wave is 30 files or fewer. Waves are defined in `tools/core-waves.json` (made by `tools/core-waves.cjs`). Per-wave layer
+  and tour configs are `tools/cN-cfg.json`, read by `tools/layers-lib.cjs`.
+- Wave loop, with the scratch folder `S` set: `bash $S/startwave.sh N` (appends the files to `.ua/.understandignore`, runs
+  `prep_stage.sh`, writes `.ua/tmp/cN-plan.txt` with the agent sections), launch one agent per section (rules in
+  `.ua/tmp/core_common.txt`), write `$S/cN-cfg.json`, `bash $S/runwave.sh N`, `node $S/checkwave.cjs N`, verify every flagged
+  line range in the source (the checkers have false alarms for overloads, one-line defs and match blocks), then
+  `bash $S/finish_stage.sh "<progress line>"`. Copy `cN-cfg.json` to `tools/`.
+- Small separate components are allowed only if listed in `tools/known-islands.txt` (file path plus reason). Currently one:
+  `SecurityConfigurationLock.scala` (its only user is the sql jdbc ConnectionProvider, not yet in the graph).
+  Add a hand `depends_on` edge for an island only when the source literally names the target, and record it in PROGRESS.
+- Interrupted agents (rate limit, restart, manual stop) are resumed with SendMessage, never restarted.
+- Next, outside core (see `BACKLOG.md`): gap set (SessionState, SharedState, SQLConf, DataSource.scala, columnNodes.scala,
+  `sql/api` functions.scala, Rule subclasses, Connect .proto, captured.py), S20, S21, S23, then S22 (MLlib).

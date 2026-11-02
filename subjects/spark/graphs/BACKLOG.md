@@ -109,3 +109,20 @@ Known small gaps to fold into the next sets: SortExec, InMemoryRelation, CacheMa
 MemoryStore, ShuffledRDD/ShuffledRowRDD, 19 Optimizer/Analyzer Rule subclasses without class nodes,
 SpecificParquetRecordReaderBase, PythonPlannerRunner, StateStoreCoordinator, stream-stream join execs,
 errors/exceptions/captured.py, pandas/conversion.py and group_ops.py mixins, the Spark Connect .proto files.
+
+## Core completion plan (added 2026-10-27, after S19)
+Goal: every file under core/src/main in the graph. 565 files (about 90k lines) were missing; they are split into
+waves C1..C21 (30 files or fewer each) in tools/core-waves.json (made by tools/core-waves.cjs, the order is
+scheduler, storage/memory/shuffle, serializer/executor/rpc, rdd/network, api/resource/metrics/config, util, deploy, ui, status/protobuf).
+Run one wave like any stage (append "!path" lines to .ua/.understandignore, prep_stage.sh, agents, post_stage.sh).
+Rough cost: 0.7-1M subagent tokens per wave, 15-20M for all 21.
+
+## SQL completion plan (started 2026-10-28, depth B)
+Remaining sql main code at start: catalyst 864 files, core 691, api 199, connect 149, pipelines 48 (about 1,950 files, 445k lines).
+hive and hive-thriftserver are not planned. Estimated cost 25 to 30M subagent tokens, about 70 waves of at most 30 files.
+Depth B: every file gets a file node. Logic files (optimizer, resolver, planners, execs, runtime) get class and function nodes as
+in core. Long tail files (lists of expressions, small Java interfaces, UDF interfaces, protobuf serializers) get file and class
+nodes with summaries, and no per-function nodes. Each such file is recorded in `tools/shallow-files.txt` so depth A can be added later
+(ids are stable; the way to re-analyse an already included file is untested, try it on one small file first).
+Phases: 1 gaps (SQLConf, SessionState, SharedState, DataSource, columnNodes, sql/api functions and core classes, Rule subclasses, Connect proto,
+captured.py), 2 sql/core runtime, 3 sql/core streaming, 4 sql/catalyst, 5 sql/connect and sql/pipelines, 6 rest of sql/api.
