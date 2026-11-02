@@ -1,0 +1,61 @@
+# Builds site/ and publishes it to GitHub Pages on every push to main.
+# One-time setting in the repo: Settings > Pages > Build and deployment > Source: GitHub Actions.
+name: Publish site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      # The lessons state music facts; the build should not ship a page that contradicts them.
+      - name: Check the music facts
+        run: node subjects/music-theory/code/verify.mts
+
+      - name: Install
+        working-directory: site
+        run: npm ci
+
+      # https://<owner>.github.io/<repo>/ for a project site, the root for a repo named <owner>.github.io
+      - name: Build
+        working-directory: site
+        run: |
+          repo="${GITHUB_REPOSITORY#*/}"
+          export SITE_URL="https://${GITHUB_REPOSITORY_OWNER}.github.io"
+          if [[ "$repo" == *.github.io ]]; then export BASE_PATH="/"; else export BASE_PATH="/${repo}"; fi
+          echo "SITE_URL=$SITE_URL BASE_PATH=$BASE_PATH"
+          npm run build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
