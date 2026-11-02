@@ -1,0 +1,16 @@
+---
+import SubjectPage from '../../../views/SubjectPage.astro';
+import { hasLang } from '../../../lib/garden';
+import { getCollection } from 'astro:content';
+
+// Only subjects that have English lessons get an English page; the others are linked to their Thai page from the home page.
+export async function getStaticPaths() {
+  const subjects = await getCollection('subjects');
+  const withEnglish = await Promise.all(subjects.map(async (s) => ((await hasLang(s.id, 'en')) ? s : null)));
+  return withEnglish.filter((s) => s !== null).map((s) => ({ params: { subject: s.id }, props: { subject: s } }));
+}
+
+const { subject } = Astro.props;
+---
+
+<SubjectPage lang="en" subject={subject} />

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, type CSSProperties } from 'react';
 import Plant, { type PlantStage } from './Plant';
 import { Critter, onActivate, useGarden } from './useGarden';
 import { isFinished, plantStage } from './useProgress';
+import { ui, type Lang } from '../i18n';
 
 export interface GardenLesson {
   id: string;
@@ -19,7 +20,6 @@ const W = 760;
 const H = 250;
 const BASE = 214;
 const SIZE: Record<PlantStage, number> = { seed: 46, sprout: 60, evergreen: 76 };
-const NAME: Record<PlantStage, string> = { seed: 'เมล็ด ยังไม่เปิดให้เรียน', sprout: 'ต้นอ่อน', evergreen: 'โตเต็มที่' };
 const pad = (n: number) => String(n).padStart(2, '0');
 
 interface Props {
@@ -29,9 +29,12 @@ interface Props {
   hover: string | null;
   onSelect: (slug: string) => void;
   onHover: (slug: string | null) => void;
+  lang?: Lang;
 }
 
-export default function SubjectGarden({ lessons, done, sel, hover, onSelect, onHover }: Props) {
+export default function SubjectGarden({ lessons, done, sel, hover, onSelect, onHover, lang = 'th' }: Props) {
+  const t = ui[lang].garden;
+  const NAME: Record<PlantStage, string> = { seed: t.seedClosed, sprout: ui[lang].stage.sprout, evergreen: t.grown };
   // Left to right with a small gap wherever the phase changes.
   const spots = useMemo(() => {
     const gap = 18;
@@ -71,7 +74,7 @@ export default function SubjectGarden({ lessons, done, sel, hover, onSelect, onH
 
   return (
     <div className="scene-wrap subject-garden">
-      <svg ref={g.svgRef} className="scene garden" viewBox={`0 0 ${W} ${H}`} role="group" aria-label="สวนของเรื่องนี้ ต้นไม้หนึ่งต้นคือหนึ่งบท">
+      <svg ref={g.svgRef} className="scene garden" viewBox={`0 0 ${W} ${H}`} role="group" aria-label={t.subjectScene}>
         <rect width={W} height={H} fill="var(--sky)" />
         <g ref={g.layer('sun')}>
           <circle className="glow" cx="662" cy="58" r="44" fill="var(--sun-moon)" />
@@ -131,7 +134,7 @@ export default function SubjectGarden({ lessons, done, sel, hover, onSelect, onH
           <small>{NAME[stages[hoverIndex]]}</small>
         </div>
       )}
-      <p className="scene-hint" aria-hidden="true">เอาเมาส์ไปแตะต้นไม้เพื่อดูชื่อบท กดเพื่อเลือก ต้นจะโตเมื่อคุณเรียนจบบทนั้น</p>
+      <p className="scene-hint" aria-hidden="true">{t.subjectHint}</p>
     </div>
   );
 }

@@ -1,36 +1,104 @@
 import { useState } from 'react';
+import type { Lang } from '../../../i18n';
 
 type Kind = 'breaking' | 'review' | 'safe';
 
-const KINDS: { id: Kind; label: string }[] = [
-  { id: 'breaking', label: 'ทำให้ผู้ใช้พัง' },
-  { id: 'review', label: 'ต้องถามผู้ใช้ก่อน' },
-  { id: 'safe', label: 'ปลอดภัย' },
-];
-
-interface Change { before: string; after: string; answer: Kind; why: string }
-
 // The same six differences that dqcontract.diff() finds between contracts/orders.v1.yaml and orders.v2.yaml.
-const CHANGES: Change[] = [
-  { before: 'total_amount DOUBLE', after: 'amount_total DOUBLE', answer: 'breaking', why: 'ชื่อคอลัมน์เปลี่ยน ทุก query ที่เลือก total_amount ล้มทันที การเปลี่ยนชื่อคือการลบคอลัมน์เก่าและเพิ่มคอลัมน์ใหม่พร้อมกัน' },
-  { before: 'customer_id BIGINT', after: 'customer_id VARCHAR', answer: 'breaking', why: 'การ join กับ customers.customer_id (BIGINT) ต้องเพิ่ม cast ชนิดที่เปลี่ยนแล้วเรียงลำดับและเปรียบเทียบผลต่างกันด้วย' },
-  { before: 'order_ts TIMESTAMP, not null', after: 'order_ts TIMESTAMP, null ได้', answer: 'breaking', why: 'ผู้ใช้ที่กรอง จัดกลุ่ม หรือตรวจความสดจาก order_ts เคยพึ่งพาว่าไม่มี null การผ่อนคำสัญญาให้ null ได้จึงกระทบผู้ใช้' },
-  { before: "status: PLACED, SHIPPED, CANCELLED", after: 'status: เพิ่ม RETURNED', answer: 'review', why: 'ผู้ใช้ที่เขียน CASE ครอบ 3 ค่าอาจให้ RETURNED ตกไปสาขา else โดยไม่มีใครรู้ ต้องถามผู้ใช้ว่ารับค่าใหม่ได้ไหม' },
-  { before: '(ไม่มีคอลัมน์ channel)', after: 'channel VARCHAR, null ได้', answer: 'safe', why: 'การเพิ่มคอลัมน์ที่ไม่บังคับไม่กระทบ query ที่เลือกคอลัมน์ตามชื่อ (ข้อยกเว้น: ตัวโหลดที่ผูก schema ตายตัวหรือ SELECT * ที่ส่งต่อไปยังที่ที่คาดคอลัมน์ครบชุดเดิม)' },
-  { before: '(ไม่มีคอลัมน์ currency)', after: 'currency VARCHAR, ห้าม null', answer: 'safe', why: 'ผู้ใช้ไม่ต้องทำอะไร เพราะเป็นคอลัมน์ใหม่ แต่ผู้ผลิตต้องกรอกให้ครบทุกแถว ซึ่งเป็นภาระของผู้ผลิตมากกว่าผู้ใช้' },
-];
+// The expected answer is the same in both languages; the wording is in TEXT.
+const ANSWERS: Kind[] = ['breaking', 'breaking', 'breaking', 'review', 'safe', 'safe'];
 
-export default function ContractLab() {
+interface Change { before: string; after: string; why: string }
+
+const TEXT: Record<Lang, {
+  kinds: Record<Kind, string>;
+  title: string;
+  score: (right: number, total: number) => string;
+  scoreNote: string;
+  restart: string;
+  question: (i: number, total: number) => string;
+  table: string;
+  v1: string;
+  v2: string;
+  effect: string;
+  group: string;
+  matches: string;
+  differs: (label: string) => string;
+  next: string;
+  result: string;
+  caption: [string, string, string, string];
+  changes: Change[];
+}> = {
+  th: {
+    kinds: { breaking: 'breaking (ทำให้ consumer พัง)', review: 'review (ต้องถาม consumer ก่อน)', safe: 'safe (ปลอดภัย)' },
+    title: 'contract v2 เปลี่ยนจาก v1 consumer จะรู้สึกอย่างไร',
+    score: (r, n) => `จัดถูก ${r} จาก ${n} ข้อ`,
+    scoreNote: 'เกณฑ์ในที่นี้เขียนจากมุมของ consumer ที่อ่านข้อมูล เป็นกฎของเส้นทางนี้ ไม่ใช่มาตรฐาน ทีมของคุณควรตกลงเกณฑ์ของตัวเองและเขียนไว้ใน contract',
+    restart: 'เล่นใหม่',
+    question: (i, n) => `ข้อ ${i} จาก ${n}`,
+    table: 'ตาราง',
+    v1: 'v1',
+    v2: 'v2',
+    effect: 'ผลต่อ consumer',
+    group: 'ประเภทของการเปลี่ยน',
+    matches: 'ตรงกับเกณฑ์',
+    differs: (l) => `ยังไม่ตรง: เกณฑ์จัดเป็น "${l}"`,
+    next: 'ข้อต่อไป',
+    result: 'ดูผล',
+    caption: ['หกข้อนี้คือความต่างระหว่าง ', ' กับ ', ' ที่ ', ' จัดประเภทด้วยโค้ดและได้ผลเดียวกัน'],
+    changes: [
+      { before: 'total_amount DOUBLE', after: 'amount_total DOUBLE', why: 'ชื่อ column เปลี่ยน ทุก query ที่เลือก total_amount ล้มทันที การเปลี่ยนชื่อคือการลบ column เก่าและเพิ่ม column ใหม่พร้อมกัน' },
+      { before: 'customer_id BIGINT', after: 'customer_id VARCHAR', why: 'การ join กับ customers.customer_id (BIGINT) ต้องเพิ่ม cast และ type ที่เปลี่ยนแล้วเรียงลำดับและเปรียบเทียบผลต่างกันด้วย' },
+      { before: 'order_ts TIMESTAMP, not null', after: 'order_ts TIMESTAMP, nullable', why: 'consumer ที่ filter จัดกลุ่ม หรือตรวจ freshness จาก order_ts เคยพึ่งพาว่าไม่มี null การผ่อนคำสัญญาให้เป็น null ได้จึงกระทบ consumer' },
+      { before: 'status: PLACED, SHIPPED, CANCELLED', after: 'status: เพิ่ม RETURNED', why: 'consumer ที่เขียน CASE ครอบ 3 ค่าอาจให้ RETURNED ตกไปสาขา else โดยไม่มีใครรู้ ต้องถาม consumer ว่ารับค่าใหม่ได้ไหม' },
+      { before: '(ไม่มี column channel)', after: 'channel VARCHAR, nullable', why: 'การเพิ่ม column ที่ไม่บังคับไม่กระทบ query ที่เลือก column ตามชื่อ (ข้อยกเว้น: loader ที่ผูก schema ตายตัว หรือ SELECT * ที่ส่งต่อไปยังที่ที่คาด column ครบชุดเดิม)' },
+      { before: '(ไม่มี column currency)', after: 'currency VARCHAR, not null', why: 'consumer ไม่ต้องทำอะไร เพราะเป็น column ใหม่ แต่ producer ต้องกรอกให้ครบทุก row ซึ่งเป็นภาระของ producer มากกว่า consumer' },
+    ],
+  },
+  en: {
+    kinds: { breaking: 'breaking (breaks consumers)', review: 'review (ask consumers first)', safe: 'safe' },
+    title: 'Contract v2 changes v1. How will consumers feel it?',
+    score: (r, n) => `${r} of ${n} classified correctly`,
+    scoreNote: 'These criteria are written from the point of view of a consumer that reads the data. They are this path\'s rule, not a standard. Your team should agree its own criteria and write them into the contract.',
+    restart: 'Play again',
+    question: (i, n) => `Question ${i} of ${n}`,
+    table: 'Table',
+    v1: 'v1',
+    v2: 'v2',
+    effect: 'Effect on consumers',
+    group: 'Kind of change',
+    matches: 'Matches the criteria',
+    differs: (l) => `Not quite: the criteria file this as "${l}"`,
+    next: 'Next',
+    result: 'See the result',
+    caption: ['These six items are the differences between ', ' and ', ' that ', ' classifies in code, with the same result.'],
+    changes: [
+      { before: 'total_amount DOUBLE', after: 'amount_total DOUBLE', why: 'The column name changed, so every query that selects total_amount fails at once. A rename is deleting the old column and adding a new one at the same time.' },
+      { before: 'customer_id BIGINT', after: 'customer_id VARCHAR', why: 'Joining to customers.customer_id (BIGINT) now needs a cast, and the changed type also sorts and compares differently.' },
+      { before: 'order_ts TIMESTAMP, not null', after: 'order_ts TIMESTAMP, nullable', why: 'Consumers that filter, group or check freshness on order_ts relied on it never being null. Loosening the promise to allow null affects them.' },
+      { before: 'status: PLACED, SHIPPED, CANCELLED', after: 'status: adds RETURNED', why: 'A consumer with a CASE covering the 3 values may send RETURNED into the else branch without anyone noticing. Ask consumers whether they can accept the new value.' },
+      { before: '(no channel column)', after: 'channel VARCHAR, nullable', why: 'Adding an optional column does not affect queries that select columns by name (exceptions: a loader bound to a fixed schema, or a SELECT * passed on to somewhere that expects exactly the old set of columns).' },
+      { before: '(no currency column)', after: 'currency VARCHAR, not null', why: 'Consumers do not have to do anything because it is a new column, but the producer must fill it in on every row, which is a burden on the producer rather than the consumer.' },
+    ],
+  },
+};
+
+const KIND_IDS: Kind[] = ['breaking', 'review', 'safe'];
+
+export default function ContractLab({ lang = 'th' }: { lang?: Lang }) {
+  const t = TEXT[lang];
   const [i, setI] = useState(0);
   const [picked, setPicked] = useState<Kind | null>(null);
   const [right, setRight] = useState(0);
-  const done = i >= CHANGES.length;
-  const c = CHANGES[Math.min(i, CHANGES.length - 1)];
+  const total = ANSWERS.length;
+  const done = i >= total;
+  const n = Math.min(i, total - 1);
+  const c = t.changes[n];
+  const answer = ANSWERS[n];
 
   const choose = (k: Kind) => {
     if (picked) return;
     setPicked(k);
-    if (k === c.answer) setRight((n) => n + 1);
+    if (k === answer) setRight((r) => r + 1);
   };
   const next = () => {
     setPicked(null);
@@ -44,50 +112,50 @@ export default function ContractLab() {
 
   return (
     <figure className="viz">
-      <div className="viz-title">สัญญาเวอร์ชัน 2 เปลี่ยนจากเวอร์ชัน 1 ผู้ใช้จะรู้สึกอย่างไร</div>
+      <div className="viz-title">{t.title}</div>
       {done ? (
         <div className="viz-now" aria-live="polite">
-          <strong>จัดถูก {right} จาก {CHANGES.length} ข้อ</strong>
-          <span>เกณฑ์ในที่นี้เขียนจากมุมของผู้ใช้ที่อ่านข้อมูล เป็นกฎของเส้นทางนี้ ไม่ใช่มาตรฐาน ทีมของคุณควรตกลงเกณฑ์ของตัวเองและเขียนไว้ในสัญญา</span>
+          <strong>{t.score(right, total)}</strong>
+          <span>{t.scoreNote}</span>
           <div style={{ marginTop: 10 }}>
-            <div className="seg"><button type="button" aria-pressed="false" onClick={restart}>เล่นใหม่</button></div>
+            <div className="seg"><button type="button" aria-pressed="false" onClick={restart}>{t.restart}</button></div>
           </div>
         </div>
       ) : (
         <>
           <div className="readout">
-            <span>ข้อ <b>{i + 1}</b> จาก {CHANGES.length}</span>
-            <span>ตาราง <b>orders</b></span>
+            <span>{t.question(i + 1, total)}</span>
+            <span>{t.table} <b>orders</b></span>
           </div>
           <div className="tbl-wrap">
             <table className="mini-tbl">
-              <thead><tr><th>เวอร์ชัน 1</th><th>เวอร์ชัน 2</th></tr></thead>
+              <thead><tr><th>{t.v1}</th><th>{t.v2}</th></tr></thead>
               <tbody><tr><td>{c.before}</td><td>{c.after}</td></tr></tbody>
             </table>
           </div>
           <div>
-            <div className="lab-label">ผลต่อผู้ใช้</div>
-            <div className="seg" role="group" aria-label="ประเภทของการเปลี่ยน">
-              {KINDS.map((k) => (
-                <button key={k.id} type="button" aria-pressed={picked === k.id} disabled={picked !== null && picked !== k.id} onClick={() => choose(k.id)}>
-                  {k.label}
+            <div className="lab-label">{t.effect}</div>
+            <div className="seg" role="group" aria-label={t.group}>
+              {KIND_IDS.map((k) => (
+                <button key={k} type="button" aria-pressed={picked === k} disabled={picked !== null && picked !== k} onClick={() => choose(k)}>
+                  {t.kinds[k]}
                 </button>
               ))}
             </div>
           </div>
           {picked && (
             <div className="viz-now" aria-live="polite">
-              <strong>{picked === c.answer ? 'ตรงกับเกณฑ์' : `ยังไม่ตรง: เกณฑ์จัดเป็น "${KINDS.find((k) => k.id === c.answer)?.label}"`}</strong>
+              <strong>{picked === answer ? t.matches : t.differs(t.kinds[answer])}</strong>
               <span>{c.why}</span>
               <div style={{ marginTop: 10 }}>
-                <div className="seg"><button type="button" aria-pressed="false" onClick={next}>{i + 1 < CHANGES.length ? 'ข้อต่อไป' : 'ดูผล'}</button></div>
+                <div className="seg"><button type="button" aria-pressed="false" onClick={next}>{i + 1 < total ? t.next : t.result}</button></div>
               </div>
             </div>
           )}
         </>
       )}
       <p className="viz-caption">
-        หกข้อนี้คือความต่างระหว่าง <code>contracts/orders.v1.yaml</code> กับ <code>orders.v2.yaml</code> ที่ <code>06_contract.py</code> จัดประเภทด้วยโค้ดและได้ผลเดียวกัน
+        {t.caption[0]}<code>contracts/orders.v1.yaml</code>{t.caption[1]}<code>orders.v2.yaml</code>{t.caption[2]}<code>06_contract.py</code>{t.caption[3]}
       </p>
     </figure>
   );

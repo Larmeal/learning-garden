@@ -1,21 +1,24 @@
 ---
 // Table of contents grouped by phase. A lesson with sub-pages has a chevron; its pages pop out under it,
 // and they are open by default for the lesson being read.
-import { pad, lessonHref, pageKey, slugOf, parentSlug, KIND_LABEL } from '../lib/garden';
+import { pad, lessonHref, pageKey, slugOf, parentSlug } from '../lib/garden';
 import type { Group } from '../lib/garden';
+import { ui, type Lang } from '../i18n';
 import Plant from './Plant';
 
 interface Props {
   groups: Group[];
   phases: { id: string; title: string }[];
   currentId: string; // entry id of the page being read
+  lang?: Lang;
 }
-const { groups, phases, currentId } = Astro.props;
+const { groups, phases, currentId, lang = 'th' } = Astro.props;
+const t = ui[lang];
 const currentLesson = parentSlug(currentId);
 const currentPage = pageKey(currentId);
 ---
 
-<nav class="lnav" aria-label="สารบัญหัวข้อ">
+<nav class="lnav" aria-label={t.nav.label}>
   {
     phases.map((p) => {
       const inPhase = groups.filter((g) => g.main.data.phase === p.id);
@@ -23,7 +26,7 @@ const currentPage = pageKey(currentId);
         inPhase.length > 0 && (
           <div>
             <h4>
-              ช่วง {p.id} · {p.title}
+              {t.nav.phase(p.id, p.title)}
             </h4>
             <ul>
               {inPhase.map(({ main, children, pages }) => {
@@ -34,7 +37,7 @@ const currentPage = pageKey(currentId);
                     <div class="row">
                       <a
                         class="lesson-link"
-                        href={lessonHref(main.id)}
+                        href={lessonHref(main.id, lang)}
                         aria-current={pageKey(main.id) === currentPage ? 'page' : undefined}
                         data-lid={pageKey(main.id)}
                         data-pages={pages.map((x) => pageKey(x.id)).join(',')}
@@ -50,7 +53,7 @@ const currentPage = pageKey(currentId);
                         </span>
                       </a>
                       {children.length > 0 && (
-                        <button class="exp" type="button" aria-expanded={open ? 'true' : 'false'} aria-label={`แสดงหรือซ่อนหน้าในบท ${main.data.title}`}>
+                        <button class="exp" type="button" aria-expanded={open ? 'true' : 'false'} aria-label={t.nav.toggle(main.data.title)}>
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
                         </button>
                       )}
@@ -60,8 +63,8 @@ const currentPage = pageKey(currentId);
                         <ul class="kids">
                           {children.map((c, i) => (
                             <li style={`--i:${i}`}>
-                              <a class="kid" href={lessonHref(c.id)} aria-current={pageKey(c.id) === currentPage ? 'page' : undefined} data-lid={pageKey(c.id)} data-kind={c.data.kind}>
-                                <span class="pk">{KIND_LABEL[c.data.kind]}</span>
+                              <a class="kid" href={lessonHref(c.id, lang)} aria-current={pageKey(c.id) === currentPage ? 'page' : undefined} data-lid={pageKey(c.id)} data-kind={c.data.kind}>
+                                <span class="pk">{t.kind[c.data.kind]}</span>
                                 <span class="t">{c.data.title}</span>
                                 <span class="ktick" aria-hidden="true">
                                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>

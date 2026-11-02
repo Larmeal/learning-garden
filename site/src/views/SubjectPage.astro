@@ -1,0 +1,52 @@
+---
+import Base from '../layouts/Base.astro';
+import TopicMap from '../components/TopicMap';
+import ContinueCta from '../components/ContinueCta';
+import { ui, type Lang } from '../i18n';
+import { groupsOf, hasLang, homeHref, lessonHref, pageInfo, pageKey, slugOf, subjectHref, subjectText, type Subject } from '../lib/garden';
+
+interface Props {
+  lang: Lang;
+  subject: Subject;
+}
+const { lang, subject } = Astro.props;
+const t = ui[lang];
+const text = subjectText(subject, lang);
+const groups = await groupsOf(subject.id, lang);
+const other: Lang = lang === 'th' ? 'en' : 'th';
+const altHref = (await hasLang(subject.id, other)) ? subjectHref(subject.id, other) : undefined;
+
+const mapLessons = groups.map(({ main: l, pages }) => ({
+  id: pageKey(l.id),
+  slug: slugOf(l.id),
+  title: l.data.title,
+  phase: l.data.phase!,
+  level: l.data.level!,
+  order: l.data.order,
+  requires: l.data.requires,
+  summary: l.data.summary,
+  stage: l.data.stage,
+  format: l.data.format,
+  href: lessonHref(l.id, lang),
+  pages: pages.map((p) => pageInfo(p, l, lang)),
+}));
+const ctaLessons = mapLessons.map((l) => ({ id: l.id, title: l.title, href: l.href, stage: l.stage, pages: l.pages }));
+// Open on the first lesson of the first phase that has real content.
+const initial = (mapLessons.find((l) => l.stage !== 'seed') ?? mapLessons[0]).slug;
+---
+
+<Base lang={lang} altHref={altHref} title={text.name} description={text.tagline} accent={subject.data.accent} accentDark={subject.data.accentDark}>
+  <main class="page">
+    <div class="container">
+      <nav class="crumbs" aria-label={t.breadcrumb}><a href={homeHref(lang)}>{t.home}</a><span>/</span><span>{text.name}</span></nav>
+      <header class="subject-head">
+        <div class="copy">
+          <h1><span class="u">{text.name}</span></h1>
+          <p>{text.description}</p>
+        </div>
+        <ContinueCta client:load lessons={ctaLessons} lang={lang} />
+      </header>
+      <TopicMap client:load lessons={mapLessons} phases={text.phases} initial={initial} lang={lang} />
+    </div>
+  </main>
+</Base>

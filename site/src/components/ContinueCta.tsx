@@ -1,4 +1,5 @@
 import { isFinished, useProgress } from './useProgress';
+import { ui, type Lang } from '../i18n';
 
 export interface CtaLesson {
   id: string;
@@ -22,12 +23,13 @@ export function nextStep(lessons: CtaLesson[], done: Record<string, boolean>) {
 }
 
 // Main call to action for a subject: start the first grown lesson, or continue with the next one not yet finished.
-export default function ContinueCta({ lessons }: { lessons: CtaLesson[] }) {
+export default function ContinueCta({ lessons, lang = 'th' }: { lessons: CtaLesson[]; lang?: Lang }) {
   const { done } = useProgress();
+  const t = ui[lang].cta;
   const step = nextStep(lessons, done);
   if (!step) return null;
   const { grown, doneCount, next, target, href: targetHref } = step;
-  const label = doneCount === 0 ? 'เริ่มเรียนบทแรก' : next ? 'เรียนต่อ' : 'ทบทวนตั้งแต่ต้น';
+  const label = doneCount === 0 ? t.startFirst : next ? t.continue : t.review;
 
   return (
     <div className="cta-block">
@@ -35,8 +37,8 @@ export default function ContinueCta({ lessons }: { lessons: CtaLesson[] }) {
         {label}
       </a>
       <span className="cta-note">
-        {doneCount > 0 && <>เรียนแล้ว {doneCount} จาก {grown} บทที่เปิดอยู่ · </>}
-        {!next ? 'เรียนครบทุกบทที่เปิดอยู่แล้ว' : doneCount === 0 ? `เริ่มที่: ${target.title}` : `บทถัดไป: ${target.title}`}
+        {doneCount > 0 && t.progress(doneCount, grown)}
+        {!next ? t.allDone : doneCount === 0 ? t.startAt(target.title) : t.next(target.title)}
       </span>
     </div>
   );

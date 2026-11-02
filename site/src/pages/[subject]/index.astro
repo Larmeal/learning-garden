@@ -1,9 +1,6 @@
 ---
 import { getCollection } from 'astro:content';
-import Base from '../../layouts/Base.astro';
-import TopicMap from '../../components/TopicMap';
-import ContinueCta from '../../components/ContinueCta';
-import { groupsOf, lessonHref, pageInfo, pageKey, slugOf } from '../../lib/garden';
+import SubjectPage from '../../views/SubjectPage.astro';
 
 export async function getStaticPaths() {
   const subjects = await getCollection('subjects');
@@ -11,40 +8,6 @@ export async function getStaticPaths() {
 }
 
 const { subject } = Astro.props;
-const groups = await groupsOf(subject.id);
-const base = import.meta.env.BASE_URL.replace(/\/$/, '');
-
-const mapLessons = groups.map(({ main: l, pages }) => ({
-  id: pageKey(l.id),
-  slug: slugOf(l.id),
-  title: l.data.title,
-  phase: l.data.phase!,
-  level: l.data.level!,
-  order: l.data.order,
-  requires: l.data.requires,
-  summary: l.data.summary,
-  stage: l.data.stage,
-  format: l.data.format,
-  href: lessonHref(l.id),
-  pages: pages.map((p) => pageInfo(p, l)),
-}));
-const ctaLessons = mapLessons.map((l) => ({ id: l.id, title: l.title, href: l.href, stage: l.stage, pages: l.pages }));
-// Open on the first lesson of the first phase that has real content.
-const initial = (mapLessons.find((l) => l.stage !== 'seed') ?? mapLessons[0]).slug;
 ---
 
-<Base title={subject.data.name} description={subject.data.tagline} accent={subject.data.accent} accentDark={subject.data.accentDark}>
-  <main class="page">
-    <div class="container">
-      <nav class="crumbs" aria-label="ตำแหน่งปัจจุบัน"><a href={`${base}/`}>หน้าแรก</a><span>/</span><span>{subject.data.name}</span></nav>
-      <header class="subject-head">
-        <div class="copy">
-          <h1><span class="u">{subject.data.name}</span></h1>
-          <p>{subject.data.description}</p>
-        </div>
-        <ContinueCta client:load lessons={ctaLessons} />
-      </header>
-      <TopicMap client:load lessons={mapLessons} phases={subject.data.phases} initial={initial} />
-    </div>
-  </main>
-</Base>
+<SubjectPage lang="th" subject={subject} />
