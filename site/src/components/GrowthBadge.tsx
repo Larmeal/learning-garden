@@ -1,18 +1,20 @@
 import Plant, { type PlantStage } from './Plant';
 import { isFinished, plantStage, useProgress } from './useProgress';
+import { ui, type Lang } from '../i18n';
 
 // Small plant plus label in the lesson header, driven by this learner's progress through all the lesson's pages.
-export default function GrowthBadge({ pages, content }: { pages: string[]; content: PlantStage }) {
+export default function GrowthBadge({ pages, content, lang = 'th' }: { pages: string[]; content: PlantStage; lang?: Lang }) {
   const { done } = useProgress();
+  const t = ui[lang].badge;
   const stage = plantStage(content, isFinished(done, pages));
   const read = pages.filter((p) => done[p]).length;
   const label: Record<PlantStage, string> = {
-    seed: 'เมล็ด (เนื้อหายังเป็นโครง)',
-    sprout: pages.length > 1 ? `ต้นอ่อน (อ่านจบ ${read} จาก ${pages.length} หน้า)` : 'ต้นอ่อน (ยังเรียนไม่จบ)',
-    evergreen: 'โตเต็มที่ (เรียนจบแล้ว)',
+    seed: t.seed,
+    sprout: t.sprout(read, pages.length),
+    evergreen: t.evergreen,
   };
   return (
-    <span className="stage" title="ต้นนี้โตตามที่คุณเรียน">
+    <span className="stage" title={t.title}>
       <Plant stage={stage} size={26} sway />
       {label[stage]}
     </span>

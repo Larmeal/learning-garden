@@ -1,9 +1,11 @@
 import Plant, { type PlantStage } from './Plant';
 import { isFinished, plantStage, useProgress } from './useProgress';
+import { ui, type Lang } from '../i18n';
 
 // Lower half of a subject card on the home page: one plant per lesson, grown by this learner's progress.
-export default function CardBody({ lessons, grown }: { lessons: { id: string; stage: PlantStage; pages: string[] }[]; grown: number }) {
+export default function CardBody({ lessons, grown, lang = 'th', thaiOnly = false }: { lessons: { id: string; stage: PlantStage; pages: string[] }[]; grown: number; lang?: Lang; thaiOnly?: boolean }) {
   const { done } = useProgress();
+  const t = ui[lang];
   const finished = lessons.filter((l) => isFinished(done, l.pages)).length;
   return (
     <>
@@ -14,10 +16,12 @@ export default function CardBody({ lessons, grown }: { lessons: { id: string; st
       </div>
       <div className="card-foot">
         <span>
-          เปิดแล้ว {grown} จาก {lessons.length} บท{finished > 0 && <> · เรียนจบ {finished}</>}
+          {t.card.opened(grown, lessons.length)}
+          {finished > 0 && t.card.finished(finished)}
+          {thaiOnly && ` · ${t.thaiOnly}`}
         </span>
         <span className="btn sm primary" aria-hidden="true">
-          เปิดแปลง
+          {t.card.open}
         </span>
       </div>
     </>

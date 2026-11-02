@@ -4,7 +4,8 @@ import Pips from './Pips';
 import Plant, { type PlantStage } from './Plant';
 import SubjectGarden from './SubjectGarden';
 import { isFinished, plantStage, useProgress } from './useProgress';
-import { KIND_LABEL, type PageItem } from './PageList';
+import type { PageItem } from './PageList';
+import { ui, type Lang } from '../i18n';
 
 export interface MapLesson {
   id: string;
@@ -28,9 +29,11 @@ export interface MapPhase {
 
 const finished = (done: Record<string, boolean>, l: MapLesson) => isFinished(done, l.pages.map((p) => p.id));
 const pad = (n: number) => String(n).padStart(2, '0');
-const STATE_LABEL = { seed: 'เมล็ด ยังไม่เปิด', sprout: 'ต้นอ่อน', evergreen: 'โตเต็มที่' } as const;
 
-export default function TopicMap({ lessons, phases, initial }: { lessons: MapLesson[]; phases: MapPhase[]; initial: string }) {
+export default function TopicMap({ lessons, phases, initial, lang = 'th' }: { lessons: MapLesson[]; phases: MapPhase[]; initial: string; lang?: Lang }) {
+  const t = ui[lang].map;
+  const stageName = ui[lang].stage;
+  const STATE_LABEL = { seed: t.seedClosed, sprout: stageName.sprout, evergreen: ui[lang].garden.grown } as const;
   const [sel, setSel] = useState(initial);
   const [hover, setHover] = useState<string | null>(null);
   const reduce = useReducedMotion();
@@ -45,15 +48,15 @@ export default function TopicMap({ lessons, phases, initial }: { lessons: MapLes
 
   const cur = bySlug[sel];
   const tagFor = (slug: string) => {
-    if (slug === sel) return { cls: 'sel', text: 'เลือกอยู่' };
-    if (cur.requires.includes(slug)) return { cls: 'pre', text: 'ก่อน' };
-    if (nextOf[sel].includes(slug)) return { cls: 'nxt', text: 'ต่อ' };
+    if (slug === sel) return { cls: 'sel', text: t.selected };
+    if (cur.requires.includes(slug)) return { cls: 'pre', text: t.before };
+    if (nextOf[sel].includes(slug)) return { cls: 'nxt', text: t.after };
     return { cls: '', text: '' };
   };
 
   const chips = (slugs: string[]) =>
     slugs.length === 0 ? (
-      <span className="none">ไม่มี</span>
+      <span className="none">{t.none}</span>
     ) : (
       slugs.map((s) => (
         <button key={s} type="button" className="chip" onClick={() => setSel(s)}>
@@ -65,17 +68,17 @@ export default function TopicMap({ lessons, phases, initial }: { lessons: MapLes
   return (
     <div className="map">
       <div className="map-main">
-        <SubjectGarden lessons={lessons} done={done} sel={sel} hover={hover} onSelect={setSel} onHover={setHover} />
+        <SubjectGarden lessons={lessons} done={done} sel={sel} hover={hover} onSelect={setSel} onHover={setHover} lang={lang} />
         <div className="legend" aria-hidden="true">
           <span>
-            ความยาก <Pips level={3} /> = 3 จาก 5
+            {t.difficulty} <Pips level={3} lang={lang} /> {t.outOf5}
           </span>
-          <span className="tag-chip sel">เลือกอยู่</span>
+          <span className="tag-chip sel">{t.selected}</span>
           <span>
-            <span className="tag-chip pre">ก่อน</span> ต้องรู้มาก่อน
+            <span className="tag-chip pre">{t.before}</span> {t.legendBefore}
           </span>
           <span>
-            <span className="tag-chip nxt">ต่อ</span> ใช้ความรู้นี้ต่อ
+            <span className="tag-chip nxt">{t.after}</span> {t.legendAfter}
           </span>
         </div>
 
@@ -91,7 +94,7 @@ export default function TopicMap({ lessons, phases, initial }: { lessons: MapLes
               <span className="phase-badge">{p.id}</span>
               <div>
                 <h3>{p.title}</h3>
-                <span className="check">เช็กตัวเอง: {p.check}</span>
+                <span className="check">{t.selfCheck} {p.check}</span>
               </div>
             </div>
             <div className="tiles">
@@ -107,11 +110,11 @@ export default function TopicMap({ lessons, phases, initial }: { lessons: MapLes
                       </span>
                       <span className="nm">{l.title}</span>
                       <span className="meta">
-                        <Pips level={l.level} />
+                        <Pips level={l.level} lang={lang} />
                         <span className="tag">{t.text}</span>
                       </span>
                       {finished(done, l) && (
-                        <span className="tick" role="img" aria-label="เรียนแล้ว">
+                        <span className="tick" role="img" aria-label={t.learned}>
                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                             <path d="M5 12.5l4.5 4.5L19 7.5" />
                           </svg>
@@ -140,39 +143,39 @@ export default function TopicMap({ lessons, phases, initial }: { lessons: MapLes
               <div>
                 <h3>{cur.title}</h3>
                 <span className="sub">
-                  หัวข้อ {pad(cur.order)} · ช่วง {cur.phase} · {STATE_LABEL[plantStage(cur.stage, finished(done, cur))]}
+                  {t.topic(pad(cur.order), cur.phase, STATE_LABEL[plantStage(cur.stage, finished(done, cur))])}
                 </span>
               </div>
             </div>
             <div className="panel-detail">
               <div className="actions">
-                <Pips level={cur.level} />
-                {cur.format === 'steps' && <span className="badge">เรียนทีละขั้น</span>}
+                <Pips level={cur.level} lang={lang} />
+                {cur.format === 'steps' && <span className="badge">{t.stepByStep}</span>}
               </div>
               <p>{cur.summary}</p>
               <dl>
                 {cur.pages.length > 1 && (
                   <>
-                    <dt>หน้าในบทนี้</dt>
+                    <dt>{t.pagesIn}</dt>
                     <dd className="pages">
                       {cur.pages.map((p) => (
                         <a key={p.id} className={`chip${done[p.id] ? ' done' : ''}`} href={p.href}>
                           {done[p.id] && '✓ '}
-                          {KIND_LABEL[p.kind]}: {p.title}
+                          {ui[lang].kind[p.kind]}: {p.title}
                         </a>
                       ))}
                     </dd>
                   </>
                 )}
-                <dt>ต้องรู้มาก่อน</dt>
+                <dt>{t.requires}</dt>
                 <dd>{chips(cur.requires)}</dd>
-                <dt>ใช้ต่อใน</dt>
+                <dt>{t.unlocks}</dt>
                 <dd>{chips(nextOf[cur.slug])}</dd>
               </dl>
             </div>
             <div className="actions">
               <a className="btn primary" href={cur.href}>
-                {cur.stage === 'seed' ? 'ดูโครงบทเรียน' : 'เปิดบทเรียน'}
+                {cur.stage === 'seed' ? t.outline : t.open}
               </a>
             </div>
           </motion.div>

@@ -1,0 +1,82 @@
+---
+// Home page in one language. Subjects without lessons in that language are still listed, linked to their Thai pages and marked.
+import { getCollection } from 'astro:content';
+import Base from '../layouts/Base.astro';
+import GardenHero from '../components/GardenHero';
+import CardBody from '../components/CardBody';
+import HomeCta from '../components/HomeCta';
+import { ui, type Lang } from '../i18n';
+import { groupsOf, hasLang, subjectHref, lessonHref, pageKey, subjectText } from '../lib/garden';
+
+interface Props {
+  lang: Lang;
+}
+const { lang } = Astro.props;
+const t = ui[lang];
+
+const subjects = (await getCollection('subjects')).sort((a, b) => a.data.order - b.data.order || a.data.name.localeCompare(b.data.name));
+const rows = await Promise.all(
+  subjects.map(async (s) => {
+    const available = await hasLang(s.id, lang);
+    const shown: Lang = available ? lang : 'th';
+    const groups = await groupsOf(s.id, shown);
+    const grown = groups.filter((g) => g.main.data.stage !== 'seed').length;
+    return { s, text: subjectText(s, lang), available, shown, groups, grown };
+  }),
+);
+const ctaSubjects = rows
+  .filter((r) => r.available)
+  .map(({ text, groups }) => ({
+    name: text.name,
+    lessons: groups.map((g) => ({
+      id: pageKey(g.main.id),
+      title: g.main.data.title,
+      href: lessonHref(g.main.id, lang),
+      stage: g.main.data.stage,
+      pages: g.pages.map((p) => ({ id: pageKey(p.id), href: lessonHref(p.id, lang) })),
+    })),
+  }));
+// Categories keep the order of their first subject; subjects are already sorted by `order`.
+const categories = [...new Set(rows.map((r) => r.text.category))].map((name) => ({ name, rows: rows.filter((r) => r.text.category === name) }));
+---
+
+<Base lang={lang}>
+  <main class="page">
+    <div class="container">
+      <section class="hero">
+        <div class="hero-copy">
+          <h1>{t.hero.line1}<br />{t.hero.pre}<span class="hl">{t.hero.hl}</span>{t.hero.post}</h1>
+          <p>{t.tagline} {t.heroText}</p>
+          <div class="hero-actions">
+            <HomeCta client:load subjects={ctaSubjects} lang={lang} />
+            <a class="btn lg" href="#plots">{t.seeAllPlots}</a>
+          </div>
+        </div>
+        <GardenHero client:load lang={lang} />
+      </section>
+
+      <section id="plots">
+        <div class="section-title">
+          <h2>{t.plotsTitle}</h2>
+          <p>{t.plotsText}</p>
+        </div>
+        {
+          categories.map((c) => (
+            <div class="category">
+              {categories.length > 1 && <h3 class="category-title">{c.name}</h3>}
+              <div class="cards">
+                {c.rows.map(({ s, text, available, shown, groups, grown }) => (
+                  <a class="card" href={subjectHref(s.id, shown)} style={`--subject:${s.data.accent}`} hreflang={shown}>
+                    <h3>{text.name}</h3>
+                    <p>{text.tagline}</p>
+                    <CardBody client:load lessons={groups.map((g) => ({ id: pageKey(g.main.id), stage: g.main.data.stage, pages: g.pages.map((p) => pageKey(p.id)) }))} grown={grown} lang={lang} thaiOnly={!available} />
+                  </a>
+                ))}
+              </div>
+            </div>
+          ))
+        }
+      </section>
+    </div>
+  </main>
+</Base>

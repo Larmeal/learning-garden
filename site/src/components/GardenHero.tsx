@@ -3,13 +3,13 @@
 import { useState, type CSSProperties } from 'react';
 import Plant, { type PlantStage } from './Plant';
 import { BurstLayer, Critter, onActivate, useBursts, useGarden } from './useGarden';
+import { ui, type Lang } from '../i18n';
 
 const W = 680;
 const H = 400;
 const BASE = 366;
 
 const NEXT: Record<PlantStage, PlantStage> = { seed: 'sprout', sprout: 'evergreen', evergreen: 'seed' };
-const NAME: Record<PlantStage, string> = { seed: 'เมล็ด', sprout: 'ต้นอ่อน', evergreen: 'ต้นโตเต็มที่' };
 
 const PLANTS: { stage: PlantStage; x: number; size: number }[] = [
   { stage: 'seed', x: 78, size: 64 },
@@ -28,7 +28,9 @@ const FIREFLIES = [
 
 interface Rain { id: number; x: number; y: number }
 
-export default function GardenHero() {
+export default function GardenHero({ lang = 'th' }: { lang?: Lang }) {
+  const t = ui[lang].garden;
+  const NAME = ui[lang].stage;
   const [stages, setStages] = useState<PlantStage[]>(() => PLANTS.map((p) => p.stage));
   const [rain, setRain] = useState<Rain | null>(null);
   const [said, setSaid] = useState('');
@@ -39,7 +41,7 @@ export default function GardenHero() {
     const p = PLANTS[i];
     const next = NEXT[stages[i]];
     setStages((cur) => cur.map((v, j) => (j === i ? next : v)));
-    setSaid(`ต้นที่ ${i + 1} เปลี่ยนเป็น${NAME[next]}`);
+    setSaid(t.plantChanged(i + 1, NAME[next]));
     g.nudge(i);
     spawn(p.x, BASE - p.size * 0.5);
   };
@@ -47,14 +49,14 @@ export default function GardenHero() {
   const callRain = (x: number, y: number) => {
     const id = Date.now();
     setRain({ id, x, y });
-    setSaid('ฝนตก');
+    setSaid(t.rain);
     PLANTS.forEach((_, i) => setTimeout(() => g.nudge(i, 0.16), 250 + i * 110));
     setTimeout(() => setRain((r) => (r?.id === id ? null : r)), 2600);
   };
 
   return (
     <div className="scene-wrap">
-      <svg ref={g.svgRef} className="scene garden" viewBox={`0 0 ${W} ${H}`} role="group" aria-label="สวนเล็กๆ ที่ขยับได้ มีต้นไม้ ก้อนเมฆ และผีเสื้อ">
+      <svg ref={g.svgRef} className="scene garden" viewBox={`0 0 ${W} ${H}`} role="group" aria-label={t.scene}>
         <rect width={W} height={H} fill="var(--sky)" />
 
         <g ref={g.layer('sun')}>
@@ -68,10 +70,10 @@ export default function GardenHero() {
         </g>
 
         <g ref={g.layer('clouds')}>
-          <g className="cloud" role="button" tabIndex={0} aria-label="ก้อนเมฆ กดเพื่อให้ฝนตก" onClick={() => callRain(150, 98)} onKeyDown={onActivate(() => callRain(150, 98))}>
+          <g className="cloud" role="button" tabIndex={0} aria-label={t.cloud} onClick={() => callRain(150, 98)} onKeyDown={onActivate(() => callRain(150, 98))}>
             <ellipse cx="150" cy="86" rx="46" ry="16" /><ellipse cx="184" cy="74" rx="30" ry="15" /><ellipse cx="120" cy="78" rx="26" ry="12" />
           </g>
-          <g className="cloud b" role="button" tabIndex={0} aria-label="ก้อนเมฆ กดเพื่อให้ฝนตก" onClick={() => callRain(405, 152)} onKeyDown={onActivate(() => callRain(405, 152))}>
+          <g className="cloud b" role="button" tabIndex={0} aria-label={t.cloud} onClick={() => callRain(405, 152)} onKeyDown={onActivate(() => callRain(405, 152))}>
             <ellipse cx="392" cy="140" rx="38" ry="12" /><ellipse cx="420" cy="130" rx="24" ry="12" />
           </g>
         </g>
@@ -99,7 +101,7 @@ export default function GardenHero() {
             className="plant"
             role="button"
             tabIndex={0}
-            aria-label={`ต้นที่ ${i + 1}: ${NAME[stages[i]]} กดเพื่อให้โต`}
+            aria-label={t.plantLabel(i + 1, NAME[stages[i]])}
             onClick={() => grow(i)}
             onKeyDown={onActivate(() => grow(i))}
             style={{ '--sway-delay': `${-i * 0.9}s`, '--sway-dur': `${4.4 + (i % 3) * 0.7}s` } as CSSProperties}
@@ -134,7 +136,7 @@ export default function GardenHero() {
           </g>
         )}
       </svg>
-      <p className="scene-hint" aria-hidden="true">ลองขยับเมาส์ผ่านสวน แล้วกดที่ต้นไม้หรือก้อนเมฆดู</p>
+      <p className="scene-hint" aria-hidden="true">{t.hint}</p>
       <p className="sr-only" aria-live="polite">{said}</p>
     </div>
   );

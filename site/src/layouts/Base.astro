@@ -2,6 +2,8 @@
 import '../styles/global.css';
 import { site } from '../site.config';
 import FooterGarden from '../components/FooterGarden';
+import { ui, type Lang } from '../i18n';
+import { homeHref } from '../lib/garden';
 
 interface Props {
   title?: string;
@@ -10,9 +12,14 @@ interface Props {
   accentDark?: string;
   // "steps" lets the lesson page offer the one-card-at-a-time player.
   format?: 'steps' | 'read';
+  lang?: Lang;
+  // The same page in the other language. Without it the switch goes to the other language's home page.
+  altHref?: string;
 }
 
-const { title, description = site.tagline, accent, accentDark, format = 'read' } = Astro.props;
+const { title, description, accent, accentDark, format = 'read', lang = 'th', altHref } = Astro.props;
+const t = ui[lang];
+const other: Lang = lang === 'th' ? 'en' : 'th';
 const fullTitle = title ? `${title} · ${site.name}` : site.name;
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const style = [accent && `--subject-accent:${accent}`, accentDark && `--subject-accent-dark:${accentDark}`]
@@ -21,12 +28,12 @@ const style = [accent && `--subject-accent:${accent}`, accentDark && `--subject-
 ---
 
 <!doctype html>
-<html lang={site.lang} style={style || undefined} data-format={format}>
+<html lang={lang} style={style || undefined} data-format={format}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>{fullTitle}</title>
-    <meta name="description" content={description} />
+    <meta name="description" content={description ?? t.tagline} />
     <link rel="icon" type="image/svg+xml" href={`${base}/favicon.svg`} />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -48,7 +55,7 @@ const style = [accent && `--subject-accent:${accent}`, accentDark && `--subject-
   <body>
     <header class="site-header">
       <div class="container">
-        <a class="brand" href={`${base}/`}>
+        <a class="brand" href={homeHref(lang)}>
           <span class="brand-mark" aria-hidden="true">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 21v-9" /><path d="M12 13c0-4 3-7 8-7 0 5-3 8-8 7z" /><path d="M12 16c0-3-2-5-6-5 0 4 2 6 6 5z" />
@@ -57,7 +64,8 @@ const style = [accent && `--subject-accent:${accent}`, accentDark && `--subject-
           {site.name}
         </a>
         <div class="header-actions">
-          <button class="icon-btn" id="theme-toggle" type="button" aria-label="สลับธีมสว่าง/มืด">
+          <a class="btn sm" href={altHref ?? homeHref(other)} hreflang={other} lang={other} aria-label={t.switchToLabel}>{t.switchTo}</a>
+          <button class="icon-btn" id="theme-toggle" type="button" aria-label={t.themeToggle}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
             </svg>
@@ -68,7 +76,7 @@ const style = [accent && `--subject-accent:${accent}`, accentDark && `--subject-
     <slot />
     <FooterGarden client:visible />
     <footer class="site-footer">
-      <div class="container">{site.name} · เนื้อหาเติบโตไปตามที่เรียน</div>
+      <div class="container">{site.name} · {t.footer}</div>
     </footer>
     <script>
       const root = document.documentElement;

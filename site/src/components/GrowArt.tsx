@@ -3,13 +3,14 @@
 import { useEffect, useRef } from 'react';
 import Plant, { type PlantStage } from './Plant';
 import { BurstLayer, Critter, useBursts, useGarden } from './useGarden';
+import { ui, type Lang } from '../i18n';
 
 const W = 240;
 const H = 150;
 const BASE = 126;
 const CX = 120;
 
-export default function GrowArt({ stage, size = 108 }: { stage: PlantStage; size?: number }) {
+export default function GrowArt({ stage, size = 108, lang = 'th' }: { stage: PlantStage; size?: number; lang?: Lang }) {
   const g = useGarden({ w: W, h: H, bodies: [{ x: CX, base: BASE }], reach: 150, lean: 14, minY: 0, fly: { y: 54, ry: 22, maxY: 100, rx: 80 } });
   const { bursts, spawn } = useBursts();
   const prev = useRef(stage);
@@ -27,7 +28,7 @@ export default function GrowArt({ stage, size = 108 }: { stage: PlantStage; size
   };
 
   return (
-    <svg ref={g.svgRef} className="garden art-scene" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="ต้นไม้ของบทนี้" width={W} height={H}>
+    <svg ref={g.svgRef} className="garden art-scene" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={ui[lang].garden.lessonPlant} width={W} height={H}>
       <rect width={W} height={H} rx="26" fill="var(--sky)" />
       <circle className="glow" cx="196" cy="34" r="24" fill="var(--sun-moon)" />
       <circle cx="196" cy="34" r="14" fill="var(--sun-moon)" />
