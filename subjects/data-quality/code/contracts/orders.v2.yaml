@@ -1,0 +1,25 @@
+# A proposed next version of the orders contract. Each difference from v1 is a different kind of change.
+dataset: orders
+version: 2
+owner: orders-platform
+consumers: [finance, marketing]
+purpose: Daily revenue reporting and customer campaigns
+schema:
+  - {name: order_id, type: BIGINT, nullable: false, unique: true}
+  - {name: customer_id, type: VARCHAR, nullable: false}          # type changed
+  - {name: order_ts, type: TIMESTAMP, nullable: true}            # nullable false -> true
+  - {name: ingested_at, type: TIMESTAMP, nullable: false}
+  - {name: status, type: VARCHAR, nullable: false, allowed: [PLACED, SHIPPED, CANCELLED, RETURNED]}  # new allowed value
+  - {name: amount_total, type: DOUBLE, nullable: false}          # renamed from total_amount
+  - {name: shipped_ts, type: TIMESTAMP, nullable: true}
+  - {name: channel, type: VARCHAR, nullable: true}               # new optional column
+  - {name: currency, type: VARCHAR, nullable: false}             # new required column
+quality:
+  rules: [ORD-ID-UNIQUE, ORD-CUST-POPULATED, ORD-CUST-EXISTS, ORD-TOTAL-MATCHES-PAID]
+freshness:
+  column: order_ts
+  max_age_hours: 24
+on_breach:
+  notify: "#orders-data"
+  respond_within_hours: 2
+  resolve_within_business_days: 1
