@@ -4,8 +4,12 @@ This repo is a personal learning garden: one website (`site/`) that grows a plan
 plus the code, notes and knowledge graphs that back each subject. Spark was the first subject. It is not the project:
 the repo is meant to hold everything the owner wants to learn, one subject at a time.
 
-Lesson text on the website is Thai. Code, comments and tooling docs are English. Do not use the em dash in
-explanations, docstrings or comments.
+Lesson text on the website is Thai, and `data-quality` also has an English version (see "Languages"). Code, comments and
+tooling docs are English. Do not use the em dash in explanations, docstrings or comments.
+
+In Thai lesson text, keep technical terms and the nouns that match code or table names in English (dimension, rule,
+dataset, row, column, order, customer, threshold) instead of coining Thai words. The owner finds that easier to read.
+Only `data-quality` has been rewritten this way so far; write new Thai text like it.
 
 ## Layout
 
@@ -23,6 +27,22 @@ subjects/<id>/                     everything about a subject that is not the we
   docs/                            overview and notes
   graphs/                          knowledge graph snapshots, indexes and helper scripts
 ```
+
+## Languages
+
+Thai is the original language and keeps the original URLs (`/<subject>/<slug>/`). English lives under `/en/`.
+
+- Interface text is in `site/src/i18n.ts` (`ui.th` and `ui.en`). Every React island and `LessonNav`, `Pips` takes a `lang`
+  prop (default `th`). Page bodies are shared views in `site/src/views/`, wrapped by `src/pages/` (Thai) and `src/pages/en/`.
+- English lessons are in `site/src/content/lessons-en/<subject>/...` (collection `lessonsEn`) with the same slugs, orders
+  and `requires` as the Thai ones, so progress keys (`<subject>/<slug>`) are shared between languages.
+- English MDX passes `lang="en"` to every `<Question>` and to labs. Labs keep their text per language in a `TEXT`
+  object and take a `lang` prop.
+- A subject JSON may have an `en` block (name, tagline, category; optional description and phases). A subject with no
+  `lessons-en/<id>/` folder is listed on the English home page as "Thai only" and links to its Thai pages.
+- The header switch goes to the same page in the other language when it exists, otherwise to that language's home.
+- To translate another subject: add `lessons-en/<id>/`, add the `en` block to its JSON, and give its labs a `lang` prop.
+  Build fails if `requires` points to a slug that has no English page.
 
 ## Add a subject
 
@@ -59,4 +79,4 @@ an existing id. Categories live in the subject JSON, not in folders, for the sam
   not verified. `code/make_lab_data.py` regenerates the data of the metric lab; `26`, `30`, `31`, `32` and `33` write the JSON that the registry, support, call-trace, version-diff and graph labs read.
 - `guitar` (11 lessons for any level, each with a quiz: an introduction with history, types, a harmonics page with an animated string and a searchable glossary of English terms (`labs/guitar/glossaryData.ts`), practice method, technique, fretboard, chords, rhythm, barre and CAGED, scales, lead techniques, improvisation, ear and songs; labs in `components/labs/guitar/`; overview and backlog in `docs/overview.md`).
 - `music-theory` (9 lessons, each with a quiz: notes, rhythm, intervals, major keys, minor and modes, chords, diatonic harmony, beyond the key, melody and form; labs in `components/labs/music-theory/`; `code/verify.mts` checks the facts). The two music subjects link by lesson title, not by URL. Lab sound is Web Audio and was not listened to in a browser when it was written.
-- `data-quality` (11 lessons, each with a quiz: assurance basics, dimensions, profiling, rule design, checkpoints, agreements and data contracts, monitoring, reconciliation, incidents, ownership and scorecards, capstone; labs `DimensionLab`, `ContractLab`, `ThresholdLab` in `components/labs/data-quality/`). Focus is Data Quality Assurance, tool-neutral; it links to `great-expectations` by lesson title. Exercises `01` to `11` in `subjects/data-quality/code/` (own `uv` project: DuckDB, pandas, PyYAML) run on a synthetic dataset from `dqlab.py` with defects planted in fixed numbers, and each exercise asserts that it finds what was planted or that its stated expectation holds; shared modules are `dqrules.py` (rule registry) and `dqcontract.py` (contracts in `contracts/*.yaml`). `07_monitoring.py --write` regenerates `monitoring.json` for the threshold lab; `node subjects/data-quality/code/verify_monitoring.mts` checks the lab's TypeScript detectors against the Python scores. Plan, source list (books in `E:\books`, not in the repo) and `verified-findings.md` are in `docs/`. Every claim in a lesson is tagged book, ran or author. The pages were built but never looked at in a browser, and the labs were not clicked through.
+- `data-quality` (11 lessons, each with a quiz: assurance basics, dimensions, profiling, rule design, checkpoints, agreements and data contracts, monitoring, reconciliation, incidents, ownership and scorecards, capstone; labs `DimensionLab`, `ContractLab`, `ThresholdLab` in `components/labs/data-quality/`). Focus is Data Quality Assurance, tool-neutral; it links to `great-expectations` by lesson title. Exercises `01` to `11` in `subjects/data-quality/code/` (own `uv` project: DuckDB, pandas, PyYAML) run on a synthetic dataset from `dqlab.py` with defects planted in fixed numbers, and each exercise asserts that it finds what was planted or that its stated expectation holds; shared modules are `dqrules.py` (rule registry) and `dqcontract.py` (contracts in `contracts/*.yaml`). `07_monitoring.py --write` regenerates `monitoring.json` for the threshold lab; `node subjects/data-quality/code/verify_monitoring.mts` checks the lab's TypeScript detectors against the Python scores. Plan, source list (books in `E:\books`, not in the repo) and `verified-findings.md` are in `docs/`. Every claim in a lesson is tagged book, ran or author. Available in Thai and English (English in `lessons-en/data-quality/`, labs take `lang`). The pages were built but never looked at in a browser, and the labs were not clicked through.
