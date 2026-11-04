@@ -1,0 +1,265 @@
+---
+title: "Capstone: an order intake gate"
+summary: Lessons 1 to 11 combined into the intake gate of an ordering system. Raw JSON goes in, and either a clean Order or a list of problems you can pass to the user comes out, with a discriminated union for payment, secrets that do not leak, and a JSON Schema as the contract for senders.
+order: 12
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [migration, under-the-hood]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## The task
+
+An ordering system receives orders as JSON from several channels. It needs one gate that
+
+- takes raw JSON and returns an `Order` whose data is certainly valid, or a list of problems the sender can understand
+- does not echo values the user sent, and does not let card numbers leak into logs
+- produces a JSON Schema that senders can use as a contract
+
+The full code is in `exercises/12_capstone.py`, and every claim in this lesson has an `assert`. Each part below points back to the lesson that taught it.
+
+</Step>
+
+<Step>
+
+## Reusable types, and Line
+
+```python
+Sku = Annotated[str, Field(pattern=r"^[A-Z]{2,4}-\d{1,5}$")]
+Money = Annotated[Decimal, Field(ge=0, max_digits=10, decimal_places=2)]
+
+class Line(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    sku: Sku
+    qty: int = Field(gt=0, le=1000)
+    unit_price: Money
+
+    @computed_field
+    @property
+    def subtotal(self) -> Decimal:
+        return self.unit_price * self.qty
+```
+
+This uses material from [lesson 2](/en/pydantic/fields/#annotated-attach-constraints-to-a-type-and-reuse-them) (`Annotated` carrying `Field`), [lesson 3](/en/pydantic/types/) (`Decimal` for money), [lesson 8](/en/pydantic/models-config/) (`extra="forbid"` so a misspelled key is caught, and `frozen` so a line cannot change after creation) and [lesson 7](/en/pydantic/serialization/) (`computed_field` so `subtotal` goes out in the result).
+
+`unit_price="1.999"` is rejected with `decimal_max_places` because of `decimal_places=2`, while `5` (an integer) passes and becomes `Decimal("5")`.
+
+</Step>
+
+<Step>
+
+## Payment: a discriminated union and a secret
+
+```python
+class Card(BaseModel):
+    method: Literal["card"]
+    number: SecretStr
+
+    @field_validator("number")
+    @classmethod
+    def sixteen_digits(cls, v: SecretStr) -> SecretStr:
+        digits = v.get_secret_value()
+        if not (digits.isdigit() and len(digits) == 16):
+            raise PydanticCustomError("card_number", "card number must be 16 digits")
+        return v
+
+class Transfer(BaseModel):
+    method: Literal["transfer"]
+    reference: str = Field(min_length=6)
+
+Payment = Annotated[Union[Card, Transfer], Field(discriminator="method")]
+```
+
+Three deliberate choices.
+
+**A discriminated union** ([lesson 4](/en/pydantic/unions/)) so that `{"method": "cash"}` gives `union_tag_invalid` directly instead of a report for every member.
+
+**The card number is a `SecretStr`** ([lesson 3](/en/pydantic/types/)). The exercise confirms that `"4111"` appears neither in `repr(order)` nor in `order.model_dump_json()`.
+
+**The card format is checked in a validator, not with `Field(pattern=...)`**, because `Field(pattern=...)` on a `SecretStr` does not work. The author tried it in the first draft and got `TypeError: Unable to apply constraint 'pattern' ... for schema of type 'lax-or-strict'` (that case was not kept in the exercise). The validator raises a `PydanticCustomError` whose message does not include the digits ([lesson 6](/en/pydantic/errors/)). Had it used `ValueError(f"bad card {digits}")`, the card number would end up in the error and in logs.
+
+</Step>
+
+<Step>
+
+## Order: putting it all together
+
+```python
+class Order(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    id: int = Field(gt=0)
+    email: EmailStr
+    placed_at: Annotated[datetime, AfterValidator(not_in_past)]
+    channel: Channel = Channel.WEB
+    lines: list[Line] = Field(min_length=1)
+    payment: Payment
+    callback: HttpUrl | None = None
+
+    @field_validator("lines")
+    @classmethod
+    def unique_skus(cls, v):
+        skus = [x.sku for x in v]
+        if len(skus) != len(set(skus)):
+            raise ValueError("a sku appears on more than one line")
+        return v
+
+    @model_validator(mode="after")
+    def store_needs_transfer_or_card(self):
+        if self.channel is Channel.STORE and self.callback is not None:
+            raise ValueError("store orders cannot have a callback")
+        return self
+
+    @computed_field
+    @property
+    def total(self) -> Decimal:
+        return sum((x.subtotal for x in self.lines), Decimal(0))
+```
+
+Valid data (`GOOD` in the exercise) passes every gate, with conversions:
+
+| sent | received |
+|---|---|
+| `"id": "1001"` | `1001` (`int`) |
+| `"email": " Ann@Example.com "` | `"Ann@example.com"` (spaces stripped by `str_strip_whitespace`, domain lowercased) |
+| `"placed_at": "2026-03-01T09:30:00+07:00"` | a `datetime` with a timezone |
+| the second line `"qty": "1"`, `"unit_price": 5` | `qty=1`, `Decimal("5")` |
+| `channel` not sent | `Channel.WEB` |
+| `payment.method == "card"` | a `Card` |
+
+`order.total == Decimal("44.80")` (19.90 × 2 + 5), and the dumped JSON has `"total": "44.80"` and `"subtotal": "39.80"` for the first line, as strings because that is how a `Decimal` goes to JSON ([lesson 7](/en/pydantic/serialization/)).
+
+The rules that span values sit in a list-level validator (duplicate sku) and a model-level validator (store with callback), as [lesson 5](/en/pydantic/validators/) taught.
+
+</Step>
+
+<Step>
+
+## When everything is wrong: a list of problems
+
+```python
+def problems(raw: str) -> list[dict]:
+    try:
+        Order.model_validate_json(raw)
+    except ValidationError as e:
+        return [
+            {"field": ".".join(str(p) for p in x["loc"]),
+             "code": x["type"],
+             "message": x["msg"]}
+            for x in e.errors(include_url=False, include_context=False, include_input=False)
+        ]
+    return []
+```
+
+Send an order with nine mistakes at once. The result the exercise confirms (in the order Pydantic reports):
+
+| field | code |
+|---|---|
+| `surprise` | `extra_forbidden` |
+| `id` | `greater_than` |
+| `email` | `value_error` |
+| `placed_at` | `date_too_old` |
+| `lines.0.color` | `extra_forbidden` |
+| `lines.0.sku` | `string_pattern_mismatch` |
+| `lines.0.qty` | `greater_than` |
+| `lines.0.unit_price` | `decimal_max_places` |
+| `payment` | `union_tag_invalid` |
+
+Notice the order: extra keys come before the normal fields of the same model (`surprise` before `id`, `lines.0.color` before `lines.0.sku`). Do not write code that expects the error order to match the field order in the class. If a client needs a sorted list, sort it yourself.
+
+None of the user's values are in the list (because of `include_input=False`), and `placed_at` gets `date_too_old`, a code of our own, from the `PydanticCustomError` in `not_in_past` ([lesson 6](/en/pydantic/errors/)).
+
+Rules that span values run only after the basic values pass ([lesson 5](/en/pydantic/validators/)), so:
+
+- two duplicate lines (with every field valid) give a single `value_error`
+- `channel="store"` with a `callback` gives the message `Value error, store orders cannot have a callback`
+- `lines=[]` gives `too_short`
+- text that is not JSON (`"{not json"`) gives `json_invalid`
+
+</Step>
+
+<Step>
+
+## The contract for senders: JSON Schema
+
+```python
+schema = Order.model_json_schema()
+schema["required"]                                   # ['id', 'email', 'placed_at', 'lines', 'payment']
+schema["properties"]["payment"]["discriminator"]["propertyName"]   # 'method'
+schema["additionalProperties"]                       # False
+set(schema["$defs"])                                 # {'Card', 'Channel', 'Line', 'Transfer'}
+```
+
+The schema tells the client which fields must be sent, that extra keys are not allowed (`additionalProperties: False` comes from `extra="forbid"`), and that `payment` chooses its type with `method`, as [lesson 9](/en/pydantic/adapters/) explains.
+
+But the validators we wrote ourselves (duplicate sku, `placed_at` must be after 2020, the card number must be 16 digits, a store order cannot have a callback) are **not in the schema**. Put them in `description` or in separate documentation, or senders will only find out when they get rejected.
+
+For orders that arrive in a batch, build one adapter and reuse it:
+
+```python
+Batch = TypeAdapter(list[Order])
+two = Batch.validate_json(json.dumps([GOOD, dict(GOOD, id=1002)]))   # [Order(id=1001...), Order(id=1002...)]
+Batch.validate_json(json.dumps([GOOD, dict(GOOD, id=-1)]))           # error at loc (1, 'id')
+```
+
+The `loc` starts with the index of the order in the batch, so the sender knows the second one is wrong.
+
+</Step>
+
+<Step>
+
+## Reviewing where each part came from
+
+| part of the gate | lesson |
+|---|---|
+| the model, lax converts `"1001"` to `1001` | [1](/en/pydantic/first-model/) |
+| `Annotated` plus `Field`, `min_length`, `gt`, `max_digits` | [2](/en/pydantic/fields/) |
+| `Decimal`, `EmailStr`, `HttpUrl`, `SecretStr`, `datetime` | [3](/en/pydantic/types/) |
+| `Payment` as a discriminated union | [4](/en/pydantic/unions/) |
+| `AfterValidator`, `field_validator`, `model_validator` | [5](/en/pydantic/validators/) |
+| `problems()`, `PydanticCustomError`, not echoing input | [6](/en/pydantic/errors/) |
+| `computed_field`, how `Decimal` dumps, secrets not leaking in JSON | [7](/en/pydantic/serialization/) |
+| `extra="forbid"`, `frozen`, `str_strip_whitespace` | [8](/en/pydantic/models-config/) |
+| `TypeAdapter(list[Order])`, JSON Schema | [9](/en/pydantic/adapters/) |
+| declare models once at module level, the cost of building | [10](/en/pydantic/under-the-hood/) |
+| when you inherit V1 code, what `Optional` and `Config` change | [11](/en/pydantic/migration/) |
+
+<Callout type="try" title="Try it in this repo">
+Extend the exercise `12_capstone.py` by adding a `Coupon` as a third member of `Payment` (`method: Literal["coupon"]`). Write an assert that `{"method": "coupon"}` with no code gives a single error, then see what changes in the JSON Schema. After that, make `placed_at` accept only timezone-aware datetimes and add an assert that `"2026-03-01T09:30:00"` (no timezone) is rejected with a code of your own.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- If you change `Card.number` to a plain `str` and the validator raises `ValueError(f"bad {digits}")`, where would the card number appear?
+- Why does `problems(json.dumps(dup))`, with duplicate lines, give a single error, when that order might have other problems if the basic fields were wrong?
+- A client says "your schema does not say a sku must not repeat". Where do you fix that?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| valid data passes every gate, `total`, `subtotal`, the card number does not leak, the "sent / received" table | ran: `exercises/12_capstone.py` |
+| the nine problems and the order Pydantic reports them in (extras first) | ran: `exercises/12_capstone.py` |
+| rules that span values: duplicate sku, store with callback, `too_short`, `json_invalid` | ran: `exercises/12_capstone.py` |
+| JSON Schema (`required`, `discriminator`, `additionalProperties`, `$defs`) and the `Batch` with `loc == (1, 'id')` | ran: `exercises/12_capstone.py` |
+| `Field(pattern=...)` on `SecretStr` gives a `TypeError` | author (seen in the first draft, not kept in the exercise) |
+| our own validators are not in the JSON Schema | ran: `exercises/09_adapters.py` |
+| how the lessons are laid out, and the advice | author |
+
+</Step>

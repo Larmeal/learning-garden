@@ -1,0 +1,194 @@
+---
+title: Unions and discriminated unions
+summary: When a field accepts several types, how does Pydantic choose? This lesson covers smart mode, which picks by how well the type matches, left_to_right, choosing between look-alike models, discriminated unions with short and clear errors, and callable discriminators.
+order: 4
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [types]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## The problem: should "5" be an int or a str
+
+`Union[int, str]` says both types are accepted. The question is what you get when you pass `"5"`: `5` or `"5"`. If Pydantic tried the members in order, `int` first, you would get `5`, which many people do not expect, because `"5"` is already a string.
+
+Pydantic V2 uses a method called **smart mode** by default (ran: `exercises/04_unions.py`):
+
+```python
+ok(Union[int, str], "5")    # '5'   a str
+ok(Union[int, str], 5)      # 5     an int
+```
+
+The simple rule: if a member of the union matches the value's type exactly (no conversion needed), that member wins. The order you write them in does not matter. `ok(Union[float, int], 5)` gives an `int` because `5` already is one.
+
+If no member matches exactly, Pydantic tries lax conversion. For example `ok(Union[int, float], "5")` gives `5` (an `int`), and `ok(Union[str, int], 5.0)` gives `5`, because a `float` with no fraction converts to `int`, while it cannot convert to `str`.
+
+</Step>
+
+<Step>
+
+## left_to_right: try them in order
+
+If you want "the first one that succeeds wins", set `union_mode`:
+
+```python
+class LeftToRight(BaseModel):
+    x: Union[int, str] = Field(union_mode="left_to_right")
+
+LeftToRight(x="5").x    # 5  an int
+```
+
+Now the order matters. `"5"` is tried as `int` first, succeeds, and becomes `5`. Use this mode when you want the order to decide on purpose, and when you want a result that is easier to predict than smart mode, which weighs several factors at once.
+
+`Optional[X]` is just `Union[X, None]`. `ok(int | None, None)` gives `None` and `ok(int | None, "3")` gives `3`. The `X | Y` syntax of Python 3.10 and later works the same way.
+
+</Step>
+
+<Step>
+
+## Errors from a union: one entry per member
+
+When no member accepts the value, Pydantic reports the reason for each one.
+
+```python
+errs(Union[int, list[int]], "x")
+# [('int', 'int_parsing'), ('list[int]', 'list_type')]
+```
+
+The first item of each pair is the `loc`, which has the member's type name added to show which member the error came from. That is clear when members are simple types. When they are large models the report gets very long, which is the reason for the discriminated union section below.
+
+</Step>
+
+<Step>
+
+## Several models in a union
+
+When the members are models, the question changes to "which model does this data match best".
+
+```python
+class Cat(BaseModel):
+    name: str
+    lives: int = 9
+
+class Dog(BaseModel):
+    name: str
+    good_boy: bool = True
+
+ok(Union[Cat, Dog], {"name": "x", "good_boy": False})   # Dog
+ok(Union[Cat, Dog], {"name": "x", "lives": 3})          # Cat
+```
+
+Smart mode counts how many fields each model received from the data (`model_fields_set` from [lesson 1](/en/pydantic/first-model/#what-a-model-does-when-you-do-not-ask)). The model that received more fields wins.
+
+When there is a tie, the one on the left wins. Passing `{"name": "x"}`, where both models get one field, the exercise gets `Cat` from `Union[Cat, Dog]` and gets `Dog` when you swap to `Union[Dog, Cat]`. So a tie depends on order. If your data has cases like that, the order you wrote is a hidden decider, and you should use a discriminated union instead.
+
+</Step>
+
+<Step>
+
+## Discriminated union: look at one field and choose exactly
+
+If each kind of data already has a field that names its type, such as `"kind": "card"`, you can tell Pydantic to look at that field and pick the model directly, with no trying one by one.
+
+```python
+class CardPay(BaseModel):
+    kind: Literal["card"]
+    number: str
+
+class QrPay(BaseModel):
+    kind: Literal["qr"]
+    ref: str
+
+Pay = Annotated[Union[CardPay, QrPay], Field(discriminator="kind")]
+
+ok(Pay, {"kind": "qr", "ref": "r1"})      # QrPay(kind='qr', ref='r1')
+```
+
+The clearest gain shows in the errors. Pass `{"kind": "card"}`, which lacks `number`:
+
+```text
+plain union:   [('CardPay.number', 'missing'),
+                ('QrPay.kind', 'literal_error'),
+                ('QrPay.ref', 'missing')]
+discriminated: [('card.number', 'missing')]
+```
+
+The plain union reports three things, and the last two are irrelevant because this data was never a `QrPay`. The discriminated union picks `CardPay` from `kind` and reports only what is wrong in `CardPay`. The loc starts with the tag (`card`).
+
+When the tag cannot be used, there are errors for that:
+
+- `{"kind": "cash"}` gives `union_tag_invalid` (the tag matches no member)
+- `{"ref": "r1"}` gives `union_tag_not_found` (there is no `kind` field at all)
+
+It works with JSON as well: `TypeAdapter(Pay).validate_json('{"kind":"card","number":"4111"}')` gives a `CardPay`.
+
+Besides being easier to read, a discriminated union is faster because the validator does not try several members, and the JSON Schema it produces tells the client which field is the discriminator ([lesson 9](/en/pydantic/adapters/) and [lesson 12](/en/pydantic/capstone/)).
+
+<Callout type="tip" title="When to use it">
+If a union of models has a field that names the type, always use a discriminated union. The exception is data with no tag at all, and the next section covers that.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Callable discriminator: when the data has no tag
+
+Sometimes no field names the type, and you must decide from the shape of the value, for example when you accept an `int` or a `str`. Use `Discriminator` with a function that returns the tag name, and use `Tag` to label each member.
+
+```python
+def which(v):
+    if isinstance(v, int):
+        return "int"
+    if isinstance(v, str):
+        return "str"
+    return None
+
+Either = Annotated[
+    Union[Annotated[int, Tag("int")], Annotated[str, Tag("str")]],
+    Discriminator(which),
+]
+
+ok(Either, "5")   # '5'
+ok(Either, 5)     # 5
+ok(Either, 5.5)   # error union_tag_not_found  (the function returned None)
+```
+
+The function returns `None` when it does not recognize the value, which becomes `union_tag_not_found`. This is more flexible, but you write the function yourself, and it must handle every kind of input that can arrive (a dict, an object or anything else).
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- Why does `ok(Union[int, str], "5")` give `"5"`, and what is the result if you switch to `Field(union_mode="left_to_right")`?
+- Two models share many fields, and the data you pass has only the shared fields. Which does smart mode pick, and how will you avoid the ambiguity?
+- How do the errors of `Union[CardPay, QrPay]` and `Annotated[Union[CardPay, QrPay], Field(discriminator="kind")]` differ when `kind="card"` but `number` is missing?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| smart mode prefers the exact type, and order does not matter when a type matches | ran: `exercises/04_unions.py` |
+| `Union[int, float]` given `"5"` gives `5`, and `Union[str, int]` given `5.0` gives `5` | ran: `exercises/04_unions.py` (printed) |
+| `left_to_right` | ran: `exercises/04_unions.py` |
+| errors of a plain union (one entry per member) | ran: `exercises/04_unions.py` |
+| several models: choose by number of fields received, a tie goes to the left | ran: `exercises/04_unions.py` |
+| smart mode counts the fields received to choose a model | source: `union.rs` in the knowledge graph ("smart mode picks the best match using exactness and field counts") |
+| discriminated union: shorter errors, `union_tag_invalid`, `union_tag_not_found`, JSON | ran: `exercises/04_unions.py` |
+| callable discriminator with `Tag` | ran: `exercises/04_unions.py` |
+| a discriminated union is faster because it does not try several members | author (from the tagged-union validator in `union.rs` choosing by discriminator, speed was not measured) |
+
+</Step>

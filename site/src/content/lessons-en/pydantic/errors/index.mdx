@@ -1,0 +1,207 @@
+---
+title: Reading and handling ValidationError
+summary: What a ValidationError contains, how loc points at a place in nested models, how errors(), json() and str() differ, making your own errors with PydanticCustomError, the data in ctx, and hiding input that is a secret.
+order: 6
+phase: B
+level: 3
+stage: sprout
+format: steps
+requires: [validators]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## One exception that carries every problem
+
+Pass data with four mistakes, nested three levels deep (ran: `exercises/06_errors.py`):
+
+```python
+class Item(BaseModel):
+    sku: str
+    qty: int
+
+class Order(BaseModel):
+    id: int
+    items: list[Item]
+    meta: dict[str, int] = {}
+
+bad = {"id": "x",
+       "items": [{"sku": "A", "qty": 1}, {"sku": 5, "qty": "y"}],
+       "meta": {"k": "v"}}
+Order.model_validate(bad)
+```
+
+The `ValidationError` holds four errors. `e.error_count()` gives 4 and `e.title` is `"Order"`. And because `ValidationError` is a subclass of `ValueError`, an `except ValueError` in old code catches it as well.
+
+`e.errors()` returns a list of dicts, one per problem:
+
+```python
+{'type': 'int_parsing',
+ 'loc': ('id',),
+ 'msg': 'Input should be a valid integer, unable to parse string as an integer',
+ 'input': 'x',
+ 'url': 'https://errors.pydantic.dev/2.13/v/int_parsing'}
+```
+
+| key | meaning |
+|---|---|
+| `type` | a code for the problem, steadier than the text, for code that must decide by kind of problem |
+| `loc` | the place in the input, a tuple of keys and indexes |
+| `msg` | text for a person to read |
+| `input` | the value that caused the failure |
+| `ctx` | extra data (if any), for example `{'gt': 0}` |
+| `url` | a link to the docs page for that kind of error |
+
+</Step>
+
+<Step>
+
+## Loc: following the trail into nested structures
+
+The four errors above have these `loc` values:
+
+```python
+[('id',), ('items', 1, 'sku'), ('items', 1, 'qty'), ('meta', 'k')]
+```
+
+Read them as: field `id`; member 1 (counting from 0) of `items`, field `sku`; the same member, field `qty`; and key `k` of `meta`. In a `list` the loc uses a numeric index, and in a `dict` it uses the key as text. In the text form the parts are joined with dots, for example `items.1.sku`.
+
+If the input comes as JSON through `model_validate_json`, locations are reported the same way. `'{"id": 1, "items": [{"sku": "A"}]}'` gives `loc == ("items", 0, "qty")` of type `missing`.
+
+JSON with bad syntax is also a `ValidationError`, of type `json_invalid`, with an empty `loc` and a message that says where in the text, for example `Invalid JSON: EOF while parsing a list at line 1 column 20`. The caller does not need to catch `json.JSONDecodeError` separately.
+
+</Step>
+
+<Step>
+
+## errors(), json() and str() are used differently
+
+| method | returns | use when |
+|---|---|---|
+| `str(e)` | readable multi-line text | showing it to a person, as in a log or a traceback |
+| `e.errors()` | `list[dict]` | code that processes the errors, such as turning them into an API response |
+| `e.json()` | a JSON string | passing it on as text |
+
+The first line of `str(e)` is `4 validation errors for Order`, followed by the failing field names one at a time (the format you saw in [lesson 1](/en/pydantic/first-model/#when-the-data-is-wrong-validationerror)).
+
+`errors()` can be tuned in three ways:
+
+```python
+e.errors(include_url=False)       # leave out the url
+e.errors(include_input=False)     # leave out the bad value
+e.errors(include_context=False)   # leave out ctx
+```
+
+<Callout type="warn" title="errors() with a ctx is not always JSON">
+When a validator raises `ValueError`, the original exception object sits in `ctx["error"]` (the exercise confirms `isinstance(ctx["error"], ValueError)`). An exception object cannot be passed to `json.dumps`, which raises `TypeError`. If you need JSON, use `e.json()`, which turns `ctx["error"]` into text such as `{"error": "too big"}`, or use `include_context=False`.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Making your own errors
+
+`raise ValueError("...")` in a validator always gives the `type` `value_error`, and the message gets a `Value error, ` prefix. If you want your own code and a message you can adjust, use `PydanticCustomError` from `pydantic_core`.
+
+```python
+from pydantic_core import PydanticCustomError
+
+@field_validator("code")
+@classmethod
+def known(cls, v):
+    if v not in {"SAVE10"}:
+        raise PydanticCustomError(
+            "unknown_coupon",                        # type
+            "coupon {code} does not exist",          # template
+            {"code": v},                             # ctx
+        )
+    return v
+```
+
+`Coupon(code="NOPE")` gives `type='unknown_coupon'`, `msg='coupon NOPE does not exist'`, `ctx={'code': 'NOPE'}`. The message is a template filled from `ctx`, and `type` is a code the client can match to a message in its own language.
+
+To reuse a kind of error that Pydantic already has, use `PydanticKnownError("greater_than", {"gt": 0})`, which gives the `type` `greater_than` with the standard message.
+
+**Exceptions that do not become a `ValidationError`.** Only `ValueError` and `AssertionError` (and the two classes above) are converted. Any other exception escapes as before. The exercise raises `ZeroDivisionError` in a validator and gets `ZeroDivisionError` straight out, the same idea as `TypeError` in [lesson 5](/en/pydantic/validators/#which-exceptions-become-a-validationerror).
+
+</Step>
+
+<Step>
+
+## Hiding the bad value: keep passwords out of logs
+
+`str(e)` shows the `input_value` of every error. If the input is a password that was typed wrong, it is written to the log too. The exercise confirms this with a field `pw: int` that receives `"hunter2"`.
+
+There are two levels. When you call `errors()`, use `include_input=False` (the value disappears from the result). At the model level, set it in the config:
+
+```python
+class Hidden(BaseModel):
+    model_config = {"hide_input_in_errors": True}
+    pw: int
+
+Hidden(pw="hunter2")
+```
+
+The message has no `hunter2` left. The error line becomes `Input should be a valid integer, unable to parse string as an integer [type=int_parsing]`, with no `input_value` part.
+
+A `SecretStr` ([lesson 3](/en/pydantic/types/)) is a different case from `int`, and its value is already hidden in `repr`. But watch the errors from validators you write yourself, and do not put the value in the message. The capstone in [lesson 12](/en/pydantic/capstone/) does this for card numbers (the message `card number must be 16 digits` does not include the digits).
+
+</Step>
+
+<Step>
+
+## Turning errors into an API response
+
+A common pattern is to turn `errors()` into a list the client can show, without revealing the values that were sent. An example from the capstone:
+
+```python
+def problems(raw: str) -> list[dict]:
+    try:
+        Order.model_validate_json(raw)
+    except ValidationError as e:
+        return [
+            {"field": ".".join(str(p) for p in x["loc"]),
+             "code": x["type"],
+             "message": x["msg"]}
+            for x in e.errors(include_url=False, include_context=False, include_input=False)
+        ]
+    return []
+```
+
+The client gets `field` to point at the spot in the form, `code` to translate into the user's language, and `message` as a fallback text. What the user typed is not echoed back. [Lesson 12](/en/pydantic/capstone/) uses the same shape on an order with nine mistakes.
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- You pass `{"id": "x", "items": [{"sku": 5}]}` into `Order`. What do you expect the `loc` of each error to be? (Write it down before you run it.)
+- Why does `json.dumps(e.errors())` fail when the error came from a `raise ValueError` in a validator, and what are two ways to fix it?
+- Your team wants the mobile app to show "this coupon does not exist" in Thai. Should it key on `msg` or `type`, and why?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| `error_count`, `title`, `isinstance(e, ValueError)`, the four `loc` values, the six keys of an error | ran: `exercises/06_errors.py` |
+| `json_invalid` and the position message, `loc` from `model_validate_json` | ran: `exercises/06_errors.py` |
+| `str(e)`, `e.json()`, `include_url`, `include_input`, `include_context` | ran: `exercises/06_errors.py` |
+| `ctx["error"]` is the original exception, `json.dumps(errors())` fails, `e.json()` works | ran: `exercises/06_errors.py` |
+| `PydanticCustomError`, `PydanticKnownError` | ran: `exercises/06_errors.py` |
+| `ZeroDivisionError` in a validator escapes | ran: `exercises/06_errors.py` |
+| `include_input=False` and `hide_input_in_errors` hide the value | ran: `exercises/06_errors.py` |
+| the `problems()` pattern for an API | ran: `exercises/12_capstone.py` |
+| tie translations to `type`, not `msg` | author |
+| `ValidationError` is built in Rust (`validation_exception.rs`) and gathers errors instead of stopping at the first | source: `validation_exception.rs` in the knowledge graph |
+
+</Step>

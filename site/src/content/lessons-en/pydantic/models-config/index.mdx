@@ -1,0 +1,277 @@
+---
+title: ConfigDict, nested models and generics
+summary: Configuring a model with ConfigDict (extra, frozen, validate_assignment, from_attributes and more), nested models and revalidate_instances, inheritance, RootModel, generic models, private attributes and model_construct.
+order: 8
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [serialization]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## ConfigDict: settings for the whole model
+
+You have already seen `populate_by_name`, `strict` and `hide_input_in_errors`. They all live in `model_config`.
+
+```python
+class Forbid(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    a: int
+```
+
+This lesson collects the ones used most (ran: `exercises/08_models_config.py`).
+
+**extra** decides what happens to keys the model does not know.
+
+| value | result when you pass `a=1, b=2` |
+|---|---|
+| `"ignore"` (default) | `b` is dropped, `model_dump()` gives `{"a": 1}` |
+| `"forbid"` | an error of type `extra_forbidden` |
+| `"allow"` | `b` is kept, readable as `x.b` and included in `model_dump()`, and `x.model_extra` gives `{"b": 2}` |
+
+`forbid` suits input whose contract you control, because a misspelled field name is caught at once. The default of dropping quietly makes `Customer(id=1, nmae="Ann")` look successful although the name is lost (if `name` has a default).
+
+**frozen** makes the model immutable and hashable.
+
+```python
+class Point(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    x: int
+
+p = Point(x=1)
+p.x = 2                                  # ValidationError of type frozen_instance
+hash(p) == hash(Point(x=1))              # True  usable as a dict key or in a set
+```
+
+**validate_assignment** checks every assignment.
+
+```python
+class Checked(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+    n: int
+
+c = Checked(n=1)
+c.n = "5"       # c.n is 5 (converted by lax as usual)
+c.n = "x"       # ValidationError of type int_parsing, c.n is still 5
+```
+
+A failed assignment does not damage the old value, so the model stays in a valid state. The validators from [lesson 5](/en/pydantic/validators/) also run on assignment when this option is on.
+
+**String handling for the whole model**
+
+```python
+class Clean(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, str_to_lower=True, str_min_length=1)
+    name: str
+
+Clean(name="  ANN ").name     # 'ann'
+Clean(name="   ")             # error string_too_short  (empty after stripping)
+```
+
+The order is strip first and then check length, so a string of only spaces is caught.
+
+</Step>
+
+<Step>
+
+## from_attributes: read from an object instead of a dict
+
+Data does not always arrive as a dict. A result from an ORM or a dataclass is an object with attributes. `from_attributes` tells the model to read attributes.
+
+```python
+@dataclass
+class Row:
+    id: int
+    name: str
+
+class Out(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+
+Out.model_validate(Row(1, "a")).name     # 'a'
+```
+
+A model without this option gets the error `model_type`, because the input is neither a dict nor an instance of that model. You can also turn it on for a single call: `Out.model_validate(Row(1, "a"), from_attributes=True)`.
+
+</Step>
+
+<Step>
+
+## A model inside a model
+
+A field that is a model accepts both a dict and an instance.
+
+```python
+class Address(BaseModel):
+    city: str
+
+class Person(BaseModel):
+    name: str
+    address: Address
+
+home = Address(city="BKK")
+Person(name="a", address=home).address is home                  # True  the same instance, not copied
+Person(name="a", address={"city": "CNX"}).address.city          # 'CNX'  built fresh from the dict
+```
+
+If you pass an instance that is already valid, Pydantic uses it without checking again. That is fast, but it means that if someone changes `home` later, `person.address` changes with it, because it is the same object.
+
+`revalidate_instances` changes this behavior. It has three values: `"never"` (default), `"always"` and `"subclass-instances"`. The exercise finds that **the setting is read from the config of the model being checked (the inner one), not the outer one**.
+
+```python
+class Revalidating(BaseModel):
+    model_config = ConfigDict(revalidate_instances="always")
+    city: str
+
+class Holder(BaseModel):
+    inner: Revalidating
+
+r = Revalidating(city="BKK")
+Holder(inner=r).inner is r        # False  checked and built again
+
+class Outer(BaseModel):
+    model_config = ConfigDict(revalidate_instances="always")
+    address: Address
+
+Outer(address=home).address is home    # True  set on the outer class, no effect on Address
+```
+
+`"subclass-instances"` rechecks only when the instance is a subclass of the declared type, and the result is built as the declared type: passing a `LooseChild` into a field of type `Loose` gives `type(...) is Loose`.
+
+</Step>
+
+<Step>
+
+## Inheritance
+
+Fields are inherited and appended. The order is the base's fields first, then the subclass's.
+
+```python
+class Base(BaseModel):
+    id: int
+
+class Child(Base):
+    name: str = "x"
+
+list(Child.model_fields)    # ['id', 'name']
+```
+
+A subclass's `model_config` is **merged** with the base's and does not replace it. If the base sets one thing and the subclass another, you get both (for the same key the subclass wins). A `Strictish(Base)` that sets `extra="forbid"` gets `model_config["extra"] == "forbid"` and the error type `extra_forbidden` when you pass an extra key.
+
+The field order in a dump follows the order declared in the class, not the order the caller passed. With `class Order: b: int = 0; a: int = 0`, `Order(a=1).model_dump()` has its keys in the order `["b", "a"]`.
+
+</Step>
+
+<Step>
+
+## RootModel: a model whose value is not a dict
+
+Sometimes the whole data is a list or a single value, but you want the methods and validators of a model. `RootModel` fits.
+
+```python
+class Tags(RootModel[list[str]]):
+    def first(self):
+        return self.root[0]
+
+t = Tags(["a", "b"])
+t.first()                 # 'a'
+t.model_dump()            # ['a', 'b']
+t.model_dump_json()       # '["a","b"]'
+Tags.model_validate_json('["z"]').root    # ['z']
+```
+
+The data lives in `.root`, and a dump gives the value directly, not wrapped in a `root` key. Use it when an API sends an array at the top level, or when a single-value type should have behavior of its own.
+
+</Step>
+
+<Step>
+
+## Generic models
+
+A model that is the same except for the type inside it, such as a paginated response:
+
+```python
+T = TypeVar("T")
+
+class Page(BaseModel, Generic[T]):
+    items: list[T]
+    total: int
+
+Page[int](items=["1", 2], total=2).items       # [1, 2]  converted to int
+Page[int](items=["x"], total=1)                # error int_parsing
+Page(items=["1"], total=1).items               # ['1']   T not given means Any, no conversion
+Page[int].__name__                             # 'Page[int]'
+```
+
+`Page[int]` builds a new class that checks its members as `int`. If you forget to write `[int]`, the members are not type-checked at all, which is easy to forget.
+
+</Step>
+
+<Step>
+
+## Private attributes and model_construct
+
+An attribute that starts with `_` is not a field. Use it for internal state that is not validated and does not appear in a dump.
+
+```python
+class WithPrivate(BaseModel):
+    a: int
+    _cache: dict = PrivateAttr(default_factory=dict)
+
+w = WithPrivate(a=1)
+w._cache["k"] = 1
+w.model_dump()     # {'a': 1}
+```
+
+**model_construct** builds a model **skipping all validation**.
+
+```python
+m = Out.model_construct(id="not an int", name=5)
+m.id                 # 'not an int'
+m.model_fields_set   # {'id', 'name'}
+```
+
+Use it when the data comes from a source you trust completely and you want speed, for example reading back something you just wrote yourself. Never use it on user input, because nothing catches a bad value.
+
+`==` between models compares the type and the values: `Address(city="a") == Address(city="a")` is `True`, but `Address(city="a") == {"city": "a"}` is `False`.
+
+<Callout type="try" title="Try it in this repo">
+In the exercise, move `revalidate_instances` from `Outer` onto `Address` and see whether `assert Outer(address=home).address is home` is still true, then explain why.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- An outside API sends keys your model does not know. Which would you pick: drop, keep or error? Which situation suits each?
+- How do the `items` of `Page(items=["1"], total=1)` and `Page[int](items=["1"], total=1)` differ?
+- You set `revalidate_instances="always"` on the outer model and expect the inner one to be checked again. Will that work?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| the three values of `extra`, `model_extra`, `frozen`, `validate_assignment`, string options | ran: `exercises/08_models_config.py` |
+| `from_attributes`, `model_type`, the per-call option | ran: `exercises/08_models_config.py` |
+| nested models, the instance reused, `revalidate_instances` read from the inner config, `subclass-instances` | ran: `exercises/08_models_config.py` |
+| inheritance, a subclass that sets `extra="forbid"` gets that config, field order in a dump | ran: `exercises/08_models_config.py` |
+| a subclass's config merges with the base and the same key lets the subclass win | author (from the docs, the exercise checks only the `extra` case) |
+| `RootModel`, generics, `PrivateAttr`, `model_construct`, `==` | ran: `exercises/08_models_config.py` |
+| `Customer(id=1, nmae="Ann")` succeeds quietly | ran: `exercises/01_first_model.py` (unknown keys are dropped) |
+| use `model_construct` only on trusted data | author |
+| the model validator in the Rust layer handles the revalidate policy, root models and assignment | source: `validators/model.rs` in the knowledge graph |
+
+</Step>

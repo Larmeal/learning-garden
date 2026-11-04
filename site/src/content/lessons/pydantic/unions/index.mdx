@@ -1,0 +1,194 @@
+---
+title: Union และ Discriminated Union
+summary: เมื่อ field รับได้หลายชนิด Pydantic เลือกชนิดยังไง บทนี้ดู smart mode ที่เลือกตามความตรงของชนิด, left_to_right, การเลือก model จากหลายตัวที่หน้าตาคล้ายกัน, discriminated union ที่รายงาน error สั้นและชัด และ callable discriminator
+order: 4
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [types]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## ปัญหา: ค่า "5" ควรเป็น int หรือ str
+
+`Union[int, str]` บอกว่ารับได้ทั้งสองชนิด คำถามคือถ้าส่ง `"5"` เข้าไป ผลควรเป็น `5` หรือ `"5"` ถ้า Pydantic ลองตามลำดับ ซึ่งคือ `int` ก่อน ก็จะได้ `5` ซึ่งหลายคนไม่คาดคิด เพราะ `"5"` เป็น string อยู่แล้ว
+
+Pydantic V2 เลือกวิธีที่เรียกว่า **smart mode** เป็นค่าเริ่มต้น (รัน: `exercises/04_unions.py`)
+
+```python
+ok(Union[int, str], "5")    # '5'   ชนิด str
+ok(Union[int, str], 5)      # 5     ชนิด int
+```
+
+กติกาแบบง่ายคือ ถ้ามีสมาชิกของ union ที่ชนิดตรงเป๊ะกับค่า (ไม่ต้องแปลง) ตัวนั้นชนะ ลำดับที่เขียนไม่สำคัญ `ok(Union[float, int], 5)` ได้ `int` เพราะ `5` เป็น `int` อยู่แล้ว
+
+ถ้าไม่มีตัวไหนตรงเป๊ะ จึงมาลองแปลงแบบ lax เช่น `ok(Union[int, float], "5")` ได้ `5` (ชนิด `int`) และ `ok(Union[str, int], 5.0)` ได้ `5` เพราะ `float` ที่ไม่มีเศษแปลงเป็น `int` ได้ แต่แปลงเป็น `str` ไม่ได้
+
+</Step>
+
+<Step>
+
+## left_to_right: ลองตามลำดับ
+
+ถ้าอยากได้พฤติกรรมแบบ "ตัวแรกที่สำเร็จชนะ" ตั้ง `union_mode`
+
+```python
+class LeftToRight(BaseModel):
+    x: Union[int, str] = Field(union_mode="left_to_right")
+
+LeftToRight(x="5").x    # 5  ชนิด int
+```
+
+คราวนี้ลำดับมีผล `"5"` ลองเป็น `int` ก่อน สำเร็จ จึงเป็น `5` mode นี้ใช้เมื่อเราตั้งใจให้ลำดับเป็นตัวตัดสิน และเมื่อต้องการให้ผลคาดเดาง่ายกว่า smart mode ซึ่งพิจารณาหลายปัจจัยพร้อมกัน
+
+`Optional[X]` ก็คือ `Union[X, None]` เท่านั้น `ok(int | None, None)` ได้ `None` และ `ok(int | None, "3")` ได้ `3` ไวยากรณ์ `X | Y` ของ Python 3.10 ขึ้นไปใช้ได้เหมือนกัน
+
+</Step>
+
+<Step>
+
+## Error ของ Union: หนึ่งรายการต่อหนึ่งสมาชิก
+
+เมื่อไม่มีสมาชิกไหนรับค่าได้ Pydantic รายงานเหตุผลของทุกตัว
+
+```python
+errs(Union[int, list[int]], "x")
+# [('int', 'int_parsing'), ('list[int]', 'list_type')]
+```
+
+ตัวแรกในแต่ละคู่คือ `loc` ซึ่งต่อชื่อชนิดของสมาชิกเข้าไป เพื่อบอกว่า error มาจากสมาชิกตัวไหน เรื่องนี้ชัดเจนเมื่อสมาชิกเป็นชนิดง่าย ๆ แต่ถ้าเป็น model ใหญ่ ๆ รายงานจะยาวมาก ดูหัวข้อ discriminated union ข้างล่าง
+
+</Step>
+
+<Step>
+
+## Model หลายตัวใน Union
+
+เมื่อสมาชิกเป็น model คำถามเปลี่ยนเป็น "ข้อมูลนี้ตรงกับ model ไหนที่สุด"
+
+```python
+class Cat(BaseModel):
+    name: str
+    lives: int = 9
+
+class Dog(BaseModel):
+    name: str
+    good_boy: bool = True
+
+ok(Union[Cat, Dog], {"name": "x", "good_boy": False})   # Dog
+ok(Union[Cat, Dog], {"name": "x", "lives": 3})          # Cat
+```
+
+smart mode นับว่าแต่ละ model ได้รับ field จากข้อมูลกี่ตัว (`model_fields_set` จาก [บท 1](/pydantic/first-model/#สิ่งที่-model-ทำเมื่อไม่ได้สั่ง)) model ที่ได้ field มากกว่าชนะ
+
+ถ้าเสมอกัน ได้ตัวทางซ้ายก่อน ส่ง `{"name": "x"}` ซึ่งทั้งสอง model ได้ field เดียว แบบฝึกได้ `Cat` จาก `Union[Cat, Dog]` และได้ `Dog` เมื่อสลับเป็น `Union[Dog, Cat]` กรณีเสมอกันจึงพึ่งลำดับ ถ้าข้อมูลของคุณมีกรณีแบบนี้ ลำดับที่เขียนเป็นตัวตัดสินที่ซ่อนอยู่ และควรใช้ discriminated union แทน
+
+</Step>
+
+<Step>
+
+## Discriminated Union: ดู Field เดียวแล้วเลือกให้ตรง
+
+ถ้าข้อมูลแต่ละแบบมี field ที่บอกชนิดอยู่แล้ว เช่น `"kind": "card"` ก็บอก Pydantic ให้ดู field นั้นแล้วเลือก model ได้เลย ไม่ต้องลองทีละตัว
+
+```python
+class CardPay(BaseModel):
+    kind: Literal["card"]
+    number: str
+
+class QrPay(BaseModel):
+    kind: Literal["qr"]
+    ref: str
+
+Pay = Annotated[Union[CardPay, QrPay], Field(discriminator="kind")]
+
+ok(Pay, {"kind": "qr", "ref": "r1"})      # QrPay(kind='qr', ref='r1')
+```
+
+ผลที่ได้ชัดที่สุดเห็นตอน error ลองส่ง `{"kind": "card"}` ซึ่งขาด `number`
+
+```text
+union ธรรมดา: [('CardPay.number', 'missing'),
+               ('QrPay.kind', 'literal_error'),
+               ('QrPay.ref', 'missing')]
+discriminated: [('card.number', 'missing')]
+```
+
+union ธรรมดารายงานสามเรื่อง สองเรื่องหลังไม่เกี่ยวเลย เพราะข้อมูลนี้ไม่ใช่ `QrPay` มาตั้งแต่ต้น ส่วน discriminated union เลือก `CardPay` จาก `kind` แล้วรายงานเฉพาะสิ่งที่ผิดใน `CardPay` loc ใช้ tag (`card`) นำหน้า
+
+เมื่อ tag ใช้ไม่ได้ ก็มี error เฉพาะของมัน
+
+- `{"kind": "cash"}` ได้ `union_tag_invalid` (tag ไม่ตรงกับตัวไหน)
+- `{"ref": "r1"}` ได้ `union_tag_not_found` (ไม่มี field `kind` เลย)
+
+ใช้กับ JSON ได้เหมือนกัน `TypeAdapter(Pay).validate_json('{"kind":"card","number":"4111"}')` ได้ `CardPay`
+
+นอกจากถูกอ่านง่ายกว่า discriminated union ยังเร็วกว่าด้วย เพราะ validator ไม่ต้องลองหลายตัว และ JSON Schema ที่ได้บอก client ชัดเจนว่า field ไหนเป็นตัวแยก ([บท 9](/pydantic/adapters/) และ [บท 12](/pydantic/capstone/))
+
+<Callout type="tip" title="ใช้เมื่อไหร่">
+ถ้า union ของ model มี field ที่เป็นตัวบอกชนิดอยู่แล้ว ให้ใช้ discriminated union เสมอ ยกเว้นข้อมูลไม่มี tag จริง ๆ ซึ่งก็มีทางออกในหัวข้อถัดไป
+</Callout>
+
+</Step>
+
+<Step>
+
+## Callable Discriminator: เมื่อข้อมูลไม่มี Tag
+
+บางครั้งไม่มี field ไหนบอกชนิดตรง ๆ ต้องดูจากรูปร่างของค่า เช่นรับ `int` หรือ `str` ใช้ `Discriminator` กับฟังก์ชันที่ตอบชื่อ tag และใช้ `Tag` ติดป้ายสมาชิกแต่ละตัว
+
+```python
+def which(v):
+    if isinstance(v, int):
+        return "int"
+    if isinstance(v, str):
+        return "str"
+    return None
+
+Either = Annotated[
+    Union[Annotated[int, Tag("int")], Annotated[str, Tag("str")]],
+    Discriminator(which),
+]
+
+ok(Either, "5")   # '5'
+ok(Either, 5)     # 5
+ok(Either, 5.5)   # error union_tag_not_found  (ฟังก์ชันคืน None)
+```
+
+ฟังก์ชันคืน `None` เมื่อไม่รู้จักค่า ซึ่งกลายเป็น `union_tag_not_found` วิธีนี้ยืดหยุ่นกว่า แต่ต้องเขียนฟังก์ชันเอง และฟังก์ชันนั้นต้องจัดการ input ได้ทุกแบบที่เป็นไปได้ (dict, object หรืออื่น ๆ)
+
+</Step>
+
+<Step>
+
+## เช็กตัวเอง
+
+- ทำไม `ok(Union[int, str], "5")` ถึงได้ `"5"` และถ้าเปลี่ยนเป็น `Field(union_mode="left_to_right")` ผลเป็นอะไร
+- model สองตัวมี field ร่วมกันเยอะ และข้อมูลที่ส่งมามีแต่ field ร่วม smart mode เลือกตัวไหน และคุณจะเลี่ยงความคลุมเครือนี้ยังไง
+- error ของ `Union[CardPay, QrPay]` กับ `Annotated[Union[CardPay, QrPay], Field(discriminator="kind")]` ต่างกันยังไงเมื่อ `kind="card"` แต่ขาด `number`
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| smart mode เลือกชนิดที่ตรงก่อน, ลำดับไม่มีผลเมื่อมีชนิดตรง | รัน: `exercises/04_unions.py` |
+| `Union[int, float]` ← `"5"` ได้ `5` และ `Union[str, int]` ← `5.0` ได้ `5` | รัน: `exercises/04_unions.py` (พิมพ์ผล) |
+| `left_to_right` | รัน: `exercises/04_unions.py` |
+| error ของ union ธรรมดา (หนึ่งรายการต่อสมาชิก) | รัน: `exercises/04_unions.py` |
+| model หลายตัว: เลือกตามจำนวน field ที่ได้, เสมอกันได้ตัวซ้าย | รัน: `exercises/04_unions.py` |
+| smart mode นับ field ที่ได้รับเพื่อเลือก model | source: `union.rs` ใน knowledge graph ("smart mode picks the best match using exactness and field counts") |
+| discriminated union: error สั้นลง, `union_tag_invalid`, `union_tag_not_found`, JSON | รัน: `exercises/04_unions.py` |
+| callable discriminator กับ `Tag` | รัน: `exercises/04_unions.py` |
+| discriminated union เร็วกว่าเพราะไม่ต้องลองหลายตัว | ผู้เขียน (อ้างจากการที่ validator แบบ tagged union ใน `union.rs` เลือกตาม discriminator ไม่ได้วัดความเร็ว) |
+
+</Step>

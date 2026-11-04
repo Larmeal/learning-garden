@@ -1,0 +1,79 @@
+---
+title: Check your understanding
+summary: Answer 5 questions to check how well you understood this lesson.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  lang="en"
+  client:visible
+  q="username: str has an after field_validator. The user passes username=123. What happens?"
+  options={['The validator is called with 123 and isalnum() fails', 'The validator is not called, because Pydantic checks the type first and gets string_type', 'Pydantic converts 123 to \'123\' and then calls the validator']}
+  answer={1}
+  why="An after validator runs only once the type check has passed. str does not accept numbers (lesson 3), so you get string_type and the validator is never called. So an after validator can trust the type of its value."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  lang="en"
+  client:visible
+  q="Order declares qty: int before note: str, and the validator of note reads info.data. If qty='x' (fails), what is in info.data?"
+  options={['{\'qty\': \'x\'}', 'An empty dict, because a field that failed is not stored in info.data', 'A KeyError when called']}
+  answer={1}
+  why="info.data holds only fields declared earlier that passed their check. If qty fails it is not there, so code that reads info.data['qty'] directly gets a KeyError. Check that it exists first."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  lang="en"
+  client:visible
+  q="Annotated[int, BeforeValidator(a), BeforeValidator(b), AfterValidator(c), AfterValidator(d)]. In what order do the functions run?"
+  options={['a, b, c, d', 'b, a, c, d', 'd, c, b, a']}
+  answer={1}
+  why="before runs in reverse, from the bottom up (b before a), and after runs in the order written (c then d). The exercise prints ['before2', 'before1', 'after1', 'after2']."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  lang="en"
+  client:visible
+  q="A model_validator(mode='after') checks low <= high. The user passes low='x' (wrong type) and high=1. What happens?"
+  options={['The validator runs and raises TypeError comparing str with int', 'You get only int_parsing, and the validator is not called', 'You get both int_parsing and value_error']}
+  answer={1}
+  why="The model's after validator runs only when every field has passed, so you can trust that self.low is an int. The exercise confirms that you get only int_parsing."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  lang="en"
+  client:visible
+  q="A field validator fails by raising TypeError (for example a function called wrongly). What happens?"
+  options={['It is wrapped in a ValidationError of type type_error', 'The TypeError escapes as it is, because Pydantic catches only ValueError and AssertionError', 'It is silently swallowed and counts as a pass']}
+  answer={1}
+  why="Pydantic treats a TypeError in validator code as a bug in the program, not bad data, so it does not wrap it. The exercise confirms it, and lesson 6 tests ZeroDivisionError with the same result. ValueError and AssertionError do become a ValidationError."
+/>
+
+</Step>

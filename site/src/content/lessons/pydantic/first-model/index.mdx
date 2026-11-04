@@ -1,0 +1,213 @@
+---
+title: Model แรก
+summary: BaseModel เปลี่ยน type hint ให้เป็นการตรวจข้อมูลจริงตอนสร้าง object บทนี้ดูว่า lax mode แปลงอะไรให้ได้ ValidationError หน้าตาเป็นยังไง และทางเข้าทั้งสามของ model (สร้างตรง, model_validate, model_validate_json)
+order: 1
+phase: A
+level: 1
+stage: sprout
+format: steps
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Type Hint ไม่ได้ตรวจอะไรเลย
+
+ใน Python เราเขียน `id: int` ได้ แต่ interpreter ไม่เคยเอาไปเช็ก มันมีไว้ให้คนอ่านกับ type checker อย่าง mypy ลองดูทั้งคลาสธรรมดาและ `dataclass` (รัน: `exercises/01_first_model.py`)
+
+```python
+from dataclasses import dataclass
+
+class Plain:
+    id: int
+    def __init__(self, id):
+        self.id = id
+
+@dataclass
+class Row:
+    id: int
+
+Plain("not a number").id    # 'not a number'
+Row(id="not a number").id   # 'not a number'
+```
+
+ทั้งสองแบบรับ string ไปเก็บใน field ที่ประกาศว่าเป็น `int` โดยไม่บ่นสักคำ ถ้าข้อมูลนี้มาจาก JSON ของ request หรือจากไฟล์ CSV ความผิดพลาดจะไปโผล่ที่อื่นไกลจากต้นเหตุ เช่นตอนบวกเลขแล้วได้ `TypeError` ในฟังก์ชันที่อยู่ลึกลงไปสามชั้น
+
+Pydantic เข้ามาแก้ตรงจุดนี้: ตรวจข้อมูลที่ขอบของโปรแกรม ตรงที่ข้อมูลจากข้างนอกเข้ามา แล้วส่งต่อเข้าไปข้างในเฉพาะข้อมูลที่ผ่านแล้ว
+
+</Step>
+
+<Step>
+
+## Model แรก
+
+Model คือคลาสที่สืบทอดจาก `BaseModel` แล้วประกาศ field ด้วย type hint
+
+```python
+from pydantic import BaseModel
+
+class Customer(BaseModel):
+    id: int
+    name: str
+    email: str
+    is_vip: bool = False
+
+c = Customer(id="42", name="Ann", email="ann@example.com")
+c.id            # 42
+type(c.id)      # <class 'int'>
+```
+
+ผู้เรียกส่ง `"42"` ซึ่งเป็น string เข้ามา แต่ `c.id` เป็น `int` จริง ๆ Pydantic ตรวจแล้วแปลงให้ เพราะ `"42"` อ่านเป็นจำนวนเต็มได้ field ที่มีค่า default (`is_vip`) ไม่ต้องส่ง ส่วน field ที่ไม่มี default ต้องส่ง
+
+ลองพิมพ์ดู
+
+```text
+repr: Customer(id=42, name='Ann', email='ann@example.com', is_vip=False)
+str : id=42 name='Ann' email='ann@example.com' is_vip=False
+```
+
+`repr` ให้ชื่อคลาสกับ field ครบ ใช้ debug ได้เลยโดยไม่ต้องเขียน `__repr__` เอง และ `==` ของ model เปรียบเทียบทั้งชนิดของ model และค่าทุก field
+
+</Step>
+
+<Step>
+
+## Lax Mode: แปลงให้ถ้าแปลงได้อย่างปลอดภัย
+
+โหมดเริ่มต้นของ Pydantic เรียกว่า **lax** มันรับค่าที่ชนิดไม่ตรงเป๊ะ ถ้ามีวิธีแปลงที่ชัดเจนและไม่เสียข้อมูล แบบฝึกทดสอบว่า `int` กับ `bool` รับอะไรได้บ้าง
+
+| ส่งเข้า field `int` | ผล |
+|---|---|
+| `"42"` | `42` |
+| `3.0` | `3` |
+| `"3.0"` | `3` |
+| `True` | `1` |
+| `3.5` | error `int_from_float` (ทิ้งเศษไม่ได้) |
+| `"abc"` | error `int_parsing` |
+| `None` | error `int_type` |
+
+| ส่งเข้า field `bool` | ผล |
+|---|---|
+| `"yes"`, `"1"`, `"T"`, `1` | `True` |
+| `"no"`, `"off"` | `False` |
+| `"maybe"` | error `bool_parsing` |
+
+หลักคือ Pydantic แปลงเมื่อค่าเดิมมีความหมายเดียวที่ชัดเจนในชนิดปลายทาง `3.0` คือสามพอดี แต่ `3.5` ถ้าแปลงเป็น `3` จะทำข้อมูลหายเงียบ ๆ จึงปฏิเสธ [บท 3](/pydantic/types/) ลงรายละเอียดตารางนี้ทั้งหมดและแสดงวิธีปิดการแปลงด้วย strict mode
+
+<Callout type="warn" title="ตัวเลขไม่ถูกแปลงเป็น string">
+`str` ไม่รับตัวเลข ส่ง `123` เข้า field `str` ได้ error `string_type` ฝั่ง V1 เคยแปลงให้ ถ้าโค้ดเก่าของคุณพึ่งพฤติกรรมนั้น จะเจอ error ตอนย้าย ([บท 11](/pydantic/migration/))
+</Callout>
+
+</Step>
+
+<Step>
+
+## เมื่อข้อมูลผิด: ValidationError
+
+ส่งข้อมูลที่ผิดสี่จุดในครั้งเดียว
+
+```python
+Customer(id=3.5, name=None, is_vip="maybe")
+```
+
+```text
+4 validation errors for Customer
+id
+  Input should be a valid integer, got a number with a fractional part [type=int_from_float, input_value=3.5, input_type=float]
+name
+  Input should be a valid string [type=string_type, input_value=None, input_type=NoneType]
+email
+  Field required [type=missing, input_value={'id': 3.5, 'name': None, 'is_vip': 'maybe'}, input_type=dict]
+is_vip
+  Input should be a valid boolean, unable to interpret input [type=bool_parsing, input_value='maybe', input_type=str]
+```
+
+สังเกตสองอย่าง อย่างแรก Pydantic **รายงานทุกจุดที่ผิดในครั้งเดียว** ไม่ได้หยุดที่จุดแรก ผู้ใช้ฟอร์มจึงแก้ได้ครบในรอบเดียว อย่างที่สอง แต่ละบรรทัดมี `type` (เช่น `int_from_float`) ซึ่งเป็นรหัสที่โปรแกรมเอาไปจัดการต่อได้ ข้อความ `msg` อาจเปลี่ยนตามเวอร์ชัน แต่ `type` นิ่งกว่า
+
+`ValidationError` เป็น subclass ของ `ValueError` จึงถูกจับด้วย `except ValueError` ได้ ใช้ `e.error_count()` นับจำนวนและ `e.errors()` ดึงเป็น list ของ dict ([บท 6](/pydantic/errors/) ลงลึกเรื่องนี้)
+
+</Step>
+
+<Step>
+
+## สามทางเข้า และสองทางออก
+
+สร้าง model ได้สามทาง
+
+```python
+Customer(id=1, name="Ann", email="a@x")                       # keyword argument
+Customer.model_validate({"id": 1, "name": "Ann", "email": "a@x"})   # dict หรือ object
+Customer.model_validate_json('{"id": 1, "name": "Ann", "email": "a@x"}')   # JSON text
+```
+
+ทั้งสามได้ผลเท่ากัน (แบบฝึกยืนยันด้วย `==`) ข้อที่ต่างคือ `model_validate_json` ให้ตัว parser JSON ส่งค่าเข้า validator โดยตรง ไม่ได้สร้าง `dict` ของ Python ก่อน และมีกฎเรื่อง strict ที่ต่างจากข้อมูลที่เป็น Python ([บท 3](/pydantic/types/) และ [บท 10](/pydantic/under-the-hood/))
+
+ขาออกก็มีสองทาง
+
+```python
+c.model_dump()        # {'id': 1, 'name': 'Ann', 'email': 'a@x', 'is_vip': False}
+c.model_dump_json()   # '{"id":1,"name":"Ann","email":"a@x","is_vip":false}'
+```
+
+ทางแรกคืน `dict` ทางที่สองคืน JSON string ที่ไม่มีช่องว่าง [บท 7](/pydantic/serialization/) ว่าด้วยการควบคุมสิ่งที่ออกมา
+
+</Step>
+
+<Step>
+
+## สิ่งที่ Model ทำเมื่อไม่ได้สั่ง
+
+พฤติกรรมเริ่มต้นสี่ข้อที่แบบฝึกยืนยัน และมักทำให้คนที่เพิ่งเริ่มประหลาดใจ
+
+**Key ที่ไม่รู้จักถูกทิ้ง** `Customer(id=1, name="a", email="e", nickname="x")` สำเร็จ และ object ที่ได้ไม่มี `nickname` เลย ถ้าอยากให้ error หรืออยากเก็บไว้ ต้องตั้ง `extra` ใน config ([บท 8](/pydantic/models-config/))
+
+**Field เป็น keyword-only** `Customer(1, "a", "e")` โยน `TypeError` เพราะ `BaseModel.__init__()` รับ positional argument ได้ตัวเดียวคือ `self` ทำให้ลำดับ field ในคลาสเปลี่ยนได้โดยไม่ทำให้โค้ดที่เรียกพัง
+
+**การ assign ภายหลังไม่ถูกตรวจ** หลังสร้าง `c` แล้ว `c.id = "oops"` สำเร็จ และ `c.id` เป็น `"oops"` ตรวจเฉพาะตอนสร้าง ถ้าต้องการให้ตรวจทุกครั้งที่ assign เปิด `validate_assignment` ([บท 8](/pydantic/models-config/))
+
+**Model จำได้ว่าผู้เรียกส่ง field ไหนมา** `model_fields_set` เป็น set ของชื่อ field ที่ถูกส่งเข้ามาจริง
+
+```python
+Customer(id=1, name="a", email="e").model_fields_set
+# {'id', 'name', 'email'}   ไม่มี is_vip เพราะใช้ค่า default
+Customer(id=1, name="a", email="e", is_vip=False).model_fields_set
+# {'id', 'name', 'email', 'is_vip'}
+```
+
+ข้อมูลนี้ใช้แยก "ไม่ได้ส่งมา" ออกจาก "ส่งมาเป็นค่า default" ซึ่งสำคัญกับ PATCH request: ถ้าผู้ใช้ส่งมาแค่ `name` เราควรแก้แค่ `name` ไม่ใช่รีเซ็ต field อื่นเป็นค่า default [บท 7](/pydantic/serialization/) ใช้มันกับ `exclude_unset`
+
+<Callout type="try" title="ลองทำใน repo นี้">
+เปิด `subjects/pydantic/code/exercises/01_first_model.py` แล้วรัน `uv run python exercises/01_first_model.py` ลองส่ง `id="  7  "` (มีช่องว่างล้อมรอบ) และ `id="7_000"` ดูว่าได้อะไร แล้วเดาก่อนรันว่าจะผ่านหรือไม่
+</Callout>
+
+</Step>
+
+<Step>
+
+## เช็กตัวเอง
+
+- ข้อมูล JSON ของ request ที่มี `"qty": "3"` ผ่านเข้า field `qty: int` ได้ไหม และถ้าส่ง `"qty": 3.5` ล่ะ เพราะอะไร
+- ส่งข้อมูลผิดห้าจุดเข้า model จะได้ error กี่ครั้ง และเกิดอะไรขึ้นกับจุดที่สองถึงห้าถ้า Pydantic หยุดที่จุดแรก
+- `Customer(id=1, name="a", email="e")` กับ `Customer(id=1, name="a", email="e", is_vip=False)` ให้ `model_dump()` เท่ากัน แล้วมีอะไรที่ต่างกัน
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| class ธรรมดาและ dataclass ไม่ตรวจ type hint, `"42"` เป็น `42` ชนิด `int`, `repr` และ `str` | รัน: `exercises/01_first_model.py` |
+| ตาราง lax ของ `int` และ `bool`, `str` ไม่รับตัวเลข (`string_type`) | รัน: `exercises/01_first_model.py`, `exercises/03_types.py` |
+| V1 แปลงตัวเลขเป็น string ให้ แต่ V2 ไม่แปลง | รัน: `exercises/11_migration.py` (ใช้ `pydantic.v1`) |
+| ผลของ `Customer(id=3.5, name=None, is_vip="maybe")` (สี่ error, ชนิด error แต่ละตัว) | รัน: `exercises/01_first_model.py` |
+| สามทางเข้าได้ผลเท่ากัน, `model_dump` และ `model_dump_json` | รัน: `exercises/01_first_model.py` |
+| key ที่ไม่รู้จักถูกทิ้ง, keyword-only, ไม่ตรวจตอน assign, `model_fields_set` | รัน: `exercises/01_first_model.py` |
+| `model_validate_json` ให้ parser JSON ส่งค่าเข้า validator โดยตรง | source: `input_json.rs` ใน knowledge graph ([บท 10](/pydantic/under-the-hood/)) |
+| ตัวเลือกการใช้ `model_fields_set` กับ PATCH | ผู้เขียน |
+
+</Step>

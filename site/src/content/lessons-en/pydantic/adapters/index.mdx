@@ -1,0 +1,211 @@
+---
+title: TypeAdapter, validate_call, dataclasses and JSON Schema
+summary: Checking data that is not a BaseModel with TypeAdapter, checking function arguments with validate_call, pydantic dataclasses, TypedDict and NamedTuple, and generating JSON Schema from a model, with its limits.
+order: 9
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [models-config]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## TypeAdapter: check any type
+
+Not everything needs wrapping in a `BaseModel`. If you only need to check `list[int]` or `dict[str, int]`, writing an extra class is a burden. `TypeAdapter` takes a type and gives you a validator, a serializer and a JSON Schema for it (ran: `exercises/09_adapters.py`).
+
+```python
+ta = TypeAdapter(list[int])
+ta.validate_python(["1", 2])       # [1, 2]
+ta.validate_json("[1, 2, 3]")      # [1, 2, 3]
+ta.dump_python([1, 2])             # [1, 2]
+ta.dump_json([1, 2])               # b'[1,2]'   returns bytes, not str
+ta.json_schema()                   # {'type': 'array', 'items': {'type': 'integer'}}
+```
+
+The method names differ slightly from a model: `validate_python` instead of `model_validate`, `dump_python` instead of `model_dump`. The one thing to watch is that `dump_json` returns `bytes`.
+
+The constraints of [lesson 2](/en/pydantic/fields/) work inside the type:
+
+```python
+Users = TypeAdapter(dict[str, Annotated[int, Field(ge=0)]])
+Users.validate_python({"a": "1"})     # {'a': 1}
+Users.validate_python({"a": -1})      # error at loc ('a',) of type greater_than_equal
+```
+
+**Build once, reuse.** Creating a `TypeAdapter` is the expensive step, because it walks the type and builds a core schema ([lesson 10](/en/pydantic/under-the-hood/)). Calling `validate_python` is the cheap step. The exercise measures 200 calls on `[1, 2, 3]` on the machine that ran it:
+
+```text
+build each call 6.9 ms, reuse 0.09 ms for 200 calls, ratio 77x
+```
+
+The number depends on the machine. What the exercise `assert`s is a ratio above 20 times. So declare the adapter as a module-level variable instead of building it inside a function that is called often.
+
+</Step>
+
+<Step>
+
+## TypedDict and NamedTuple
+
+Standard Python types that are not plain classes can be checked too, and the result keeps the original type.
+
+```python
+class Movie(TypedDict):
+    title: str
+    year: int
+
+m = TypeAdapter(Movie).validate_python({"title": "x", "year": "1999"})
+m                 # {'title': 'x', 'year': 1999}
+type(m) is dict   # True   it did not become a Pydantic object
+
+class Pt(NamedTuple):
+    x: int
+    y: int
+
+TypeAdapter(Pt).validate_python(("1", "2"))    # Pt(x=1, y=2)
+```
+
+This fits when existing code already passes dicts or tuples around and you want to add checking at the edge without changing the data types in the rest of the program.
+
+</Step>
+
+<Step>
+
+## Pydantic dataclasses
+
+A plain `dataclass` checks nothing ([lesson 1](/en/pydantic/first-model/#type-hints-check-nothing)). You can switch to Pydantic's by changing the import.
+
+```python
+from pydantic.dataclasses import dataclass as pdataclass
+
+@pdataclass
+class Item:
+    sku: str
+    qty: PositiveInt = 1
+
+Item("A", "3").qty                  # 3
+dataclasses.is_dataclass(Item)      # True
+Item("A", 0)                        # ValidationError of type greater_than
+dataclasses.asdict(Item("A", 2))    # {'sku': 'A', 'qty': 2}
+TypeAdapter(Item).validate_python({"sku": "A", "qty": "2"})   # Item(sku='A', qty=2)
+```
+
+It is still a dataclass that works with other tools (`asdict`, `fields`), and type checkers see an ordinary dataclass. The difference from `BaseModel` is that there are no `model_*` methods. Use `TypeAdapter` when you need a dump or a JSON Schema.
+
+How to choose: if you want `model_dump`, `model_json_schema`, the full ConfigDict, or fields that need aliases, use `BaseModel`. If the code is already in dataclass style and you want to add checking, use a pydantic dataclass (the author's advice).
+
+</Step>
+
+<Step>
+
+## validate_call: check a function's arguments
+
+```python
+@validate_call
+def add(a: int, b: int = 1) -> int:
+    return a + b
+
+add("2", b="3")    # 5
+```
+
+The decorator checks every argument by the same rules as a model. When one is wrong you get a `ValidationError` whose `loc` uses the position or the name.
+
+| call | error |
+|---|---|
+| `add("x")` | `loc == (0,)` of type `int_parsing` |
+| `add(1, 2, 3)` | `unexpected_positional_argument` |
+| `add(1, c=3)` | `unexpected_keyword_argument` |
+
+By default the return value is not checked. To check it as well, write `@validate_call(validate_return=True)`, and a function that returns `"not an int"` then gets `int_parsing`. The wrapped function keeps its name (`add.__name__ == "add"`), and you can call the original without any checking through `add.raw_function`.
+
+An argument that is a model accepts a dict, as a model normally would:
+
+```python
+@validate_call
+def use(cfg: Cfg) -> int:
+    return cfg.n
+
+use({"n": "4"})    # 4
+```
+
+<Callout type="tip" title="What it suits">
+`validate_call` is handy for functions that are the entry point of a library or a CLI, where the caller is someone else. For functions your own code calls, which a type checker already covers, checking again on every call is a cost you do not need.
+</Callout>
+
+</Step>
+
+<Step>
+
+## JSON Schema from a model
+
+`Model.model_json_schema()` (or `TypeAdapter(...).json_schema()`) produces a JSON Schema that clients can use to validate, document an API or build forms.
+
+```python
+class Product(BaseModel):
+    """A product in the catalogue."""
+
+    sku: str = Field(min_length=3, description="stock keeping unit", examples=["AB-1"])
+    price: float = Field(gt=0)
+    tags: list[str] = []
+    note: str | None = None
+```
+
+What the result contains (confirmed with `assert` in the exercise):
+
+- `required` is `["sku", "price"]`. Fields with a default are not in the list.
+- `sku` has `minLength: 3` with its `description` and `examples`.
+- `price` has `exclusiveMinimum: 0` (from `gt=0`).
+- `note` is `anyOf: [{"type": "string"}, {"type": "null"}]`.
+- `title` is `"Product"` and `description` comes from the class docstring.
+
+Nested models go into `$defs` and are referenced with `$ref`:
+
+```python
+class Basket(BaseModel):
+    items: list[Product]
+
+schema["properties"]["items"]["items"]   # {'$ref': '#/$defs/Product'}
+```
+
+**Two modes.** `model_json_schema(mode="validation")` (the default) describes what the model **accepts**, and `mode="serialization"` describes what it **sends out**. They differ in that computed fields ([lesson 7](/en/pydantic/serialization/)) appear only in the serialization form. In serialization, `required` is still `["sku", "price"]`, because fields with a default are still not mandatory. If you want fields with a default to count as always present in the output, set `json_schema_serialization_defaults_required` to `True` and `required` then lists all four fields.
+
+<Callout type="warn" title="A validator written in Python code is invisible to JSON Schema">
+A `field_validator` that checks a number is even does not appear in the schema at all. The exercise confirms that `n` is just `{"title": "N", "type": "integer"}`. The generated JSON Schema can describe only the conditions Pydantic understands (types, `Field(...)`, `Annotated`). If an important validator exists, say so in `description` yourself, or a client that trusts the schema will send values the server rejects.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- A function called a thousand times a second builds `TypeAdapter(list[int])` inside itself every time. What is wrong, and how do you fix it?
+- What does `TypeAdapter(Movie).validate_python(...)` (Movie is a `TypedDict`) return, and how does that differ from using a `BaseModel`?
+- When do the validation and serialization schemas of `Product` differ, and does a validator you wrote yourself show up in either?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| the methods of `TypeAdapter`, `dump_json` returns bytes, loc of a dict | ran: `exercises/09_adapters.py` |
+| the ratio of building every time versus reusing (77x printed is the result on the machine that ran it, the assert is above 20x) | ran: `exercises/09_adapters.py` |
+| `TypedDict` and `NamedTuple` | ran: `exercises/09_adapters.py` |
+| pydantic dataclasses | ran: `exercises/09_adapters.py` |
+| `validate_call`: arguments, three kinds of error, `validate_return`, `raw_function`, a model as an argument | ran: `exercises/09_adapters.py` |
+| JSON Schema: required, minLength, exclusiveMinimum, anyOf, docstring, `$defs`, two modes, `json_schema_serialization_defaults_required` | ran: `exercises/09_adapters.py` |
+| validators do not appear in JSON Schema | ran: `exercises/09_adapters.py` |
+| the expensive step is building the core schema | ran: `exercises/10_under_the_hood.py` (creating 200 classes against 200 validations) |
+| advice on choosing between `BaseModel` and a dataclass, and when to use `validate_call` | author |
+| `TypeAdapter` builds a validator, a serializer and a JSON Schema for any type | source: `type_adapter.py` in the knowledge graph |
+| JSON Schema is generated from the core schema, not from the Python class | source: `json_schema.py` in the knowledge graph |
+
+</Step>

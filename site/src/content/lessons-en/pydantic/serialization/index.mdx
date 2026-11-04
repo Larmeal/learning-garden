@@ -1,0 +1,286 @@
+---
+title: "Serialization: controlling what comes out of a model"
+summary: model_dump in two modes (python and json), nested include and exclude, exclude_unset versus exclude_defaults, field_serializer, PlainSerializer, computed_field, model_serializer, how subclasses are serialized, and model_copy.
+order: 7
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [validators]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Two modes on the way out
+
+The earlier lessons looked at input. This one looks at output. The examples use this set of models (ran: `exercises/07_serialization.py`):
+
+```python
+class Order(BaseModel):
+    id: int
+    placed: date
+    color: Color              # an Enum
+    lines: list[Line]         # Line has sku, qty, price: Decimal
+    note: str | None = None
+    tags: set[str] = set()
+```
+
+`model_dump()` gives a dict that keeps Python types intact. `model_dump(mode="json")` gives a dict that holds only types JSON can store.
+
+| field | `model_dump()` | `model_dump(mode="json")` |
+|---|---|---|
+| `placed` | `date(2026, 3, 1)` | `"2026-03-01"` |
+| `color` | `Color.RED` | `"red"` |
+| `lines[0]["price"]` | `Decimal("9.50")` | `"9.50"` |
+| `tags` | `{"x"}` | `["x"]` |
+
+Both modes turn nested models into dicts (`lines[0]` is a `dict`, not a `Line`). A `Decimal` goes out as a string in JSON so that it loses no precision.
+
+`model_dump_json()` gives a JSON string directly, in compact form. The result equals `json.dumps` of the `mode="json"` dict, and you can pass `indent=2` to make it readable.
+
+```text
+{"id":1,"placed":"2026-03-01","color":"red","lines":[{"sku":"A","qty":2,"price":"9.50"}],"note":null,"tags":["x"]}
+```
+
+The output reads back in both ways: `Order.model_validate_json(text) == o` and `Order.model_validate(js) == o`.
+
+</Step>
+
+<Step>
+
+## Choosing fields: include, exclude and exclude_*
+
+```python
+o.model_dump(include={"id", "note"})            # only these two fields
+o.model_dump(exclude={"lines"})                 # everything except lines
+o.model_dump(include={"lines": {0: {"sku"}}})["lines"]            # [{'sku': 'A'}]
+o.model_dump(exclude={"lines": {"__all__": {"price"}}})["lines"]  # [{'sku': 'A', 'qty': 2}]
+```
+
+Inside a nested structure, a dict names the next level. A number picks that member of a list, and `"__all__"` means every member.
+
+Another set chooses by the state of the value:
+
+| option | drops fields that... |
+|---|---|
+| `exclude_unset=True` | the caller did not pass (see `model_fields_set` in [lesson 1](/en/pydantic/first-model/#what-a-model-does-when-you-do-not-ask)) |
+| `exclude_defaults=True` | equal their default |
+| `exclude_none=True` | are `None` |
+
+The first two differ in whether the caller passed a value equal to the default. If you build `Order(..., note=None)` and pass `note=None` explicitly, `exclude_unset` **keeps** `note` (the caller passed it) but `exclude_defaults` **drops** it (it equals the default). A PATCH request should use `exclude_unset` so it changes only what the user sent.
+
+</Step>
+
+<Step>
+
+## Aliases when dumping
+
+By default a dump uses the real field names. Add `by_alias=True` to get aliases ([lesson 2](/en/pydantic/fields/#alias-the-input-name-differs-from-the-python-name)).
+
+```python
+a = Aliased(userId=1)
+a.model_dump()                        # {'user_id': 1}
+a.model_dump(by_alias=True)           # {'userId': 1}
+a.model_dump_json(by_alias=True)      # '{"userId":1}'
+```
+
+This is the opposite of input, where the alias is the default. A round trip therefore needs care: if you write a file with `by_alias=True`, you read it back using the alias names.
+
+</Step>
+
+<Step>
+
+## field_serializer and PlainSerializer
+
+Change how one field is written with `field_serializer`:
+
+```python
+class Event(BaseModel):
+    at: datetime
+    price: Decimal
+
+    @field_serializer("at")
+    def fmt(self, v: datetime) -> str:
+        return v.strftime("%d/%m/%Y")
+
+    @field_serializer("price", when_used="json")
+    def money(self, v: Decimal) -> float:
+        return float(v)
+```
+
+`at` is converted in every mode. `price` has `when_used="json"`, so it becomes a `float` only when writing JSON. The exercise result: `model_dump()["price"]` is still `Decimal("1.5")`, while `model_dump_json()` gives `{"at":"01/03/2026","price":1.5}`.
+
+The `when_used` options are `"always"` (the default), `"json"`, `"json-unless-none"` and `"unless-none"`.
+
+To reuse it across many fields, attach it to the type with `Annotated` and `PlainSerializer`, the same way as validators in [lesson 5](/en/pydantic/validators/#annotated-validators-reusable-and-stackable):
+
+```python
+Baht = Annotated[Decimal, PlainSerializer(lambda v: f"{v:.2f} THB", return_type=str)]
+
+class Price(BaseModel):
+    amount: Baht
+
+Price(amount="3").model_dump()    # {'amount': '3.00 THB'}
+```
+
+`return_type` states the type the function returns, so the JSON Schema ([lesson 9](/en/pydantic/adapters/)) can describe this field correctly.
+
+</Step>
+
+<Step>
+
+## computed_field: putting a property into the output
+
+A plain `@property` does not appear in a dump. To make it appear, wrap it with `@computed_field`.
+
+```python
+class Rect(BaseModel):
+    w: int
+    h: int
+
+    @computed_field
+    @property
+    def area(self) -> int:
+        return self.w * self.h
+
+Rect(w=2, h=3).model_dump()     # {'w': 2, 'h': 3, 'area': 6}
+```
+
+A computed field affects output only. The serialization-mode JSON Schema contains `area` and the validation-mode one does not, and if you pass `area=99` when building, the value is ignored (`Rect(w=1, h=1, area=99).area` gives 1) because it is not an input field. Always write the return type hint, because Pydantic uses it to build the schema.
+
+</Step>
+
+<Step>
+
+## model_serializer: take over the whole thing
+
+When the shape of the output differs a lot from the field structure, write it yourself with `model_serializer`. This example uses `SerializationInfo` to see which mode it is in.
+
+```python
+class Money(BaseModel):
+    amount: int
+    currency: str
+
+    @model_serializer
+    def ser(self, info: SerializationInfo) -> str | dict[str, Any]:
+        return f"{self.amount} {self.currency}" if info.mode == "json" else {"a": self.amount}
+
+Money(amount=5, currency="THB").model_dump_json()   # '"5 THB"'
+Money(amount=5, currency="THB").model_dump()        # {'a': 5}
+```
+
+The example makes the two modes differ a lot on purpose, to show what `info.mode` is for. Real code usually returns the same shape in both.
+
+</Step>
+
+<Step>
+
+## A subclass is serialized as the declared type
+
+A trap you meet often when you use inheritance:
+
+```python
+class Animal(BaseModel):
+    name: str
+
+class Dog(Animal):
+    tricks: int = 0
+
+class Owner(BaseModel):
+    pet: Animal
+
+Owner(pet=Dog(name="r", tricks=3)).model_dump()
+# {'pet': {'name': 'r'}}      tricks is gone
+```
+
+The field is declared as `Animal`, so Pydantic serializes with the schema of `Animal`, even though the real value is a `Dog`. If you want it to follow the real type, there are two ways, and the exercise confirms both give the same result:
+
+```python
+pet: SerializeAsAny[Animal]                                  # on the field
+Owner(...).model_dump(serialize_as_any=True)                 # at the call
+```
+
+Another route is to switch to the discriminated union of [lesson 4](/en/pydantic/unions/), which picks the model by tag on the way in and on the way out (the author did not run that in the exercise).
+
+<Callout type="warn" title="Data disappears quietly">
+The subclass case above gives no error and no warning. The data of `Dog` simply vanishes from the output. If your API takes polymorphic models, write a test that dumps and compares the subclass fields.
+</Callout>
+
+</Step>
+
+<Step>
+
+## A wrong-typed value on dump: a warning, not an error
+
+Because `validate_assignment` is off by default ([lesson 1](/en/pydantic/first-model/#what-a-model-does-when-you-do-not-ask)), you can put a wrong-typed value into a model, and that value travels on to the dump.
+
+```python
+m = N(n=1)         # n: int
+m.n = "not an int"
+m.model_dump()     # {'n': 'not an int'}  with a warning
+```
+
+```text
+Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected `int` - serialized value may not be as expected [field_name='n', input_value='not an int', input_type=str])
+```
+
+The value is dumped as it is, with one warning. If you run tests with `-W error`, the warning becomes a failure, which is a way to catch wrong-typed assignments without turning on `validate_assignment`.
+
+</Step>
+
+<Step>
+
+## model_copy: change without mutating
+
+```python
+c = o.model_copy(update={"id": 2})
+c.id           # 2
+o.id           # 1
+c.lines is o.lines            # True   a shallow copy
+o.model_copy(deep=True).lines is not o.lines   # True
+```
+
+`update` is **not validated**. The value you put in is used as it is (unlike building a new model), and the copy is shallow by default, so the lists inside are shared. To change a list in the copy without touching the original, use `deep=True`.
+
+<Callout type="try" title="Try it in this repo">
+Run `uv run python exercises/07_serialization.py`, then change `when_used="json"` on `money` to `"always"` and see which `assert` fails, and why.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- Your API takes a PATCH where the user sends only `{"name": "x"}`. Would you pick `exclude_unset` or `exclude_none`, and why?
+- How do `model_dump()` and `model_dump(mode="json")` differ for a `Decimal` field and a `set` field?
+- `Owner.pet: Animal` holds a `Dog`. What does the dump give, and in how many ways can you fix it?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| python versus json mode, the four-field table, compact versus `indent`, round trip | ran: `exercises/07_serialization.py` |
+| `include`, nested `exclude`, `__all__`, `exclude_unset`, `exclude_defaults`, `exclude_none` | ran: `exercises/07_serialization.py` |
+| `by_alias` | ran: `exercises/07_serialization.py` |
+| `field_serializer`, `when_used="json"`, `PlainSerializer` | ran: `exercises/07_serialization.py` |
+| the other values of `when_used` | author (from the docs, not every value was run) |
+| `computed_field`, JSON Schema in both modes, the input for `area` is ignored | ran: `exercises/07_serialization.py` |
+| `model_serializer` with `info.mode` | ran: `exercises/07_serialization.py` |
+| a subclass is serialized as the declared type, `SerializeAsAny`, `serialize_as_any` | ran: `exercises/07_serialization.py` |
+| the warning on dumping a wrong-typed value, and its text | ran: `exercises/07_serialization.py` |
+| `model_copy(update=)` is shallow, and `deep=True` | ran: `exercises/07_serialization.py` |
+| `update` is not validated | ran: `exercises/07_serialization.py` |
+| `-W error` catches the warning | author |
+| the serialization side is a `SchemaSerializer` built from the same core schema as the validator | source: `serializers/mod.rs` in the knowledge graph |
+
+</Step>

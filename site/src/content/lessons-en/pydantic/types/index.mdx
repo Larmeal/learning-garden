@@ -1,0 +1,217 @@
+---
+title: Types, lax and strict
+summary: This lesson goes deep on what Pydantic converts in lax mode, three ways to turn on strict mode, how Python input differs from JSON input, and the types that ship with Pydantic, from dates and Decimal to URL, email and SecretStr.
+order: 3
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [first-model, fields]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## The lax conversion table
+
+[Lesson 1](/en/pydantic/first-model/#lax-mode-convert-when-it-is-safe) showed `int` and `bool`. This lesson extends the table to other types. The exercises use `TypeAdapter`, which checks any type without a model ([lesson 9](/en/pydantic/adapters/) explains it fully). For now read each line as "check this value against this type" (ran: `exercises/03_types.py`).
+
+| Target type | Accepts | Rejects |
+|---|---|---|
+| `int` | `"42"`, `7.0`, `b"5"` | `7.5` (`int_from_float`), `None` (`int_type`), `"7x"` (`int_parsing`) |
+| `float` | `"1e3"`, `3` (gives `3.0`, a `float`) | |
+| `str` | `b"bytes"` | `123` (`string_type`) |
+| `bool` | `"true"`, `0` | `2` (`bool_parsing`) |
+| `list[int]` | `("1", 2)` gives `[1, 2]` | |
+| `set[int]` | `[1, 1, 2]` gives `{1, 2}` | |
+| `tuple[int, str]` | `["1", "a"]` gives `(1, "a")` | |
+| `dict[str, int]` | `{"a": "1"}` gives `{"a": 1}` | |
+
+Worth remembering: conversion also happens **inside** the structure (members of a list, values of a dict), and the container you get is the declared type, not the type that was passed. A `tuple` passed to `list[int]` comes out as a `list`.
+
+Pydantic also **copies** containers instead of holding the caller's reference:
+
+```python
+src = [1, 2]
+box = Box(items=src)
+src.append(3)
+box.items    # [1, 2]
+```
+
+</Step>
+
+<Step>
+
+## Strict mode: switch conversion off
+
+If you do not want `"42"` to become `42`, you can turn on strict mode in three places with the same result:
+
+```python
+TypeAdapter(int).validate_python("42", strict=True)   # way 1: at the call
+TypeAdapter(StrictInt).validate_python("42")          # way 2: a ready-made type, StrictInt, StrictStr, ...
+TypeAdapter(Annotated[int, Strict()]).validate_python("42")  # way 3: attach Strict() to the type
+```
+
+All three give the error `int_type`. You can also set a whole model with `ConfigDict(strict=True)` or one field at a time with `Field(strict=True)`:
+
+```python
+class Mixed(BaseModel):
+    a: int = Field(strict=True)
+    b: int
+
+Mixed(a=1, b="2")    # passes, b is 2
+Mixed(a="1", b=2)    # error int_type at a
+```
+
+Strict is stricter than you might expect. Even `True` is rejected by an `int` field (`int_type`), although in Python `True` is a subclass of `int` and passes in lax mode. There is one sensible exception: an `int` still passes into a `float` field in strict mode, because every integer can be a float without losing information.
+
+In a model with `strict=True`, passing `n="1"` and `when="2026-01-01T00:00:00"` gives two errors, `int_type` and `datetime_type`. A string that looks like a date does not pass. You must pass a real `datetime` object.
+
+<Callout type="tip" title="When to use strict">
+For data from your own code, which should already have the right types, strict catches bugs where a type is wrong. For outside data such as JSON or forms, where numbers often arrive as strings, staying lax is more convenient because you do not convert by hand. This is the author's advice, not a fixed rule.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Strict is different for JSON input and Python input
+
+JSON has fewer types than Python. It has no date and no tuple. If strict applied the same rules to both, the most correct data in JSON could never pass. Pydantic therefore applies different strict rules.
+
+```python
+class StrictDate(BaseModel):
+    model_config = ConfigDict(strict=True)
+    d: date
+
+StrictDate.model_validate_json('{"d": "2026-01-31"}').d   # date(2026, 1, 31)  passes
+StrictDate.model_validate({"d": "2026-01-31"})            # error date_type
+```
+
+JSON has no date type, so writing it as a string is the normal form. Python input that passes a string instead of a date object really is the wrong type. In the same way, a JSON array passes into a `tuple` in strict mode, but a Python `list` does not (`tuple_type`). [Lesson 10](/en/pydantic/under-the-hood/) explains that this comes from validators reading input through an Input layer that is split by source.
+
+</Step>
+
+<Step>
+
+## Dates and times
+
+```python
+ok(datetime, "2026-03-01T10:00:00Z")   # datetime(2026, 3, 1, 10, 0, tzinfo=timezone.utc)
+ok(datetime, 0)                         # datetime(1970, 1, 1, tzinfo=timezone.utc)  a number is unix seconds
+ok(date, "2026-03-01")                  # date(2026, 3, 1)
+ok(timedelta, "PT1H30M")                # timedelta(hours=1, minutes=30)  ISO 8601 duration
+ok(timedelta, 90)                       # timedelta(seconds=90)
+```
+
+(`ok` is a helper in the exercise that calls `TypeAdapter(tp).validate_python(value)`.) A number passed to `datetime` is read as a unix timestamp in seconds. That is handy when you receive data from another system, and a trap when someone sends the year `2026` and gets a date in 1970. If you do not want that, use strict.
+
+A date string that does not exist, such as `"2026-02-30"`, is rejected. The exercise gets the error type `date_from_datetime_parsing`.
+
+</Step>
+
+<Step>
+
+## Decimal, UUID, Path, Enum and Literal
+
+```python
+ok(Decimal, "19.90")      # Decimal('19.90')
+ok(Decimal, 0.1)          # Decimal('0.1')
+ok(uuid.UUID, str(u))     # a UUID object
+ok(Path, "/tmp/x")        # Path('/tmp/x')
+```
+
+`Decimal` suits money because it has no `0.1 + 0.2 != 0.3` problem of `float`. Notice that `Decimal` accepts the `float` `0.1` and gives `Decimal('0.1')`, not `Decimal('0.1000000000000000055...')`. Pydantic converts through the shortest text form of the float first.
+
+**Enum** accepts the value of a member and rejects anything else.
+
+```python
+class Status(enum.Enum):
+    NEW = "new"
+    PAID = "paid"
+
+ok(Status, "paid")   # Status.PAID
+ok(Status, "late")   # error of type enum
+```
+
+**Literal** fits when only a few values are allowed and you do not want a class. `ok(Literal["a", "b"], "c")` gives `literal_error`. Literal plays a key role in discriminated unions ([lesson 4](/en/pydantic/unions/)).
+
+</Step>
+
+<Step>
+
+## Ready-made types: constrained numbers, URL, email, SecretStr
+
+```python
+PositiveInt                   # gt=0
+NonNegativeFloat              # ge=0
+conint(ge=1, le=5)            # builds a type by calling a function (Annotated is the preferred style now)
+```
+
+`ok(PositiveInt, 0)` gives `greater_than` and `ok(conint(ge=1, le=5), 9)` gives `less_than_equal`. These types are `Annotated` with the constraints already attached, as in [lesson 2](/en/pydantic/fields/).
+
+**URL** splits into attributes.
+
+```python
+url = ok(HttpUrl, "https://example.com/a?x=1#top")
+url.scheme, url.host, url.path, url.query, url.fragment
+# ('https', 'example.com', '/a', 'x=1', 'top')
+str(ok(HttpUrl, "https://example.com"))   # 'https://example.com/'   a slash is added
+```
+
+`HttpUrl` rejects `ftp://example.com` (`url_scheme`). `AnyUrl` accepts any scheme but rejects `"not a url"` (`url_parsing`). Note that the value you get is a special object, not a `str`. Call `str(url)` when you need a string.
+
+**Email** uses `EmailStr`, which needs `email-validator` installed (`pip install "pydantic[email]"`). It lowercases the domain: `"Ann@Example.COM"` becomes `"Ann@example.com"`, and it rejects `"ann@"`.
+
+**SecretStr** hides the value from `repr`, logs and dumps.
+
+```python
+class Login(BaseModel):
+    user: str
+    password: SecretStr
+
+login = Login(user="u", password="hunter2")
+repr(login)                       # "Login(user='u', password=SecretStr('**********'))"
+login.password.get_secret_value() # 'hunter2'
+login.model_dump_json()           # '{"user":"u","password":"**********"}'
+```
+
+The real value comes out in only one way: calling `.get_secret_value()` on purpose. That makes it harder to leak a secret through a small slip such as `print(login)` or logging the whole object. `model_dump()` in python mode also returns the masked value, not `"hunter2"`.
+
+<Callout type="warn" title="SecretStr is not encryption">
+`SecretStr` only prevents accidental printing. The value stays in memory as plain text and can be read with `get_secret_value()`. Do not assume it stores secrets safely at the system level.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- You pass `{"d": "2026-01-31"}` to a model with `strict=True` and a field `d: date`, once with `model_validate` and once with `model_validate_json`. How do the results differ, and why is it designed that way?
+- Why does `Decimal` suit prices better than `float`, and what does `Decimal` give in the exercise when it receives `0.1`?
+- If the API you receive from often sends numbers as strings, would you turn on strict for the whole model? Why?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| the lax table for `int`, `float`, `str`, `bool`, `list`, `set`, `tuple`, `dict` | ran: `exercises/03_types.py` |
+| containers are copied | ran: `exercises/03_types.py` |
+| strict in three ways, per field, `True` rejected by strict `int`, `int` passes into `float` | ran: `exercises/03_types.py` |
+| strict with `date`: JSON passes, Python does not | ran: `exercises/03_types.py` |
+| strict with `tuple`: a JSON array passes, a Python `list` does not (`tuple_type`) | ran: `exercises/10_under_the_hood.py` |
+| `datetime`, `date`, `timedelta`, a number as unix seconds (`2026` gives 1970-01-01 00:33:46), strict rejects numbers, `2026-02-30` fails | ran: `exercises/03_types.py` |
+| `Decimal`, `UUID`, `Path`, `Enum`, `Literal` | ran: `exercises/03_types.py` |
+| `PositiveInt`, `conint`, `HttpUrl`, `AnyUrl`, `EmailStr`, `SecretStr` | ran: `exercises/03_types.py` |
+| `Decimal` takes a float through the shortest text form of the float | author (the result `Decimal('0.1')` was run, the explanation is the author's) |
+| advice on when to use strict, `SecretStr` is not encryption | author |
+
+</Step>

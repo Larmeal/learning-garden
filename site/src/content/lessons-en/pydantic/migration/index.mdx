@@ -1,0 +1,173 @@
+---
+title: Migrating from V1 to V2
+summary: What still works through shims, with a warning that names the new name; what breaks as an error; behavior that changes silently (Optional, str, Config); pydantic.v1 for moving piece by piece; and why the whole V1 code base still ships inside the package.
+order: 11
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [validators, serialization]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Overview: three levels of change
+
+When you run code written for Pydantic V1 on V2, what you meet falls into three groups (ran: `exercises/11_migration.py`).
+
+1. **Still works, with a warning.** Old method names such as `.dict()` pass through a shim to the new name.
+2. **Breaks clearly.** A keyword or an import that was removed gives an error that says why.
+3. **Behaves differently with no signal.** The most dangerous group, because a test suite with gaps will not see it.
+
+This lesson follows those three groups. On the Python side, several modules act as shims (the source graph groups them in a layer called "V1 Compatibility Shims", 21 files). The core is `pydantic/_migration.py`, which keeps four tables: names that moved (`MOVED_IN_V2`), names that moved and are deprecated (`DEPRECATED_MOVED_IN_V2`), names that must now come from `pydantic.v1` (`REDIRECT_TO_V1`) and names that were deleted (`REMOVED_IN_V2`). A module-level `__getattr__` then decides for each name whether to warn, redirect or raise.
+
+</Step>
+
+<Step>
+
+## Group 1: old method names still work, with a warning
+
+The model methods of V1 can still be called, and each one emits a `PydanticDeprecatedSince20` that names the replacement in its message.
+
+| V1 | V2 |
+|---|---|
+| `.dict()` | `.model_dump()` |
+| `.json()` | `.model_dump_json()` |
+| `.copy()` | `.model_copy()` |
+| `Model.parse_obj(d)` | `Model.model_validate(d)` |
+| `Model.parse_raw(s)` | `Model.model_validate_json(s)` |
+| `Model.schema()` | `Model.model_json_schema()` |
+| `Model.construct(...)` | `Model.model_construct(...)` |
+
+An example of the message the exercise gets: ``The `construct` method is deprecated; use `model_construct` instead. Deprecated in Pydantic V2.0 to be removed in V3.0.`` Note "to be removed in V3.0". The author reads it as the old names disappearing in the next major release, so you should not leave them in place.
+
+`parse_raw` gets two warnings, because inside it calls another deprecated function (`load_str_bytes`). If your tests count warnings, watch out for that.
+
+**`@validator` still works.**
+
+```python
+@validator("n")
+def pos(cls, v):
+    if v < 0:
+        raise ValueError("negative")
+    return v
+```
+
+It emits `PydanticDeprecatedSince20` when the class is declared, but `Legacy(n=-1)` still gives a `ValidationError` of type `value_error` as before. Move to `@field_validator` ([lesson 5](/en/pydantic/validators/)), which also needs `@classmethod`.
+
+</Step>
+
+<Step>
+
+## Group 2: breaks clearly
+
+**`@root_validator` without a mode.** In V1 it just worked. In V2 you must say `pre=True` or `skip_on_failure=True`. If you do not, you get a `PydanticUserError` with `e.code == "root-validator-pre-skip"` when the class is declared (and also a warning that `@root_validator` is deprecated). The right fix is to change to `@model_validator` ([lesson 5](/en/pydantic/validators/#model_validator-rules-that-span-fields)).
+
+**A removed keyword.** `Field("a", regex="^a$")` gives a `PydanticUserError` with `e.code == "removed-kwargs"`. The new name is `pattern` ([lesson 2](/en/pydantic/fields/)).
+
+**`BaseSettings` moved out.** `from pydantic import BaseSettings` gives a `PydanticImportError`, and the message says it moved to the package `pydantic-settings`, with a link to the guide.
+
+All three kinds of error have the advantage that the message points to the fix, and they happen at import or class declaration, so you do not wait for a runtime where the data comes in.
+
+</Step>
+
+<Step>
+
+## Group 3: silent changes
+
+These have no warning, so you need tests to catch them. The exercise confirms three things.
+
+**1. `Optional[X]` no longer means "may be left out".** V1: `a: Optional[int]` need not be passed and the default is `None` (the exercise runs it through `pydantic.v1`: `V1Opt().a is None`). V2: it must be passed, and leaving it out gives the error `missing` ([lesson 2](/en/pydantic/fields/#required-optional-and-nullable-are-three-different-things)).
+
+**2. Numbers are not converted to `str`.** V1: `V1Str(s=123).s == "123"`. V2: `Num(f=1, s=123)` gives `string_type`.
+
+**3. An old `class Config` works for only some keys.** The class can still be read (with a warning that class-based config is deprecated), but a key that was **renamed** is ignored, with a `UserWarning` saying which key became what.
+
+```python
+class Old(BaseModel):
+    class Config:
+        orm_mode = True                      # renamed to from_attributes
+        allow_population_by_field_name = True  # renamed to validate_by_name
+        extra = "forbid"                     # same name, still works
+
+Old(a=1, z=2)             # error extra_forbidden   ← extra works
+Old.model_validate(Row()) # error model_type        ← orm_mode is ignored
+```
+
+The warnings in the exercise: `'orm_mode' has been renamed to 'from_attributes'` and `'allow_population_by_field_name' has been renamed to 'validate_by_name'`. If you silenced warnings (or your logs are filtered), you will not know that ORM mode is not working, and you meet `model_type` at runtime.
+
+<Callout type="warn" title="Run tests with warnings as errors while you migrate">
+`pytest -W error::DeprecationWarning` is not enough, because `PydanticDeprecatedSince20` is a warning class of Pydantic's own (and the warning about config keys is a `UserWarning`). During the migration, turn every kind of warning into an error and fix them one by one. This is the author's advice, and it was not run in full against a real project.
+</Callout>
+
+</Step>
+
+<Step>
+
+## pydantic.v1: moving piece by piece
+
+Pydantic V2 ships the whole of V1 inside as `pydantic.v1` (the graph says it is a full copy of V1 with its own models, fields, validators, types and schema, about 26 files in the layer "Legacy Pydantic V1"). Use it while the project is too big to change in one go.
+
+```python
+from pydantic.v1 import BaseModel as V1Model
+
+class Old1(V1Model):
+    n: int
+
+Old1(n="3").n                 # 3
+Old1(n=1).dict()              # {'n': 1}    V1 method names work as usual
+issubclass(Old1, BaseModel)   # False       a different class from the V2 BaseModel
+```
+
+The important point is that **V1 and V2 models are different worlds**. A V2 model with a field typed as a V1 model (or the other way round) does not work. Migrate in layers from the leaves toward the root, or convert at the boundary with a dict.
+
+One limit to know: the author did not check the support policy of `pydantic.v1` for the newest Python versions before you plan to stay on it for long. Check the release notes of the version you use.
+
+</Step>
+
+<Step>
+
+## A suggested order
+
+The author's advice, from lowest risk to highest:
+
+1. Upgrade to V2 and run the tests with every kind of warning as an error. Look at what breaks.
+2. Fix group 2 first, because it is obvious and tells you the fix (`regex` to `pattern`, `root_validator` to `model_validator`, `BaseSettings` to `pydantic-settings`).
+3. Go through every `Optional[X]`. Decide field by field whether it must be passed, and if not, add `= None`.
+4. Change `class Config` to `model_config = ConfigDict(...)`, converting key names as the warning tells you.
+5. Rename methods (`dict` to `model_dump` and so on), which a search and replace can do.
+6. Write tests with real data from your system for group 3 (`str` from a number, values that are ambiguous between `int` and `float`), because that group is silent.
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- Old code has `a: Optional[int]` and callers never pass `a`. What happens after you move to V2, and how do you fix it?
+- On V2, does `class Config: orm_mode = True` make `Model.model_validate(orm_object)` succeed? How would you know what went wrong?
+- Why should a V1 model not be a field of a V2 model?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| the table of V1 and V2 method names and the warnings that name the new one, `parse_raw` gets an extra warning | ran: `exercises/11_migration.py` |
+| `@validator` still works and warns | ran: `exercises/11_migration.py` |
+| `root_validator` without a mode gives `root-validator-pre-skip`, `regex` gives `removed-kwargs`, `BaseSettings` gives `PydanticImportError` | ran: `exercises/11_migration.py` |
+| `Optional[int]` in V1 and V2, `str` accepts a number in V1 but not in V2 | ran: `exercises/11_migration.py` |
+| `class Config`: renamed keys are ignored and warned about, `extra` still works, `orm_mode` does not (`model_type`) | ran: `exercises/11_migration.py` |
+| `pydantic.v1` works, and is not a subclass of the V2 `BaseModel` | ran: `exercises/11_migration.py` |
+| the four tables in `_migration.py`, 21 shim files, 26 legacy files | source: knowledge graph v2.13.0 |
+| V1 and V2 models cannot be mixed in one field | author (not tested) |
+| warnings must all be errors, and the order of the migration | author |
+
+</Step>
