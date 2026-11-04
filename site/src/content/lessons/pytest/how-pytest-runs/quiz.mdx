@@ -1,0 +1,74 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 5 ข้อ เพื่อเช็กว่าเข้าใจบทนี้แค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="รัน test สองตัวในไฟล์เดียว hook ใดถูกเรียกก่อนกัน"
+  options={['pytest_runtest_setup ของ test แรก แล้วค่อย pytest_collection_finish', 'pytest_collection_finish แล้วค่อย pytest_runtest_setup ของ test แรก', 'pytest_runtest_setup ของทั้งสอง test แล้วค่อยรัน test']}
+  answer={1}
+  why="collection ทั้งต้นไม้เสร็จก่อนรัน test ตัวแรก ในผล 39 การเรียกของ internals/02_hook_order.py pytest_collection_finish เป็นบรรทัด 14 และ pytest_runtest_setup ตัวแรกเป็นบรรทัด 17 ส่วน setup ของ test ที่สองมาหลัง teardown ของ test แรก"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="รัน pytest -p no:main ผลคืออะไร"
+  options={['pytest รันต่อโดยไม่มี plugin main', 'pytest จบด้วย exit code 4 และข้อความ plugin main cannot be disabled', 'pytest ข้ามไฟล์ที่ชื่อ main.py']}
+  answer={1}
+  why="main อยู่ใน essential_plugins ร่วมกับ mark, runner, fixtures และ helpconfig ปิดไม่ได้ ผลที่รันจริงคือ exit code 4 (USAGE_ERROR) ส่วน plugin อย่าง cacheprovider หรือ doctest ปิดได้"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="conftest.py มีฟังก์ชัน def pytest_runtest_logfinish(nodeid, report) จะเกิดอะไรขึ้น"
+  options={['ทำงานปกติ และ report เป็น None', 'pytest จบด้วย PluginValidationError ตั้งแต่โหลด conftest เพราะ spec ของ hook นี้ไม่มี argument ชื่อ report', 'pytest เงียบ และไม่เรียกฟังก์ชันนี้เลย']}
+  answer={1}
+  why="pluggy ตรวจ implementation กับ hookspec ตอนลงทะเบียน argument ที่ประกาศเกิน spec ทำให้เกิด PluginValidationError และ exit code 1 (internals/11_hook_validation.py) ส่วนการประกาศน้อยกว่า spec ทำได้เสมอ เช่น รับแค่ nodeid"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="รายการ PLUGIN registered จาก --trace-config ใช้ทำอะไรได้มากที่สุด"
+  options={['ดูว่า test แต่ละตัวใช้เวลาเท่าไร', 'ดูว่า plugin ใดถูกลงทะเบียนและมาจากไหน เมื่อสงสัยว่าพฤติกรรมแปลกมาจาก plugin ตัวใด', 'ดูว่า fixture ตัวใดถูกใช้']}
+  answer={1}
+  why="--trace-config พิมพ์ทุกการลงทะเบียน plugin (รวมของที่ลงด้วย pip เช่น pytest-cov หรือ xdist และ conftest.py) ใช้ไล่หาว่าใครเพิ่มหรือเปลี่ยนพฤติกรรม เรื่องเวลาใช้ --durations เรื่อง fixture ใช้ --setup-show"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ไฟล์ pytest.ini กำหนด addopts = -v ส่วนบรรทัดคำสั่งใส่ -o minversion=9.0 ทั้งสองมีผลอย่างไร"
+  options={['-v ถูกใช้ และ minversion เป็น 9.0 ตามบรรทัดคำสั่ง เพราะ -o override ค่าในไฟล์', 'ไฟล์ชนะทั้งสองอย่าง', 'pytest ฟ้อง error เพราะ option ซ้ำกัน']}
+  answer={0}
+  why="addopts จากไฟล์ถูกเติมเป็น option และ -o ในบรรทัดคำสั่งชนะค่า ini ในไฟล์ ซึ่ง internals/09_config_layout.py ยืนยันทั้งสองกรณี (addopts -v ทำให้เห็น PASSED, -o minversion=9.0 ทำให้ minversion เป็น 9.0)"
+/>
+
+</Step>

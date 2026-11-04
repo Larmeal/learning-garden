@@ -1,0 +1,168 @@
+---
+title: Assertion rewriting
+summary: pytest can show the values inside an assert because it changes your test code before it runs. This lesson looks at the real rewritten code, the rules for which files get changed, why an assert in a helper has no details, and how to fix that.
+order: 13
+phase: D
+level: 5
+stage: sprout
+format: steps
+requires: [assertions, how-pytest-runs]
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## The question lesson 2 left open
+
+[Lesson 2](/en/pytest/assertions/) said that pytest "rewrites the assert" before running. This lesson looks at the real thing: the code that results, the rules for which files are changed, and what follows when the rules do not cover a file. That is the cause of a very confusing symptom: an `assert` in a test gives every value, but an `assert` in a helper function the test calls gives only the word `AssertionError`.
+
+The parts that do the work are in `_pytest/assertion/rewrite.py` (source). There are three:
+
+- `AssertionRewritingHook` is an import hook that pytest puts at the very front of `sys.meta_path` (source: `install_importhook`). Every time Python imports a module, it decides whether that module should be changed.
+- `rewrite_asserts` changes the AST (the tree structure of the code) of a module.
+- `AssertionRewriter` is the tree walker whose `visit_Assert` turns one `assert` statement into a new set of statements.
+
+</Step>
+
+<Step>
+
+## What the rewritten code looks like
+
+Give `rewrite_asserts` these two lines, then print the result back as code (ran: `internals/06_rewrite.py`):
+
+```python
+def test_total(cart):
+    assert cart.total() == 31
+```
+
+The result (with the `@py_` names shortened for reading) is:
+
+```python
+def test_total(cart):
+    @py_assert1 = cart.total
+    @py_assert3 = @py_assert1()
+    @py_assert6 = 31
+    @py_assert5 = @py_assert3 == @py_assert6
+    if not @py_assert5:
+        @py_format8 = @pytest_ar._call_reprcompare(('==',), (@py_assert5,), (...), (@py_assert3, @py_assert6)) % {...}
+        @py_format10 = ('' + 'assert %(py9)s') % {'py9': @py_format8}
+        raise AssertionError(@pytest_ar._format_explanation(@py_format10))
+    @py_assert1 = @py_assert3 = @py_assert5 = @py_assert6 = None
+```
+
+You can read four things from it:
+
+- **Every sub-expression is kept in a temporary variable** (`@py_assert1`, `@py_assert3`, ...). `cart.total`, the result of `total()` and `31` each have a variable, so the values are still there to print on failure.
+- **An `if not ...: raise AssertionError(...)` statement** replaces the original `assert`. The text `assert 30 == 31` that you see is put together in `_format_explanation` only on failure. When the assert passes there is no extra work beyond keeping the values.
+- **`_call_reprcompare`** is where the hook `pytest_assertrepr_compare` is called, to build the diff of a dict, list or string ([lesson 14](/en/pytest/plugins/) writes this hook by hand).
+- **The temporaries are set to `None` at the end of the statement**, so objects do not stay alive in memory.
+
+The variable names start with `@` because Python itself cannot create names like that, so they can never collide with a user's variable.
+
+</Step>
+
+<Step>
+
+## Which files are changed
+
+`AssertionRewritingHook._should_rewrite` decides by four rules in order (source: `_should_rewrite`):
+
+1. A file named `conftest.py` is always changed.
+2. A file named directly on the command line.
+3. A file whose name matches `python_files` (default `test_*.py` and `*_test.py`).
+4. A module registered with `pytest.register_assert_rewrite(...)`, and the modules of plugins installed with pip that declare an entry point in the group `pytest11` (source: `_mark_plugins_for_rewrite` in `config/__init__.py`).
+
+**Everything else is left alone.** The exercise has a project where `test_modes.py` calls `check_total(1, 2)` from `helpers.py`, which contains `assert got == want`. The result (ran: `internals/06_rewrite.py`):
+
+| test | the `E` line pytest prints |
+|---|---|
+| `assert x == {"a": 2}` in a test file | `AssertionError: assert {'a': 1} == {'a': 2}` with `Differing items` |
+| `check_total(1, 2)` (the assert is in a helper) | a bare `AssertionError` |
+
+That answers the symptom. The details are missing because `helpers.py` matches none of rules 1 to 4, so it is imported as usual.
+
+</Step>
+
+<Step>
+
+## How to fix a helper that has no details
+
+There are three ways, and all three are proven (ran: `internals/06_rewrite.py`).
+
+**Register the module** in `conftest.py` before the module is imported:
+
+```python
+import pytest
+pytest.register_assert_rewrite("helpers")
+```
+
+After registering, `check_total(1, 2)` gives the full `assert 1 == 2` (if the module was already imported, pytest warns because it is too late to change it). For a package that is a plugin, it works with the name of the whole package.
+
+**Turn off rewriting for one file** by putting `PYTEST_DONT_REWRITE` in the docstring of the module. That file is left with only `AssertionError`.
+
+**Turn it all off** with `--assert=plain`. Then even the test files are left with only `AssertionError`. Use this when you suspect the rewriting is behind some odd behaviour. It should not become a habit.
+
+Keep in mind that the rule looks at **the file the assert is in**, not at the file that calls it. A helper function written inside a `test_*.py` file gets the details, while a function in another file has to be registered.
+
+</Step>
+
+<Step>
+
+## The .pyc of a rewritten file
+
+So that the rewriting is not repeated on every run, pytest keeps the result as bytecode in `__pycache__`, under a name that carries a pytest tag (source: `PYTEST_TAG`, `_write_pyc`). The exercise on Python 3.14 with pytest 9.2.0 gets (ran: `internals/06_rewrite.py`):
+
+```text
+helpers.cpython-314.pyc                    ← imported normally, not rewritten
+test_modes.cpython-314.pyc
+test_modes.cpython-314-pytest-9.2.0.pyc    ← the rewritten version, with the pytest version in its name
+```
+
+The file name carries the pytest version because the shape of the changed code depends on the version. After you change pytest, the old cache is not used.
+
+</Step>
+
+<Step>
+
+## Traps and other helpers
+
+**`assert (a, b)`.** The parentheses make a tuple that is never empty, which is always true. pytest checks for this in `visit_Assert` and issues the warning `assertion is always true, perhaps remove parentheses?`. The exercise confirms that `assert (1 == 2, 'message')` passes with this warning (ran: `exercises/08_design/test_smells.py`).
+
+**A truncated diff.** The maximum length of a printed value depends on the assertion verbosity: level 0 uses the default, level 1 (`-v`) is ten times longer, and level 2 and above (`-vv`) does not cut (source: `_get_maxsize_for_saferepr` in `rewrite.py`). That matches the message `Use -v to get more diff` in [lesson 2](/en/pytest/assertions/).
+
+**Your own message.** The hook `pytest_assertrepr_compare(op, left, right)` lets a plugin or `conftest.py` write the explanation for its own types. If it returns a list of lines, pytest uses them instead of the standard diff, which is built in `_pytest/assertion/util.py` (`assertrepr_compare` handles text, sequences, mappings and sets). A working example is in [lesson 14](/en/pytest/plugins/).
+
+**A hook for passing asserts.** `pytest_assertion_pass` exists but is switched off. You have to set `enable_assertion_pass_hook` in the config, because keeping the messages for passing asserts has a cost (source: `enable_assertion_pass_hook` in `visit_Assert`).
+
+<Callout type="try" title="Try it in this repo">
+Run `uv run python internals/06_rewrite.py`, then change `SOURCE` to `assert a == b and c` and look at the AST you get: how the temporaries grow, and what `and` is turned into. After that move the `assert` from `helpers.py` into `test_modes.py` and see whether the details come back.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- An `assert` in `tests/utils.py` that a test calls gives only a bare `AssertionError`. What do you set up, before the import, to get the details?
+- Why do the temporary variables of the rewriter start with `@`?
+- How does the cache name of a rewritten file differ from an ordinary `.pyc`, and why must it differ?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| `AssertionRewritingHook`, `rewrite_asserts`, `AssertionRewriter.visit_Assert`, the four rules of `_should_rewrite`, `PYTEST_TAG`, the warning for an assert on a tuple, `enable_assertion_pass_hook` | source: `_pytest/assertion/rewrite.py`, `_pytest/assertion/__init__.py` |
+| `assertrepr_compare` handling text, sequence, mapping, set | source: `_pytest/assertion/util.py` |
+| the rewritten code of `assert cart.total() == 31` | ran: `internals/06_rewrite.py` |
+| test files are rewritten but a helper is not, `register_assert_rewrite`, `PYTEST_DONT_REWRITE`, `--assert=plain`, the `.pyc` names | ran: `internals/06_rewrite.py` |
+| `assert (1 == 2, 'message')` passes with a warning | ran: `exercises/08_design/test_smells.py` |
+
+</Step>

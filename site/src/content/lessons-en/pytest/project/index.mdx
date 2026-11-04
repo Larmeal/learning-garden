@@ -55,7 +55,7 @@ code/
   demos/NN_name/       tests that fail on purpose, to read the output
 ```
 
-`testpaths = ["exercises"]` makes a plain `pytest` leave `demos/` alone, so the whole suite is green: **85 passed, 2 skipped, 3 xfailed** (ran: `verify.py`). A demo has to be run by naming its path.
+`testpaths = ["exercises"]` makes a plain `pytest` leave `demos/` alone, so the whole suite is green: **188 passed, 3 skipped, 6 xfailed** (ran: `verify.py`). A demo has to be run by naming its path.
 
 Thoughts on where to put tests (author):
 
@@ -70,11 +70,11 @@ Thoughts on where to put tests (author):
 
 | You want | Command | Result (ran: `verify.py`) |
 |---|---|---|
-| a whole folder | `pytest exercises/05_markers` | 6 passed, 2 skipped, 2 xfailed |
+| a whole folder | `pytest exercises/05_markers/test_markers.py` | 6 passed, 2 skipped, 2 xfailed |
 | a whole file | `pytest exercises/03_fixtures/test_fixtures.py` | 12 passed |
 | one test by node id | `pytest exercises/03_fixtures/test_fixtures.py::test_save_and_load_with_tmp_path` | 1 passed |
-| by name | `pytest -k coupon exercises/04_parametrize` | 3 passed, 19 deselected |
-| by marker | `pytest -m "not slow" exercises/05_markers` | 4 passed, 2 skipped, 2 xfailed, 2 deselected |
+| by name | `pytest -k coupon exercises/04_parametrize/test_parametrize.py` | 3 passed, 19 deselected |
+| by marker | `pytest -m "not slow" exercises/05_markers/test_markers.py` | 4 passed, 2 skipped, 2 xfailed, 2 deselected |
 
 `-k` accepts `and`, `or` and `not`, and matches parts of the test name (including the ids from parametrize). If you are not sure what you can select, use `--collect-only -q` to list all tests without running them.
 
@@ -105,10 +105,10 @@ While fixing a bug you want to rerun the tests that failed, not the whole suite.
 With thousands of tests you can use several CPUs with `pytest-xdist`:
 
 ```bash
-uv run pytest -n 2 exercises/04_parametrize
+uv run pytest -n 2 exercises/04_parametrize/test_parametrize.py
 ```
 
-The result is the same as a serial run: 21 passed, 1 xfailed (ran: `verify.py`). The important condition is that the tests are independent, because the order and which tests run together change, and tests that share state start to fail at random ([lesson 8](/en/pytest/test-design/#tests-must-be-independent)).
+The result is the same as a serial run: 21 passed, 1 xfailed (ran: `verify.py`). The important condition is that the tests are independent, because the order and which tests run together change, and tests that share state start to fail at random ([lesson 15](/en/pytest/test-design/#tests-must-be-independent)).
 
 </Step>
 
@@ -126,7 +126,7 @@ uv run pytest --cov=shop --cov-report=term-missing
 Name                   Stmts   Miss  Cover   Missing
 ----------------------------------------------------
 src\shop\__init__.py       0      0   100%
-src\shop\cart.py          46      1    98%   34
+src\shop\cart.py          48      0   100%
 src\shop\checkout.py      14      0   100%
 src\shop\net.py            2      0   100%
 src\shop\pricing.py       15      1    93%   21
@@ -134,17 +134,17 @@ src\shop\rates.py         10      0   100%
 src\shop\receipt.py        9      0   100%
 src\shop\sale.py           7      0   100%
 ----------------------------------------------------
-TOTAL                    103      2    98%
+TOTAL                    105      1    99%
 ```
 
-The `Missing` column points at lines. Line 34 of `cart.py` is `raise ValueError(... price must not be negative ...)`, so no test passes a negative price yet, and line 21 of `pricing.py` is `with_tax`, which nobody calls (ran: `verify.py`).
+The `Missing` column points at lines that never ran. Now only one is left: line 21 of `pricing.py` (`with_tax`, which nobody calls). `cart.py` is at 100% because a test now passes a negative price to `Cart.add` (`exercises/02_assertions/test_assertions_in_depth.py`) (ran: `verify.py`).
 
 <Callout type="warn" title="Coverage says what is not tested, not that it is tested well">
-98% does not mean the tests are good. A line run by a test with no assert still counts as covered. Use coverage to find **gaps** (the lines in Missing), not as a target to push to 100% (author).
+99% does not mean the tests are good. A line run by a test with no assert still counts as covered. Use coverage to find **gaps** (the lines in Missing), not as a target to push to 100% (author).
 </Callout>
 
 <Callout type="try" title="Try it in this repo">
-Write a test in `exercises/01_first_test` for `Cart().add("apple", price=-1)` using `pytest.raises`, then run coverage again. Does the Missing entry for `cart.py` go away, and what does the TOTAL become?
+Write a test for `with_tax(100)` in `exercises/01_first_test`, then run `uv run pytest --cov=shop --cov-report=term-missing` and see whether the Missing entry of `pricing.py` goes away and what TOTAL becomes. After that remove the `assert` from the new test and see whether coverage is still 100%.
 </Callout>
 
 </Step>
@@ -165,10 +165,10 @@ Write a test in `exercises/01_first_test` for `Cart().add("apple", price=-1)` us
 
 | Statement | Source |
 |---|---|
-| the project config, `pythonpath` turned off breaks the import, a plain `pytest` gives 85 passed, 2 skipped, 3 xfailed | ran: `verify.py` |
+| the project config, `pythonpath` turned off breaks the import, a plain `pytest` gives 188 passed, 3 skipped, 6 xfailed | ran: `verify.py` |
 | results of selecting by path, node id, `-k`, `-m` | ran: `verify.py` |
 | results of `-x`, `--lf`, `--ff`, `-n 2` | ran: `verify.py` |
-| the coverage table and Missing lines 34 and 21 | ran: `verify.py` |
+| the coverage table and the Missing line 21 | ran: `verify.py` |
 | thoughts on laying out test folders, the caution about coverage | author |
 
 </Step>

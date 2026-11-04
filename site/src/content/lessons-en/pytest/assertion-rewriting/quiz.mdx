@@ -1,0 +1,79 @@
+---
+title: Check your understanding
+summary: Answer 5 questions to check how well you understood this lesson.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  lang="en"
+  client:visible
+  q="An assert in test_orders.py shows the full dict diff, but the assert in check_total in helpers.py, which the test calls, gives only AssertionError. Why?"
+  options={['helpers.py is not a test file or a conftest and is not registered, so its asserts are not rewritten', 'pytest only rewrites asserts inside functions named test_', 'Asserts called from another function are always switched off']}
+  answer={0}
+  why="AssertionRewritingHook decides by the file the assert is in, not the file that calls it: conftest.py, files named directly, files whose name matches python_files, and registered modules. The exercise confirms that the helper gets only AssertionError."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  lang="en"
+  client:visible
+  q="Which of these gives the asserts in helpers.py their full details?"
+  options={['Call pytest.register_assert_rewrite(\"helpers\") in conftest.py before helpers is imported', 'Add --assert=plain', 'Rename helpers.py to helpers.pyc']}
+  answer={0}
+  why="register_assert_rewrite adds the module to the list to be rewritten. It must happen before the import, otherwise pytest issues a warning. --assert=plain switches rewriting off entirely, so it does the opposite."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  lang="en"
+  client:visible
+  q="What is a temporary variable in a rewritten assert, such as @py_assert1, for?"
+  options={['It keeps the value of a sub-expression so it can be printed if the assert fails', 'It keeps the result of the whole test to send to the terminal', 'It is a cache across tests']}
+  answer={0}
+  why="The rewriter keeps every sub-expression (cart.total, the result of total(), 31) in a temporary variable, and sets them to None at the end of the statement so objects do not stay alive. The values are used only to build the message of the AssertionError."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  lang="en"
+  client:visible
+  q="A rewritten file is cached as test_modes.cpython-314-pytest-9.2.0.pyc. Why does the name contain pytest-9.2.0?"
+  options={['Because Python requires it', 'Because the rewritten code depends on the pytest version, so after a change of version the old cache should not be used', 'To keep it apart from other pytest versions on other machines']}
+  answer={1}
+  why="PYTEST_TAG puts the Python tag and the pytest version into the .pyc name. When you upgrade pytest the name changes and the old cache is not read. A file that is not rewritten (helpers) gets an ordinary .pyc."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  lang="en"
+  client:visible
+  q="A test writes assert (cart.total() == 31, 'total wrong'). What is the result?"
+  options={['It fails and shows the message', 'It always passes, because the parentheses make a non-empty tuple, but pytest warns that the assertion is always true', 'A SyntaxError']}
+  answer={1}
+  why="A non-empty tuple is always true. visit_Assert checks for this case and issues a warning. The exercise that runs assert (1 == 2, 'message') gets passed=1 with the text perhaps remove parentheses?"
+/>
+
+</Step>

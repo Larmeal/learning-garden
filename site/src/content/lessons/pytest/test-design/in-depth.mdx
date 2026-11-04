@@ -1,0 +1,118 @@
+---
+title: Test ที่หลอกเรา
+summary: ห้ารูปแบบที่ test ดูเหมือนดีแต่ไม่ได้ตรวจอะไร หรือพังเป็นระยะ ได้แก่ พึ่งลำดับ ใช้ค่าสุ่ม คำนวณค่าที่คาดด้วยโค้ดเดียวกัน assert ที่ผ่านเสมอ และหนึ่ง test หลายเรื่อง ทุกข้อรันจริงโดยให้ตัวร้ายล้มในโปรเจกต์ชั่วคราว
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## วิธีที่ใช้ในหน้านี้
+
+test ที่เขียนไม่ดีส่วนใหญ่ไม่ได้ล้ม จึงไม่มีใครสังเกต หน้านี้จึงเอา test ที่มีปัญหาไปรันในโปรเจกต์ชั่วคราวด้วย `pytester` แล้วดูว่าผลเป็นอย่างไร (รัน: `exercises/08_design/test_smells.py` 12 test ผ่านทั้งหมด) แต่ละข้อมีฉบับที่แก้แล้วให้เทียบ
+
+</Step>
+
+<Step>
+
+## 1. พึ่งลำดับ
+
+สอง test ใช้ list ที่สร้างไว้ระดับ module ร่วมกัน (เหมือน `demos/08_order_dependent` ใน [บท 15](/pytest/test-design/#test-ต้องอิสระต่อกัน))
+
+```python
+cart = []
+def test_add():
+    cart.append("apple")
+    assert cart == ["apple"]
+def test_total():
+    assert len(cart) == 1
+```
+
+รันทั้งไฟล์ ผ่าน 2 ตัว แต่รัน `test_total` ตัวเดียวด้วย node id แล้วล้ม ฉบับที่แก้ให้แต่ละ test ขอตะกร้าจาก fixture และเพิ่มของเอง ทำให้รัน `test_total` เดี่ยวผ่าน (รัน) ทดสอบความอิสระได้ด้วยการรันทีละตัวเป็นครั้งคราว หรือรันขนานด้วย `-n` ([บท 7](/pytest/project/))
+
+</Step>
+
+<Step>
+
+## 2. ค่าสุ่ม
+
+test ที่ใช้ตัวสุ่มของ Python โดยไม่ตรึงค่า จะให้ผลต่างกันทุกรอบ ถ้าโค้ดรับตัวสร้างสุ่มเป็น parameter (`make_discount(rng)`) test ส่ง `random.Random(7)` เข้าไปได้ และได้ชุดค่าเดิมทุกครั้ง (รัน) ถ้าโค้ดใช้ตัวสุ่มกลางของ `random` ให้ `random.seed(7)` ใน test เอง ทั้งสองแบบได้ผลซ้ำได้ ส่วน test ที่ไม่ตรึงจะล้มเป็นบางรอบ ซึ่งเป็นอาการของ **flaky test** (หัวข้อสุดท้ายของหน้านี้)
+
+</Step>
+
+<Step>
+
+## 3. คำนวณค่าที่คาดด้วยโค้ดเดียวกัน
+
+```python
+def test_smell_the_expected_value_is_computed_with_the_same_code():
+    prices, qtys = [10, 20], [3, 1]
+    assert total_of(prices, qtys) == sum(p * q for p, q in zip(prices, qtys))
+```
+
+test นี้ผ่านแม้สูตรใน `total_of` ผิด เพราะทั้งสองฝั่งใช้สูตรเดียวกัน ฉบับที่แก้เขียนค่าที่คาดลงไปตรงๆ จากการคำนวณด้วยมือ
+
+```python
+assert total_of([10, 20], [3, 1]) == 50      # 3 * 10 + 1 * 20
+```
+
+กฎจำง่าย: ถ้ากลับด้านที่คาดให้เป็นสำเนาของโค้ดได้ แปลว่า test ไม่ได้บอกอะไร ค่าที่คาดควรมาจากที่อื่น (ตัวเลขที่คำนวณด้วยมือ ตัวอย่างจากสเปก หรือผลที่ยืนยันแล้ว)
+
+</Step>
+
+<Step>
+
+## 4. Assert ที่ไม่มีทางล้ม
+
+สามแบบที่เห็นบ่อย (รัน)
+
+| แบบ | ผล |
+|---|---|
+| `assert (1 == 2, 'message')` | ผ่าน เพราะ tuple ที่ไม่ว่างเป็นจริง pytest ออก warning `assertion is always true, perhaps remove parentheses?` ([บท 13](/pytest/assertion-rewriting/)) |
+| test ที่ไม่มี `assert` เลย (`1 + 1`) | ผ่านเสมอ พิสูจน์แค่ว่าไม่มี exception |
+| `return 1 == 2` แทน `assert` | ผ่านพร้อม warning `Did you mean to use assert instead of return?` ([บท 12](/pytest/run-protocol/)) |
+
+ทั้งสามให้เขียว ทางป้องกันคือ `-W error` หรือ `filterwarnings = ["error"]` ให้ warning เหล่านี้ล้ม ([บท 8](/pytest/builtin-plugins/))
+
+</Step>
+
+<Step>
+
+## 5. หนึ่ง Test หลายเรื่อง
+
+test ที่มี `assert 1 == 2` ตามด้วย `assert 3 == 4` รายงานเฉพาะอันแรก `3 == 4` ไม่ถูกประเมินเลย (รัน: ข้อความ `3 == 4` ไม่อยู่ในผล) ถ้าแยกเป็นสอง test ได้ `2 failed` และเห็นทั้งคู่ นี่คือเหตุผลที่บท [ออกแบบ Test](/pytest/test-design/) แนะนำให้หนึ่ง test เช็กหนึ่งพฤติกรรม
+
+ถ้าต้องเช็กหลายจุดในรอบเดียวจริงๆ (เช่น แต่ละแถวของข้อมูล) ใช้ subtests ที่รายงานแต่ละรอบแยก ([บท 8](/pytest/builtin-plugins/))
+
+</Step>
+
+<Step>
+
+## Flaky Test: ล้มบางรอบ
+
+test ที่ล้มหนึ่งในห้ารอบดูเขียวเกือบตลอด แบบฝึกจำลองด้วยตัวนับที่เพิ่มทุกรอบและ test ที่ล้มเมื่อตัวนับหารห้าลงตัว ถ้า parametrize ให้รัน 10 ครั้ง ผลคือ `8 passed, 2 failed` (รัน) การทำซ้ำคือวิธีทำให้ปัญหาเป็นระยะเห็นได้ ส่วนสาเหตุที่พบบ่อยคือเวลา ค่าสุ่ม ลำดับ และของที่ใช้ร่วมกัน ซึ่งสี่ข้อแรกของหน้านี้ครอบคลุมไว้
+
+ขณะแก้ flaky test อย่า retry จนผ่าน: การรันซ้ำให้ผ่านซ่อนความผิดไว้ ให้หาสาเหตุ (ผู้เขียน)
+
+<Callout type="try" title="ลองทำใน repo นี้">
+เปิด `exercises/08_design/test_smells.py` แล้วเปลี่ยนฉบับที่แก้ให้กลับเป็นแบบที่พัง เช่น ให้ `test_the_expected_value_is_written_down` คำนวณค่าที่คาดด้วย `total_of` จากนั้นแก้สูตรใน `total_of` ให้ผิดและดูว่า test ผ่านหรือไม่
+</Callout>
+
+</Step>
+
+<Step>
+
+## ที่มาของหน้านี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| พึ่งลำดับ (ผ่านทั้งไฟล์ ล้มเมื่อรันเดี่ยว, ฉบับ fixture ผ่านเดี่ยว), ค่าสุ่มที่ตรึงแล้วซ้ำได้ | รัน: `exercises/08_design/test_smells.py` |
+| `assert` tuple ผ่านพร้อม warning, ไม่มี assert, `return` แทน assert, หนึ่ง test หลาย assert, `8 passed, 2 failed` จากตัวนับ | รัน: เหมือนข้างบน (ใช้ `pytester`) |
+| กฎจำง่ายเรื่องค่าที่คาด, คำแนะนำไม่ retry จนผ่าน, `-W error` กับ warning เหล่านี้ | ผู้เขียน |
+
+</Step>

@@ -1,0 +1,101 @@
+---
+title: Parametrize แบบเจาะลึก
+summary: ids ที่คำนวณด้วยฟังก์ชัน หน้าตาของ id จากค่าชนิดต่างๆ, เขียน pytest_generate_tests เอง, ลำดับการสร้าง fixture ที่มี param, ชุดว่าง, parameter ที่บัง fixture และ parametrize บน class ทุกข้อรันจริง 21 test
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## `ids`: จากรายการ จากฟังก์ชัน และที่ Pytest สร้างให้
+
+`ids=` รับได้สองแบบ (รัน: `exercises/04_parametrize/test_parametrize_in_depth.py`)
+
+```python
+def label(value):
+    return f"{value}pct"
+
+@pytest.mark.parametrize("percent", [10, 20, 50], ids=label)        # ฟังก์ชัน: ได้ [10pct], [20pct], [50pct]
+def test_ids_from_a_function(percent): ...
+
+@pytest.mark.parametrize("code, off", [("SAVE10", 10), ("SAVE20", 20)], ids=["small", "large"])
+def test_ids_from_a_list(code, off): ...
+```
+
+ฟังก์ชันถูกเรียกกับ **ค่าแต่ละตัว** (ไม่ใช่ทั้งแถว) รายการต้องยาวเท่าจำนวนแถว
+
+ถ้าไม่ใส่ pytest สร้าง id เอง กติกาที่เห็นจากแบบฝึกซึ่งส่ง `[1, "a b", None, 2.5, b"z", (1, 2), [3]]` เข้า test (รัน)
+
+| ค่า | id ที่ได้ |
+|---|---|
+| `1`, `2.5`, `None` | `1`, `2.5`, `None` |
+| สตริง `"a b"` | `a b` |
+| bytes `b"z"` | `z` |
+| tuple `(1, 2)` และ list `[3]` | `x5`, `x6` (ชื่อ parameter กับลำดับแถว เพราะแปลงเป็นข้อความที่อ่านได้ไม่ได้) |
+
+ข้อสรุป: ค่าง่ายๆ (ตัวเลข สตริง `None`) ได้ id ที่อ่านรู้เรื่อง ส่วน object ซับซ้อนได้ `x5` ที่ไม่บอกอะไร ถ้ากรณีเป็นแบบนั้นให้ใส่ `ids=` หรือ `pytest.param(..., id="...")` ([บท 4](/pytest/parametrize/#ids-ตั้งชื่อให้อ่านรู้เรื่อง))
+
+</Step>
+
+<Step>
+
+## pytest_generate_tests: เขียนตัวสร้างเอง
+
+เมื่อชุดค่าต้องคำนวณ หรือใช้กับ test หลายตัวที่ขอ fixture ชื่อเดียวกัน เขียน hook `pytest_generate_tests(metafunc)` ในไฟล์ได้ ซึ่งเป็นจุดเดียวกับที่ `@pytest.mark.parametrize` ใช้ภายใน ([บท 10](/pytest/collection/))
+
+```python
+def pytest_generate_tests(metafunc):
+    if "coupon_code" in metafunc.fixturenames:
+        metafunc.parametrize("coupon_code", ["SAVE10", "SAVE20", "FREE"])
+
+def test_generated_per_coupon(coupon_code):
+    assert 0 < discount_for(coupon_code) <= 100
+```
+
+`test_generated_per_coupon` ไม่มี marker อะไรเลย แต่ถูก collect เป็น 3 test เพราะ parameter ชื่อ `coupon_code` ถูกจับโดย hook (รัน) `metafunc.fixturenames` บอกว่า test นี้ขออะไร ทำให้ตัดสินใจได้ว่าจะ parametrize หรือไม่ และ `metafunc.config` อ่าน option ของ pytest ได้ จึงใช้เปลี่ยนชุดค่าตาม option เช่น `--run-slow`
+
+</Step>
+
+<Step>
+
+## Fixture ที่มี Param: ลำดับการสร้าง
+
+fixture ระดับ module ที่มีสอง param (`"a"` และ `"b"`) ถูกใช้โดยสอง test ผลลัพธ์ที่บันทึกคือ `["build a", "drop a", "build b"]` (รัน) pytest **จัดลำดับ test ใหม่** ให้ทุก test ที่ใช้ param `a` มาก่อนจึงสร้างและปิด `a` ครั้งเดียว แล้วค่อยไป `b` แทนที่จะสลับ a, b, a, b ตามลำดับที่เขียน นี่คือ `reorder_items` ที่บท [เครื่องยนต์ของ Fixture](/pytest/fixture-engine/) กล่าวถึง
+
+ผลต่อการออกแบบ: ถ้า fixture แพง (เช่น เริ่ม database) การให้มี param และ scope ใหญ่ไม่ทำให้สร้างซ้ำเกินจำเป็น แต่ลำดับที่ test รันไม่ใช่ลำดับที่เขียนในไฟล์ ซึ่งเป็นอีกเหตุผลที่ test ต้องไม่พึ่งลำดับ ([บท 15](/pytest/test-design/))
+
+</Step>
+
+<Step>
+
+## ชุดว่าง, การบัง และ Class
+
+**ชุดว่าง** `@pytest.mark.parametrize("x", [])` ไม่ทำให้ test หายเงียบๆ ค่าเริ่มต้นคือ test ถูก skip พร้อมข้อความ `got empty parameter set` (รัน) ถ้ากังวลว่าข้อมูลที่ประกอบรายการอาจว่างโดยไม่ตั้งใจ ตั้ง `empty_parameter_set_mark = fail_at_collect` ใน config ให้ collect ล้มแทน แบบฝึกได้ `errors=1` (รัน)
+
+**parameter บัง fixture** ถ้า fixture ชื่อ `percent` ส่งค่า 99 และ test ถูก parametrize ด้วยชื่อ `percent` ค่า 10 จาก `parametrize` **ชนะ** fixture (รัน) ในแบบฝึกดู test ที่ยืนยัน `percent == 10` เหมาะเมื่ออยากทับ fixture เฉพาะ test แต่ถ้าเกิดโดยไม่ตั้งใจจะงง จึงควรตั้งชื่อต่างกัน
+
+**parametrize บน class** `@pytest.mark.parametrize("sku", ["apple", "pear"])` เหนือ class ใช้กับ **ทุก method** ในแบบฝึกสอง method คูณสองค่าได้ 4 test (รัน)
+
+<Callout type="try" title="ลองทำใน repo นี้">
+รัน `uv run pytest exercises/04_parametrize/test_parametrize_in_depth.py --collect-only -q` แล้วอ่าน id ทั้งหมด จากนั้นเพิ่มค่า `0.5` ใน list ของ `test_ids_from_a_function` ดูว่า id ออกมาเป็น `0.5pct` ไหม และลองส่ง dict เป็นค่าดูว่า id เป็นอะไร
+</Callout>
+
+</Step>
+
+<Step>
+
+## ที่มาของหน้านี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| `ids=` จากฟังก์ชันและจากรายการ, id ของค่าแต่ละชนิด (`x5`, `x6`) | รัน: `exercises/04_parametrize/test_parametrize_in_depth.py` |
+| `pytest_generate_tests` สร้าง 3 test, ลำดับ `build a`, `drop a`, `build b` | รัน: เหมือนข้างบน |
+| ชุดว่าง (skip และ `fail_at_collect`), parameter บัง fixture, parametrize บน class | รัน: เหมือนข้างบน (ชุดว่างใช้ `pytester`) |
+| `metafunc.config` อ่าน option ได้, คำแนะนำเรื่องชื่อ parameter ที่ซ้ำ | ผู้เขียน |
+
+</Step>

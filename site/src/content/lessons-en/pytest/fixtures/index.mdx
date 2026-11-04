@@ -52,7 +52,7 @@ Pytest sees the name `filled_cart` in the parameters, runs that fixture first, a
 
 ## Every test gets new things
 
-By default a fixture runs **again for every test**. The exercise confirms it with two tests in a row (ran: `exercises/03_fixtures`):
+By default a fixture runs **again for every test**. The exercise confirms it with two tests in a row (ran: `exercises/03_fixtures/test_fixtures.py`):
 
 ```python
 def test_every_test_gets_a_fresh_cart(filled_cart):
@@ -63,7 +63,7 @@ def test_the_previous_test_did_not_leak(filled_cart):
     assert filled_cart.qty("kiwi") == 0
 ```
 
-The first test adds a kiwi and the second does not see it. This is why tests are independent of each other ([lesson 8](/en/pytest/test-design/#tests-must-be-independent) comes back to this).
+The first test adds a kiwi and the second does not see it. This is why tests are independent of each other ([lesson 15](/en/pytest/test-design/#tests-must-be-independent) comes back to this).
 
 </Step>
 
@@ -91,7 +91,7 @@ def transaction(connection):
     EVENTS.append("rollback")
 ```
 
-To see the real order, use `--setup-show` (ran: `exercises/03_fixtures`):
+To see the real order, use `--setup-show` (ran: `exercises/03_fixtures/test_fixtures.py`):
 
 ```text
 SETUP    M connection
@@ -127,7 +127,7 @@ Teardown always runs in the reverse order of setup (what was set up last is clea
 | `package` | every package | |
 | `session` | once for the whole run | for example starting a database container |
 
-The exercise proves it with a list called `EVENTS` (ran: `exercises/03_fixtures`):
+The exercise proves it with a list called `EVENTS` (ran: `exercises/03_fixtures/test_fixtures.py`):
 
 ```python
 def test_the_events_show_scope():
@@ -137,7 +137,7 @@ def test_the_events_show_scope():
 One connect, two begin/rollback pairs, and the disconnect does not happen until the file ends.
 
 <Callout type="warn" title="A wider scope trades isolation for speed">
-A module or session fixture that returns a mutable object (such as a cart) is shared by every test. If one test changes it, the next test sees the change. That is how you get tests that pass when run together and fail when run alone ([lesson 8](/en/pytest/test-design/#tests-must-be-independent)). Use a wide scope for things that are not changed, or reset them with a function-scoped fixture layered on top.
+A module or session fixture that returns a mutable object (such as a cart) is shared by every test. If one test changes it, the next test sees the change. That is how you get tests that pass when run together and fail when run alone ([lesson 15](/en/pytest/test-design/#tests-must-be-independent)). Use a wide scope for things that are not changed, or reset them with a function-scoped fixture layered on top.
 </Callout>
 
 </Step>
@@ -146,7 +146,7 @@ A module or session fixture that returns a mutable object (such as a cart) is sh
 
 ## A fixture that comes with Pytest: tmp_path
 
-`tmp_path` gives an empty temporary folder, different for every test. It suits code that writes files (ran: `exercises/03_fixtures`):
+`tmp_path` gives an empty temporary folder, different for every test. It suits code that writes files (ran: `exercises/03_fixtures/test_fixtures.py`):
 
 ```python
 def test_save_and_load_with_tmp_path(filled_cart, tmp_path):
@@ -201,7 +201,7 @@ def coupon(request):
 So `test_a_parametrized_fixture_runs_the_test_once_per_param` runs twice. That is why `test_fixtures.py` has 11 test functions but reports **12 passed** (ran: `exercises/03_fixtures/test_fixtures.py`). [Lesson 4](/en/pytest/parametrize/#one-test-many-values) teaches a more direct way for ordinary tests.
 
 <Callout type="try" title="Try it in this repo">
-Run `uv run pytest exercises/03_fixtures --setup-show` and read the order. Change `scope="module"` of `connection` to `"function"` and see why `test_the_events_show_scope` fails and what `EVENTS` looks like then.
+Run `uv run pytest exercises/03_fixtures/test_fixtures.py --setup-show` and read the order. Change `scope="module"` of `connection` to `"function"` and see why `test_the_events_show_scope` fails and what `EVENTS` looks like then.
 </Callout>
 
 </Step>
@@ -222,9 +222,9 @@ Run `uv run pytest exercises/03_fixtures --setup-show` and read the order. Chang
 
 | Statement | Source |
 |---|---|
-| a fixture asking for a fixture, each test gets new things, conftest, tmp_path, factory, autouse, params (12 passed from 11 functions), overriding by conftest and by the test file (14 passed for the whole folder) | ran: `exercises/03_fixtures`, `verify.py` |
-| the order of setup and teardown, the scope letters `M` and `F` in `--setup-show` | ran: `exercises/03_fixtures`, `verify.py` |
-| the `EVENTS` list that proves module scope against function scope | ran: `exercises/03_fixtures` |
+| a fixture asking for a fixture, each test gets new things, conftest, tmp_path, factory, autouse, params (12 passed from 11 functions), overriding by conftest and by the test file (`nested/` has 2 more tests) | ran: `exercises/03_fixtures/test_fixtures.py`, `verify.py` |
+| the order of setup and teardown, the scope letters `M` and `F` in `--setup-show` | ran: `exercises/03_fixtures/test_fixtures.py`, `verify.py` |
+| the `EVENTS` list that proves module scope against function scope | ran: `exercises/03_fixtures/test_fixtures.py` |
 | teardown runs even when the test fails | ran: `demos/03_teardown` |
 | the table of five scopes, the advice about wide scope and mutable objects | author |
 

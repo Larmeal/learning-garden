@@ -1,0 +1,154 @@
+---
+title: Assertions in depth
+summary: The information in the exception that raises gives you, checking exception groups, several warnings at once, ending a test with fail/skip/xfail from code, hiding a helper's frame, and the odd corners of approx. Every item runs for real, 19 tests.
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Using the information in excinfo
+
+`with pytest.raises(E) as info` gives an `ExceptionInfo` object that has more than `.value` and `.type` (ran: `exercises/02_assertions/test_assertions_in_depth.py`):
+
+```python
+with pytest.raises(ValueError) as info:
+    Cart().add("apple", price=-1)
+assert info.type is ValueError
+assert str(info.value) == "price must not be negative, got -1"
+assert info.traceback[-1].name == "add"      # the last frame of the traceback is the function that raised
+assert info.match("negative")                # check a regex afterwards
+```
+
+When the message alone is not enough, for example when the exception has attributes of its own, use the argument `check=` and pass a function that returns `True` when the exception is right:
+
+```python
+with pytest.raises(CartError, check=lambda e: e.sku == "kiwi"):
+    boom()
+```
+
+If `check` returns `False` the test fails, even when the type of the exception matches (ran).
+
+</Step>
+
+<Step>
+
+## Exception groups
+
+Python 3.11 added `ExceptionGroup` for cases where several things go wrong at once, such as work running in parallel. A plain `pytest.raises` can only check that it is a group, and does not look inside. Use `RaisesGroup` and `RaisesExc` when you must check the members (source: `_pytest/raises.py`):
+
+```python
+def collect_errors():
+    raise ExceptionGroup("several", [ValueError("a"), ValueError("b"), KeyError("k")])
+
+with pytest.RaisesGroup(ValueError, ValueError, KeyError):
+    collect_errors()
+
+with pytest.RaisesGroup(
+    pytest.RaisesExc(ValueError, match="a"),
+    pytest.RaisesExc(ValueError, match="b"),
+    pytest.RaisesExc(KeyError),
+):
+    collect_errors()
+```
+
+What is confirmed (ran):
+
+- `RaisesGroup` is **strict about extra members**: a group with a `ValueError` and a `KeyError` where only `ValueError` is declared makes the test fail.
+- A group inside a group needs `flatten_subgroups=True` for the members to be checked across levels.
+- With an ordinary `pytest.raises(ExceptionGroup) as info`, use `info.group_contains(KeyError)` and `info.group_contains(ValueError, match="b")` to ask whether a member of that kind exists, and `group_contains(TypeError)` gives `False`.
+
+</Step>
+
+<Step>
+
+## Several warnings
+
+`pytest.warns(...) as record` keeps every warning raised in the block as a list (ran):
+
+```python
+with pytest.warns(UserWarning) as record:
+    warnings.warn("first", UserWarning)
+    warnings.warn("second", UserWarning)
+assert [str(w.message) for w in record] == ["first", "second"]
+assert record[0].category is UserWarning
+```
+
+`pytest.deprecated_call()` is a shortcut that accepts both `DeprecationWarning` and `PendingDeprecationWarning`, and a `pytest.warns` that finds no warning in its block makes the test fail.
+
+</Step>
+
+<Step>
+
+## Deciding the result from code: fail, skip, xfail, importorskip
+
+Sometimes the condition is only known at run time, not when you write the test. pytest has functions that end a test with a chosen result (source: `_pytest/outcomes.py`). Each raises a special exception, so the test ends at that line (ran):
+
+| Function | Result |
+|---|---|
+| `pytest.fail("stop here", pytrace=False)` | fails with the message `stop here` and no traceback |
+| `pytest.skip("reason")` | skipped (compare the marker in the [Markers lesson](/en/pytest/markers/)) |
+| `pytest.xfail("known")` | xfailed at once, and the lines after it do not run |
+| `pytest.importorskip("module")` | returns the module if it imports, or skips the whole test if it cannot |
+
+`importorskip` suits a test that uses an optional library: `np = pytest.importorskip("numpy")`, and if it is not installed the test is skipped instead of failing. In the exercise `importorskip("json")` returns a working module, and a name that does not exist gives skipped=1.
+
+</Step>
+
+<Step>
+
+## Hiding a helper's frame with __tracebackhide__
+
+A helper function that checks a condition on behalf of a test makes the traceback point at a line in the helper instead of at the test that called it. Put `__tracebackhide__ = True` in that function so pytest hides the frame:
+
+```python
+def assert_total(cart_total, want):
+    __tracebackhide__ = True
+    assert cart_total == want, "total differs"
+
+def test_x():
+    assert_total(1, 2)
+```
+
+Run `--tb=short` and you see the line `assert_total(1, 2)` in the test but not `assert cart_total == want` in the helper (ran). When you wonder what was hidden, use `--full-trace` to see every frame.
+
+A reminder from the [Assertion rewriting lesson](/en/pytest/assertion-rewriting/): a helper in another file has no `assert` details unless it is registered. Hiding the frame does not replace registering.
+
+</Step>
+
+<Step>
+
+## The odd corners of approx
+
+(ran: `exercises/02_assertions/test_assertions_in_depth.py`)
+
+- **The default tolerance** is relative 1e-6 plus an absolute floor of 1e-12. `1_000_000.5 == approx(1_000_000)` passes because 1e-6 of a million is 1, while `1_000_001.5` does not. Close to zero the relative part is tiny, so the absolute value is used: `1e-13 == approx(0)` passes but `1e-11` does not.
+- **`nan`** is never equal to itself unless you add `nan_ok=True`.
+- **`Decimal`** works: `Decimal("0.30") == approx(Decimal("0.3"))`, and you can set `abs=Decimal("0.02")`.
+- **A dict** is compared by values, not keys: `{"a": 1.0} != approx({"b": 1.0})` because the keys differ.
+
+<Callout type="try" title="Try it in this repo">
+Run `uv run pytest exercises/02_assertions/test_assertions_in_depth.py -v`, then change `RaisesGroup(ValueError, ValueError, KeyError)` so it lacks the `KeyError` and read the message pytest gives about which member is extra.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Sources for this page
+
+| Statement | Source |
+|---|---|
+| `excinfo`: `.type`, `.value`, `.traceback`, `.match`, `check=` | ran: `exercises/02_assertions/test_assertions_in_depth.py` |
+| `RaisesGroup`, `RaisesExc`, `flatten_subgroups`, `group_contains`, strictness about extra members | ran: as above, source: `_pytest/raises.py` |
+| `warns` as a list, `deprecated_call`, `fail`, `importorskip`, `xfail()` in code | ran: as above |
+| `__tracebackhide__` hides a frame in `--tb=short` | ran: as above |
+| the default of approx, `nan_ok`, `Decimal`, dicts | ran: as above |
+| `--full-trace` shows every frame, the `numpy` example | author (not run) |
+
+</Step>

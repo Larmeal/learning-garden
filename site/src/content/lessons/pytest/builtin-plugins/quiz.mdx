@@ -1,0 +1,74 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 5 ข้อ เพื่อเช็กว่าเข้าใจบทนี้แค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="test หนึ่งเขียนด้วย os.write(1, b'text') ตรงๆ ลง file descriptor ที่ 1 fixture ใดอ่านข้อความนี้ได้"
+  options={['capsys', 'capfd เพราะดักที่ระดับ file descriptor', 'ทั้งสองอ่านได้เหมือนกัน']}
+  answer={1}
+  why="capsys ดักเฉพาะ sys.stdout และ sys.stderr ส่วน capfd ดักที่ fd 1 และ 2 แบบฝึกยืนยันว่า capfd.readouterr().out ได้ข้อความ แต่ capsys.readouterr().out ได้สตริงว่าง"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="test เรียก log.info('this is info') และ log.warning('this is a warning') แล้วล้ม ส่วน Captured log call มีบรรทัดอะไร"
+  options={['ทั้งสองบรรทัด', 'เฉพาะ WARNING เพราะ root logger ของ Python มีระดับเริ่มต้น WARNING', 'ไม่มีเลย เพราะ pytest ไม่ดัก log']}
+  answer={1}
+  why="pytest ไม่เปลี่ยนระดับของ logger ต้องตั้ง --log-level=INFO หรือ log_level ใน config ถึงจะดัก INFO แบบฝึกยืนยันว่าบรรทัดที่ได้คือ WARNING shop:test_log.py:7 this is a warning เท่านั้น"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="รัน pytest --ff เมื่อรอบก่อนมี test_b ล้ม และไฟล์มี test_a, test_b, test_c ตามลำดับ ลำดับที่รันคืออะไร"
+  options={['test_a, test_b, test_c', 'test_b, test_a, test_c', 'test_b เท่านั้น']}
+  answer={1}
+  why="--ff (failed first) ย้าย test ที่ล้มรอบก่อนมาไว้หน้า แล้วรันที่เหลือตามลำดับเดิม ส่วน --lf รันเฉพาะ test_b ผลของ internals/10_builtin_plugins.py ตรงกับลำดับนี้"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ต้องการให้ DeprecationWarning ทำให้ test ตัวหนึ่งล้ม แต่ตัวอื่นไม่กระทบ ควรทำอย่างไร"
+  options={['@pytest.mark.filterwarnings(\"error\") บน test นั้น', 'ใส่ -s', 'ลบ plugin warnings ด้วย -p no:warnings']}
+  answer={0}
+  why="marker filterwarnings ปรับตัวกรองเฉพาะ test นั้น 'error' เปลี่ยน warning เป็น exception แบบฝึกได้ test หนึ่งล้มจากวิธีนี้ ส่วน -s เกี่ยวกับ print และการปิด plugin warnings ไม่ทำให้ warning เป็นความล้ม"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="subtests.test(msg='row', n=n) ใน loop 4 รอบที่รอบ n=2 ล้ม ผลเป็นอย่างไร"
+  options={['loop หยุดที่รอบนั้น อีกสองรอบไม่รัน', 'อีกสามรอบยังรันและผ่าน ตัว test ถูกนับว่าล้ม และรอบที่ล้มรายงานเป็น SUBFAILED[row] (n=2)', 'ทุกรอบถูกนับเป็น test แยกใน collection']}
+  answer={1}
+  why="รอบที่ล้มไม่ขัด loop แบบฝึกได้ 2 failed, 3 subtests passed โดยบรรทัดผลคือ uuuuF subtest ไม่ใช่ node ในต้นไม้ collection ต่างจาก parametrize"
+/>
+
+</Step>

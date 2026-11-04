@@ -24,6 +24,9 @@ class Cart:
     def __init__(self) -> None:
         self._lines: dict[str, Line] = {}
 
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, Cart) and self._lines == other._lines
+
     def is_empty(self) -> bool:
         return not self._lines
 

@@ -1,0 +1,164 @@
+---
+title: "Collection: the tree of tests"
+summary: Before the first test runs, pytest builds a tree of every node. This lesson shows how the tree is built, which names become tests, what gets skipped, and what happens when a file cannot be imported.
+order: 10
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [how-pytest-runs]
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Collection builds a tree
+
+The lesson [How Pytest runs](/en/pytest/how-pytest-runs/) showed that collection finishes before the first test runs. Its result is the tree of **nodes** that `--collect-only` prints (ran: `internals/03_collection_tree.py`):
+
+```text
+<Dir tmp0eq8na2k>
+  <Package shop>
+    <Module test_cart.py>
+      <Class TestRemove>
+        <Function test_drop>
+        <Function test_missing>
+      <Function test_qty[1]>
+      <Function test_qty[2]>
+  <Module test_top.py>
+    <Function test_top>
+```
+
+There are two kinds of node (source: `_pytest/nodes.py`):
+
+- A **Collector** has a `collect()` method that returns child nodes: `Session`, `Dir`, `Package`, `Module`, `Class`.
+- An **Item** is a leaf of the tree. It has `runtest()`, which really runs: `Function` is the test you wrote.
+
+Every node has a `parent`, and `listchain()` returns the chain from the root down to itself. In the example `test_drop` gives `Session > Dir > Package > Module > Class > Function` (ran: `internals/03_collection_tree.py`). The `nodeid` you know, such as `shop/test_cart.py::TestRemove::test_drop`, is the address of the node in the tree, separated by `::`.
+
+This chain matters for the next lesson: module, class and session fixtures are tied to nodes in it ([lesson 11](/en/pytest/fixture-engine/)).
+
+</Step>
+
+<Step>
+
+## How the tree is walked
+
+`Session.collect` takes the arguments typed on the command line one at a time and walks from the root down, one level at a time (source: `Session.collect` in `main.py`). One argument splits into parts. `shop/test_cart.py::TestRemove::test_drop` is a folder path, a file path, a class name and a test name. At each level pytest keeps the child nodes whose name matches that part and drops the rest.
+
+Consequences:
+
+- A precise node id does not import every file. pytest imports only the files on the path.
+- The test-name part does not need a parameter: `::test_qty` selects every parameter, while `::test_qty[1]` selects one (source: `Session.collect`, where it cuts at `[` before comparing names).
+- A node id that matches nothing (`test_x.py::no_such_test`) makes pytest end with exit code 4 and `ERROR: not found: ...` (ran: `internals/12_collection_options.py`).
+
+</Step>
+
+<Step>
+
+## Folders and files: two hooks decide
+
+When pytest meets a folder it asks the hook `pytest_collect_directory`. If the folder has `__init__.py` the result is a `Package`, otherwise a plain `Dir` (source: `pytest_collect_directory` in `python.py`). For a file it asks `pytest_collect_file`, which accepts only `.py` files whose name matches `python_files`. The exception is a file named directly on the command line, which needs no name check (source: `isinitpath` in the same function, matching what the [First Test lesson](/en/pytest/first-test/) showed with `cart_extra.py`).
+
+Walking a folder skips some folders according to `norecursedirs`. In the exercise `build/` and `node_modules/` are not walked when you run plain `pytest`, but if you give a path inside such a folder on the command line it is collected (ran: `internals/12_collection_options.py`). Options you will use often:
+
+| option | What it does | Confirmed |
+|---|---|---|
+| `--ignore=sub` | do not collect that path | the whole folder is gone |
+| `--deselect <node id>` | collect, then drop | `3/4 tests collected (1 deselected)` |
+| `-o norecursedirs=sub` | change the list of skipped folders | the folder `sub` is not walked |
+
+</Step>
+
+<Step>
+
+## Which names are tests
+
+Once a file imports, `PyCollector.collect` goes through the `__dict__` of the module (or class) in definition order and asks the hook `pytest_pycollect_makeitem` about every name (source: `PyCollector.collect`). The default rules are `python_classes = Test` and `python_functions = test`, and the name must **start with** that value.
+
+```text
+Test_Cart            collected, it starts with Test
+CartTests            not collected (starts with Cart)
+TestWithInit         not collected: a class with __init__
+test_f               collected
+spec_f               not collected
+```
+
+(ran: `internals/12_collection_options.py`, the result is `Test_Cart::test_a` and `test_f`). The class `TestWithInit` gets the warning `cannot collect test class 'TestWithInit' because it has a __init__ constructor`, because pytest creates the instance of the class itself without passing arguments.
+
+These values can be changed (ran: `internals/12_collection_options.py`):
+
+```toml
+python_files = ["check_*.py"]
+python_classes = ["Spec"]
+python_functions = ["check_*"]
+```
+
+With these three lines `check_cart.py` gives `Spec::check_a` and `check_total`. A name that starts with the value always passes, and a value containing `*`, `?` or `[` is also used as a glob (source: `_matches_prefix_or_glob_option`).
+
+Other conditions pytest checks (source: `istestfunction`, `istestclass`): a function decorated with `@pytest.fixture` is not a test, an abstract class is not collected, and `__test__ = False` turns off a whole class or module.
+
+</Step>
+
+<Step>
+
+## One function, many Functions: parametrize works here
+
+When a name passes, `_genfunctions` creates the `Function`. The steps are (source: `_genfunctions` in `python.py`):
+
+1. Create a `FunctionDefinition` to read which fixtures the function asks for (this gives `fixtureinfo`).
+2. Create a `Metafunc` and call the hook `pytest_generate_tests` for every plugin, plus the `pytest_generate_tests` function in the module and in the class.
+3. If nobody calls `metafunc.parametrize`, the result is one `Function`. If somebody does, the result is one `Function` per callspec, named `name[id]`.
+
+`@pytest.mark.parametrize` is only a marker that pytest's own `pytest_generate_tests` reads and turns into a call to `metafunc.parametrize`. So `test_qty[1]` and `test_qty[2]` are different nodes in the tree, with their own nodeid, and they can fail separately ([lesson 4](/en/pytest/parametrize/in-depth/) writes this hook by hand).
+
+</Step>
+
+<Step>
+
+## When import fails: a collection error
+
+A file that cannot be imported does not make its tests fail. It is a **collection error** (source: `importtestmodule`). The exercise has `broken/test_broken.py`, which imports a module that does not exist (ran: `internals/12_collection_options.py`):
+
+| Command | Result | exit code |
+|---|---|---|
+| `pytest` | `Interrupted: 1 error during collection`, no tests run at all | 2 |
+| `pytest --continue-on-collection-errors` | runs the other tests, summary `4 passed, 1 warning, 1 error` | 1 |
+
+The default stops everything on purpose. If it carried on, the missing tests would disappear without anyone noticing, and a CI that is green on 200 tests while one whole file never ran is wrong (see [lesson 1](/en/pytest/first-test/) on exit code 5).
+
+Another import case is two files with the same name in folders that have no `__init__.py`. With the default import mode (`prepend`), `a/test_same.py` and `b/test_same.py` collide and pytest complains `import file mismatch`. Adding `__init__.py` to both folders fixes it, and so does `--import-mode=importlib`. Both ways give 2 passed (ran: `internals/09_config_layout.py`).
+
+<Callout type="try" title="Try it in this repo">
+Run `uv run python internals/12_collection_options.py`, then edit `FILES` in `internals/03_collection_tree.py` to add a class `TestZ` with an `__init__`, and see that a warning appears while the tree does not change. After that run `uv run pytest exercises/04_parametrize --collect-only -q` to see the nodeids that parametrize creates.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- Why does `pytest shop/test_cart.py::TestRemove::test_drop` not need to import the other files in the project?
+- Is a class named `Test_Cart` collected? And `CartTests`? Why?
+- If CI shows green while one file cannot be imported, what has been configured?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| the tree `Dir > Package > Module > Class > Function`, `listchain`, the node id form | ran: `internals/03_collection_tree.py` |
+| Collector and Item, `Session.collect` walks level by level and drops what does not match, `::test_qty` selects every parameter | source: `_pytest/nodes.py`, `Session.collect` in `main.py` |
+| `Package` when there is an `__init__.py`, a file named directly needs no name check, `_genfunctions` and `Metafunc` | source: `_pytest/python.py` |
+| the naming rules (`Test_Cart` passes, `CartTests` does not, a class with `__init__`), custom patterns, `norecursedirs`, `--ignore`, `--deselect`, a node id that matches nothing (exit 4), collection errors (exit 2 and 1) | ran: `internals/12_collection_options.py` |
+| duplicate file names and import modes | ran: `internals/09_config_layout.py` |
+| the reason the default stops when collection breaks | author |
+
+</Step>

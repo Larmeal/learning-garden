@@ -1,0 +1,179 @@
+---
+title: The plugins that come with Pytest
+summary: Capturing print and log output, handling warnings, remembering the last run with the cache, writing JUnit XML reports and splitting results with subtests. This lesson goes through the built-in plugins you use most, running everything on temporary projects to see the real results.
+order: 8
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [project]
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Why know these plugins
+
+The lesson [How Pytest runs](/en/pytest/how-pytest-runs/) showed that pytest has 30 built-in plugins. Many are things you use every day without knowing: when a test fails and you see what it printed, that is `capture`. When you run `--lf`, that is `cacheprovider`. This lesson opens up the five with the most decisions in them.
+
+Every result comes from `internals/10_builtin_plugins.py`, which builds a temporary project for each topic and runs pytest in a fresh interpreter (ran: `internals/10_builtin_plugins.py`).
+
+</Step>
+
+<Step>
+
+## Capture: why print disappears when a test passes
+
+pytest captures what is written to stdout and stderr while a test runs, and shows it only when the test fails (source: `_pytest/capture.py`). The exercise project has a test that does `print("hello from print")` and then `assert False`. The result is (ran):
+
+```text
+------------------------------ Captured stdout call ------------------------------
+hello from print
+------------------------------ Captured stderr call ------------------------------
+to stderr
+```
+
+A test that prints and passes shows nothing. Add `-s` (or `--capture=no`) to see it.
+
+There are two levels of capture (source: `FDCapture` and `SysCapture`):
+
+- **`sys`** captures only what is written through `sys.stdout` and `sys.stderr`, which is the ordinary `print`.
+- **`fd`** (the default) also captures at file descriptors 1 and 2, so it catches what C code or a subprocess writes.
+
+The difference shows in two fixtures: `capsys` captures at the sys level and `capfd` at the fd level. The exercise has a test that writes with `os.write(1, b"...")` directly. `capfd.readouterr().out` sees the text, but `capsys.readouterr().out` gets an empty string.
+
+The fixtures `capsys` and `capfd` give a `readouterr()` that returns `(out, err)` and clears the capture each time it is called.
+
+</Step>
+
+<Step>
+
+## Logging: the default level that hides INFO
+
+The `logging` plugin captures a test's log in a `Captured log call` section. The result for a project that logs both `info` and `warning` and then fails (ran):
+
+```text
+------------------------------ Captured log call -------------------------------
+WARNING  shop:test_log.py:7 this is a warning
+```
+
+There is no INFO line, because the root logger of Python has the default level WARNING and pytest does not change it. There are two ways to adjust it:
+
+- `--log-level=INFO` or `log_level = INFO` in the config, to capture down to that level.
+- **Live log** with `log_cli = true` and `log_cli_level = INFO`, which shows the log while the test runs instead of waiting for a failure. The exercise gets `live log call` with the line `INFO     shop:test_log.py:6 this is info`.
+
+To check a log inside a test use `caplog` (the [Isolation lesson](/en/pytest/isolation/)), which has `messages`, `records`, `text` and `at_level(...)`.
+
+</Step>
+
+<Step>
+
+## Warnings: the summary at the end
+
+The `warnings` plugin collects the warnings raised while tests run and prints a summary at the end of the report instead of showing them at once (source: `_pytest/warnings.py`). A project whose function `noisy()` issues `DeprecationWarning("old api")` gets a `warnings summary` section with the text `DeprecationWarning: old api` (ran).
+
+You control it at three levels:
+
+| Level | How | Confirmed result |
+|---|---|---|
+| one test | `@pytest.mark.filterwarnings("error")` | the warning becomes an exception: that test fails |
+| one test | `@pytest.mark.filterwarnings("ignore::DeprecationWarning")` | the warning is gone from the summary |
+| whole project | `-o filterwarnings=ignore::DeprecationWarning` (or `filterwarnings` in the config) | no `warnings summary` section at all |
+
+A practice that works well is to set `filterwarnings = ["error"]` in the config so every warning is a failure, and then allow known ones one at a time. A library that deprecates a function gets caught before it really breaks (author).
+
+</Step>
+
+<Step>
+
+## Cache: what pytest remembers
+
+The `cacheprovider` plugin keeps results in a `.pytest_cache` folder next to the project (source: `_pytest/cacheprovider.py`). After running a project where `test_b` fails, the files created are (ran):
+
+```text
+.gitignore   CACHEDIR.TAG   README.md   v/cache/lastfailed   v/cache/nodeids
+```
+
+`v/cache/lastfailed` holds `{"test_cache.py::test_b": true}`. The folder has its own `.gitignore`, so it does not get mixed into git. The options that use this data:
+
+| option | What it does | Confirmed result |
+|---|---|---|
+| `--lf` | run only what failed last time | `1 failed` and no other test |
+| `--ff` | run the failures first, then the rest | the order `test_b`, `test_a`, `test_c` and the message `run-last-failure: rerun previous 1 failure first` |
+| `--sw` (stepwise) | stop at the failure, and start from there next time | `Interrupted: Test failed, continuing from this test next run.`, summary `1 failed, 1 passed` |
+| `--nf` | run new tests first | |
+| `--cache-show` | show the contents of the cache | prints `cachedir:` |
+
+Your own plugin can use the cache through the `cache` fixture (`cache.get(key, default)` and `cache.set(key, value)`) to keep data between runs, such as the order of slow tests.
+
+</Step>
+
+<Step>
+
+## JUnit XML: sending results to CI
+
+`--junitxml=report.xml` writes the results as an XML file that most CI systems can read (source: `_pytest/junitxml.py`). A project with 8 tests, two of them failing, gives a `<testsuite>` with `tests="8"`, `failures="2"`, `errors="0"` (ran). Each test is a `<testcase classname=... name=...>`, and a failing one has a `<failure>` inside. In the exercise the failing names are `test_print_and_fail` and `test_the_mark_turns_it_into_an_error`.
+
+Properties you add to your own report (`report.user_properties`) also end up in the XML, which is a way to send extra data to CI ([lesson 14](/en/pytest/plugins/)).
+
+</Step>
+
+<Step>
+
+## Subtests: several results inside one test
+
+pytest 9.2.0 has a `subtests` fixture that reports each round of a loop separately (source: `_pytest/subtests.py`):
+
+```python
+def test_each_row(subtests):
+    for n in range(4):
+        with subtests.test(msg="row", n=n):
+            assert n != 2
+```
+
+The result is (ran):
+
+```text
+uuuuF
+SUBFAILED[row] (n=2) test_sub.py::test_each_row - assert 2 != 2
+FAILED test_sub.py::test_each_row - contains 1 failed subtest
+2 failed, 3 subtests passed in 0.05s
+```
+
+The failing round does not stop the loop: the other three still run and pass (`u` is a passing subtest). The test itself counts as failed because a subtest failed, and the failing round shows `(n=2)` as passed to `subtests.test`. Compared with `parametrize` ([lesson 4](/en/pytest/parametrize/)): use parametrize when the values are known before the run, and subtests when the values come from data read at run time, such as the rows of a file.
+
+<Callout type="try" title="Try it in this repo">
+Run `uv run python internals/10_builtin_plugins.py`, then change `test_logs_and_fails` to log at level `DEBUG` as well and try `--log-level=DEBUG` to see the `Captured log call` section. After that add `-rA` to see the summary of every test, including the captured text of tests that passed.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- A test passes and has a `print` inside. Why do you not see the text, and what are two ways to see it?
+- Why does an INFO log not appear in `Captured log call` although the test calls `log.info(...)`?
+- A team wants every warning to turn CI red. How do they configure it, and how do they allow one exception?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| `Captured stdout call` and `Captured stderr call` on failure, `-s` makes it visible, `capfd` sees `os.write` but `capsys` does not | ran: `internals/10_builtin_plugins.py` |
+| WARNING logs appear but INFO does not, live log with `log_cli` | ran: `internals/10_builtin_plugins.py` |
+| `warnings summary`, `filterwarnings` at test level and config level | ran: `internals/10_builtin_plugins.py` |
+| the files in `.pytest_cache`, `lastfailed`, the results of `--lf`, `--ff`, `--sw`, `--cache-show` | ran: `internals/10_builtin_plugins.py` |
+| `--junitxml`: `tests="8"`, `failures="2"`, the names of the failing tests | ran: `internals/10_builtin_plugins.py` |
+| subtests: `uuuuF`, `SUBFAILED`, `2 failed, 3 subtests passed` | ran: `internals/10_builtin_plugins.py` |
+| `fd` is the default capture level, the name and job of each plugin, the `cache` fixture | source: `_pytest/capture.py`, `warnings.py`, `cacheprovider.py`, `junitxml.py`, `subtests.py` |
+| the practice of `filterwarnings = ["error"]` | author |
+
+</Step>

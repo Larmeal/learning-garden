@@ -1,0 +1,199 @@
+---
+title: Pytest ทำงานอย่างไรตั้งแต่กด Enter
+summary: ใต้คำสั่ง pytest มีระบบ plugin และ hook ที่ทำทุกอย่าง ตั้งแต่อ่าน config ไปจนถึงพิมพ์สรุป บทนี้ไล่ลำดับการทำงานจริงของ pytest 9.2.0 ด้วยการบันทึก hook ทุกตัวที่ถูกเรียกตอนรัน test สองตัว
+order: 9
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [project]
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## ส่วนนี้ของเส้นทางอ่านโค้ดของ Pytest เอง
+
+แปดบทแรกใช้ pytest เป็นเครื่องมือ บทที่ 9 ถึง 14 เปิดดูข้างใน เพื่อให้เข้าใจว่าทำไมพฤติกรรมที่เห็นถึงเป็นแบบนั้น เช่น ทำไม fixture ถึงถูกปิดตอนนั้น ทำไม `assert` ใน helper ถึงไม่มีรายละเอียด
+
+ข้อมูลมาจากสองทาง คือโค้ดของ pytest 9.2.0 ที่อ่านตรงๆ (`src/_pytest/`, ติดป้าย "source" พร้อมชื่อฟังก์ชัน) กับสคริปต์ใน `subjects/pytest/code/internals/` ที่สร้างโปรเจกต์ชั่วคราวแล้วรัน pytest จริงเพื่อดูผล (ติดป้าย "รัน") ชื่อฟังก์ชันและไฟล์คือสิ่งที่ค้นเจอได้ในโค้ด เลขบรรทัดเปลี่ยนทุกเวอร์ชัน จึงไม่ใช้
+
+</Step>
+
+<Step>
+
+## คำสั่งเดียว สี่ช่วง
+
+`pytest` เรียก `console_main()` ซึ่งเรียก `_main()` ใน `_pytest/config/__init__.py` ลำดับของมันคือ (source: `_main`, `_prepareconfig`)
+
+1. ถ้าอาร์กิวเมนต์มี `--version` ตัวเดียว พิมพ์เวอร์ชันแล้วออกเลย โดยไม่เริ่มระบบ plugin (รัน: `internals/01_startup.py`)
+2. `_prepareconfig` สร้าง `Config` กับ `PytestPluginManager` โหลด plugin ที่มากับ pytest แล้วอ่านบรรทัดคำสั่ง, ไฟล์ config และ `conftest.py`
+3. เรียก hook `pytest_cmdline_main` ตัวที่ทำงานจริงอยู่ใน `main.py` คือ `wrap_session`
+4. `wrap_session` ทำสามอย่างต่อกัน: `pytest_sessionstart`, ตัว `_main` ของ session (collection แล้วรัน test) และ `pytest_sessionfinish`
+
+ตัว `_main` ของ session สั้นมาก (source: `_main` ใน `main.py`)
+
+```python
+config.hook.pytest_collection(session=session)
+config.hook.pytest_runtestloop(session=session)
+
+if session.testsfailed:
+    return ExitCode.TESTS_FAILED
+elif session.testscollected == 0:
+    return ExitCode.NO_TESTS_COLLECTED
+```
+
+collection ทั้งหมดเสร็จก่อน แล้วค่อยเริ่มรัน test ตัวแรก จึงเห็น `collected 5 items` ก่อนมี `.` ตัวแรกเสมอ
+
+</Step>
+
+<Step>
+
+## ทุกอย่างเป็น Plugin
+
+pytest ไม่ได้เป็นก้อนเดียว มันเป็นแกนเล็กๆ กับ plugin ที่ลงทะเบียนไว้ รายชื่อที่โหลดเสมอคือ `default_plugins` (source: `_pytest/config/__init__.py`) ใน 9.2.0 มี 30 ตัว ในจำนวนนี้ห้าตัวเป็น `essential_plugins`
+
+| กลุ่ม | plugin | ทำอะไร |
+|---|---|---|
+| แกน (essential) | `mark`, `main`, `runner`, `fixtures`, `helpconfig` | เลือก test ด้วย marker, session, ขั้น setup/call/teardown, ระบบ fixture, option `-p` |
+| การเก็บ test | `python`, `unittest`, `doctest` | หา test จากไฟล์ `.py` จาก `TestCase` และจาก docstring |
+| ผลลัพธ์ | `terminal`, `capture`, `logging`, `warnings`, `junitxml`, `pastebin` | พิมพ์ผล, ดักข้อความ, log, warning, ไฟล์ XML |
+| ผลต่อ test | `skipping`, `assertion`, `monkeypatch`, `tmpdir`, `recwarn`, `legacypath` | skip/xfail, เขียน assert ใหม่, fixture ที่ให้มา |
+| การรัน | `cacheprovider`, `stepwise`, `setuponly`, `setupplan`, `debugging`, `faulthandler`, `reports`, `unraisableexception`, `threadexception`, `subtests` | `--lf`, `--sw`, `--setup-show`, `--pdb` ฯลฯ |
+
+พิสูจน์ได้ด้วยการปิด (รัน: `internals/01_startup.py`)
+
+- `-p no:cacheprovider -p no:doctest` ทำให้ชื่อทั้งสองหายไปจากรายการ plugin ที่ลงทะเบียน และ `terminal` ยังอยู่
+- `-p no:main` ปิดไม่ได้: pytest จบด้วย exit code 4 และข้อความ `plugin main cannot be disabled`
+- `--trace-config` พิมพ์ทุกบรรทัด `PLUGIN registered` ว่าใครลงทะเบียนอะไร
+
+ผลเชิงปฏิบัติ: ฟีเจอร์อย่าง `--lf` (plugin `cacheprovider`) หรือ `--setup-show` (plugin `setuponly`) เป็น plugin ธรรมดา ปิดได้ และเขียนของตัวเองในแบบเดียวกันได้ ([บท 14](/pytest/plugins/))
+
+</Step>
+
+<Step>
+
+## Hook: จุดที่ Pytest เรียกหาคนอื่น
+
+plugin คุยกับแกนผ่าน **hook** เป็นฟังก์ชันที่ชื่อขึ้นต้นด้วย `pytest_` ข้อกำหนดของแต่ละ hook อยู่ใน `_pytest/hookspec.py` (source: ฟังก์ชัน `pytest_*` ในไฟล์นั้น มีราวห้าสิบตัว) plugin ใดอยากรู้เรื่องไหนก็เขียนฟังก์ชันชื่อเดียวกัน pluggy ซึ่งเป็นไลบรารี plugin ที่ pytest ใช้ จะเรียกให้
+
+กติกาสามข้อที่ใช้บ่อย
+
+- **ส่งเฉพาะ argument ที่ขอ** ฟังก์ชันของเราประกาศแค่ parameter ที่อยากได้ (`def pytest_runtest_logfinish(nodeid)`) pluggy ส่งให้เท่านั้น ประกาศ parameter ที่ spec ไม่มี เช่น `report` ใน `pytest_runtest_logfinish` ทำให้ pytest จบด้วย exit code 1 และ `PluginValidationError` ตั้งแต่ตอนโหลด (รัน: `internals/11_hook_validation.py`) ส่วนชื่อ hook ที่ไม่มีจริงไม่ล้มตอนโหลด แต่ล้มตอน collection ด้วย `INTERNALERROR` และ exit code 3
+- **เรียกทุกตัว** hook ส่วนใหญ่ถูกเรียกกับทุก plugin ที่ implement เอาไว้
+- **`firstresult`** hook ที่ตัดสินใจบางอย่าง (เช่น `pytest_runtest_protocol`, `pytest_collect_directory`, `pytest_fixture_setup`) หยุดที่ implementation แรกที่คืนค่าไม่ใช่ `None`
+
+อีกสองชนิดเจอในบท [Plugin](/pytest/plugins/): hook แบบ wrapper (ครอบ hook ตัวอื่น) และ hook แบบ `historic` เช่น `pytest_configure` ที่ plugin ซึ่งมาทีหลังก็ยังถูกเรียกย้อนหลัง
+
+</Step>
+
+<Step>
+
+## ลำดับ Hook จริงสำหรับ Test สองตัว
+
+`internals/02_hook_order.py` สร้างโปรเจกต์ที่มีไฟล์เดียวกับ `test_one` และ `test_two` แล้วส่ง plugin ที่บันทึก hook ทุกตัวเข้าไป ผลมี 39 การเรียก (รัน: `internals/02_hook_order.py`) ย่อได้ดังนี้
+
+```text
+ 1  pytest_sessionstart
+ 2  pytest_collectstart Session          ┐
+ 5  pytest_collectstart Dir              │ collection: เดินลงทีละชั้น
+ 7  pytest_collectstart Module           │ Session > Dir > Module
+ 9  pytest_itemcollected test_one        │
+10  pytest_itemcollected test_two        ┘
+13  pytest_collection_modifyitems 2 items
+14  pytest_collection_finish
+15  pytest_runtestloop
+16  pytest_runtest_logstart test_one
+17  pytest_runtest_setup test_one
+18  pytest_runtest_makereport test_one when=setup
+19  pytest_runtest_logreport test_one setup passed
+20  pytest_runtest_call test_one
+21  pytest_runtest_makereport test_one when=call
+22  pytest_runtest_logreport test_one call passed
+23  pytest_runtest_teardown test_one nextitem=test_two
+24  pytest_runtest_makereport test_one when=teardown
+25  pytest_runtest_logreport test_one teardown passed
+26  pytest_runtest_logfinish test_one
+27  ... เหมือนกัน สำหรับ test_two (teardown ได้ nextitem=None)
+38  pytest_sessionfinish exitstatus=0
+39  pytest_terminal_summary
+```
+
+สิ่งที่ตารางนี้บอก
+
+- **collection เสร็จทั้งต้นไม้ก่อนรันตัวแรก** (บรรทัด 14 ก่อน 17) บท [Collection](/pytest/collection/) อธิบายว่าต้นไม้สร้างอย่างไร
+- **แต่ละ test มีรายงานสามใบ** คือ setup, call, teardown ใบละหนึ่ง (`makereport` หกครั้งสำหรับสอง test) ตัวเลขนี้ตอบว่าทำไม fixture ที่พังตอน teardown ถึงเป็น error แยกจาก test ที่ผ่าน ([บท 12](/pytest/run-protocol/))
+- **`nextitem`** ตอน teardown ของ test_one คือ test_two และของ test_two คือ `None` pytest ใช้ค่านี้ตัดสินว่า fixture ระดับ module หรือ session ควรปิดตอนนี้ไหม ([บท 11](/pytest/fixture-engine/))
+- **สรุปท้ายรายงานพิมพ์หลัง `sessionfinish`** (บรรทัด 39 หลัง 38) เพราะ `terminal` ครอบ hook นั้นด้วย wrapper แล้วเรียก `pytest_terminal_summary` เอง (source: `pytest_sessionfinish` ใน `terminal.py`)
+
+</Step>
+
+<Step>
+
+## ผลของ Session และ Exit Code
+
+`wrap_session` ห่อทุกอย่างด้วย try ตามกรณี (source: `wrap_session` ใน `main.py`) ตารางเทียบกับ `ExitCode` ใน `config/__init__.py`
+
+| สถานการณ์ | `session.exitstatus` | ค่า |
+|---|---|---|
+| รันจบ ไม่มีล้ม | `OK` | 0 |
+| มี test ล้ม หรือ `Failed` ถูกโยน | `TESTS_FAILED` | 1 |
+| `KeyboardInterrupt` หรือ `pytest.exit()` | `INTERRUPTED` (หรือเลขที่ `exit()` กำหนด) | 2 |
+| exception อื่นที่ไม่ได้คาดไว้ | `INTERNAL_ERROR` | 3 |
+| `UsageError` เช่น option ที่ไม่รู้จัก | `USAGE_ERROR` | 4 |
+| ไม่เจอ test เลย | `NO_TESTS_COLLECTED` | 5 |
+
+`--no-such-option` จบด้วย 4 และข้อความ `unrecognized arguments: --no-such-option` (รัน: `internals/01_startup.py`) ส่วนเลข 5 เป็นสิ่งที่บท [First Test](/pytest/first-test/) แสดงด้วย `-k` ที่ไม่ตรงอะไร
+
+`pytest_sessionfinish` ถูกเรียกแม้ session ถูกขัด ตราบที่เริ่ม session แล้ว (ตัวแปร `initstate >= 2` ใน `wrap_session`) จึงมีที่ให้ plugin เก็บกวาดเสมอ
+
+</Step>
+
+<Step>
+
+## Config มาจากไหน
+
+ค่าที่ plugin เห็นผ่าน `config` มาจากหลายชั้น ชั้นหลังชนะชั้นก่อนสำหรับ option เดียวกัน (รัน: `internals/09_config_layout.py`)
+
+| ชั้น | ตัวอย่าง | ผลที่ยืนยัน |
+|---|---|---|
+| ไฟล์ config | `pytest.ini`, `pyproject.toml` ที่มี `[tool.pytest]`, `tox.ini`, `setup.cfg` | ใช้ไฟล์แรกที่เจอ ตามลำดับนี้ ลบไฟล์ที่ชนะทีละไฟล์แล้วไฟล์ถัดไปขึ้นมาตามลำดับ |
+| `PYTEST_ADDOPTS` | `PYTEST_ADDOPTS=-v` | เติม option เข้าไป เหมือนพิมพ์เอง |
+| บรรทัดคำสั่ง | `-o minversion=9.0` | ชนะค่าในไฟล์ |
+
+รายละเอียดอื่นของการหาไฟล์ config และ rootdir อยู่ใน [บท 7](/pytest/project/in-depth/) ส่วน conftest ที่ pytest โหลดระหว่างเริ่มต้นเป็น plugin ที่ลงทะเบียนในระดับโฟลเดอร์ ([บท 14](/pytest/plugins/))
+
+<Callout type="try" title="ลองทำใน repo นี้">
+รัน `uv run python internals/02_hook_order.py` จาก `subjects/pytest/code/` แล้วเพิ่ม method `pytest_runtest_logstart(self, nodeid, location)` เข้าไปใน `Recorder` ดูว่า `location` หน้าตาอย่างไร จากนั้นรัน `uv run pytest --trace-config -q --co` เพื่อดูรายการ `PLUGIN registered` ทั้งหมด
+</Callout>
+
+</Step>
+
+<Step>
+
+## เช็กตัวเอง
+
+- ถ้า plugin ของคุณ implement `pytest_collection_modifyitems` มันจะรันก่อนหรือหลัง `pytest_itemcollected` ทุกตัว และทำไม
+- ทำไม `-p no:terminal` ปิดได้แต่ `-p no:runner` ปิดไม่ได้
+- ข้อมูลอะไรที่ pytest ส่งให้ `pytest_runtest_teardown` ซึ่งทำให้มันรู้ว่าควรปิด fixture ระดับ module ตอนนี้
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| `_main` กับ `_prepareconfig`, ขั้นตอนของ `wrap_session`, `_main` ของ session, ตาราง exit code และ `Interrupted`/`Failed` | source: `_pytest/config/__init__.py`, `_pytest/main.py` |
+| `default_plugins` 30 ตัว, `essential_plugins` 5 ตัว, `pytester` อยู่ใน `builtin_plugins` แต่ไม่อยู่ใน `default_plugins` | รัน: `internals/01_startup.py` (นับจากตัวแปรใน `_pytest.config`) |
+| `-p no:` เอา plugin ออกจากรายการ, `-p no:main` จบด้วย 4, `--version` ตอบก่อนเริ่มระบบ, `--no-such-option` จบด้วย 4 | รัน: `internals/01_startup.py` |
+| ลำดับ 39 hook ของ test สองตัว, `nextitem`, summary หลัง sessionfinish | รัน: `internals/02_hook_order.py` |
+| ลำดับความสำคัญของไฟล์ config, `-o` ชนะไฟล์, `PYTEST_ADDOPTS` | รัน: `internals/09_config_layout.py` |
+| hook implementation ที่ประกาศ argument เกิน spec, ชื่อ hook ที่ไม่มีจริง | รัน: `internals/11_hook_validation.py` |
+| กติกา `firstresult` และ `historic` ของ hook, การจัดกลุ่ม plugin ในตาราง | source: `hookspec.py`; การจัดกลุ่มเป็นของผู้เขียน |
+
+</Step>

@@ -1,0 +1,154 @@
+---
+title: Assertion แบบเจาะลึก
+summary: ข้อมูลใน exception ที่ raises ให้ การตรวจ exception group, warning แบบหลายตัว, การสั่งให้ test จบด้วย fail/skip/xfail จากโค้ด, การซ่อน frame ของ helper และมุมแปลกของ approx ทุกข้อรันจริง 19 test
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## ใช้ข้อมูลใน `excinfo`
+
+`with pytest.raises(E) as info` ให้ object `ExceptionInfo` ที่มากกว่า `.value` และ `.type` (รัน: `exercises/02_assertions/test_assertions_in_depth.py`)
+
+```python
+with pytest.raises(ValueError) as info:
+    Cart().add("apple", price=-1)
+assert info.type is ValueError
+assert str(info.value) == "price must not be negative, got -1"
+assert info.traceback[-1].name == "add"      # frame สุดท้ายของ traceback คือฟังก์ชันที่โยน
+assert info.match("negative")                # เช็ก regex ทีหลังได้
+```
+
+เมื่อข้อความอย่างเดียวไม่พอ เช่น exception มี attribute ของตัวเอง ใช้อาร์กิวเมนต์ `check=` ส่งฟังก์ชันที่คืน `True` เมื่อ exception ถูกต้อง
+
+```python
+with pytest.raises(CartError, check=lambda e: e.sku == "kiwi"):
+    boom()
+```
+
+ถ้า `check` คืน `False` ผลคือ test ล้ม แม้ชนิดของ exception จะตรง (รัน)
+
+</Step>
+
+<Step>
+
+## Exception Group
+
+Python 3.11 เพิ่ม `ExceptionGroup` สำหรับกรณีที่มีหลายความผิดพร้อมกัน เช่น งานที่รันคู่ขนาน `pytest.raises` ธรรมดาตรวจได้แค่ว่าเป็น group แต่ไม่ดูข้างใน ใช้ `RaisesGroup` กับ `RaisesExc` เมื่อต้องตรวจสมาชิก (source: `_pytest/raises.py`)
+
+```python
+def collect_errors():
+    raise ExceptionGroup("several", [ValueError("a"), ValueError("b"), KeyError("k")])
+
+with pytest.RaisesGroup(ValueError, ValueError, KeyError):
+    collect_errors()
+
+with pytest.RaisesGroup(
+    pytest.RaisesExc(ValueError, match="a"),
+    pytest.RaisesExc(ValueError, match="b"),
+    pytest.RaisesExc(KeyError),
+):
+    collect_errors()
+```
+
+สิ่งที่ยืนยันแล้ว (รัน)
+
+- `RaisesGroup` **เข้มงวดเรื่องสมาชิกเกิน**: group ที่มี `ValueError` กับ `KeyError` แต่ประกาศไว้แค่ `ValueError` ทำให้ test ล้ม
+- group ซ้อน group ต้องใส่ `flatten_subgroups=True` ถึงจะตรวจสมาชิกข้ามชั้นได้
+- ถ้าใช้ `pytest.raises(ExceptionGroup) as info` ธรรมดา ใช้ `info.group_contains(KeyError)` และ `info.group_contains(ValueError, match="b")` ถามว่ามีสมาชิกชนิดนั้นหรือไม่ และ `group_contains(TypeError)` ได้ `False`
+
+</Step>
+
+<Step>
+
+## Warning หลายตัว
+
+`pytest.warns(...) as record` เก็บทุก warning ที่เกิดในบล็อกเป็นรายการ (รัน)
+
+```python
+with pytest.warns(UserWarning) as record:
+    warnings.warn("first", UserWarning)
+    warnings.warn("second", UserWarning)
+assert [str(w.message) for w in record] == ["first", "second"]
+assert record[0].category is UserWarning
+```
+
+`pytest.deprecated_call()` เป็นทางลัดที่รับทั้ง `DeprecationWarning` และ `PendingDeprecationWarning` และ `pytest.warns` ที่ไม่เจอ warning ในบล็อกทำให้ test ล้ม
+
+</Step>
+
+<Step>
+
+## สั่งผลจากโค้ด: `fail`, `skip`, `xfail`, `importorskip`
+
+บางครั้งเงื่อนไขรู้ตอนรัน ไม่ใช่ตอนเขียน pytest มีฟังก์ชันที่จบ test ด้วยผลที่กำหนด (source: `_pytest/outcomes.py`) แต่ละตัวโยน exception พิเศษ จึงจบ test ที่บรรทัดนั้น (รัน)
+
+| ฟังก์ชัน | ผล |
+|---|---|
+| `pytest.fail("stop here", pytrace=False)` | ล้ม พร้อมข้อความ `stop here` และไม่มี traceback |
+| `pytest.skip("reason")` | skipped (เทียบกับ marker ที่บท [Marker](/pytest/markers/)) |
+| `pytest.xfail("known")` | xfailed ทันที บรรทัดหลังจากนั้นไม่รัน |
+| `pytest.importorskip("module")` | คืน module ที่ import ได้ หรือ skip ทั้ง test ถ้า import ไม่ได้ |
+
+`importorskip` เหมาะกับ test ที่ใช้ไลบรารีเสริม: `np = pytest.importorskip("numpy")` และถ้าไม่ได้ติดตั้ง test ถูก skip แทนที่จะล้ม ผลที่ได้ในแบบฝึกคือ `importorskip("json")` คืน module ที่ใช้งานได้ ส่วนชื่อที่ไม่มีจริงให้ skipped=1
+
+</Step>
+
+<Step>
+
+## ซ่อน Frame ของ Helper ด้วย __tracebackhide__
+
+ฟังก์ชันช่วยที่เช็กเงื่อนไขแทน test ทำให้ traceback ชี้ที่บรรทัดใน helper แทนที่จะชี้ที่ test ซึ่งเรียกมัน ใส่ `__tracebackhide__ = True` ในฟังก์ชันนั้นเพื่อให้ pytest ซ่อน frame นี้
+
+```python
+def assert_total(cart_total, want):
+    __tracebackhide__ = True
+    assert cart_total == want, "total differs"
+
+def test_x():
+    assert_total(1, 2)
+```
+
+รัน `--tb=short` แล้วเห็นบรรทัด `assert_total(1, 2)` ใน test แต่ไม่เห็น `assert cart_total == want` ใน helper (รัน) เมื่อสงสัยว่าซ่อนอะไรไป ใช้ `--full-trace` เพื่อดูทุก frame
+
+ข้อควรจำจากบท [Assertion Rewriting](/pytest/assertion-rewriting/): helper ที่อยู่ในไฟล์อื่นไม่มีรายละเอียดของ `assert` ถ้าไม่ได้ลงทะเบียน การซ่อน frame ไม่แทนที่การลงทะเบียน
+
+</Step>
+
+<Step>
+
+## มุมแปลกของ `approx`
+
+(รัน: `exercises/02_assertions/test_assertions_in_depth.py`)
+
+- **ค่าเริ่มต้นของความคลาดเคลื่อน** คือ relative 1e-6 บวกค่าต่ำสุดแบบ absolute 1e-12 `1_000_000.5 == approx(1_000_000)` ผ่านเพราะ 1e-6 ของหนึ่งล้านคือ 1 และ `1_000_001.5` ไม่ผ่าน ส่วนใกล้ศูนย์ ค่า relative เล็กมาก จึงใช้ค่า absolute: `1e-13 == approx(0)` ผ่าน แต่ `1e-11` ไม่ผ่าน
+- **`nan`** ไม่เท่ากับตัวเองเสมอ เว้นแต่ใส่ `nan_ok=True`
+- **`Decimal`** ใช้ได้: `Decimal("0.30") == approx(Decimal("0.3"))` และกำหนด `abs=Decimal("0.02")` ได้
+- **dict** เทียบเฉพาะค่า ไม่ใช่ key: `{"a": 1.0} != approx({"b": 1.0})` เพราะ key ไม่ตรง
+
+<Callout type="try" title="ลองทำใน repo นี้">
+รัน `uv run pytest exercises/02_assertions/test_assertions_in_depth.py -v` แล้วลองเปลี่ยน `RaisesGroup(ValueError, ValueError, KeyError)` ให้ขาด `KeyError` ดูข้อความที่ pytest อธิบายว่าสมาชิกไหนเกิน
+</Callout>
+
+</Step>
+
+<Step>
+
+## ที่มาของหน้านี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| `excinfo`: `.type`, `.value`, `.traceback`, `.match`, `check=` | รัน: `exercises/02_assertions/test_assertions_in_depth.py` |
+| `RaisesGroup`, `RaisesExc`, `flatten_subgroups`, `group_contains`, ความเข้มงวดเรื่องสมาชิกเกิน | รัน: เหมือนข้างบน, source: `_pytest/raises.py` |
+| `warns` เป็นรายการ, `deprecated_call`, `fail`, `importorskip`, `xfail()` ในโค้ด | รัน: เหมือนข้างบน |
+| `__tracebackhide__` ซ่อน frame ใน `--tb=short` | รัน: เหมือนข้างบน |
+| ค่าเริ่มต้นของ approx, `nan_ok`, `Decimal`, dict | รัน: เหมือนข้างบน |
+| `--full-trace` ดูทุก frame, ตัวอย่าง `numpy` | ผู้เขียน (ไม่ได้รัน) |
+
+</Step>

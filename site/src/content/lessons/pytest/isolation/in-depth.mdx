@@ -1,0 +1,159 @@
+---
+title: Mock และ Monkeypatch แบบเจาะลึก
+summary: Mock ที่รับทุกอย่างเทียบกับ spec และ autospec, side_effect ทั้งสามแบบ, การอ่านการเรียก, patch.dict, ส่วนที่เหลือของ monkeypatch และ fixture ที่กันการเรียกเครือข่ายจริงในทุก test ทุกข้อรันจริง 16 test
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Mock ธรรมดารับทุกอย่าง แม้พิมพ์ผิด
+
+`mock.Mock()` สร้าง attribute และ method ให้เองทุกชื่อ ผลคือ test ที่เรียกชื่อผิดก็ผ่าน (รัน: `exercises/06_isolation/test_mocking_in_depth.py`)
+
+```python
+gateway = mock.Mock()
+gateway.chargee(100, "A-1")      # พิมพ์ผิดจาก charge และไม่มีอะไรฟ้อง
+gateway.chargee.assert_called_once()
+```
+
+test นี้ผ่าน แต่ไม่ได้พิสูจน์อะไรเกี่ยวกับ gateway จริง มีสองระดับของการป้องกัน
+
+| วิธี | ผล |
+|---|---|
+| `mock.Mock(spec=["charge"])` | เรียกชื่ออื่นเกิด `AttributeError` แต่ไม่ตรวจ argument |
+| `mock.create_autospec(RealGateway, instance=True)` | ตรวจทั้งชื่อ **และ signature** ตามคลาสจริง |
+
+ด้วย autospec การเรียก `gateway.charge(1)` (ขาด `order_id`) เกิด `TypeError` ตามที่ signature ของ `RealGateway.charge(amount, order_id)` กำหนด (รัน) และใช้กับ `checkout(...)` ได้ปกติเมื่อเรียกถูก autospec ทำให้ mock พังตามเมื่อคลาสจริงเปลี่ยน signature ซึ่งเป็นสิ่งที่เราอยากให้เกิด
+
+</Step>
+
+<Step>
+
+## side_effect: ตอบต่างกันแต่ละครั้ง
+
+`return_value` ให้คำตอบเดียวเสมอ `side_effect` มีสามแบบ (รัน)
+
+```python
+fake = mock.Mock(side_effect=[0.03, 0.04])                  # รายการ: ค่าหนึ่งต่อการเรียก
+assert (fake(), fake()) == (0.03, 0.04)                      # เรียกครั้งที่สามเกิด StopIteration
+
+fake = mock.Mock(side_effect=ConnectionError("down"))       # exception: โยนทุกครั้ง
+fake = mock.Mock(side_effect=lambda c: {"USD": 0.03, "EUR": 0.025}[c])   # ฟังก์ชัน: คำนวณคำตอบ
+```
+
+รูปแบบที่มีประโยชน์มากคือ **ล้มก่อนแล้วฟื้น** ใช้ list ที่ผสม exception กับค่า
+
+```python
+fake = mock.Mock(side_effect=[ConnectionError("blip"), {"rate": 0.03}])
+with pytest.raises(ConnectionError):
+    fake()
+assert fake() == {"rate": 0.03}
+assert fake.call_count == 2
+```
+
+ใช้ทดสอบโค้ดที่ retry: ครั้งแรกเครือข่ายสะดุด ครั้งที่สองผ่าน และ `call_count` ยืนยันว่าเรียกสองครั้งพอดี
+
+</Step>
+
+<Step>
+
+## อ่านการเรียก
+
+mock จำทุกการเรียก (รัน)
+
+```python
+fake = mock.Mock(return_value=True)
+fake(1, "a", flag=True)
+fake(2, "b")
+assert fake.call_args == mock.call(2, "b")                  # การเรียกล่าสุด
+assert fake.call_args_list == [mock.call(1, "a", flag=True), mock.call(2, "b")]
+fake.assert_any_call(1, "a", flag=True)                     # มีการเรียกแบบนี้ที่ไหนสักที่
+fake.assert_called_with(2, "b")                             # การเรียกล่าสุดต้องเป็นแบบนี้
+```
+
+จำง่าย: `assert_called_with` ดูแค่ครั้งล่าสุด `assert_any_call` ดูทุกครั้ง และ `call_args_list` ให้ทั้งรายการเพื่อเช็กลำดับ
+
+</Step>
+
+<Step>
+
+## `patch.dict` และ `patch` แบบ decorator
+
+`mock.patch.dict(os.environ, {...})` ตั้งค่าใน dict ชั่วคราวและคืนค่าตอนออกจากบล็อก (รัน: `SHOP_MODE` ไม่อยู่ใน `os.environ` หลังบล็อก) เทียบกับ `monkeypatch.setenv` ที่ผูกกับอายุของ test
+
+`mock.patch.object(...)` ใช้เป็น decorator ได้ mock ถูกส่งเป็น argument **ตัวแรก** ของ test
+
+```python
+@mock.patch.object(rates, "fetch_rate", return_value=0.5)
+def test_patch_as_a_decorator_passes_the_mock_as_an_argument(fake):
+    assert rates.convert(10, "USD") == 5.0
+    fake.assert_called_once_with("USD")
+```
+
+ข้อควรระวังเมื่อใช้ร่วมกับ fixture: argument จาก decorator มาก่อน fixture ในลำดับ parameter
+
+</Step>
+
+<Step>
+
+## ส่วนที่เหลือของ `monkeypatch`
+
+(รัน)
+
+| เมธอด | ทำอะไร |
+|---|---|
+| `delenv("X")` | ลบตัวแปร ถ้าไม่มีเกิด `KeyError` ยกเว้น `raising=False` |
+| `setitem(d, k, v)` | ตั้งค่าใน dict ชั่วคราว |
+| `chdir(path)` | เปลี่ยนโฟลเดอร์ทำงาน (ใช้คู่กับ `tmp_path`) |
+| `syspath_prepend(path)` | เพิ่มโฟลเดอร์ใน `sys.path` ทำให้ import module ใหม่ได้ |
+| `setattr("shop.rates.fetch_rate", fn)` | ระบุเป้าเป็นสตริงได้ |
+| `setattr(rates, "no_such_attribute", 1)` | ค่าเริ่มต้น `raising=True` เกิด `AttributeError` กันพิมพ์ชื่อผิด |
+| `pytest.MonkeyPatch.context()` | ใช้นอก test: คืนค่าเมื่อออกจากบล็อก ไม่ต้องรอ test จบ |
+
+ตัวสุดท้ายมีประโยชน์ใน fixture ที่ scope ใหญ่กว่า function (ซึ่งใช้ fixture `monkeypatch` ไม่ได้) และเมื่อต้องการยกเลิกการแทนกลางทางใน test
+
+</Step>
+
+<Step>
+
+## กันเครือข่ายจริงในทุก Test
+
+ตั้ง fixture `autouse` ที่แทนจุดเรียกเครือข่ายด้วยตัวที่ล้มดังๆ เพื่อให้ test ที่ลืมแทนไม่แอบเรียกของจริง
+
+```python
+@pytest.fixture(autouse=True)
+def no_real_network(monkeypatch):
+    def refuse(url):
+        raise AssertionError(f"a test tried to reach the network: {url}")
+    monkeypatch.setattr(net, "fetch_json", refuse)
+```
+
+ในแบบฝึกยืนยันสองสิ่ง (รัน) ข้อแรก ถ้า `rates` import ชื่อมาเองด้วย `from shop.net import fetch_json` การแทนที่ `net` ไม่ถึง `rates.fetch_json` ซึ่งยังเป็นตัวเดิมที่โยน `ConnectionError` นี่คือกฎ "patch ที่ที่ชื่อถูกใช้" จาก[บทแยก Test](/pytest/isolation/) ข้อสอง เมื่อ patch ถูกที่ (`monkeypatch.setattr(rates, "fetch_json", net.fetch_json)` ซึ่ง `net.fetch_json` ตอนนั้นคือตัว guard) test ล้มด้วยข้อความ `a test tried to reach the network`
+
+บทเรียน: guard ที่ patch แค่ที่นิยามไม่พอ ต้องครอบทุกจุดที่ชื่อถูกใช้ หรือเลือกออกแบบให้ส่ง dependency เข้ามาเป็น parameter แทน (บท [แยก Test](/pytest/isolation/#fake-ที่ส่งเข้าไปเอง-มักง่ายกว่า-patch))
+
+<Callout type="try" title="ลองทำใน repo นี้">
+ใน fixture `no_real_network` ของ `test_mocking_in_depth.py` เปลี่ยน `monkeypatch.setattr(net, "fetch_json", refuse)` ให้ patch `rates` แทน `net` แล้วดูว่า test ที่ชื่อ `test_the_guard_turns_a_forgotten_replacement_into_a_clear_failure` ผลเปลี่ยนอย่างไร จากนั้นเขียน test ใหม่ที่ใช้ `side_effect` แบบ "ล้มก่อนแล้วฟื้น" กับ `rates.fetch_json` เพื่อดูว่า `convert` ที่ไม่มี retry ล้มทันที
+</Callout>
+
+</Step>
+
+<Step>
+
+## ที่มาของหน้านี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Mock ธรรมดารับชื่อพิมพ์ผิด, `spec`, `create_autospec` ตรวจ signature (`TypeError`) | รัน: `exercises/06_isolation/test_mocking_in_depth.py` |
+| `side_effect` ทั้งสามแบบ, ล้มก่อนแล้วฟื้น, `call_args`, `call_args_list`, `assert_any_call` | รัน: เหมือนข้างบน |
+| `patch.dict`, `patch.object` แบบ decorator, `delenv`, `setitem`, `chdir`, `syspath_prepend`, `setattr` ด้วยสตริง และ `raising`, `MonkeyPatch.context()` | รัน: เหมือนข้างบน |
+| fixture กันเครือข่ายและข้อจำกัดของการ patch ที่นิยาม | รัน: เหมือนข้างบน |
+| ลำดับ argument ของ decorator กับ fixture, ข้อสังเกตเรื่อง `MonkeyPatch.context()` ใน fixture scope ใหญ่ | ผู้เขียน |
+
+</Step>

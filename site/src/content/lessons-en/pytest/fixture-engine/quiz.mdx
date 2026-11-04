@@ -1,0 +1,79 @@
+---
+title: Check your understanding
+summary: Answer 5 questions to check how well you understood this lesson.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  lang="en"
+  client:visible
+  q="A module-scoped fixture conn is used by test_a1 and test_a2 in module a, followed by test_b1 in module b. When is conn of module a closed?"
+  options={['After test_a1, because each test closes its own fixtures', 'During the teardown of test_a2, because nextitem (test_b1) is under a different Module', 'At the end of the session']}
+  answer={1}
+  why="SetupState.teardown_exact pulls nodes off the stack until it reaches a node that nextitem is also under. test_a2 is the last of module a, so its Module is closed, and the finalizer of conn is tied to that Module (the log in internals/04_setupstate.py)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  lang="en"
+  client:visible
+  q="A module-scoped fixture raises RuntimeError during setup and two tests use it. How many times is the fixture function called?"
+  options={['Twice, once per test', 'Once, because pytest caches the exception and raises it again for the next test', 'Zero times, because pytest skips the tests']}
+  answer={1}
+  why="FixtureDef keeps cached_result as (value, key, exception). If setup fails, the exception is stored. The exercise gets 2 errors and a call counter of 1."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  lang="en"
+  client:visible
+  q="A fixture price lives in the root conftest.py, and sub/conftest.py writes def price(price): return price * 2. If the root price is 10, what does a test in sub see, and a test outside sub?"
+  options={['20 and 10', '10 for both, because the root one wins', 'An error because of the duplicate name']}
+  answer={0}
+  why="The one closer to the test wins, and an overriding fixture can ask for its own name to receive the value from the one it overrides. In sub you get 10 * 2 = 20, while outside sub only the root one is visible (internals/13_fixture_engine.py)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  lang="en"
+  client:visible
+  q="A session-scoped fixture wide asks for a function-scoped fixture per_test. What happens?"
+  options={['It works, and per_test is created once', 'ScopeMismatch: pytest reports an error, because the narrower fixture would be closed before the wider one is done with it', 'per_test is changed to session scope automatically']}
+  answer={1}
+  why="pytest checks this rule when the fixture is requested (_check_scope). The exercise gets the message ScopeMismatch: You tried to access the function scoped fixture per_test with a session scoped request object."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  lang="en"
+  client:visible
+  q="The fixture second raises an error during teardown, while first and third close normally. What is the result?"
+  options={['pytest stops closing as soon as second fails, leaving first open', 'Every finalizer runs, and the test gets an ERROR at teardown separate from its pass', 'The test is counted as failed with no separate error']}
+  answer={1}
+  why="teardown_exact collects exceptions and keeps running the remaining finalizers. The exercise has a full LOG of third, second, first, and the summary 2 passed, 1 error (test_x passed and its teardown errored)."
+/>
+
+</Step>
