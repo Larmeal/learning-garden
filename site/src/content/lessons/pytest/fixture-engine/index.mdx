@@ -1,0 +1,154 @@
+---
+title: เครื่องยนต์ของ Fixture
+summary: fixture หาเจอ ถูกรัน ถูกเก็บ cache และถูกปิดอย่างไร บทนี้ตามดู FixtureManager, FixtureDef, SubRequest และ SetupState ว่าทำงานร่วมกันอย่างไร และอธิบายว่าทำไม fixture ระดับ module ถึงปิดตอนที่มันปิด
+order: 11
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [collection, fixtures]
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## ตัวละครสี่ตัว
+
+บท [Fixture](/pytest/fixtures/) สอนวิธีใช้ บทนี้ดูว่า pytest ทำให้มันเกิดขึ้นอย่างไร ทั้งหมดอยู่ใน `_pytest/fixtures.py` และ `_pytest/runner.py` (source)
+
+| ตัวละคร | มีกี่ตัว | หน้าที่ |
+|---|---|---|
+| `FixtureManager` | หนึ่งต่อ session | สแกนหา fixture, เก็บทะเบียน, คำนวณว่า test ต้องใช้อะไร |
+| `FixtureDef` | หนึ่งต่อฟังก์ชันที่มี `@pytest.fixture` | ข้อมูลของ fixture (ชื่อ, scope, params) และ **ค่าที่ cache ไว้** |
+| `FixtureRequest` / `SubRequest` | `TopRequest` หนึ่งต่อ test, `SubRequest` หนึ่งต่อ fixture ที่กำลังรัน | คือ object `request` ที่ fixture ได้รับ |
+| `SetupState` | หนึ่งต่อ session | stack ของ node ที่ set up แล้ว และรายการ finalizer ของแต่ละ node |
+
+สองช่วงเวลา ช่วงแรกคือ collection ที่ทะเบียนและรายการที่ test ต้องใช้ถูกคำนวณ ช่วงที่สองคือตอนรัน ที่แต่ละ fixture ถูกเรียก เก็บ cache และปิด
+
+</Step>
+
+<Step>
+
+## ทะเบียน: ใครเห็น Fixture ตัวไหน
+
+`FixtureManager.parsefactories` สแกน module, class และ `conftest.py` หา object ที่มี marker ของ fixture แล้วเก็บ `FixtureDef` ไว้ใต้ชื่อ พร้อม **path ของ node ที่ประกาศมัน** (source: `parsefactories`, `_register_fixture`) เมื่อ test ขอชื่อหนึ่ง `getfixturedefs(argname, node)` คืนรายการที่มองเห็นได้จาก node นั้น เรียงจากไกลไปใกล้ และตัวสุดท้าย (ใกล้ที่สุด) ชนะ (source: `_get_active_fixturedef` มีคอมเมนต์ว่า `fixturedefs` เรียงจากไกลที่สุดไปใกล้ที่สุด)
+
+มีกติกาพิเศษข้อเดียวที่น่าสนใจ: fixture ที่ override ตัวอื่นสามารถขอชื่อของตัวเองได้ แล้วจะได้ค่าจากตัวที่มันทับ ซึ่งอยู่สูงขึ้นไปหนึ่งชั้น (source: `_get_active_fixturedef` ใช้ดัชนีติดลบถอยไปทีละชั้น) พิสูจน์ด้วยโปรเจกต์ที่ `conftest.py` ราก ให้ `price = 10` และ `sub/conftest.py` เขียน `def price(price): return price * 2` (รัน: `internals/13_fixture_engine.py`)
+
+```text
+sub/test_a.py   : price == 20     (ใช้ตัวของ sub ที่ครอบตัวราก)
+test_top.py     : price == 10     (นอก sub เห็นแค่ตัวราก)
+```
+
+</Step>
+
+<Step>
+
+## รายการที่ Test ต้องใช้: Closure
+
+ก่อนรัน pytest คำนวณ **closure** ของแต่ละ test คือชื่อ fixture ทั้งหมดที่ต้องใช้ ได้แก่ parameter ของ test, fixture ที่ `autouse`, ที่ `usefixtures` ระบุ และของที่พวกมันขอต่อๆ กัน (source: `getfixtureclosure`) แล้ว **เรียงจาก scope กว้างไปแคบ** (source: `sorted(..., key=sort_by_scope, reverse=True)`)
+
+ในแบบฝึก `internals/04_setupstate.py` มี fixture `db` (session), `conn` (module), `tx` (function) และ `mark` (function, autouse) test ที่ขอ `tx` ได้ closure (รัน: `internals/04_setupstate.py`)
+
+```text
+['db', 'conn', 'mark', 'request', 'tx']
+```
+
+session มาก่อน module ตามด้วยของระดับ function ซึ่งรวม `mark` ที่ test ไม่ได้ขอเอง และ `request` ที่เป็น fixture ในตัว ลำดับนี้คือเหตุผลที่ fixture ที่กว้างกว่าถูกตั้งก่อนเสมอ
+
+fixture ที่เลือกตอนรันด้วย `request.getfixturevalue("a")` ไม่อยู่ใน closure ที่คำนวณไว้ตอน collection ชื่อ `a` ถูกเพิ่มเข้า `request.fixturenames` ตอนที่เรียก (รัน: `internals/13_fixture_engine.py`: ก่อนเรียกได้ `["request"]` หลังเรียกได้ `["request", "a"]`)
+
+</Step>
+
+<Step>
+
+## รัน Fixture หนึ่งตัว
+
+ตอนรัน test ขอ fixture ทีละตัวตามลำดับ closure `FixtureDef.execute` ทำสี่ขั้น (source: `execute`)
+
+1. **เรียก dependency ก่อน** ทุกชื่อที่ fixture นี้ขอถูกหา (`request._get_active_fixturedef`) และรันก่อน
+2. **เช็ก cache** ถ้ามี `cached_result` และ `cache_key` ตรง (คือ param เดิม) คืนค่าที่เก็บไว้ ถ้ามี cache แต่ param ต่าง ปิดตัวเก่าก่อนแล้วสร้างใหม่
+3. **ลงทะเบียน finalizer** ผูกกับ node ของ scope นั้น (`request.node.addfinalizer`)
+4. **เรียก hook `pytest_fixture_setup`** ซึ่งเรียกฟังก์ชัน fixture จริง ผลถูกเก็บใน `cached_result` เป็น tuple ของ (ค่า, cache key, exception หรือ None)
+
+fixture แบบ `yield` ถูกจัดการใน `call_fixture_func`: ค่าที่ `yield` ได้เป็นค่าของ fixture ส่วนโค้ดหลัง `yield` ถูกลงทะเบียนเป็น finalizer
+
+ข้อ 4 มีรายละเอียดที่ควรรู้: **exception ก็ถูก cache** ถ้า fixture ระดับ module พังตอน setup ผลที่เก็บคือ exception เมื่อ test ตัวถัดไปในไฟล์เดียวกันขอ fixture นี้ pytest โยน exception เดิมซ้ำโดยไม่เรียกฟังก์ชันอีก แบบฝึกมีสอง test ที่ใช้ fixture ที่โยน `RuntimeError("cannot connect")` ผลคือสอง error และตัวนับการเรียกบอกว่า setup ถูกเรียก **ครั้งเดียว** (รัน: `internals/13_fixture_engine.py`)
+
+</Step>
+
+<Step>
+
+## Teardown ปิดเมื่อไรและโดยใคร
+
+เรื่องที่คนสงสัยมากที่สุดคือ "ทำไม fixture ระดับ module ถึงปิดตอนนั้น" คำตอบอยู่ที่ `SetupState` ใน `runner.py` และคำอธิบายในตัวโค้ดเองดีมาก (source: docstring ของ `SetupState`)
+
+- ระหว่างรัน test `SetupState` เก็บ **stack ของ node** ที่ set up แล้ว ขณะ test ตัวหนึ่งกำลังรัน stack คือ `[Session, Dir, Module, Function]` (รัน: `internals/04_setupstate.py`)
+- แต่ละ node มีรายการ finalizer ของตัวเอง fixture ที่ scope เป็น module ผูก finalizer เข้ากับ node `Module`
+- ตอน teardown ของ test ตัวหนึ่ง pytest ส่ง `nextitem` เข้ามา `teardown_exact(nextitem)` ดึง node ออกจากปลาย stack ทีละตัว และรัน finalizer ของมัน **จนกว่าจะเจอ node ที่ nextitem ก็อยู่ใน chain เดียวกัน** (source: `teardown_exact`)
+
+ผลของกติกานี้ ถ้าเรียง log จริงของแบบฝึก (รัน: `internals/04_setupstate.py`)
+
+```text
+setup db                    ← session, ครั้งเดียว
+setup conn                  ← module a
+start test_a1  setup tx  teardown tx  end test_a1
+start test_a2  setup tx  teardown tx  end test_a2
+teardown conn               ← test_a2 เป็นตัวสุดท้ายของ module a: nextitem อยู่คนละ Module
+setup conn                  ← module b
+start test_b1  setup tx  teardown tx  end test_b1
+teardown conn
+teardown db                 ← nextitem เป็น None: ปิดทั้ง stack
+```
+
+สามข้อที่เห็นจากตารางนี้
+
+- ระหว่าง `test_a1` กับ `test_a2` ไม่มี `teardown conn` เพราะ `nextitem` ยังอยู่ใน `Module` เดียวกัน
+- ลำดับปิดคือย้อนจากลำดับตั้ง (`teardown tx` ก่อน `end test_a1` ซึ่งตั้งก่อน)
+- `teardown db` มาเป็นอันสุดท้ายเพราะ session อยู่ก้นของ stack
+
+ถ้า finalizer ตัวหนึ่งโยน exception ตัวที่เหลือยังถูกรัน และ pytest รวม exception แล้วโยนทีเดียวตอนจบ (source: `teardown_exact` เก็บ `exceptions` แล้วโยน `BaseExceptionGroup`) ในแบบฝึกมี `third` ที่ขอ `first` กับ `second` โดย `second` โยน error ตอนปิด ผลคือ LOG ได้ `third, second, first` ครบสามตัว และรายงานได้ `ERROR at teardown of test_x` โดย test ผ่านและ error แยกกัน (`2 passed, 1 error`) (รัน: `internals/13_fixture_engine.py`)
+
+</Step>
+
+<Step>
+
+## กฎของ Scope
+
+fixture ที่ scope กว้างขอ fixture ที่ scope แคบกว่าไม่ได้ เพราะตัวแคบถูกปิดก่อนตัวกว้างจะเสร็จ ถ้าทำ pytest ฟ้องตั้งแต่ต้น (source: `_check_scope`) แบบฝึกมี `wide` (session) ขอ `per_test` (function) ผลคือ test ได้ error ที่ขึ้นต้นว่า `ScopeMismatch: You tried to access the function scoped fixture per_test with a session scoped request object` (รัน: `internals/13_fixture_engine.py`)
+
+สำหรับ fixture ที่มี `params` pytest ยังเรียงลำดับ test ใหม่หลัง collection ด้วย `reorder_items` เพื่อให้ test ที่ใช้ param เดียวกันของ fixture ระดับกว้างอยู่ติดกัน ลดจำนวนครั้งที่ต้องปิดและสร้างใหม่ ในแบบฝึกของ [บท 4](/pytest/parametrize/in-depth/) fixture ระดับ module ที่มีสอง param ถูกสร้างตามลำดับ `build a`, `drop a`, `build b` แม้ test จะเขียนปนกัน (source: `reorder_items`)
+
+<Callout type="try" title="ลองทำใน repo นี้">
+รัน `uv run pytest exercises/03_fixtures/test_fixtures.py --setup-show -k "first_user or second_user or the_events"` แล้วเทียบกับตารางด้านบน ดูตัวอักษร `M` และ `F` จากนั้นแก้ `internals/04_setupstate.py` ให้ `conn` เป็น `scope="session"` ดูว่า `teardown conn` ย้ายไปอยู่ตรงไหนของ log
+</Callout>
+
+</Step>
+
+<Step>
+
+## เช็กตัวเอง
+
+- fixture ระดับ module ปิดเมื่อไร และ pytest รู้ได้อย่างไรว่า test ตัวนี้เป็นตัวสุดท้ายของ module
+- ถ้า fixture ระดับ module โยน exception ตอน setup มี test 50 ตัวใช้มัน ฟังก์ชัน fixture ถูกเรียกกี่ครั้ง
+- ทำไม closure ถึงเรียง scope กว้างไปแคบ และถ้าเรียงกลับกันจะเกิดอะไร
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| ตัวละครสี่ตัว, `parsefactories`, `getfixturedefs`, `execute` สี่ขั้น, `call_fixture_func`, `_check_scope`, `reorder_items` | source: `_pytest/fixtures.py` |
+| `SetupState`, stack ของ node, `teardown_exact` และการรวม exception | source: `_pytest/runner.py` |
+| fixture override ที่ขอชื่อตัวเอง (`price` 20 และ 10), exception ถูก cache (setup ครั้งเดียว), ScopeMismatch, teardown พังแล้วที่เหลือยังรัน, `fixturenames` เปลี่ยนตอน `getfixturevalue` | รัน: `internals/13_fixture_engine.py` |
+| closure `['db', 'conn', 'mark', 'request', 'tx']`, stack ระหว่างรัน, log ของ setup/teardown ตาม scope | รัน: `internals/04_setupstate.py` |
+| `build a`, `drop a`, `build b` | รัน: `exercises/04_parametrize/test_parametrize_in_depth.py` |
+| เหตุผลที่ scope กว้างขอ scope แคบไม่ได้ (ตัวแคบถูกปิดก่อน) | ผู้เขียน |
+
+</Step>

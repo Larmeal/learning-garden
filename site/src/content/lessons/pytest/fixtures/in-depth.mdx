@@ -1,0 +1,153 @@
+---
+title: Fixture แบบเจาะลึก
+summary: object request ที่ fixture ได้รับ, indirect parametrization, addfinalizer หลายตัว, getfixturevalue ที่เลือกชื่อตอนรัน, usefixtures, ชื่อที่ต่างจากชื่อฟังก์ชัน และ scope ที่คำนวณจาก config ทุกข้อรันจริง 15 test
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## `request`: fixture ถามได้ว่าใครเรียกมัน
+
+fixture ที่ประกาศ parameter ชื่อ `request` ได้ object ที่บอกบริบทของ test ที่ขอมัน (รัน: `exercises/03_fixtures/test_fixtures_in_depth.py`)
+
+```python
+@pytest.fixture
+def who_asked(request):
+    return {
+        "name": request.node.name,
+        "scope": request.scope,
+        "fixturename": request.fixturename,
+        "module": request.module.__name__.split(".")[-1],
+        "has_cls": request.cls is not None,
+    }
+```
+
+เมื่อ test ชื่อ `test_request_describes_the_asking_test` ขอ fixture นี้ ได้ `scope == "function"`, `fixturename == "who_asked"` และ `has_cls` เป็น `False` ถ้า test อยู่ใน class จะเป็น `True` (รัน) ที่ใช้บ่อยคือ `request.node` (ตัว test), `request.config` (config ของ pytest) และ `request.param` (บทถัดไป) บท [เครื่องยนต์ของ Fixture](/pytest/fixture-engine/) อธิบายว่าตัวนี้คือ `SubRequest` ที่ pytest สร้างให้ทีละ fixture
+
+</Step>
+
+<Step>
+
+## Indirect: ให้ Test ส่งค่าเข้า fixture
+
+`parametrize` ปกติส่งค่าเข้า test ตรงๆ ถ้าใส่ `indirect` ค่าไปที่ fixture ที่ชื่อเดียวกัน และ fixture อ่านจาก `request.param`
+
+```python
+@pytest.fixture
+def cart_of(request):
+    cart = Cart()
+    cart.add("apple", price=10, qty=request.param)
+    return cart
+
+@pytest.mark.parametrize("cart_of, total", [(1, 10), (3, 30)], indirect=["cart_of"])
+def test_indirect_hands_the_value_to_the_fixture(cart_of, total):
+    assert cart_of.total() == total
+```
+
+`cart_of` ได้ตะกร้าที่สร้างจากค่า 1 และ 3 ส่วน `total` ส่งตรงเข้า test ใช้เมื่อสร้างของที่ต้องใช้ setup/teardown ตามค่า เช่น database ที่มี row n แถว (รัน)
+
+</Step>
+
+<Step>
+
+## `addfinalizer`: ลงทะเบียนการเก็บกวาดหลายจุด
+
+`yield` เหมาะเมื่อ setup กับ teardown อยู่ที่เดียวกัน เมื่อ fixture ทำของหลายอย่างตามเงื่อนไข `request.addfinalizer(fn)` ลงทะเบียนการเก็บกวาดทีละชิ้นขณะ setup ไป
+
+```python
+@pytest.fixture
+def resource(request):
+    ORDER.append("open")
+    request.addfinalizer(lambda: ORDER.append("close first-registered"))
+    request.addfinalizer(lambda: ORDER.append("close second-registered"))
+    return "res"
+```
+
+หลัง test จบ ORDER ได้ `open, test, close second-registered, close first-registered` คือ **ย้อนลำดับที่ลงทะเบียน** (รัน) ข้อดีเหนือ `yield` คือ finalizer ที่ลงทะเบียนไปแล้วยังรันแม้โค้ด setup หลังจากนั้นพัง
+
+</Step>
+
+<Step>
+
+## `getfixturevalue`: เลือกชื่อ fixture ตอนรัน
+
+`request.getfixturevalue(name)` ขอ fixture ด้วยชื่อที่เป็นสตริง เหมาะเมื่อชื่อมาจากข้อมูล (รัน)
+
+```python
+@pytest.mark.parametrize("name, empty", [("small", True), ("large", False)])
+def test_getfixturevalue_looks_up_by_name(request, name, empty):
+    assert request.getfixturevalue(name).is_empty() is empty
+```
+
+ถ้าชื่อไม่มีจริง ผลคือ `FixtureLookupError` ซึ่งเป็น `LookupError` ที่ `.argname` บอกชื่อที่หา (ชนิดนี้ไม่ได้ export ที่ `pytest.` จึงตรวจด้วย `pytest.raises(LookupError)` แล้วอ่าน `info.type.__name__`) ข้อแลกเปลี่ยนคือ fixture ที่ขอแบบนี้ไม่อยู่ใน closure ที่คำนวณตอน collection ([บท 11](/pytest/fixture-engine/)) จึงอ่านยากกว่าการประกาศเป็น parameter ใช้เมื่อจำเป็นเท่านั้น
+
+</Step>
+
+<Step>
+
+## `usefixtures`, `name=` และ scope แบบคำนวณ
+
+**`usefixtures`** รัน fixture โดยไม่ต้องมี parameter ในฟังก์ชัน เหมาะเมื่อสนใจแค่ผลข้างเคียงของมัน
+
+```python
+@pytest.mark.usefixtures("sets_flag")
+def test_usefixtures_runs_the_fixture_without_a_parameter():
+    assert ORDER[-1] == "flag set"
+```
+
+ใช้บน class หรือ module ก็ได้ (`pytestmark = pytest.mark.usefixtures(...)`)
+
+**`name=`** ให้ชื่อ fixture ต่างจากชื่อฟังก์ชัน หลีกเลี่ยงการที่ parameter ของ test ไปบังชื่อ fixture ในไฟล์เดียวกัน
+
+```python
+@pytest.fixture(name="shopping_cart")
+def make_shopping_cart():
+    return Cart()
+```
+
+**scope แบบคำนวณ** ส่งฟังก์ชันที่รับ `fixture_name` กับ `config` และคืนชื่อ scope ถูกเรียกครั้งแรกที่ fixture ถูกใช้
+
+```python
+def scope_from_config(fixture_name, config):
+    return "session" if config.getoption("--setup-show", default=False) else "function"
+
+@pytest.fixture(scope=scope_from_config)
+def maybe_shared():
+    return object()
+```
+
+ใช้เมื่อต้องการให้ fixture ที่แพง (เช่น container) ใช้ร่วมกันบน CI แต่แยกเป็นต่อ test บนเครื่องเรา (รัน: ทั้งสามแบบผ่านใน `test_fixtures_in_depth.py`)
+
+</Step>
+
+<Step>
+
+## เมื่อ Fixture พัง และ `autouse` ใน conftest
+
+- fixture ที่โยน exception ตอน setup ทำให้ test ได้ **error** และตัว test ไม่ถูกเรียก (ข้อความใน test ไม่ถูกพิมพ์) ในแบบฝึกยืนยันด้วย `pytester` ที่ได้ `errors=1` (รัน)
+- fixture `autouse=True` ใน `conftest.py` ใช้กับ **ทุก test ในโฟลเดอร์นั้นและโฟลเดอร์ลูก** โดยไม่ต้องขอ แบบฝึกสร้าง conftest ที่พิมพ์ชื่อ test ทุกตัว ผลคือ `NOTE test_a` และ `NOTE test_b` (รัน) เหมาะกับสิ่งที่ต้องเกิดกับทั้งโฟลเดอร์ เช่น รีเซ็ตเวลาหรือ environment แต่ใช้เท่าที่จำเป็น เพราะผู้อ่าน test ไม่เห็นมันในตัว test
+
+<Callout type="try" title="ลองทำใน repo นี้">
+รัน `uv run pytest exercises/03_fixtures/test_fixtures_in_depth.py -v --setup-show` แล้วดูลำดับ SETUP/TEARDOWN ของ `resource` ที่มี finalizer สองตัว ลองสลับลำดับ `addfinalizer` สองบรรทัดแล้วดูว่า `ORDER` ที่ test ตรวจล้มอย่างไร
+</Callout>
+
+</Step>
+
+<Step>
+
+## ที่มาของหน้านี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| `request.node`, `scope`, `fixturename`, `module`, `cls` | รัน: `exercises/03_fixtures/test_fixtures_in_depth.py` |
+| indirect parametrization, `addfinalizer` ย้อนลำดับ, `getfixturevalue`, `FixtureLookupError`, `usefixtures`, `name=`, scope แบบคำนวณ | รัน: เหมือนข้างบน |
+| fixture พังตอน setup (`errors=1`), autouse ใน conftest | รัน: เหมือนข้างบน (ใช้ `pytester`) |
+| ข้อดีของ `addfinalizer` เหนือ `yield` เมื่อโค้ด setup ตามหลังพัง, การใช้ scope แบบคำนวณบน CI | ผู้เขียน |
+
+</Step>

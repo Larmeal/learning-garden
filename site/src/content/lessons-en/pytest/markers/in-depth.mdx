@@ -1,0 +1,118 @@
+---
+title: Markers in depth
+summary: Markers on a class and a module, reading a marker from a fixture, the order of nested markers, the grammar of -m and -k, every form of skipif and xfail, xfail_strict in the config, and adding a marker at run time. Every item runs for real, 15 tests.
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Markers on a class and a module
+
+A marker can go on three levels: a function, a class, and a whole module through the variable `pytestmark` (ran: `exercises/05_markers/test_marks_in_depth.py`):
+
+```python
+pytestmark = pytest.mark.integration        # every test in this file
+
+@pytest.mark.slow
+class TestMarksOnAClass:
+    def test_inherits_the_class_mark(self, request):
+        names = {m.name for m in request.node.iter_markers()}
+        assert {"slow", "integration"} <= names
+```
+
+The test in the exercise gets both `slow` (from the class) and `integration` (from the module) without repeating them. `pytestmark` can be a list when you want several markers.
+
+</Step>
+
+<Step>
+
+## Reading a marker from code
+
+A fixture or a hook can read the markers of a test, which is a way to pass settings per test without using a parameter:
+
+```python
+@pytest.fixture
+def declared_timeout(request):
+    marker = request.node.get_closest_marker("timeout")
+    return marker.args[0] if marker else None
+
+@pytest.mark.timeout(30)
+def test_a_fixture_reads_the_mark_of_its_test(declared_timeout):
+    assert declared_timeout == 30
+```
+
+A test without the marker gets `None` (ran). `timeout(seconds)` must be registered in the config first, which the exercise has already done (the [Markers lesson](/en/pytest/markers/#register-markers-so-typos-get-caught)).
+
+When a marker of the same name is put on several levels, the order `iter_markers` returns is **closest to the test first**. The exercise puts `level(1)` on the module, `level(2)` on the class and `level(3)` on the method. The result is that `iter_markers("level")` gives `[3, 2, 1]` and `get_closest_marker("level")` gives `3` (ran). Use `get_closest_marker` when a closer value should override a farther one, and `iter_markers` when you need to combine every level.
+
+</Step>
+
+<Step>
+
+## The grammar of -m and -k
+
+`-m` checks **markers** and `-k` checks **names** (ran).
+
+The trial project has four tests: `test_a` (marker a), `test_b` (marker b), `test_ab` (both) and `test_none`.
+
+| `-m` expression | tests selected |
+|---|---|
+| `a` | `test_a`, `test_ab` |
+| `a and b` | `test_ab` |
+| `a or b` | `test_a`, `test_ab`, `test_b` |
+| `not a` | `test_b`, `test_none` |
+| `(a or b) and not (a and b)` | `test_a`, `test_b` |
+
+`-k` matches against the test name (and the parametrize id) **ignoring case**. `-k apple` gives `test_apple_pie` and `test_apple_tart`, `-k "apple and not tart"` gives only the first, and `-k APPLE` gives both again.
+
+</Step>
+
+<Step>
+
+## skipif and xfail in every form
+
+The condition of `skipif` is a boolean expression or a **string** that is evaluated in the namespace of the module (ran):
+
+```python
+@pytest.mark.skipif(sys.implementation.name != "cpython", reason="a boolean condition: only CPython runs this")
+def test_skipif_with_a_boolean_condition(): ...
+
+@pytest.mark.skipif("sys.version_info < (3, 0)", reason="a string condition is evaluated in the module namespace")
+def test_skipif_with_a_string_condition(): ...
+```
+
+`xfail` takes a condition as the first argument in the same way (`xfail(True, reason=...)` expects failure, and `xfail(False, ...)` does nothing), and has options that narrow it down:
+
+| Form | Meaning | Confirmed |
+|---|---|---|
+| `xfail(raises=ZeroDivisionError)` | counts as xfail only if this kind of exception is raised | a test that divides by 0 gets xfailed |
+| another kind of exception actually raised | still a real failure (`failed`) | `pytester` gets `failed=1` |
+| `xfail_strict = true` in the config | every xfail is strict without adding it one by one | a test marked xfail that passes gets `failed=1` |
+| `request.node.add_marker(pytest.mark.xfail(...))` | adds a marker **at run time** | a test with `assert False` gets xfailed |
+
+`raises=` is the one you should always add, because an xfail that names nothing hides a failure with a different cause without anyone noticing, for example a test that expects bug A and gets a `KeyError` from bug B.
+
+<Callout type="try" title="Try it in this repo">
+Run `uv run pytest exercises/05_markers/test_marks_in_depth.py -v -rxs` and add `-m "slow"` to see which tests are selected. Then put `@pytest.mark.timeout(5)` on the class `TestMarksOnAClass` and `@pytest.mark.timeout(1)` on one method, and write a test that uses `declared_timeout` to check which value it gets.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Sources for this page
+
+| Statement | Source |
+|---|---|
+| markers on a class and a module (`pytestmark`), `iter_markers`, `get_closest_marker`, the order `[3, 2, 1]` | ran: `exercises/05_markers/test_marks_in_depth.py` |
+| the results of five `-m` expressions, `-k` ignores case | ran: as above (uses `pytester`) |
+| `skipif` as a boolean and as a string, a conditional `xfail`, `raises=`, `xfail_strict`, `add_marker` at run time | ran: as above |
+| the advice to always add `raises=`, `pytestmark` as a list | author |
+
+</Step>

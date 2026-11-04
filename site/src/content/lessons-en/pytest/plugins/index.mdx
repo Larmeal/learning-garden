@@ -1,0 +1,210 @@
+---
+title: Writing a plugin
+summary: A plugin is a Python file with functions named pytest_. This lesson writes a real plugin that adds an option, selects slow tests, measures time, shapes the assert message and ships a fixture, then tests it with pytester and shows how an installed plugin gets loaded.
+order: 14
+phase: E
+level: 5
+stage: sprout
+format: steps
+requires: [run-protocol, assertion-rewriting]
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## A plugin is a file with hooks
+
+After the last four lessons we know that pytest is all plugins and hooks, so writing your own needs no special tool. A plugin is a module or object that has functions named `pytest_...` and is registered with the plugin manager.
+
+The exercise is `plugins/shop_plugin.py` (76 lines), which does six things and carries a fixture:
+
+| You want | Hook or mechanism |
+|---|---|
+| a new option `--run-slow` and an ini value `shop_slow_limit` | `pytest_addoption` |
+| a `slow` marker that registers itself | `pytest_configure` |
+| skip tests marked `slow` unless `--run-slow` is given | `pytest_collection_modifyitems` |
+| time each test and add it to the report | a wrapper around `pytest_runtest_makereport` |
+| a "slow tests" section at the end of the report | `pytest_terminal_summary` |
+| a readable `Cart == Cart` message | `pytest_assertrepr_compare` |
+| a fixture `cart_factory` | `@pytest.fixture` in the plugin file itself |
+
+</Step>
+
+<Step>
+
+## One hook at a time
+
+**Options and config** (source: `pytest_addoption` in `hookspec.py`):
+
+```python
+def pytest_addoption(parser):
+    group = parser.getgroup("shop")
+    group.addoption("--run-slow", action="store_true", default=False, help="also run the tests marked slow")
+    parser.addini("shop_slow_limit", "seconds after which a test is listed in the slow section", default="0.05")
+```
+
+`addoption` uses argparse. `addini` registers a value that can be set in `pytest.ini` or `pyproject.toml`. Read them with `config.getini("shop_slow_limit")` and `config.getoption("--run-slow")`.
+
+**The marker** is registered in `pytest_configure` with `config.addinivalue_line("markers", "slow: ...")`. The reason is that it then passes `--strict-markers` (the [Markers lesson](/en/pytest/markers/)). The exercise confirms that running `--strict-markers` with this plugin passes (ran: `exercises/09_plugins`).
+
+**Selecting tests** happens in `pytest_collection_modifyitems(config, items)`, which is called after collection, as seen in the lesson [How Pytest runs](/en/pytest/how-pytest-runs/). A test with `slow` in `item.keywords` gets a `skip` marker:
+
+```python
+skip = pytest.mark.skip(reason="need --run-slow to run")
+for item in items:
+    if "slow" in item.keywords:
+        item.add_marker(skip)
+```
+
+Without `--run-slow`, two tests pass and one is skipped with the reason. With `--run-slow` all three pass (ran: `exercises/09_plugins`).
+
+</Step>
+
+<Step>
+
+## A wrapper: work before and after the other hooks
+
+A wrapper hook uses `@pytest.hookimpl(wrapper=True)` and one `yield`. The part before `yield` runs before the other implementations, and the part after runs last, with the result of every one that already ran.
+
+```python
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item, call):
+    report = yield            # the other implementations have built the TestReport
+    if report.when == "call":
+        item.config.stash[TIMINGS].append((item.nodeid, call.duration))
+        report.user_properties.append(("duration_ms", round(call.duration * 1000)))
+    return report             # you must return it, or the result is lost
+```
+
+This is the same pattern the `skipping` plugin uses to change the outcome of an xfail ([lesson 12](/en/pytest/run-protocol/)). The exercise checks that the report of a test gets the property `duration_ms` (ran: `exercises/09_plugins`).
+
+To keep data between hooks use `config.stash` with a `StashKey` (`pytest.StashKey`). It is typed and does not collide with other people's attributes, which beats a global variable or attaching an attribute to `config`.
+
+**The order of calls** is proven with a script that registers two plugins (ran: `internals/14_hook_order_control.py`):
+
+| Situation | Order of calls |
+|---|---|
+| `one` registered before `two` | `two`, `one` (the one registered later is called first) |
+| `one` is `tryfirst=True` | `one`, `two` |
+| `one` is `trylast=True` | `two`, `one` |
+| a wrapper between them | `wrapper before`, `two`, `one`, `wrapper after` |
+
+A `firstresult` hook stops at the first implementation that returns something other than `None`. In the exercise a plugin that returns `True` from `pytest_ignore_collect` for `test_a.py` leaves no tests. The result is `no tests ran` and exit code 5.
+
+</Step>
+
+<Step>
+
+## The summary and the assert message
+
+`pytest_terminal_summary(terminalreporter, config)` prints your own section at the end of the report (it is called after `sessionfinish`, as seen in the lesson [How Pytest runs](/en/pytest/how-pytest-runs/)).
+
+```python
+def pytest_terminal_summary(terminalreporter, config):
+    limit = float(config.getini("shop_slow_limit"))
+    slow = sorted(((n, d) for n, d in config.stash[TIMINGS] if d > limit), key=lambda x: -x[1])
+    if not slow:
+        return
+    terminalreporter.section("slow tests")
+    for nodeid, duration in slow:
+        terminalreporter.line(f"{duration * 1000:7.0f} ms  {nodeid}")
+```
+
+A test that sleeps 0.08 seconds appears in the `slow tests` section, a fast one does not, and if you set `shop_slow_limit = 5` in an ini file the section disappears (ran: `exercises/09_plugins`).
+
+`pytest_assertrepr_compare(op, left, right)`, called from the rewritten code ([lesson 13](/en/pytest/assertion-rewriting/)), lets us return a list of lines for our own types. In the exercise two carts that differ show (ran: `exercises/09_plugins`):
+
+```text
+E       AssertionError: assert Cart == Cart
+E           skus : ['apple', 'pear'] != ['apple', 'kiwi']
+E           total: 30 != 15
+E           qty of kiwi: 0 != 1
+E           qty of pear: 1 != 0
+```
+
+instead of `<shop.cart.Cart object at 0x...> == <shop.cart.Cart object at 0x...>`, which says nothing (it also needs `Cart.__eq__`, which was added for the exercise).
+
+</Step>
+
+<Step>
+
+## How it gets registered
+
+A plugin can be loaded six ways (source: `consider_*`, `import_plugin` in `config/__init__.py`):
+
+| Way | Use it when | Confirmed |
+|---|---|---|
+| `-p shop_plugin` | trying it, or using it once; the module must be found on `sys.path` | ran: `exercises/09_plugins`, `internals/07_entry_point.py` |
+| `conftest.py` | for one folder (and its children) | the [Fixtures lesson](/en/pytest/fixtures/) |
+| `pytest_plugins = ["shop_plugin"]` in the top-level conftest | for the whole project without typing `-p` | the exercise uses `pytest_plugins = ["pytester"]` in the root `conftest.py` |
+| an entry point in the group `pytest11` of a package installed with pip | to ship to others: install it and it loads by itself | ran: `internals/07_entry_point.py` |
+| `PYTEST_PLUGINS=shop_plugin` | setting it through the environment | source: `consider_env` |
+| `pytest.main([...], plugins=[obj])` | embedding pytest in a program, passing the object directly | ran: `internals/02_hook_order.py` |
+
+The fourth way can be tried without `pip install`, using a folder that holds `shop_plugin-0.1.dist-info/entry_points.txt` containing `[pytest11]` / `shop = shop_plugin`, and putting that folder on `PYTHONPATH` (ran: `internals/07_entry_point.py`):
+
+- It loads by itself with no `-p`, and `--trace-config` shows `PLUGIN registered: <module 'shop_plugin' ...>`.
+- `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` stops pytest from reading entry points at all: the fixture `cart_factory` disappears (`fixture 'cart_factory' not found`).
+- `-p no:shop` turns off only this one, by the entry point name (`shop`, not `shop_plugin`).
+- With autoload switched off, adding `-p shop_plugin` makes it work again.
+
+That last point matters to teams that switch autoload off for reproducibility: a plugin you want to run has to be named explicitly.
+
+</Step>
+
+<Step>
+
+## Testing a plugin with pytester
+
+A plugin without tests is like any other code without tests. `pytester` is a built-in plugin (it is in `builtin_plugins` but is not loaded by default). Turn it on with `pytest_plugins = ["pytester"]` in the top-level `conftest.py` (source: `config/__init__.py`). It gives a `pytester` fixture that creates a temporary folder, writes files and runs pytest. `runpytest` runs in the same process by default (source: the `--runpytest` option in `pytester.py` defaults to `inprocess`).
+
+```python
+def test_slow_tests_are_skipped_by_default(pytester):
+    pytester.makepyfile(TESTS)
+    result = pytester.runpytest("-p", "shop_plugin", "-rs")
+    result.assert_outcomes(passed=2, skipped=1)
+    result.stdout.fnmatch_lines(["*need --run-slow to run*"])
+```
+
+The tools used most often in the exercise (ran: `exercises/09_plugins`, all 9 tests in the folder pass):
+
+| You need | Use |
+|---|---|
+| create test files, an ini, a conftest | `makepyfile`, `makeini`, `makeconftest` |
+| run pytest and get a result | `runpytest(...)` returns a `RunResult` |
+| check the number of passed, failed and so on | `result.assert_outcomes(passed=2, skipped=1)` |
+| check the printed text | `result.stdout.fnmatch_lines([...])` (a glob per line, in order) |
+| capture the reports as data | `inline_run(..., plugins=[obj])` then read from a hook |
+
+<Callout type="try" title="Try it in this repo">
+Add an option `--slow-only` to `plugins/shop_plugin.py` that does the opposite of `--run-slow`: it skips the tests that do **not** have the `slow` marker. Write the test in `exercises/09_plugins/test_shop_plugin.py` first, with `pytester`, then write the code to make it pass. After that run `internals/14_hook_order_control.py` with a different plugin set as `tryfirst` and see the result.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- Plugin A is registered before plugin B and both implement `pytest_sessionstart`. Which is called first, and what must you do to put A first?
+- Why must the wrapper of `pytest_runtest_makereport` `return report`?
+- A team switches on `PYTEST_DISABLE_PLUGIN_AUTOLOAD` in CI. Will a plugin installed with pip still work, and how do you fix it?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| the 76-line plugin that does six things and a fixture, the option and ini, the marker, skipping by `--run-slow`, the timing wrapper, the `slow tests` section, the `Cart == Cart` message, the fixture, 9 pytester tests | ran: `exercises/09_plugins` (`plugins/shop_plugin.py`) |
+| the order of calls (registered later is called first, `tryfirst`, `trylast`, a wrapper, `firstresult`) | ran: `internals/14_hook_order_control.py` |
+| an installed plugin: the entry point `pytest11`, `PYTEST_DISABLE_PLUGIN_AUTOLOAD`, `-p no:<entry point name>`, `-p` restores it | ran: `internals/07_entry_point.py` |
+| `pytest_plugins` in the top-level conftest, `PYTEST_PLUGINS`, `pytester` not loaded by default, `runpytest` choosing its method by `--runpytest` | source: `_pytest/config/__init__.py`, `_pytest/pytester.py` |
+| `config.stash` is better than a global | author |
+
+</Step>

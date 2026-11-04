@@ -1,0 +1,101 @@
+---
+title: Parametrize in depth
+summary: ids computed by a function and what an id looks like for different values, writing pytest_generate_tests yourself, the order fixtures with params are built, an empty set, a parameter that hides a fixture, and parametrize on a class. Every item runs for real, 21 tests.
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## ids: from a list, from a function, and what pytest builds
+
+`ids=` takes two forms (ran: `exercises/04_parametrize/test_parametrize_in_depth.py`):
+
+```python
+def label(value):
+    return f"{value}pct"
+
+@pytest.mark.parametrize("percent", [10, 20, 50], ids=label)        # a function: gives [10pct], [20pct], [50pct]
+def test_ids_from_a_function(percent): ...
+
+@pytest.mark.parametrize("code, off", [("SAVE10", 10), ("SAVE20", 20)], ids=["small", "large"])
+def test_ids_from_a_list(code, off): ...
+```
+
+The function is called with **each single value** (not the whole row). The list must be as long as the number of rows.
+
+If you give nothing, pytest builds an id itself. The rules seen from an exercise that passes `[1, "a b", None, 2.5, b"z", (1, 2), [3]]` into a test (ran):
+
+| Value | id you get |
+|---|---|
+| `1`, `2.5`, `None` | `1`, `2.5`, `None` |
+| the string `"a b"` | `a b` |
+| the bytes `b"z"` | `z` |
+| the tuple `(1, 2)` and the list `[3]` | `x5`, `x6` (the parameter name and the row number, because there is no readable text for them) |
+
+The conclusion: simple values (numbers, strings, `None`) get a readable id, while a complex object gets `x5`, which says nothing. In that case give `ids=` or `pytest.param(..., id="...")` ([lesson 4](/en/pytest/parametrize/#ids-names-you-can-read)).
+
+</Step>
+
+<Step>
+
+## pytest_generate_tests: write the generator yourself
+
+When the set of values has to be computed, or applies to several tests that ask for a fixture of the same name, you can write the hook `pytest_generate_tests(metafunc)` in the file. It is the same place `@pytest.mark.parametrize` uses internally ([lesson 10](/en/pytest/collection/)):
+
+```python
+def pytest_generate_tests(metafunc):
+    if "coupon_code" in metafunc.fixturenames:
+        metafunc.parametrize("coupon_code", ["SAVE10", "SAVE20", "FREE"])
+
+def test_generated_per_coupon(coupon_code):
+    assert 0 < discount_for(coupon_code) <= 100
+```
+
+`test_generated_per_coupon` has no marker at all, yet it is collected as 3 tests because a parameter named `coupon_code` is caught by the hook (ran). `metafunc.fixturenames` tells you what this test asks for, so you can decide whether to parametrize, and `metafunc.config` can read pytest's options, so the set of values can change with an option such as `--run-slow`.
+
+</Step>
+
+<Step>
+
+## A fixture with params: the order of building
+
+A module-scoped fixture with two params (`"a"` and `"b"`) is used by two tests. The recorded result is `["build a", "drop a", "build b"]` (ran). pytest **reorders the tests** so that every test using param `a` comes first, so `a` is built and closed once and then `b` follows, instead of alternating a, b, a, b in the order written. That is the `reorder_items` that the lesson [The fixture engine](/en/pytest/fixture-engine/) mentions.
+
+What it means for design: if a fixture is expensive (such as starting a database), giving it params and a wide scope does not make it rebuild more than needed. But the order in which tests run is not the order written in the file, which is one more reason tests must not depend on order ([lesson 15](/en/pytest/test-design/)).
+
+</Step>
+
+<Step>
+
+## An empty set, shadowing, and a class
+
+**An empty set.** `@pytest.mark.parametrize("x", [])` does not make the test vanish silently. By default the test is skipped with the message `got empty parameter set` (ran). If you worry that the data that builds the list may be empty by accident, set `empty_parameter_set_mark = fail_at_collect` in the config so that collection fails instead. The exercise gets `errors=1` (ran).
+
+**A parameter that hides a fixture.** If a fixture named `percent` gives 99 and the test is parametrized with the name `percent` and the value 10, the 10 from `parametrize` **wins** over the fixture (ran). In the exercise look at the test that asserts `percent == 10`. It suits overriding a fixture for one test only, but it is confusing when it happens by accident, so give them different names.
+
+**Parametrize on a class.** `@pytest.mark.parametrize("sku", ["apple", "pear"])` above a class applies to **every method**. In the exercise two methods times two values give 4 tests (ran).
+
+<Callout type="try" title="Try it in this repo">
+Run `uv run pytest exercises/04_parametrize/test_parametrize_in_depth.py --collect-only -q` and read all the ids. Then add the value `0.5` to the list of `test_ids_from_a_function` and see whether the id comes out as `0.5pct`, and try passing a dict as a value to see what the id becomes.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Sources for this page
+
+| Statement | Source |
+|---|---|
+| `ids=` from a function and from a list, the id of each kind of value (`x5`, `x6`) | ran: `exercises/04_parametrize/test_parametrize_in_depth.py` |
+| `pytest_generate_tests` creating 3 tests, the order `build a`, `drop a`, `build b` | ran: as above |
+| an empty set (skip and `fail_at_collect`), a parameter hiding a fixture, parametrize on a class | ran: as above (the empty set uses `pytester`) |
+| `metafunc.config` can read options, the advice on duplicate parameter names | author |
+
+</Step>

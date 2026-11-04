@@ -1,0 +1,74 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 5 ข้อ เพื่อเช็กว่าเข้าใจบทนี้แค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="plugin A ลงทะเบียนก่อน plugin B ทั้งคู่ implement pytest_sessionstart ตัวไหนถูกเรียกก่อน"
+  options={['A เพราะลงทะเบียนก่อน', 'B เพราะตัวที่ลงทะเบียนทีหลังถูกเรียกก่อน (เว้นแต่ใช้ tryfirst หรือ trylast)', 'สุ่มลำดับทุกครั้ง']}
+  answer={1}
+  why="แบบฝึก internals/14_hook_order_control.py ได้ลำดับ two, one เมื่อ one ลงทะเบียนก่อน two และ tryfirst=True ทำให้ one มาก่อน trylast=True ทำให้ one มาท้าย"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ตัวครอบ (wrapper) ของ pytest_runtest_makereport ต้อง yield และต้อง return report ทำไมต้อง return"
+  options={['เพราะ Python บังคับ', 'เพราะ pytest ใช้ค่าที่ตัวครอบคืนเป็นผลของ hook ถ้าไม่คืน report จะหาย', 'เพราะ return ทำให้ report ถูกพิมพ์']}
+  answer={1}
+  why="หลัง yield ตัวครอบได้ผลของ implementation อื่น (report) และค่าที่ตัวครอบคืนคือผลสุดท้าย ใน skipping plugin ตัวครอบแก้ outcome ของ report แล้วคืนมัน"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="plugin ลงด้วย pip และประกาศ entry point pytest11 = shop = shop_plugin ตั้ง PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 ผลคืออะไร"
+  options={['plugin ยังทำงานเพราะติดตั้งแล้ว', 'pytest ไม่อ่าน entry point จึงไม่โหลด plugin: fixture ของมันหาย และต้องใส่ -p shop_plugin เอง', 'pytest ฟ้อง error ตอนเริ่ม']}
+  answer={1}
+  why="แบบฝึก internals/07_entry_point.py แสดงว่าเมื่อปิด autoload จะได้ fixture 'cart_factory' not found และใส่ -p shop_plugin ทำให้กลับมาทำงาน ส่วน -p no:shop ปิดตัวเดียวด้วยชื่อ entry point"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="อยากให้ marker slow ที่ plugin ใช้ผ่าน --strict-markers ต้องทำอย่างไร"
+  options={['ไม่ต้องทำอะไร marker ที่ plugin ใช้ถูกลงทะเบียนอัตโนมัติ', 'เรียก config.addinivalue_line(\"markers\", \"slow: ...\") ใน pytest_configure ของ plugin', 'ใส่ --strict-markers ซ้ำสองครั้ง']}
+  answer={1}
+  why="marker ต้องถูกลงทะเบียนไว้ plugin ทำได้ใน pytest_configure แบบฝึกยืนยันว่ารัน --strict-markers แล้ว test ที่แปะ slow ผ่าน (2 passed, 1 skipped)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="pytester ต้องทำอย่างไรจึงใช้ใน test ของเราได้"
+  options={['ใช้ได้เลย pytester โหลดโดยค่าเริ่มต้นเหมือน tmp_path', 'เพิ่ม pytest_plugins = [\"pytester\"] ใน conftest.py ชั้นบนสุด เพราะ pytester อยู่ใน builtin_plugins แต่ไม่อยู่ใน default_plugins', 'ติดตั้ง package ชื่อ pytester ด้วย pip']}
+  answer={1}
+  why="internals/01_startup.py ยืนยันว่า pytester อยู่ใน builtin_plugins แต่ไม่อยู่ใน default_plugins แบบฝึกจึงมี pytest_plugins = ['pytester'] ใน conftest.py ราก"
+/>
+
+</Step>

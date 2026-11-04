@@ -1,0 +1,154 @@
+---
+title: The fixture engine
+summary: How a fixture is found, run, cached and closed. This lesson follows FixtureManager, FixtureDef, SubRequest and SetupState to see how they work together, and explains why a module-scoped fixture is closed when it is.
+order: 11
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [collection, fixtures]
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Four characters
+
+The [Fixtures lesson](/en/pytest/fixtures/) taught how to use them. This one looks at how pytest makes them happen. It is all in `_pytest/fixtures.py` and `_pytest/runner.py` (source).
+
+| Character | How many | Job |
+|---|---|---|
+| `FixtureManager` | one per session | scans for fixtures, keeps the registry, works out what a test needs |
+| `FixtureDef` | one per function with `@pytest.fixture` | the fixture's data (name, scope, params) and **its cached value** |
+| `FixtureRequest` / `SubRequest` | one `TopRequest` per test, one `SubRequest` per running fixture | the `request` object a fixture receives |
+| `SetupState` | one per session | the stack of nodes that are set up, and each node's list of finalizers |
+
+There are two moments. The first is collection, when the registry and the list a test needs are worked out. The second is the run, when each fixture is called, cached and closed.
+
+</Step>
+
+<Step>
+
+## The registry: who sees which fixture
+
+`FixtureManager.parsefactories` scans modules, classes and `conftest.py` for objects carrying the fixture marker, and stores a `FixtureDef` under the name, together with **the path of the node that declared it** (source: `parsefactories`, `_register_fixture`). When a test asks for a name, `getfixturedefs(argname, node)` returns the ones visible from that node, ordered from far to near, and the last one (the nearest) wins (source: `_get_active_fixturedef`, which has a comment saying `fixturedefs` is sorted from furthest to closest).
+
+There is one special rule worth knowing: a fixture that overrides another can ask for its own name, and it then receives the value from the one it overrides, one level up (source: `_get_active_fixturedef`, which steps back one level at a time with a negative index). It can be shown with a project where the root `conftest.py` gives `price = 10` and `sub/conftest.py` writes `def price(price): return price * 2` (ran: `internals/13_fixture_engine.py`):
+
+```text
+sub/test_a.py   : price == 20     (uses the one in sub, which wraps the root one)
+test_top.py     : price == 10     (outside sub, only the root one is visible)
+```
+
+</Step>
+
+<Step>
+
+## What a test needs: the closure
+
+Before running, pytest works out the **closure** of each test: all the fixture names it needs. That means the test's parameters, the `autouse` fixtures, the ones named by `usefixtures`, and whatever those ask for in turn (source: `getfixtureclosure`). Then it **sorts them from the widest scope to the narrowest** (source: `sorted(..., key=sort_by_scope, reverse=True)`).
+
+In the exercise `internals/04_setupstate.py` there are fixtures `db` (session), `conn` (module), `tx` (function) and `mark` (function, autouse). A test that asks for `tx` gets this closure (ran: `internals/04_setupstate.py`):
+
+```text
+['db', 'conn', 'mark', 'request', 'tx']
+```
+
+Session comes before module, followed by the function-level ones, which include `mark` (the test did not ask for it itself) and `request`, a built-in fixture. This order is why a wider fixture is always set up first.
+
+A fixture chosen at run time with `request.getfixturevalue("a")` is not in the closure computed at collection. The name `a` is added to `request.fixturenames` when it is called (ran: `internals/13_fixture_engine.py`: before the call it is `["request"]`, after it is `["request", "a"]`).
+
+</Step>
+
+<Step>
+
+## Running one fixture
+
+While running, the test asks for fixtures one at a time in closure order. `FixtureDef.execute` takes four steps (source: `execute`):
+
+1. **Call the dependencies first.** Every name this fixture asks for is looked up (`request._get_active_fixturedef`) and run first.
+2. **Check the cache.** If there is a `cached_result` and the `cache_key` matches (the same param), return the stored value. If there is a cache but the param differs, close the old one first and build a new one.
+3. **Register a finalizer**, tied to the node of that scope (`request.node.addfinalizer`).
+4. **Call the hook `pytest_fixture_setup`**, which calls the real fixture function. The result is stored in `cached_result` as a tuple of (value, cache key, exception or None).
+
+A `yield` fixture is handled in `call_fixture_func`: the value that is yielded is the value of the fixture, and the code after the `yield` is registered as a finalizer.
+
+Step 4 has a detail worth knowing: **exceptions are cached too.** If a module-scoped fixture fails during setup, the stored result is the exception. When the next test in the same file asks for this fixture, pytest raises the same exception again without calling the function again. The exercise has two tests that use a fixture that raises `RuntimeError("cannot connect")`. The result is two errors, and a call counter says setup was called **once** (ran: `internals/13_fixture_engine.py`).
+
+</Step>
+
+<Step>
+
+## When teardown happens, and who does it
+
+The question people ask most is "why is a module-scoped fixture closed at that point?" The answer is in `SetupState` in `runner.py`, and the explanation in the code itself is very good (source: the docstring of `SetupState`).
+
+- While tests run, `SetupState` keeps a **stack of nodes** that are set up. While a test is running the stack is `[Session, Dir, Module, Function]` (ran: `internals/04_setupstate.py`).
+- Each node has its own list of finalizers. A fixture whose scope is module ties its finalizer to the `Module` node.
+- During the teardown of a test pytest passes in `nextitem`. `teardown_exact(nextitem)` pulls nodes off the end of the stack one at a time and runs their finalizers **until it reaches a node that nextitem is also under** (source: `teardown_exact`).
+
+The real log of the exercise shows the consequence (ran: `internals/04_setupstate.py`):
+
+```text
+setup db                    ← session, once
+setup conn                  ← module a
+start test_a1  setup tx  teardown tx  end test_a1
+start test_a2  setup tx  teardown tx  end test_a2
+teardown conn               ← test_a2 is the last of module a: nextitem is under another Module
+setup conn                  ← module b
+start test_b1  setup tx  teardown tx  end test_b1
+teardown conn
+teardown db                 ← nextitem is None: the whole stack is closed
+```
+
+Three things this shows:
+
+- Between `test_a1` and `test_a2` there is no `teardown conn`, because `nextitem` is still under the same `Module`.
+- The closing order is the reverse of the setup order (`teardown tx` comes before `end test_a1`, which was set up first).
+- `teardown db` comes last because the session is at the bottom of the stack.
+
+If one finalizer raises, the others still run, and pytest collects the exceptions and raises them together at the end (source: `teardown_exact` keeps `exceptions` and raises a `BaseExceptionGroup`). The exercise has a `third` that asks for `first` and `second`, where `second` raises while closing. The result is a LOG of `third, second, first`, all three, and a report with `ERROR at teardown of test_x`, where the test passed and the error is separate (`2 passed, 1 error`) (ran: `internals/13_fixture_engine.py`).
+
+</Step>
+
+<Step>
+
+## The rule about scope
+
+A wide-scoped fixture cannot ask for a narrower one, because the narrow one is closed before the wide one is finished. If you try, pytest complains straight away (source: `_check_scope`). The exercise has `wide` (session) asking for `per_test` (function), and the test gets an error that starts `ScopeMismatch: You tried to access the function scoped fixture per_test with a session scoped request object` (ran: `internals/13_fixture_engine.py`).
+
+For fixtures with `params`, pytest also reorders the tests after collection with `reorder_items`, so tests that use the same param of a wide fixture sit together and it is closed and rebuilt as rarely as possible. In the exercise of [lesson 4](/en/pytest/parametrize/in-depth/) a module-scoped fixture with two params is built in the order `build a`, `drop a`, `build b`, even though the tests are written mixed (source: `reorder_items`).
+
+<Callout type="try" title="Try it in this repo">
+Run `uv run pytest exercises/03_fixtures/test_fixtures.py --setup-show -k "first_user or second_user or the_events"` and compare it with the log above, looking at the letters `M` and `F`. Then change `conn` in `internals/04_setupstate.py` to `scope="session"` and see where `teardown conn` moves to in the log.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- When is a module-scoped fixture closed, and how does pytest know that this test is the last of the module?
+- If a module-scoped fixture raises during setup and 50 tests use it, how many times is the fixture function called?
+- Why is the closure sorted from wide scope to narrow, and what would happen if it were the other way round?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| the four characters, `parsefactories`, `getfixturedefs`, the four steps of `execute`, `call_fixture_func`, `_check_scope`, `reorder_items` | source: `_pytest/fixtures.py` |
+| `SetupState`, the stack of nodes, `teardown_exact` and combining exceptions | source: `_pytest/runner.py` |
+| an override that asks for its own name (`price` 20 and 10), exceptions are cached (one setup), ScopeMismatch, a failing teardown with the rest still running, `fixturenames` changing on `getfixturevalue` | ran: `internals/13_fixture_engine.py` |
+| the closure `['db', 'conn', 'mark', 'request', 'tx']`, the stack while running, the setup/teardown log by scope | ran: `internals/04_setupstate.py` |
+| `build a`, `drop a`, `build b` | ran: `exercises/04_parametrize/test_parametrize_in_depth.py` |
+| why a wide scope cannot ask for a narrow one (the narrow one is closed first) | author |
+
+</Step>

@@ -1,0 +1,199 @@
+---
+title: How Pytest runs, from Enter to the last line
+summary: Under the pytest command there is a plugin and hook system that does everything, from reading the config to printing the summary. This lesson follows the real order of work in pytest 9.2.0 by recording every hook that is called while two tests run.
+order: 9
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [project]
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## This part of the path reads Pytest's own code
+
+The first eight lessons use pytest as a tool. Lessons 9 to 14 look inside it, to explain why the behaviour you see is what it is: why a fixture is closed when it is, and why an `assert` in a helper has no details.
+
+The facts come from two places. One is the code of pytest 9.2.0, read directly (`src/_pytest/`, tagged "source" with the function name). The other is the scripts in `subjects/pytest/code/internals/`, which build a temporary project and run pytest on it to see the result (tagged "ran"). Function and file names are what you can search for in the code. Line numbers change with every version, so they are not used.
+
+</Step>
+
+<Step>
+
+## One command, four stages
+
+`pytest` calls `console_main()`, which calls `_main()` in `_pytest/config/__init__.py`. Its order is (source: `_main`, `_prepareconfig`):
+
+1. If the arguments contain a single `--version`, print the version and leave, without starting the plugin system (ran: `internals/01_startup.py`).
+2. `_prepareconfig` builds a `Config` and a `PytestPluginManager`, loads the plugins that come with pytest, then reads the command line, the config file and `conftest.py`.
+3. Call the hook `pytest_cmdline_main`. The implementation that does the work is in `main.py`: `wrap_session`.
+4. `wrap_session` does three things in a row: `pytest_sessionstart`, the session's own `_main` (collection, then running the tests), and `pytest_sessionfinish`.
+
+The session's `_main` is short (source: `_main` in `main.py`):
+
+```python
+config.hook.pytest_collection(session=session)
+config.hook.pytest_runtestloop(session=session)
+
+if session.testsfailed:
+    return ExitCode.TESTS_FAILED
+elif session.testscollected == 0:
+    return ExitCode.NO_TESTS_COLLECTED
+```
+
+All of collection finishes first, and only then does the first test run. That is why you always see `collected 5 items` before the first `.`.
+
+</Step>
+
+<Step>
+
+## Everything is a plugin
+
+pytest is not one block. It is a small core plus registered plugins. The list that is always loaded is `default_plugins` (source: `_pytest/config/__init__.py`). In 9.2.0 it has 30 entries, and five of them are `essential_plugins`.
+
+| Group | plugins | What they do |
+|---|---|---|
+| core (essential) | `mark`, `main`, `runner`, `fixtures`, `helpconfig` | select tests by marker, the session, the setup/call/teardown phases, the fixture system, the `-p` option |
+| finding tests | `python`, `unittest`, `doctest` | find tests in `.py` files, in `TestCase` classes and in docstrings |
+| output | `terminal`, `capture`, `logging`, `warnings`, `junitxml`, `pastebin` | print results, capture output, logs, warnings, an XML file |
+| effects on tests | `skipping`, `assertion`, `monkeypatch`, `tmpdir`, `recwarn`, `legacypath` | skip/xfail, rewrite asserts, the fixtures that come with pytest |
+| running | `cacheprovider`, `stepwise`, `setuponly`, `setupplan`, `debugging`, `faulthandler`, `reports`, `unraisableexception`, `threadexception`, `subtests` | `--lf`, `--sw`, `--setup-show`, `--pdb` and so on |
+
+You can prove it by switching them off (ran: `internals/01_startup.py`):
+
+- `-p no:cacheprovider -p no:doctest` removes both names from the list of registered plugins, and `terminal` is still there.
+- `-p no:main` cannot be done: pytest ends with exit code 4 and the message `plugin main cannot be disabled`.
+- `--trace-config` prints a `PLUGIN registered` line for every registration, saying who registered what.
+
+In practice, features such as `--lf` (the `cacheprovider` plugin) or `--setup-show` (the `setuponly` plugin) are ordinary plugins. You can switch them off, and write your own in the same way ([lesson 14](/en/pytest/plugins/)).
+
+</Step>
+
+<Step>
+
+## Hooks: the places where pytest calls out
+
+Plugins talk to the core through **hooks**, functions whose names start with `pytest_`. The contract of each hook is in `_pytest/hookspec.py` (source: the `pytest_*` functions in that file, about fifty of them). A plugin that wants to know about something writes a function with the same name, and pluggy, the plugin library pytest uses, calls it.
+
+Three rules you will use often:
+
+- **Only the arguments you ask for are passed.** Your function declares just the parameters it wants (`def pytest_runtest_logfinish(nodeid)`) and pluggy passes those. Declaring a parameter the spec does not have, such as `report` in `pytest_runtest_logfinish`, makes pytest end with exit code 1 and a `PluginValidationError` at load time (ran: `internals/11_hook_validation.py`). A hook name that does not exist does not fail at load time. It fails during collection with `INTERNALERROR` and exit code 3.
+- **Every implementation is called.** Most hooks are called on every plugin that implements them.
+- **`firstresult`.** A hook that makes a decision (such as `pytest_runtest_protocol`, `pytest_collect_directory`, `pytest_fixture_setup`) stops at the first implementation that returns something other than `None`.
+
+Two more kinds appear in the [Plugins lesson](/en/pytest/plugins/): wrapper hooks (they surround other implementations) and `historic` hooks such as `pytest_configure`, which are still called for plugins that register late.
+
+</Step>
+
+<Step>
+
+## The real hook order for two tests
+
+`internals/02_hook_order.py` builds a project with one file holding `test_one` and `test_two`, and passes in a plugin that records every hook. The result has 39 calls (ran: `internals/02_hook_order.py`). Shortened:
+
+```text
+ 1  pytest_sessionstart
+ 2  pytest_collectstart Session          ┐
+ 5  pytest_collectstart Dir              │ collection: walk down one level at a time
+ 7  pytest_collectstart Module           │ Session > Dir > Module
+ 9  pytest_itemcollected test_one        │
+10  pytest_itemcollected test_two        ┘
+13  pytest_collection_modifyitems 2 items
+14  pytest_collection_finish
+15  pytest_runtestloop
+16  pytest_runtest_logstart test_one
+17  pytest_runtest_setup test_one
+18  pytest_runtest_makereport test_one when=setup
+19  pytest_runtest_logreport test_one setup passed
+20  pytest_runtest_call test_one
+21  pytest_runtest_makereport test_one when=call
+22  pytest_runtest_logreport test_one call passed
+23  pytest_runtest_teardown test_one nextitem=test_two
+24  pytest_runtest_makereport test_one when=teardown
+25  pytest_runtest_logreport test_one teardown passed
+26  pytest_runtest_logfinish test_one
+27  ... the same for test_two (its teardown gets nextitem=None)
+38  pytest_sessionfinish exitstatus=0
+39  pytest_terminal_summary
+```
+
+What this shows:
+
+- **Collection finishes for the whole tree before the first test runs** (line 14 before line 17). The [Collection lesson](/en/pytest/collection/) explains how the tree is built.
+- **Each test has three reports**: setup, call and teardown, one each (`makereport` six times for two tests). That is why a fixture that breaks in teardown is an error separate from a passing test ([lesson 12](/en/pytest/run-protocol/)).
+- **`nextitem`** during the teardown of test_one is test_two, and for test_two it is `None`. pytest uses this to decide whether a module or session fixture should be closed now ([lesson 11](/en/pytest/fixture-engine/)).
+- **The summary at the end of the report is printed after `sessionfinish`** (line 39 after line 38), because `terminal` wraps that hook and calls `pytest_terminal_summary` itself (source: `pytest_sessionfinish` in `terminal.py`).
+
+</Step>
+
+<Step>
+
+## The session result and exit codes
+
+`wrap_session` wraps everything in a try, one branch per case (source: `wrap_session` in `main.py`). The table matches `ExitCode` in `config/__init__.py`:
+
+| Situation | `session.exitstatus` | Value |
+|---|---|---|
+| ran to the end, no failures | `OK` | 0 |
+| a test failed, or `Failed` was raised | `TESTS_FAILED` | 1 |
+| `KeyboardInterrupt` or `pytest.exit()` | `INTERRUPTED` (or the number `exit()` gives) | 2 |
+| any other unexpected exception | `INTERNAL_ERROR` | 3 |
+| `UsageError`, such as an unknown option | `USAGE_ERROR` | 4 |
+| no tests found | `NO_TESTS_COLLECTED` | 5 |
+
+`--no-such-option` ends with 4 and the message `unrecognized arguments: --no-such-option` (ran: `internals/01_startup.py`). The number 5 is what the [First Test lesson](/en/pytest/first-test/) shows with a `-k` that matches nothing.
+
+`pytest_sessionfinish` is called even when the session is interrupted, as long as the session had started (the `initstate >= 2` variable in `wrap_session`), so plugins always get a place to clean up.
+
+</Step>
+
+<Step>
+
+## Where config comes from
+
+The values a plugin sees through `config` come from several layers, and a later layer wins over an earlier one for the same option (ran: `internals/09_config_layout.py`).
+
+| Layer | Example | Confirmed result |
+|---|---|---|
+| config file | `pytest.ini`, `pyproject.toml` with `[tool.pytest]`, `tox.ini`, `setup.cfg` | the first file found in this order is used; removing the winner one file at a time lets the next one take over in order |
+| `PYTEST_ADDOPTS` | `PYTEST_ADDOPTS=-v` | adds options, as if you had typed them |
+| command line | `-o minversion=9.0` | wins over the value in the file |
+
+More about finding the config file and the rootdir is in [lesson 7](/en/pytest/project/in-depth/). The conftest files pytest loads during startup are plugins registered at folder level ([lesson 14](/en/pytest/plugins/)).
+
+<Callout type="try" title="Try it in this repo">
+Run `uv run python internals/02_hook_order.py` from `subjects/pytest/code/`, then add a method `pytest_runtest_logstart(self, nodeid, location)` to `Recorder` and see what `location` looks like. After that run `uv run pytest --trace-config -q --co` to see the whole list of `PLUGIN registered` lines.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- If your plugin implements `pytest_collection_modifyitems`, does it run before or after every `pytest_itemcollected`, and why?
+- Why can `-p no:terminal` be done but `-p no:runner` cannot?
+- What does pytest pass to `pytest_runtest_teardown` that lets it know a module-scoped fixture should be closed now?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| `_main` and `_prepareconfig`, the steps of `wrap_session`, the session's `_main`, the exit code table and `Interrupted`/`Failed` | source: `_pytest/config/__init__.py`, `_pytest/main.py` |
+| 30 `default_plugins`, 5 `essential_plugins`, `pytester` is in `builtin_plugins` but not in `default_plugins` | ran: `internals/01_startup.py` (counted from the variables in `_pytest.config`) |
+| `-p no:` removes a plugin from the list, `-p no:main` ends with 4, `--version` answers before the system starts, `--no-such-option` ends with 4 | ran: `internals/01_startup.py` |
+| the 39 hooks for two tests, `nextitem`, the summary after sessionfinish | ran: `internals/02_hook_order.py` |
+| precedence of config files, `-o` beats the file, `PYTEST_ADDOPTS` | ran: `internals/09_config_layout.py` |
+| a hook implementation that declares more arguments than the spec, a hook name that does not exist | ran: `internals/11_hook_validation.py` |
+| the `firstresult` and `historic` rules of hooks, the plugin groups in the table | source: `hookspec.py`; the grouping is the author's |
+
+</Step>

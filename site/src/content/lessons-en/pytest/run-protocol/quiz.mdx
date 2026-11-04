@@ -1,0 +1,79 @@
+---
+title: Check your understanding
+summary: Answer 5 questions to check how well you understood this lesson.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  lang="en"
+  client:visible
+  q="The fixture of a test raises an exception in setup. What reports result, and how is it summarized?"
+  options={['A call:failed report, counted as failed', 'A setup:failed report, then teardown with no call, counted as an error', 'No report, because the test is not run']}
+  answer={1}
+  why="runtestprotocol runs the call phase only if setup passed, and always runs teardown. The table in internals/05_reports.py shows test_setup_error as setup:failed teardown:passed, and the summary counts it as an error."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  lang="en"
+  client:visible
+  q="A test marked @pytest.mark.xfail fails with an AssertionError. What outcome does its call-phase report have?"
+  options={['failed, because the assert failed', 'skipped with wasxfail, because the wrapper on makereport in skipping changes the outcome after the test really ran', 'passed']}
+  answer={1}
+  why="The test really runs in the call phase, and then the skipping plugin sets the outcome to skipped and adds wasxfail, as xfail says. The table in the exercise shows call:skipped(xfail:known)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  lang="en"
+  client:visible
+  q="A test passes normally, but its fixture raises an exception during teardown. How is it counted in the summary?"
+  options={['As one failed', 'As one passed and one error, because they are different reports', 'As an error only; the test disappears from the passed count']}
+  answer={1}
+  why="Each phase has its own report. call:passed counts as passed, and teardown:failed counts as an error. The exercise internals/13_fixture_engine.py gets 2 passed, 1 error from this case."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  lang="en"
+  client:visible
+  q="In which phase is @pytest.mark.skip evaluated, and what does it do to the fixtures the test asks for?"
+  options={['In the call phase, after the fixtures are built', 'In the setup phase, where pytest_runtest_setup raises skip before any fixture is called', 'During collection, so the test is not in the tree']}
+  answer={1}
+  why="pytest_runtest_setup in the skipping plugin evaluates skip and skipif and raises skip.Exception. The report is setup:skipped and the fixtures are not built. This differs from pytest.skip() called inside the test, which is call:skipped."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  lang="en"
+  client:visible
+  q="A test returns return 1 == 2 instead of using assert. What is the result?"
+  options={['It fails, because 1 == 2 is false', 'It passes with a PytestReturnNotNoneWarning, because pytest does not check the returned value', 'An error, because a test must return None']}
+  answer={1}
+  why="pytest_pyfunc_call issues a warning when a test returns something other than None, but it is not a failure. The exercise test_smells.py confirms passed=1 with the warning text Did you mean to use assert instead of return?"
+/>
+
+</Step>

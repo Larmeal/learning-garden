@@ -1,0 +1,146 @@
+---
+title: Reading the output in depth
+summary: "The options that change what pytest prints: -v and -q, the five traceback styles, showing variables with -l, finding slow tests, stopping on failure, and all six exit codes. Everything runs on a project of four tests so you see the real result."
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## The trial project
+
+This page uses `internals/08_output_flags.py`, which builds a temporary project with one file of four tests and runs pytest with different options (ran: `internals/08_output_flags.py`).
+
+```python
+def deep(n):
+    local_total = n * 10
+    return 1 // (n - 3)
+
+def test_ok():                 # sleeps 0.02 seconds
+def test_zero_division():      # loops n from 0 to 4 calling deep(n)
+def test_assert():
+    total = 30
+    assert total == 31
+def test_third(): ...
+```
+
+The normal result is `.FF.` and `2 failed, 2 passed`. What follows is what each option changes.
+
+</Step>
+
+<Step>
+
+## Length of the output: -v, -q, -qq
+
+| option | Confirmed result |
+|---|---|
+| `-v` | one line per test with its node id, such as `test_flags.py::test_ok PASSED [ 25%]` |
+| (none) | a `test session starts` header and one character per test |
+| `-q` | no header, leaving `.FF.` and the summary `2 failed, 2 passed in ...` |
+| `-qq` | no header and no `N passed` summary: the last line is `FAILED test_flags.py::test_assert - assert 30 == 31` |
+
+`-q` suits CI where the log is long, and `-v` suits the moment you need the full name of the test that is running (for example one that hangs).
+
+</Step>
+
+<Step>
+
+## Traceback style: --tb
+
+`--tb` chooses how detailed the failure text is. The total number of report lines for the trial project is `long` 39, `short` 24, `line` 17, `no` 12 (ran: `internals/08_output_flags.py`).
+
+| value | What it looks like |
+|---|---|
+| `long` | the whole function of every frame (the default is `auto`: the first and last failure in `long`, the rest in `short`) |
+| `short` | one line of code per frame, such as `test_flags.py:12: in test_zero_division` followed by `    deep(n)` |
+| `line` | one line per failure: `E   ZeroDivisionError: division by zero` and path:line |
+| `native` | the same as a Python traceback (`Traceback (most recent call last)`) |
+| `no` | no FAILURES section at all, only the short summary at the end |
+
+`--tb=line` suits grepping, to see every failure on one screen, and `--tb=no` suits wanting the list of failing tests without the reasons.
+
+</Step>
+
+<Step>
+
+## Showing variables with -l
+
+`-l` (or `--showlocals`) prints the local variables of every frame under the traceback. In the trial project, `-l --tb=short` gives (ran):
+
+```text
+test_flags.py:5: in deep
+    return 1 // (n - 3)
+E   ZeroDivisionError: division by zero
+        local_total = 30
+        n          = 3
+```
+
+You see at once that the failing round was `n = 3`, without adding a `print`. A caution: `-l` prints the value of every variable, so a large object or a secret in a variable is printed into the log.
+
+</Step>
+
+<Step>
+
+## Finding slow tests: --durations
+
+`--durations=N` prints the N slowest phases at the end of the report (ran):
+
+```text
+============================= slowest 2 durations =============================
+0.02s call     test_flags.py::test_ok
+
+(1 durations < 0.005s hidden.  Use -vv to show these durations.)
+```
+
+Phases faster than 0.005 seconds are hidden and counted under the list. Add `-vv` to see them. It counts **every phase**, not only call (the lines start with `call`, `setup` or `teardown`), so you can see where a slow fixture is.
+
+</Step>
+
+<Step>
+
+## Stopping on failure, and choosing the summary
+
+- `-x` stops after the first failure and `--maxfail=N` stops after N failures. The result for the trial project is `1 failed, 1 passed` with the message `stopping after 1 failures` (ran).
+- `-r` chooses which kinds of result get a line in the short summary. The letters are `f` failed, `E` error, `s` skipped, `x` xfailed, `X` xpassed, `p` passed, `a` everything except passed and `A` everything. `-rfEs` gives `FAILED test_flags.py::test_assert` and `FAILED test_flags.py::test_zero_division` in the trial, and the exercise project already sets `-ra` in `addopts` ([lesson 7](/en/pytest/project/)).
+
+</Step>
+
+<Step>
+
+## All six exit codes
+
+pytest returns a value from `ExitCode` (source: `_pytest/config/__init__.py`). The lesson [How Pytest runs](/en/pytest/how-pytest-runs/) explains where the first four come from.
+
+| Value | Name | Happens when | Confirmed |
+|---|---|---|---|
+| 0 | `OK` | everything passed | ran: `verify.py` |
+| 1 | `TESTS_FAILED` | a test failed, or a collection error with `--continue-on-collection-errors` | ran: `internals/12_collection_options.py` |
+| 2 | `INTERRUPTED` | Ctrl+C, `pytest.exit()`, or a collection error that stops the whole run | ran: `internals/12_collection_options.py` |
+| 3 | `INTERNAL_ERROR` | an exception inside pytest or a plugin, such as a hook with a name that does not exist | ran: `internals/11_hook_validation.py` |
+| 4 | `USAGE_ERROR` | a wrong option, a node id that is not found, disabling a plugin that cannot be disabled | ran: `internals/01_startup.py` |
+| 5 | `NO_TESTS_COLLECTED` | no test was selected | ran: `verify.py` |
+
+A CI that only checks "the number is not 0" treats all six as the same failure. To tell the causes apart (for example, 5 as a warning but 1 as a failure) you have to read the number yourself.
+
+<Callout type="try" title="Try it in this repo">
+Run `uv run python internals/08_output_flags.py` to see every check, then add `--tb=short -l` and `-ra` to `addopts` in the `pyproject.toml` of `subjects/pytest/code/`. Run `uv run pytest demos/01_failures` and see how the result differs from before the change.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Sources for this page
+
+| Statement | Source |
+|---|---|
+| the results of `-v`, `-q`, `-qq`, the sizes of the four `--tb` styles, `-l`, `--durations`, `-x`, `--maxfail`, `-r` | ran: `internals/08_output_flags.py` |
+| the six exit codes, the names in `ExitCode` | source: `_pytest/config/__init__.py`, and ran as shown in the table |
+| all the letters of `-r`, `--tb=auto` | author (from general knowledge of pytest, not every one was run) |
+
+</Step>

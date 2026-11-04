@@ -52,12 +52,20 @@ def expect(label: str, args: list[str], want: dict[str, int], code: int, cache: 
 print("Exercises (all must pass)")
 EXERCISES = {
     "01_first_test": {"passed": 6},
-    "02_assertions": {"passed": 13},
-    "03_fixtures": {"passed": 14},
-    "04_parametrize": {"passed": 21, "xfailed": 1},
-    "05_markers": {"passed": 6, "skipped": 2, "xfailed": 2},
-    "06_isolation": {"passed": 13},
-    "08_design": {"passed": 12},
+    "02_assertions/test_assertions.py": {"passed": 13},
+    "02_assertions/test_assertions_in_depth.py": {"passed": 19},
+    "03_fixtures/test_fixtures.py": {"passed": 12},
+    "03_fixtures/nested": {"passed": 2},
+    "03_fixtures/test_fixtures_in_depth.py": {"passed": 15},
+    "04_parametrize/test_parametrize.py": {"passed": 21, "xfailed": 1},
+    "04_parametrize/test_parametrize_in_depth.py": {"passed": 21},
+    "05_markers/test_markers.py": {"passed": 6, "skipped": 2, "xfailed": 2},
+    "05_markers/test_marks_in_depth.py": {"passed": 11, "skipped": 1, "xfailed": 3},
+    "06_isolation/test_isolation.py": {"passed": 13},
+    "06_isolation/test_mocking_in_depth.py": {"passed": 16},
+    "08_design/test_design.py": {"passed": 12},
+    "08_design/test_smells.py": {"passed": 12},
+    "09_plugins": {"passed": 9},
 }
 for name, want in EXERCISES.items():
     expect(name, [f"exercises/{name}"], want, 0)
@@ -75,7 +83,6 @@ for name, (want, code) in DEMOS.items():
     expect(name, [f"demos/{name}"], want, code)
 expect("08_order_dependent, only test_total", ["demos/08_order_dependent/test_shared_state.py::test_total"], {"failed": 1}, 1)
 
-expect("03_fixtures, the top-level file alone", ["exercises/03_fixtures/test_fixtures.py"], {"passed": 12}, 0)
 
 print("\nFiles that are not collected")
 rc, out, _ = pytest("--collect-only", "-q", "exercises/01_first_test")
@@ -84,16 +91,16 @@ check("6 tests collected", "6 tests collected" in out, out.splitlines()[-1] if o
 
 rc, out, _ = pytest("-o", "pythonpath=", "exercises/01_first_test")
 check("without pythonpath = ['src'] the import of shop fails", rc != 0 and "No module named 'shop'" in out, out[-200:])
-expect("a plain run of the whole project (testpaths)", [], {"passed": 85, "skipped": 2, "xfailed": 3}, 0)
+expect("a plain run of the whole project (testpaths)", [], {"passed": 188, "skipped": 3, "xfailed": 6}, 0)
 
 print("\nCommand-line checks")
-expect("-m 'not slow'", ["-m", "not slow", "exercises/05_markers"], {"passed": 4, "skipped": 2, "xfailed": 2, "deselected": 2}, 0)
-expect("-m slow", ["-m", "slow", "exercises/05_markers"], {"passed": 2, "deselected": 8}, 0)
-expect("-m 'slow and integration'", ["-m", "slow and integration", "exercises/05_markers"], {"passed": 1, "deselected": 9}, 0)
-expect("-k coupon", ["-k", "coupon", "exercises/04_parametrize"], {"passed": 3, "deselected": 19}, 0)
+expect("-m 'not slow'", ["-m", "not slow", "exercises/05_markers/test_markers.py"], {"passed": 4, "skipped": 2, "xfailed": 2, "deselected": 2}, 0)
+expect("-m slow", ["-m", "slow", "exercises/05_markers/test_markers.py"], {"passed": 2, "deselected": 8}, 0)
+expect("-m 'slow and integration'", ["-m", "slow and integration", "exercises/05_markers/test_markers.py"], {"passed": 1, "deselected": 9}, 0)
+expect("-k coupon", ["-k", "coupon", "exercises/04_parametrize/test_parametrize.py"], {"passed": 3, "deselected": 19}, 0)
 expect("node id", ["exercises/03_fixtures/test_fixtures.py::test_save_and_load_with_tmp_path"], {"passed": 1}, 0)
 expect("-x stops at the first failure", ["-x", "demos/01_failures"], {"failed": 1}, 1)
-expect("-n 2 (xdist)", ["-n", "2", "exercises/04_parametrize"], {"passed": 21, "xfailed": 1}, 0)
+expect("-n 2 (xdist)", ["-n", "2", "exercises/04_parametrize/test_parametrize.py"], {"passed": 21, "xfailed": 1}, 0)
 
 out = ""
 rc, out, _ = pytest("--strict-markers", "demos/05_markers")
@@ -112,10 +119,15 @@ if SHOW:
 
 rc, out, _ = pytest("--cov=shop", "--cov-report=term-missing", "exercises")
 rows = {l.split()[0]: l for l in out.splitlines() if l.startswith("src")}
-check("coverage names line 34 of cart.py and line 21 of pricing.py",
-      rows["src\shop\cart.py"].rstrip().endswith("34") and rows["src\shop\pricing.py"].rstrip().endswith("21"), str(rows))
+check("coverage: only line 21 of pricing.py is never run, cart.py is complete",
+      rows[r"src\shop\cart.py"].split()[-1] == "100%" and rows[r"src\shop\pricing.py"].rstrip().endswith("21"), str(rows))
 if SHOW:
     print(out)
+
+print("\nInternals scripts (each asserts what its lesson states)")
+for script in sorted((HERE / "internals").glob("[0-9][0-9]_*.py")):
+    done = subprocess.run([sys.executable, str(script)], cwd=HERE / "internals", capture_output=True, text=True, encoding="utf-8")
+    check(script.name, done.returncode == 0 and done.stdout.strip().splitlines()[-1].startswith("ok"), (done.stderr or done.stdout)[-300:])
 
 print()
 if problems:

@@ -1,8 +1,8 @@
 ---
 title: ออกแบบ Test ที่ดี
 summary: เครื่องมือครบแล้ว แต่ test ที่ดีคือ test ที่อ่านเป็นประโยค ล้มเพราะเหตุผลเดียว และไม่พังเมื่อโค้ดข้างในเปลี่ยน บทนี้สรุปด้วย Arrange-Act-Assert, ตรวจ behaviour แทนรายละเอียดภายใน, ขอบเขตและกรณีล้ม, ความอิสระของ test และโจทย์ปิดท้าย
-order: 8
-phase: D
+order: 15
+phase: E
 level: 3
 stage: sprout
 format: steps
@@ -17,7 +17,7 @@ import Callout from '../../../../components/Callout.astro';
 
 ## Test ที่ดีหน้าตาเป็นอย่างไร
 
-เจ็ดบทที่ผ่านมาสอน **เครื่องมือ** บทนี้ว่าด้วย **วิจารณญาณ** ว่าจะเขียน test ตัวไหน และเขียนอย่างไร ตัวชี้วัดที่ใช้ (ผู้เขียน)
+สิบสี่บทที่ผ่านมาสอน **เครื่องมือ** และกลไกข้างใน บทนี้ว่าด้วย **วิจารณญาณ** ว่าจะเขียน test ตัวไหน และเขียนอย่างไร ตัวชี้วัดที่ใช้ (ผู้เขียน)
 
 | คุณสมบัติ | หมายความว่า |
 |---|---|
@@ -46,7 +46,7 @@ def test_checkout_charges_the_cart_total(cart_with_one_apple):
     assert gateway.charges == [(100, "A-1")]
 ```
 
-ช่วง Act ควรมีบรรทัดเดียว ถ้ามีหลายบรรทัดแสดงว่า test กำลังทดสอบหลายพฤติกรรม ให้แยก ในแบบฝึก `exercises/08_design` มี 12 test ที่ผ่านทั้งหมด (รัน: `exercises/08_design`) ชื่อเรียงเป็นรายการพฤติกรรมของ checkout อ่านรายชื่อก็เข้าใจสเปก
+ช่วง Act ควรมีบรรทัดเดียว ถ้ามีหลายบรรทัดแสดงว่า test กำลังทดสอบหลายพฤติกรรม ให้แยก ในแบบฝึก `exercises/08_design/test_design.py` มี 12 test ที่ผ่านทั้งหมด (รัน: `exercises/08_design/test_design.py`) ชื่อเรียงเป็นรายการพฤติกรรมของ checkout อ่านรายชื่อก็เข้าใจสเปก
 
 ```text
 test_checkout_charges_the_cart_total
@@ -63,7 +63,7 @@ test_an_unknown_coupon_is_an_error_and_charges_nothing
 
 ## ทดสอบ Behaviour ไม่ใช่โครงภายใน
 
-เทียบสอง test ที่ผ่านทั้งคู่วันนี้ (รัน: `exercises/08_design`)
+เทียบสอง test ที่ผ่านทั้งคู่วันนี้ (รัน: `exercises/08_design/test_design.py`)
 
 ```python
 def test_brittle_version_looks_inside(cart_with_one_apple):
@@ -84,7 +84,7 @@ def test_robust_version_uses_the_public_interface(cart_with_one_apple):
 
 ## เส้นแบ่งและกรณีล้ม
 
-bug ชอบอยู่ที่รอยต่อ ทดสอบทั้งสองข้างของทุกเส้นแบ่ง `shipping_fee` ส่งฟรีตั้งแต่ 500 (รัน: `exercises/08_design`)
+bug ชอบอยู่ที่รอยต่อ ทดสอบทั้งสองข้างของทุกเส้นแบ่ง `shipping_fee` ส่งฟรีตั้งแต่ 500 (รัน: `exercises/08_design/test_design.py`)
 
 ```python
 @pytest.mark.parametrize("total, fee", [(499.99, 50), (500, 0), (500.01, 0)])
@@ -92,7 +92,7 @@ def test_shipping_threshold_boundary(total, fee):
     assert shipping_fee(total) == fee
 ```
 
-และอย่าลืมทางล้ม test หลายตัวใน `08_design` ตรวจว่าเมื่อผิดพลาด **ไม่มีผลข้างเคียง**
+และอย่าลืมทางล้ม test หลายตัวใน `exercises/08_design/test_design.py` ตรวจว่าเมื่อผิดพลาด **ไม่มีผลข้างเคียง**
 
 - ตะกร้าว่าง → ไม่เรียก gateway เลย (`gateway.charges == []`)
 - คูปองไม่มีจริง → โยน `KeyError` และไม่เก็บเงิน และตะกร้ายังอยู่
@@ -147,7 +147,7 @@ docstring หรือชื่อบอกที่มา ใครมาแก
 
 กลับไปที่[บท 5](/pytest/markers/#xfail-รู้ว่าล้ม-แต่ยังรันอยู่) มี `test_two_coupons_should_not_stack` ที่ถูกทำเครื่องหมาย xfail เพราะธุรกิจยังไม่ตัดสินใจ สมมติธุรกิจตัดสินใจแล้วว่า **คูปองใช้ได้ครั้งเดียวต่อตะกร้า** ทำตามขั้นนี้เป็นการฝึกทุกอย่างในเส้นทาง
 
-1. คัดลอก test จาก `exercises/05_markers` แล้วลบ `xfail` ออก รัน ยืนยันว่า **ล้ม** (red)
+1. คัดลอก test จาก `exercises/05_markers/test_markers.py` แล้วลบ `xfail` ออก รัน ยืนยันว่า **ล้ม** (red)
 2. ออกแบบ: `apply_coupon` ควรจำคูปองที่ใช้ไปในตัว `Cart` ไหม หรือควรคืนตะกร้าใหม่ ตัดสินใจแล้วเขียนข้อกำหนดเป็นประโยคก่อน
 3. เขียน test เพิ่มสำหรับกรณีขอบ: ใช้คูปองเดิมซ้ำ, ใช้คูปองใหม่หลังเอาของออกจนว่าง, คูปองที่ไม่มีจริง ใช้ `parametrize` ถ้ามีหลายกรณี
 4. แก้โค้ดให้ผ่าน (green)
@@ -178,7 +178,7 @@ docstring หรือชื่อบอกที่มา ใครมาแก
 
 | ข้อความ | ที่มา |
 |---|---|
-| 12 test ใน `08_design` ผ่าน, ชื่อ test ที่เรียงเป็นรายการพฤติกรรม, ทั้ง brittle และ robust ผ่านวันนี้, boundary 499.99/500/500.01, ทางล้มไม่มีผลข้างเคียง, regression test | รัน: `exercises/08_design` |
+| 12 test ใน `exercises/08_design/test_design.py` ผ่าน, ชื่อ test ที่เรียงเป็นรายการพฤติกรรม, ทั้ง brittle และ robust ผ่านวันนี้, boundary 499.99/500/500.01, ทางล้มไม่มีผลข้างเคียง, regression test | รัน: `exercises/08_design/test_design.py` |
 | รันทั้งไฟล์ได้ 2 passed แต่ `test_total` ตัวเดียวล้ม | รัน: `demos/08_order_dependent`, `verify.py` |
 | คุณสมบัติของ test ที่ดี, ทำไม brittle พังเมื่อ refactor, คำถามตรวจ, ขั้นตอนโจทย์ปิดท้าย | ผู้เขียน |
 

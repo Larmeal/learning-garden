@@ -1,0 +1,118 @@
+---
+title: Marker แบบเจาะลึก
+summary: marker บน class และ module, การอ่าน marker จาก fixture, ลำดับของ marker ที่ซ้อนกัน, ไวยากรณ์ของ -m และ -k, รูปแบบของ skipif และ xfail ทั้งหมด, xfail_strict ใน config และการเพิ่ม marker ตอนรัน ทุกข้อรันจริง 15 test
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Marker บน Class และ Module
+
+marker แปะได้สามระดับ ฟังก์ชัน, class และทั้ง module ด้วยตัวแปร `pytestmark` (รัน: `exercises/05_markers/test_marks_in_depth.py`)
+
+```python
+pytestmark = pytest.mark.integration        # ทุก test ในไฟล์นี้
+
+@pytest.mark.slow
+class TestMarksOnAClass:
+    def test_inherits_the_class_mark(self, request):
+        names = {m.name for m in request.node.iter_markers()}
+        assert {"slow", "integration"} <= names
+```
+
+test ในแบบฝึกได้ทั้ง `slow` (จาก class) และ `integration` (จาก module) ไม่ต้องแปะซ้ำ `pytestmark` เป็น list ได้เมื่อต้องการหลาย marker
+
+</Step>
+
+<Step>
+
+## อ่าน Marker จากโค้ด
+
+fixture หรือ hook อ่าน marker ของ test ได้ ซึ่งเป็นวิธีส่งค่าตั้งต่อ test โดยไม่ต้องใช้ parameter
+
+```python
+@pytest.fixture
+def declared_timeout(request):
+    marker = request.node.get_closest_marker("timeout")
+    return marker.args[0] if marker else None
+
+@pytest.mark.timeout(30)
+def test_a_fixture_reads_the_mark_of_its_test(declared_timeout):
+    assert declared_timeout == 30
+```
+
+test ที่ไม่แปะ marker ได้ `None` (รัน) ต้องลงทะเบียน `timeout(seconds)` ใน config ก่อน ซึ่งแบบฝึกทำไว้แล้ว (บท [Marker](/pytest/markers/#ลงทะเบียน-marker-กันพิมพ์ผิด))
+
+เมื่อ marker ชื่อเดียวกันถูกแปะหลายระดับ ลำดับที่ `iter_markers` คืนคือ **ใกล้ test ที่สุดก่อน** แบบฝึกแปะ `level(1)` ที่ module, `level(2)` ที่ class และ `level(3)` ที่ method ผลคือ `iter_markers("level")` ได้ `[3, 2, 1]` และ `get_closest_marker("level")` ได้ `3` (รัน) ใช้ `get_closest_marker` เมื่อค่าที่ใกล้กว่าควรทับค่าที่ไกลกว่า และ `iter_markers` เมื่อต้องรวมทุกระดับ
+
+</Step>
+
+<Step>
+
+## ไวยากรณ์ของ -m และ -k
+
+`-m` ตรวจ **marker** และ `-k` ตรวจ **ชื่อ** (รัน)
+
+โปรเจกต์ทดลองมี test สี่ตัว: `test_a` (marker a), `test_b` (marker b), `test_ab` (ทั้งสอง) และ `test_none`
+
+| นิพจน์ `-m` | test ที่เลือก |
+|---|---|
+| `a` | `test_a`, `test_ab` |
+| `a and b` | `test_ab` |
+| `a or b` | `test_a`, `test_ab`, `test_b` |
+| `not a` | `test_b`, `test_none` |
+| `(a or b) and not (a and b)` | `test_a`, `test_b` |
+
+`-k` จับคู่กับชื่อ test (และ id ของ parametrize) แบบ **ไม่สนตัวพิมพ์ใหญ่เล็ก** `-k apple` ได้ `test_apple_pie` กับ `test_apple_tart`, `-k "apple and not tart"` ได้ตัวแรกตัวเดียว และ `-k APPLE` ได้ทั้งสองเหมือนเดิม
+
+</Step>
+
+<Step>
+
+## `skipif` และ `xfail` ทุกรูปแบบ
+
+เงื่อนไขของ `skipif` เป็นนิพจน์ Boolean หรือ **สตริง** ที่ถูกประเมินใน namespace ของ module (รัน)
+
+```python
+@pytest.mark.skipif(sys.implementation.name != "cpython", reason="a boolean condition: only CPython runs this")
+def test_skipif_with_a_boolean_condition(): ...
+
+@pytest.mark.skipif("sys.version_info < (3, 0)", reason="a string condition is evaluated in the module namespace")
+def test_skipif_with_a_string_condition(): ...
+```
+
+`xfail` รับเงื่อนไขเป็น argument แรกเช่นเดียวกัน (`xfail(True, reason=...)` คาดว่าล้ม ส่วน `xfail(False, ...)` ไม่ทำอะไร) และมีตัวเลือกที่ควบคุมให้แคบลง
+
+| รูปแบบ | ความหมาย | ยืนยัน |
+|---|---|---|
+| `xfail(raises=ZeroDivisionError)` | นับเป็น xfail เฉพาะเมื่อโยน exception ชนิดนี้ | test ที่หาร 0 ได้ xfailed |
+| exception ชนิดอื่นที่โยนจริง | ยังเป็นความล้มจริง (`failed`) | `pytester` ได้ `failed=1` |
+| `xfail_strict = true` ใน config | ทุก xfail เป็น strict โดยไม่ต้องใส่ทีละตัว | test ที่ผ่านทั้งที่แปะ xfail ได้ `failed=1` |
+| `request.node.add_marker(pytest.mark.xfail(...))` | เพิ่ม marker **ตอนรัน** | test ที่ `assert False` ได้ xfailed |
+
+`raises=` เป็นตัวที่ควรใส่เสมอ เพราะ xfail ที่ไม่ระบุจะกลบความล้มคนละสาเหตุโดยไม่ทันสังเกต เช่น test ที่คาดว่า bug A แล้วเจอ `KeyError` จาก bug B
+
+<Callout type="try" title="ลองทำใน repo นี้">
+รัน `uv run pytest exercises/05_markers/test_marks_in_depth.py -v -rxs` แล้วเพิ่ม `-m "slow"` ดูว่า test ใดถูกเลือกบ้าง จากนั้นแปะ `@pytest.mark.timeout(5)` ที่ class `TestMarksOnAClass` และ `@pytest.mark.timeout(1)` ที่ method หนึ่ง แล้วเขียน test ที่ใช้ `declared_timeout` เพื่อเช็กว่าได้ค่าไหน
+</Callout>
+
+</Step>
+
+<Step>
+
+## ที่มาของหน้านี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| marker บน class และ module (`pytestmark`), `iter_markers`, `get_closest_marker`, ลำดับ `[3, 2, 1]` | รัน: `exercises/05_markers/test_marks_in_depth.py` |
+| ผลของ `-m` ห้านิพจน์, `-k` ไม่สนตัวพิมพ์ | รัน: เหมือนข้างบน (ใช้ `pytester`) |
+| `skipif` แบบ Boolean และสตริง, `xfail` แบบมีเงื่อนไข, `raises=`, `xfail_strict`, `add_marker` ตอนรัน | รัน: เหมือนข้างบน |
+| คำแนะนำให้ใส่ `raises=` เสมอ, `pytestmark` เป็น list | ผู้เขียน |
+
+</Step>

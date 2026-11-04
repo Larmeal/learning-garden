@@ -1,0 +1,153 @@
+---
+title: Fixtures in depth
+summary: The request object a fixture receives, indirect parametrization, several addfinalizer calls, getfixturevalue choosing a name at run time, usefixtures, a name that differs from the function name, and a scope computed from config. Every item runs for real, 15 tests.
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## request: a fixture can ask who called it
+
+A fixture that declares a parameter named `request` gets an object describing the context of the test that asked for it (ran: `exercises/03_fixtures/test_fixtures_in_depth.py`):
+
+```python
+@pytest.fixture
+def who_asked(request):
+    return {
+        "name": request.node.name,
+        "scope": request.scope,
+        "fixturename": request.fixturename,
+        "module": request.module.__name__.split(".")[-1],
+        "has_cls": request.cls is not None,
+    }
+```
+
+When a test named `test_request_describes_the_asking_test` asks for this fixture it gets `scope == "function"`, `fixturename == "who_asked"` and `has_cls` is `False`. If the test is inside a class it is `True` (ran). The ones used most are `request.node` (the test itself), `request.config` (pytest's config) and `request.param` (next section). The lesson [The fixture engine](/en/pytest/fixture-engine/) explains that this object is the `SubRequest` pytest builds for each fixture.
+
+</Step>
+
+<Step>
+
+## Indirect: let the test pass a value into a fixture
+
+An ordinary `parametrize` passes values straight into the test. With `indirect`, the value goes to the fixture of the same name, and the fixture reads it from `request.param`:
+
+```python
+@pytest.fixture
+def cart_of(request):
+    cart = Cart()
+    cart.add("apple", price=10, qty=request.param)
+    return cart
+
+@pytest.mark.parametrize("cart_of, total", [(1, 10), (3, 30)], indirect=["cart_of"])
+def test_indirect_hands_the_value_to_the_fixture(cart_of, total):
+    assert cart_of.total() == total
+```
+
+`cart_of` gets a cart built from the values 1 and 3, while `total` goes straight into the test. Use it when you build something that needs setup/teardown according to a value, such as a database with n rows (ran).
+
+</Step>
+
+<Step>
+
+## addfinalizer: register cleanups at several points
+
+`yield` suits the case where setup and teardown sit together. When a fixture makes several things depending on conditions, `request.addfinalizer(fn)` registers cleanups one at a time as the setup proceeds:
+
+```python
+@pytest.fixture
+def resource(request):
+    ORDER.append("open")
+    request.addfinalizer(lambda: ORDER.append("close first-registered"))
+    request.addfinalizer(lambda: ORDER.append("close second-registered"))
+    return "res"
+```
+
+After the test ends, ORDER has `open, test, close second-registered, close first-registered`, the **reverse of the order they were registered** (ran). The advantage over `yield` is that a finalizer that was already registered still runs even if the setup code after it breaks.
+
+</Step>
+
+<Step>
+
+## getfixturevalue: choose the fixture name at run time
+
+`request.getfixturevalue(name)` asks for a fixture by a name held as a string. It suits cases where the name comes from data (ran):
+
+```python
+@pytest.mark.parametrize("name, empty", [("small", True), ("large", False)])
+def test_getfixturevalue_looks_up_by_name(request, name, empty):
+    assert request.getfixturevalue(name).is_empty() is empty
+```
+
+If the name does not exist, the result is `FixtureLookupError`, which is a `LookupError` whose `.argname` gives the name that was looked up (this type is not exported as `pytest.`, so check with `pytest.raises(LookupError)` and read `info.type.__name__`). The trade-off is that a fixture requested this way is not in the closure computed at collection ([lesson 11](/en/pytest/fixture-engine/)), so it is harder to read than declaring a parameter. Use it only when you must.
+
+</Step>
+
+<Step>
+
+## usefixtures, name= and a computed scope
+
+**`usefixtures`** runs a fixture without a parameter in the function. It suits cases where you only want its side effect:
+
+```python
+@pytest.mark.usefixtures("sets_flag")
+def test_usefixtures_runs_the_fixture_without_a_parameter():
+    assert ORDER[-1] == "flag set"
+```
+
+It can be used on a class or module as well (`pytestmark = pytest.mark.usefixtures(...)`).
+
+**`name=`** gives the fixture a name different from the function name, which avoids a parameter of a test hiding a fixture name in the same file:
+
+```python
+@pytest.fixture(name="shopping_cart")
+def make_shopping_cart():
+    return Cart()
+```
+
+**A computed scope** takes a function that receives `fixture_name` and `config` and returns the scope name. It is called the first time the fixture is used:
+
+```python
+def scope_from_config(fixture_name, config):
+    return "session" if config.getoption("--setup-show", default=False) else "function"
+
+@pytest.fixture(scope=scope_from_config)
+def maybe_shared():
+    return object()
+```
+
+Use it when you want an expensive fixture (such as a container) shared on CI but per test on your own machine (ran: all three forms pass in `test_fixtures_in_depth.py`).
+
+</Step>
+
+<Step>
+
+## When a fixture breaks, and autouse in conftest
+
+- A fixture that raises an exception in setup gives the test an **error** and the test itself is not called (the text in the test is not printed). The exercise confirms it with `pytester`, getting `errors=1` (ran).
+- A fixture with `autouse=True` in a `conftest.py` applies to **every test in that folder and the folders below**, without being requested. The exercise creates a conftest that prints the name of every test, and the result is `NOTE test_a` and `NOTE test_b` (ran). It suits things that must happen to a whole folder, such as resetting the time or the environment, but use it only when necessary, because a reader of the test does not see it in the test.
+
+<Callout type="try" title="Try it in this repo">
+Run `uv run pytest exercises/03_fixtures/test_fixtures_in_depth.py -v --setup-show` and look at the SETUP/TEARDOWN order of `resource`, which has two finalizers. Swap the two `addfinalizer` lines and see how the `ORDER` that the test checks fails.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Sources for this page
+
+| Statement | Source |
+|---|---|
+| `request.node`, `scope`, `fixturename`, `module`, `cls` | ran: `exercises/03_fixtures/test_fixtures_in_depth.py` |
+| indirect parametrization, `addfinalizer` in reverse order, `getfixturevalue`, `FixtureLookupError`, `usefixtures`, `name=`, a computed scope | ran: as above |
+| a fixture breaking in setup (`errors=1`), autouse in conftest | ran: as above (uses `pytester`) |
+| the advantage of `addfinalizer` over `yield` when later setup code breaks, using a computed scope on CI | author |
+
+</Step>

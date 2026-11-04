@@ -1,0 +1,123 @@
+---
+title: Config, rootdir and imports in depth
+summary: Which config file wins when there are several, where rootdir comes from, the order of -o and PYTEST_ADDOPTS, a misspelled key, pytest's import modes when file names repeat, and stacking conftest.py files. Everything runs on temporary projects.
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Which config file wins
+
+pytest uses one config file and does not merge several. If there are several kinds in one folder, the order is `pytest.ini`, `pyproject.toml` (with `[tool.pytest]`), `tox.ini`, then `setup.cfg` (which uses the section `[tool:pytest]`). It is proven with a project holding all four files, each setting a different `minversion`, then deleting the winner one file at a time (ran: `internals/09_config_layout.py`):
+
+| Files left | File pytest uses | `minversion` seen |
+|---|---|---|
+| all four | `pytest.ini` | 1.0 |
+| no `pytest.ini` | `pyproject.toml` | 2.0 |
+| no `pyproject.toml` | `tox.ini` | 3.0 |
+| only `setup.cfg` | `setup.cfg` | 4.0 |
+
+Two special cases are confirmed:
+
+- A `pyproject.toml` that has **no** `[tool.pytest]` table (or `[tool.pytest.ini_options]`) is skipped, and `tox.ini` wins instead.
+- An **empty** `pytest.ini` still beats a `tox.ini` that has `[pytest]`, because having this file is a statement that this is the root of the project.
+
+The exercise of this path uses `[tool.pytest.ini_options]` in `pyproject.toml`, which works as well.
+
+</Step>
+
+<Step>
+
+## Rootdir
+
+The **rootdir** is the folder pytest treats as the root. It is the base for node ids, the place for `.pytest_cache`, and the boundary for finding `conftest.py`. pytest finds the config file by walking up from the folder of the arguments you give, and the rootdir is the folder that holds that file.
+
+In the exercise a `pytest.ini` sits at the root and the test is in `sub/`. Running pytest from `sub/` still uses the root's `pytest.ini`, and the rootdir is the root folder, not `sub` (ran). The pytest report header prints `rootdir:` and `configfile:` every time so you can check.
+
+If there is no config file at all, `inipath` is `None` (ran) and the rootdir comes from the command line. That is why you should have at least an empty config file, so the rootdir does not depend on where you run from.
+
+</Step>
+
+<Step>
+
+## Order: the file, then PYTEST_ADDOPTS, then the command line
+
+| Layer | Example | Confirmed result |
+|---|---|---|
+| `addopts` in the file | `addopts = -v` | the run shows `PASSED` |
+| `PYTEST_ADDOPTS` | `PYTEST_ADDOPTS=-v` (environment) | the run shows `PASSED` even though the file has no `addopts` |
+| `-o key=value` on the command line | `-o minversion=9.0` | beats the value in the file: `minversion` is `9.0` |
+
+(ran: `internals/09_config_layout.py`) `-o` is for trying a value without editing the file, and it suits CI where you want to override something temporarily.
+
+</Step>
+
+<Step>
+
+## A misspelled key in the config
+
+A key pytest does not know in the config is not an error but a warning, which is easy to miss (ran):
+
+```text
+PytestConfigWarning: Unknown config option: no_such_key
+```
+
+The tests still run and the exit code is still 0, which is the problem: you type `testpath` instead of `testpaths`, and the setting has no effect while nothing turns red. Add `--strict-config` so an unknown key makes pytest end with a non-zero exit code (ran). It is worth setting in `addopts` next to `--strict-markers` ([lesson 5](/en/pytest/markers/)).
+
+</Step>
+
+<Step>
+
+## Import mode: repeated file names
+
+pytest has to import test files as modules. The default mode is `prepend`, which puts the folder of the file at the front of `sys.path` and imports it by file name. If two files named `test_same.py` sit in `a/` and `b/`, which have no `__init__.py`, the module names collide (ran):
+
+| Way | Result |
+|---|---|
+| the default (`prepend`) | fails with `import file mismatch` (a non-zero exit code) |
+| `__init__.py` in both `a/` and `b/` | passes 2 tests |
+| `--import-mode=importlib` | passes 2 tests without needing `__init__.py` |
+
+`importlib` does not touch `sys.path`, so there is no collision, but a test that imports another test file directly (such as a helper placed beside it) may fail to import, because the folder is not on `sys.path` in this mode. An alternative for a new project is to put the code in a package (such as `src/`) and set `pythonpath` ([lesson 7](/en/pytest/project/#configure-once-in-pyprojecttoml)), and to give test files names that do not repeat.
+
+</Step>
+
+<Step>
+
+## Stacked conftest.py files
+
+A `conftest.py` applies to its folder and the folders below, and the one closer to the test overrides the farther one. The exercise has a fixture `where` in the root `conftest.py` (returning `'root'`) and in `sub/conftest.py` (returning `'sub'`) (ran):
+
+```text
+test_top.py          : where == 'root'
+sub/test_deep.py     : where == 'sub'
+other/test_other.py  : where == 'root'     (a folder with no conftest of its own uses the root one)
+```
+
+All 3 tests pass. A `conftest.py` is loaded as a plugin tied to a folder ([lesson 14](/en/pytest/plugins/)) and needs no import anywhere. A caution: several levels of conftest make it hard to tell which one a fixture came from. `pytest --fixtures-per-test` or `--setup-show` helps.
+
+<Callout type="try" title="Try it in this repo">
+Run `uv run python internals/09_config_layout.py`, then add a new case to the script: set `testpaths` in a `pytest.ini` and run pytest from a folder that is not the root, to see which tests pytest selects.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Sources for this page
+
+| Statement | Source |
+|---|---|
+| the order `pytest.ini` > `pyproject.toml` > `tox.ini` > `setup.cfg`, a `pyproject.toml` without the table is skipped, an empty `pytest.ini` wins | ran: `internals/09_config_layout.py` |
+| running from a sub folder still uses the root's file, no config file means `inipath` is `None` | ran: as above |
+| `addopts`, `PYTEST_ADDOPTS`, `-o`, an unknown key, `--strict-config` | ran: as above |
+| import mode: `prepend` collides, `__init__.py`, `importlib`, stacked `conftest.py` | ran: as above |
+| the limit of `importlib` when importing another test file, the advice to have a config file and `--strict-config`, rootdir as the base of `.pytest_cache` and conftest, why an empty `pytest.ini` still wins | author |
+
+</Step>

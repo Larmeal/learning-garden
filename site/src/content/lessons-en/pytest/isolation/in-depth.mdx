@@ -1,0 +1,159 @@
+---
+title: Mocks and monkeypatch in depth
+summary: A Mock that accepts everything compared with spec and autospec, the three kinds of side_effect, reading the calls, patch.dict, the rest of monkeypatch, and a fixture that blocks real network calls in every test. Every item runs for real, 16 tests.
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## A plain Mock accepts everything, even a typo
+
+`mock.Mock()` creates every attribute and method by itself. The result is that a test that calls a wrong name still passes (ran: `exercises/06_isolation/test_mocking_in_depth.py`):
+
+```python
+gateway = mock.Mock()
+gateway.chargee(100, "A-1")      # a typo of charge, and nothing complains
+gateway.chargee.assert_called_once()
+```
+
+This test passes but proves nothing about the real gateway. There are two levels of protection:
+
+| Way | Result |
+|---|---|
+| `mock.Mock(spec=["charge"])` | calling another name raises `AttributeError`, but arguments are not checked |
+| `mock.create_autospec(RealGateway, instance=True)` | checks the name **and the signature** against the real class |
+
+With autospec the call `gateway.charge(1)` (missing `order_id`) raises `TypeError`, as the signature `RealGateway.charge(amount, order_id)` demands (ran), and it works normally with `checkout(...)` when called correctly. Autospec makes the mock break along with the real class when its signature changes, which is what we want.
+
+</Step>
+
+<Step>
+
+## side_effect: a different answer each time
+
+`return_value` always gives one answer. `side_effect` has three forms (ran):
+
+```python
+fake = mock.Mock(side_effect=[0.03, 0.04])                  # a list: one value per call
+assert (fake(), fake()) == (0.03, 0.04)                      # a third call raises StopIteration
+
+fake = mock.Mock(side_effect=ConnectionError("down"))       # an exception: raised every time
+fake = mock.Mock(side_effect=lambda c: {"USD": 0.03, "EUR": 0.025}[c])   # a function: computes the answer
+```
+
+A very useful pattern is **fail first, then recover**, using a list that mixes an exception and a value:
+
+```python
+fake = mock.Mock(side_effect=[ConnectionError("blip"), {"rate": 0.03}])
+with pytest.raises(ConnectionError):
+    fake()
+assert fake() == {"rate": 0.03}
+assert fake.call_count == 2
+```
+
+Use it to test code that retries: the network stumbles the first time and works the second, and `call_count` confirms it was called exactly twice.
+
+</Step>
+
+<Step>
+
+## Reading the calls
+
+A mock remembers every call (ran):
+
+```python
+fake = mock.Mock(return_value=True)
+fake(1, "a", flag=True)
+fake(2, "b")
+assert fake.call_args == mock.call(2, "b")                  # the latest call
+assert fake.call_args_list == [mock.call(1, "a", flag=True), mock.call(2, "b")]
+fake.assert_any_call(1, "a", flag=True)                     # a call like this happened somewhere
+fake.assert_called_with(2, "b")                             # the latest call must be like this
+```
+
+Easy to remember: `assert_called_with` looks only at the last call, `assert_any_call` looks at every call, and `call_args_list` gives the whole list for checking order.
+
+</Step>
+
+<Step>
+
+## patch.dict and patch as a decorator
+
+`mock.patch.dict(os.environ, {...})` sets values in a dict temporarily and restores them when the block exits (ran: `SHOP_MODE` is not in `os.environ` after the block). Compare `monkeypatch.setenv`, which is tied to the life of the test.
+
+`mock.patch.object(...)` can be used as a decorator, and the mock is passed as the **first** argument of the test:
+
+```python
+@mock.patch.object(rates, "fetch_rate", return_value=0.5)
+def test_patch_as_a_decorator_passes_the_mock_as_an_argument(fake):
+    assert rates.convert(10, "USD") == 5.0
+    fake.assert_called_once_with("USD")
+```
+
+A caution when combining it with fixtures: arguments from decorators come before fixtures in the order of parameters.
+
+</Step>
+
+<Step>
+
+## The rest of monkeypatch
+
+(ran)
+
+| Method | What it does |
+|---|---|
+| `delenv("X")` | removes a variable; if it is absent you get `KeyError` unless `raising=False` |
+| `setitem(d, k, v)` | sets a value in a dict temporarily |
+| `chdir(path)` | changes the working folder (use it with `tmp_path`) |
+| `syspath_prepend(path)` | adds a folder to `sys.path` so a new module can be imported |
+| `setattr("shop.rates.fetch_rate", fn)` | the target can be given as a string |
+| `setattr(rates, "no_such_attribute", 1)` | the default `raising=True` raises `AttributeError`, which guards against a misspelled name |
+| `pytest.MonkeyPatch.context()` | for use outside a test: restores when the block exits, without waiting for the test to end |
+
+The last one is useful in a fixture with a scope wider than function (which cannot use the `monkeypatch` fixture), and when you want to cancel a replacement halfway through a test.
+
+</Step>
+
+<Step>
+
+## Blocking the real network in every test
+
+Set an `autouse` fixture that replaces the network call point with something that fails loudly, so that a test that forgot to replace it does not quietly call the real thing:
+
+```python
+@pytest.fixture(autouse=True)
+def no_real_network(monkeypatch):
+    def refuse(url):
+        raise AssertionError(f"a test tried to reach the network: {url}")
+    monkeypatch.setattr(net, "fetch_json", refuse)
+```
+
+The exercise confirms two things (ran). First, if `rates` imported the name itself with `from shop.net import fetch_json`, replacing it in `net` does not reach `rates.fetch_json`, which is still the original that raises `ConnectionError`. That is the rule "patch where the name is used" from the [Isolation lesson](/en/pytest/isolation/). Second, when you patch the right place (`monkeypatch.setattr(rates, "fetch_json", net.fetch_json)`, where `net.fetch_json` is at that point the guard), the test fails with the message `a test tried to reach the network`.
+
+The lesson: a guard that patches only where the name is defined is not enough. It has to cover every place the name is used, or you design the code to take the dependency as a parameter instead (the [Isolation lesson](/en/pytest/isolation/#a-fake-you-pass-in-is-often-simpler-than-a-patch)).
+
+<Callout type="try" title="Try it in this repo">
+In the fixture `no_real_network` of `test_mocking_in_depth.py`, change `monkeypatch.setattr(net, "fetch_json", refuse)` to patch `rates` instead of `net`, and see how the test named `test_the_guard_turns_a_forgotten_replacement_into_a_clear_failure` changes. Then write a new test that uses the "fail first, then recover" `side_effect` on `rates.fetch_json`, to see that `convert`, which has no retry, fails at once.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Sources for this page
+
+| Statement | Source |
+|---|---|
+| a plain Mock accepts a misspelled name, `spec`, `create_autospec` checks the signature (`TypeError`) | ran: `exercises/06_isolation/test_mocking_in_depth.py` |
+| the three kinds of `side_effect`, fail first then recover, `call_args`, `call_args_list`, `assert_any_call` | ran: as above |
+| `patch.dict`, `patch.object` as a decorator, `delenv`, `setitem`, `chdir`, `syspath_prepend`, `setattr` with a string and `raising`, `MonkeyPatch.context()` | ran: as above |
+| the fixture that blocks the network and the limit of patching where a name is defined | ran: as above |
+| the order of decorator and fixture arguments, the remark about `MonkeyPatch.context()` in a wide-scope fixture | author |
+
+</Step>

@@ -52,7 +52,7 @@ Pytest เห็นชื่อ `filled_cart` ใน parameter จึงรั�
 
 ## แต่ละ Test ได้ของใหม่
 
-ค่าเริ่มต้นคือ fixture ทำงาน **ใหม่ทุก test** แบบฝึกยืนยันด้วยสอง test ที่ต่อกัน (รัน: `exercises/03_fixtures`)
+ค่าเริ่มต้นคือ fixture ทำงาน **ใหม่ทุก test** แบบฝึกยืนยันด้วยสอง test ที่ต่อกัน (รัน: `exercises/03_fixtures/test_fixtures.py`)
 
 ```python
 def test_every_test_gets_a_fresh_cart(filled_cart):
@@ -63,7 +63,7 @@ def test_the_previous_test_did_not_leak(filled_cart):
     assert filled_cart.qty("kiwi") == 0
 ```
 
-test แรกเพิ่ม kiwi test ที่สองไม่เห็น นี่คือเหตุผลที่ test อิสระต่อกัน ([บท 8](/pytest/test-design/#test-ต้องอิสระต่อกัน) จะกลับมาเรื่องนี้)
+test แรกเพิ่ม kiwi test ที่สองไม่เห็น นี่คือเหตุผลที่ test อิสระต่อกัน ([บท 15](/pytest/test-design/#test-ต้องอิสระต่อกัน) จะกลับมาเรื่องนี้)
 
 </Step>
 
@@ -91,7 +91,7 @@ def transaction(connection):
     EVENTS.append("rollback")
 ```
 
-ดูลำดับจริงด้วย `--setup-show` (รัน: `exercises/03_fixtures`)
+ดูลำดับจริงด้วย `--setup-show` (รัน: `exercises/03_fixtures/test_fixtures.py`)
 
 ```text
 SETUP    M connection
@@ -127,7 +127,7 @@ teardown ไล่ย้อนกลับจาก setup เสมอ (ตั�
 | `package` | ทุก package | |
 | `session` | ครั้งเดียวทั้งการรัน | เช่น เริ่ม database container |
 
-แบบฝึกพิสูจน์ด้วย list `EVENTS` (รัน: `exercises/03_fixtures`)
+แบบฝึกพิสูจน์ด้วย list `EVENTS` (รัน: `exercises/03_fixtures/test_fixtures.py`)
 
 ```python
 def test_the_events_show_scope():
@@ -137,7 +137,7 @@ def test_the_events_show_scope():
 connect ครั้งเดียว begin/rollback สองครั้ง และ disconnect ยังไม่เกิดจนกว่าไฟล์จะจบ
 
 <Callout type="warn" title="scope ใหญ่ขึ้นแลกกับการแชร์สถานะ">
-fixture ระดับ module หรือ session ที่คืน object ที่แก้ได้ (เช่น ตะกร้า) จะถูกแชร์ให้ทุก test ถ้า test หนึ่งแก้ test ถัดไปจะเห็น ซึ่งคือที่มาของ test ที่ผ่านเมื่อรันรวมแต่ล้มเมื่อรันเดี่ยว ([บท 8](/pytest/test-design/#test-ต้องอิสระต่อกัน)) ใช้ scope ใหญ่กับของที่ไม่ถูกแก้ หรือเตรียมให้ test รีเซ็ตด้วย fixture ระดับ function ซ้อนอีกชั้น
+fixture ระดับ module หรือ session ที่คืน object ที่แก้ได้ (เช่น ตะกร้า) จะถูกแชร์ให้ทุก test ถ้า test หนึ่งแก้ test ถัดไปจะเห็น ซึ่งคือที่มาของ test ที่ผ่านเมื่อรันรวมแต่ล้มเมื่อรันเดี่ยว ([บท 15](/pytest/test-design/#test-ต้องอิสระต่อกัน)) ใช้ scope ใหญ่กับของที่ไม่ถูกแก้ หรือเตรียมให้ test รีเซ็ตด้วย fixture ระดับ function ซ้อนอีกชั้น
 </Callout>
 
 </Step>
@@ -146,7 +146,7 @@ fixture ระดับ module หรือ session ที่คืน object �
 
 ## Fixture ที่มากับ Pytest: tmp_path
 
-`tmp_path` ให้โฟลเดอร์ชั่วคราวที่ว่างและไม่ซ้ำกันต่อ test เหมาะกับโค้ดที่เขียนไฟล์ (รัน: `exercises/03_fixtures`)
+`tmp_path` ให้โฟลเดอร์ชั่วคราวที่ว่างและไม่ซ้ำกันต่อ test เหมาะกับโค้ดที่เขียนไฟล์ (รัน: `exercises/03_fixtures/test_fixtures.py`)
 
 ```python
 def test_save_and_load_with_tmp_path(filled_cart, tmp_path):
@@ -201,7 +201,7 @@ def coupon(request):
 `test_a_parametrized_fixture_runs_the_test_once_per_param` จึงรัน 2 ครั้ง ทำให้ไฟล์ `test_fixtures.py` มีฟังก์ชัน test 11 ตัวแต่รายงาน **12 passed** (รัน: `exercises/03_fixtures/test_fixtures.py`) [บท 4](/pytest/parametrize/#test-เดียว-หลายค่า) สอนวิธีที่ตรงไปตรงมากว่าสำหรับกรณี test ทั่วไป
 
 <Callout type="try" title="ลองทำใน repo นี้">
-รัน `uv run pytest exercises/03_fixtures --setup-show` แล้วอ่านลำดับ ลองเปลี่ยน `scope="module"` ของ `connection` เป็น `"function"` แล้วดูว่า `test_the_events_show_scope` ล้มเพราะอะไร และ `EVENTS` ที่ได้หน้าตาอย่างไร
+รัน `uv run pytest exercises/03_fixtures/test_fixtures.py --setup-show` แล้วอ่านลำดับ ลองเปลี่ยน `scope="module"` ของ `connection` เป็น `"function"` แล้วดูว่า `test_the_events_show_scope` ล้มเพราะอะไร และ `EVENTS` ที่ได้หน้าตาอย่างไร
 </Callout>
 
 </Step>
@@ -222,10 +222,10 @@ def coupon(request):
 
 | ข้อความ | ที่มา |
 |---|---|
-| fixture ขอ fixture อื่น, แต่ละ test ได้ของใหม่, conftest, tmp_path, factory, autouse, params (12 passed จาก 11 ฟังก์ชัน), conftest และไฟล์ test ที่ override (ทั้งโฟลเดอร์ 14 passed) | รัน: `exercises/03_fixtures`, `verify.py` |
+| fixture ขอ fixture อื่น, แต่ละ test ได้ของใหม่, conftest, tmp_path, factory, autouse, params (12 passed จาก 11 ฟังก์ชัน), conftest และไฟล์ test ที่ override (`nested/` มีอีก 2 test) | รัน: `exercises/03_fixtures/test_fixtures.py`, `verify.py` |
 | teardown รันแม้ test ล้ม | รัน: `demos/03_teardown` |
-| ลำดับ setup และ teardown, ตัวอักษร scope `M` และ `F` ใน `--setup-show` | รัน: `exercises/03_fixtures`, `verify.py` |
-| รายการ `EVENTS` ที่พิสูจน์ scope ของ module เทียบกับ function | รัน: `exercises/03_fixtures` |
+| ลำดับ setup และ teardown, ตัวอักษร scope `M` และ `F` ใน `--setup-show` | รัน: `exercises/03_fixtures/test_fixtures.py`, `verify.py` |
+| รายการ `EVENTS` ที่พิสูจน์ scope ของ module เทียบกับ function | รัน: `exercises/03_fixtures/test_fixtures.py` |
 | ตารางห้า scope, คำแนะนำเรื่อง scope ใหญ่กับ object ที่แก้ได้ | ผู้เขียน |
 
 </Step>

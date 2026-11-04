@@ -1,0 +1,168 @@
+---
+title: Assertion Rewriting
+summary: pytest แสดงค่าของนิพจน์ใน assert ได้เพราะแก้โค้ดของ test ก่อนที่มันจะรัน บทนี้ดูโค้ดที่ถูกเขียนใหม่จริง กติกาว่าไฟล์ไหนถูกแก้ ทำไม assert ใน helper ถึงไม่มีรายละเอียด และวิธีแก้
+order: 13
+phase: D
+level: 5
+stage: sprout
+format: steps
+requires: [assertions, how-pytest-runs]
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## คำถามที่บท 2 ทิ้งไว้
+
+[บท 2](/pytest/assertions/) บอกว่า pytest "เขียน assert ใหม่" ก่อนรัน บทนี้ดูของจริง ทั้งโค้ดที่ได้ กติกาว่าไฟล์ใดถูกแก้ และผลที่ตามมาเมื่อกติกาไม่ครอบคลุม ซึ่งเป็นต้นเหตุของอาการที่งงบ่อย: `assert` ใน test บอกค่าให้หมด แต่ `assert` ในฟังก์ชันช่วยที่เรียกจาก test กลับมีแค่คำว่า `AssertionError`
+
+ส่วนที่ทำงานอยู่ใน `_pytest/assertion/rewrite.py` (source) มีสามชิ้น
+
+- `AssertionRewritingHook` เป็น import hook ที่ pytest ใส่ไว้หน้าสุดของ `sys.meta_path` (source: `install_importhook`) ทุกครั้งที่ Python import module มันตัดสินว่า module นั้นควรถูกแก้ไหม
+- `rewrite_asserts` แก้ AST (โครงสร้างต้นไม้ของโค้ด) ของ module
+- `AssertionRewriter` เป็นตัวเดินต้นไม้ที่ `visit_Assert` แปลง `assert` หนึ่งคำสั่งเป็นชุดคำสั่งใหม่
+
+</Step>
+
+<Step>
+
+## โค้ดที่ถูกเขียนใหม่หน้าตาอย่างไร
+
+ให้ `rewrite_asserts` แปลงโค้ดสองบรรทัดนี้ แล้วพิมพ์ผลกลับเป็นโค้ด (รัน: `internals/06_rewrite.py`)
+
+```python
+def test_total(cart):
+    assert cart.total() == 31
+```
+
+ผลที่ได้ (ย่อชื่อ `@py_` ให้อ่านง่าย) คือ
+
+```python
+def test_total(cart):
+    @py_assert1 = cart.total
+    @py_assert3 = @py_assert1()
+    @py_assert6 = 31
+    @py_assert5 = @py_assert3 == @py_assert6
+    if not @py_assert5:
+        @py_format8 = @pytest_ar._call_reprcompare(('==',), (@py_assert5,), (...), (@py_assert3, @py_assert6)) % {...}
+        @py_format10 = ('' + 'assert %(py9)s') % {'py9': @py_format8}
+        raise AssertionError(@pytest_ar._format_explanation(@py_format10))
+    @py_assert1 = @py_assert3 = @py_assert5 = @py_assert6 = None
+```
+
+อ่านได้สี่อย่าง
+
+- **ทุกนิพจน์ย่อยถูกเก็บในตัวแปรชั่วคราว** (`@py_assert1`, `@py_assert3`, ...) `cart.total` กับผลของ `total()` กับ `31` ต่างมีตัวแปร ค่าจึงยังอยู่ให้พิมพ์ตอนล้ม
+- **คำสั่ง `if not ...: raise AssertionError(...)`** แทน `assert` เดิม ข้อความ `assert 30 == 31` ที่เห็นถูกประกอบใน `_format_explanation` เฉพาะตอนล้ม ตอนผ่านไม่มีงานเพิ่มนอกจากเก็บค่า
+- **`_call_reprcompare`** คือจุดที่ hook `pytest_assertrepr_compare` ถูกเรียก เพื่อสร้าง diff ของ dict, list, string ([บท 14](/pytest/plugins/) เขียน hook นี้เอง)
+- **ตัวแปรชั่วคราวถูกตั้งเป็น `None` ท้ายคำสั่ง** เพื่อไม่ให้ object ค้างอยู่ในหน่วยความจำ
+
+ที่ตัวแปรชื่อมี `@` นำหน้าเพราะ Python เองสร้างชื่อแบบนั้นไม่ได้ จึงไม่มีทางชนกับตัวแปรของผู้ใช้
+
+</Step>
+
+<Step>
+
+## ไฟล์ไหนถูกแก้
+
+`AssertionRewritingHook._should_rewrite` ตัดสินจากสี่ข้อตามลำดับ (source: `_should_rewrite`)
+
+1. ไฟล์ชื่อ `conftest.py` แก้เสมอ
+2. ไฟล์ที่ระบุตรงๆ บนบรรทัดคำสั่ง
+3. ไฟล์ที่ชื่อเข้ากับ `python_files` (ค่าเริ่มต้น `test_*.py` และ `*_test.py`)
+4. module ที่ถูกลงทะเบียนด้วย `pytest.register_assert_rewrite(...)` และ module ของ plugin ที่ลงด้วย pip โดยประกาศ entry point กลุ่ม `pytest11` (source: `_mark_plugins_for_rewrite` ใน `config/__init__.py`)
+
+**ที่เหลือไม่ถูกแก้** แบบฝึกมีโปรเจกต์ที่ `test_modes.py` เรียก `check_total(1, 2)` จาก `helpers.py` ซึ่งมี `assert got == want` ผล (รัน: `internals/06_rewrite.py`)
+
+| test | บรรทัด `E` ที่ pytest พิมพ์ |
+|---|---|
+| `assert x == {"a": 2}` ใน test file | `AssertionError: assert {'a': 1} == {'a': 2}` พร้อม `Differing items` |
+| `check_total(1, 2)` (assert อยู่ใน helper) | `AssertionError` เฉยๆ |
+
+นี่คือคำตอบของอาการที่ว่า ข้อมูลหายเพราะ `helpers.py` ไม่เข้าข้อ 1 ถึง 4 จึงถูก import ตามปกติ
+
+</Step>
+
+<Step>
+
+## วิธีแก้เมื่อ Helper ไม่มีรายละเอียด
+
+มีสามทาง ทั้งสามพิสูจน์แล้ว (รัน: `internals/06_rewrite.py`)
+
+**ลงทะเบียน module** ใน `conftest.py` ก่อนที่ module จะถูก import
+
+```python
+import pytest
+pytest.register_assert_rewrite("helpers")
+```
+
+หลังลงทะเบียน `check_total(1, 2)` ให้ `assert 1 == 2` ครบ (ถ้า module ถูก import ไปก่อนแล้ว pytest ฟ้อง warning เพราะแก้ไม่ทัน) สำหรับ package ที่เป็น plugin ใช้ได้กับชื่อ package ทั้งก้อน
+
+**ปิดการแก้เฉพาะไฟล์** ด้วยการใส่ `PYTEST_DONT_REWRITE` ใน docstring ของ module ไฟล์นั้นเหลือแค่ `AssertionError`
+
+**ปิดทั้งหมด** ด้วย `--assert=plain` ทั้ง test file ก็เหลือแค่ `AssertionError` ใช้ตอนสงสัยว่าการแก้เป็นต้นเหตุของพฤติกรรมแปลก ไม่ควรเปิดเป็นนิสัย
+
+ข้อควรจำ: กติกานี้ดูที่ **ไฟล์ที่ assert อยู่** ไม่ใช่ไฟล์ที่เรียก ฟังก์ชันช่วยที่เขียนในไฟล์ `test_*.py` เองจึงได้รายละเอียด ส่วนฟังก์ชันที่อยู่ในไฟล์อื่นต้องลงทะเบียน
+
+</Step>
+
+<Step>
+
+## .pyc ของไฟล์ที่ถูกแก้
+
+เพื่อไม่ต้องแก้ซ้ำทุกรอบ pytest เก็บผลเป็น bytecode ไว้ใน `__pycache__` ด้วยชื่อที่มีแท็กของ pytest (source: `PYTEST_TAG`, `_write_pyc`) แบบฝึกบน Python 3.14 กับ pytest 9.2.0 ได้ (รัน: `internals/06_rewrite.py`)
+
+```text
+helpers.cpython-314.pyc                    ← import ปกติ ไม่ถูกแก้
+test_modes.cpython-314.pyc
+test_modes.cpython-314-pytest-9.2.0.pyc    ← ฉบับที่ถูกเขียนใหม่ มีชื่อเวอร์ชัน pytest
+```
+
+ชื่อไฟล์มีเวอร์ชันของ pytest เพราะรูปแบบโค้ดที่แก้ขึ้นกับเวอร์ชัน เปลี่ยน pytest แล้ว cache เก่าไม่ถูกใช้
+
+</Step>
+
+<Step>
+
+## กับดักและตัวช่วยอื่น
+
+**`assert (a, b)`** วงเล็บทำให้เป็น tuple ที่ไม่ว่างเสมอ ซึ่งเป็นจริงเสมอ pytest ตรวจกรณีนี้ใน `visit_Assert` และออก warning `assertion is always true, perhaps remove parentheses?` แบบฝึกยืนยันว่า `assert (1 == 2, 'message')` ผ่านพร้อม warning นี้ (รัน: `exercises/08_design/test_smells.py`)
+
+**diff ที่ถูกย่อ** ความยาวสูงสุดของค่าที่พิมพ์ขึ้นกับระดับ verbosity ของ assertion: ระดับ 0 ใช้ค่าเริ่มต้น ระดับ 1 (`-v`) ยาวขึ้นสิบเท่า และระดับ 2 ขึ้นไป (`-vv`) ไม่ตัด (source: `_get_maxsize_for_saferepr` ใน `rewrite.py`) ตรงกับข้อความ `Use -v to get more diff` ใน [บท 2](/pytest/assertions/)
+
+**ข้อความของเราเอง** hook `pytest_assertrepr_compare(op, left, right)` ให้ plugin หรือ `conftest.py` เขียนคำอธิบายสำหรับชนิดของตัวเอง ถ้าคืน list ของบรรทัด pytest ใช้แทน diff มาตรฐาน ซึ่งสร้างใน `_pytest/assertion/util.py` (`assertrepr_compare` แยกกรณี text, sequence, mapping และ set) ตัวอย่างที่รันได้อยู่ใน [บท 14](/pytest/plugins/)
+
+**hook ตอนผ่าน** `pytest_assertion_pass` มีอยู่แต่ปิดไว้ ต้องตั้ง `enable_assertion_pass_hook` ใน config เพราะการเก็บข้อความตอนผ่านมีต้นทุน (source: `enable_assertion_pass_hook` ใน `visit_Assert`)
+
+<Callout type="try" title="ลองทำใน repo นี้">
+รัน `uv run python internals/06_rewrite.py` แล้วเปลี่ยนค่า `SOURCE` ให้เป็น `assert a == b and c` ดู AST ที่ได้ ตัวแปรชั่วคราวเพิ่มขึ้นอย่างไร และ `and` ถูกแปลงเป็นอะไร จากนั้นย้าย `assert` ใน `helpers.py` ไปไว้ใน `test_modes.py` แล้วดูว่ารายละเอียดกลับมาไหม
+</Callout>
+
+</Step>
+
+<Step>
+
+## เช็กตัวเอง
+
+- `assert` ใน `tests/utils.py` ที่ test เรียกใช้ ได้แค่ `AssertionError` เฉยๆ ตั้งค่าอะไรก่อน import ถึงจะได้รายละเอียด
+- ทำไมตัวแปรชั่วคราวของ rewriter ถึงขึ้นต้นด้วย `@`
+- cache ของไฟล์ที่ถูกแก้ชื่อต่างจาก `.pyc` ปกติอย่างไร และทำไมจึงต้องต่าง
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| `AssertionRewritingHook`, `rewrite_asserts`, `AssertionRewriter.visit_Assert`, `_should_rewrite` สี่ข้อ, `PYTEST_TAG`, warning ของ assert tuple, `enable_assertion_pass_hook` | source: `_pytest/assertion/rewrite.py`, `_pytest/assertion/__init__.py` |
+| `assertrepr_compare` แยกกรณีของ text, sequence, mapping, set | source: `_pytest/assertion/util.py` |
+| โค้ดที่ถูกเขียนใหม่ของ `assert cart.total() == 31` | รัน: `internals/06_rewrite.py` |
+| test file ถูกแก้ แต่ helper ไม่ถูก, `register_assert_rewrite`, `PYTEST_DONT_REWRITE`, `--assert=plain`, ชื่อไฟล์ `.pyc` | รัน: `internals/06_rewrite.py` |
+| `assert (1 == 2, 'message')` ผ่านพร้อม warning | รัน: `exercises/08_design/test_smells.py` |
+
+</Step>

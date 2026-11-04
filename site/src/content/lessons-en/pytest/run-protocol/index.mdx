@@ -1,0 +1,152 @@
+---
+title: "Run protocol: setup, call, teardown"
+summary: A test is run in three phases, each with its own report. This lesson covers runtestprotocol, CallInfo and TestReport, and explains why an error differs from a failure, and how skip and xfail can change the result.
+order: 12
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [fixture-engine]
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Three phases, three reports
+
+The lesson [How Pytest runs](/en/pytest/how-pytest-runs/) showed that each test has three `makereport` calls. This one looks at where they come from. The controller is `runtestprotocol` in `_pytest/runner.py` (source), which shortens to:
+
+```python
+rep = call_and_report(item, "setup", log)
+reports = [rep]
+if rep.passed:
+    ...
+    reports.append(call_and_report(item, "call", log))
+reports.append(call_and_report(item, "teardown", log, nextitem=nextitem))
+```
+
+Two things you can read from this code:
+
+- **The call phase runs only if setup passed.** If a fixture breaks, the test itself is never called.
+- **The teardown phase always runs**, even if setup or call failed, so that whatever was set up gets cleaned up.
+
+Each phase goes through `call_and_report`, which picks the hook for the phase (`pytest_runtest_setup`, `pytest_runtest_call`, `pytest_runtest_teardown`) and wraps the call in `CallInfo.from_call`.
+
+</Step>
+
+<Step>
+
+## CallInfo: an exception kept as data
+
+`CallInfo.from_call(func, when)` calls the function, times it, and if an exception is raised it keeps it as `excinfo` instead of letting it rise (source: `CallInfo` in `runner.py`). The fields are `result`, `excinfo`, `start`, `stop`, `duration` and `when` (`collect`, `setup`, `call` or `teardown`).
+
+Most exceptions are caught, because a failing test must not kill the session. `from_call` re-raises two kinds (source: `get_reraise_exceptions`):
+
+- `Exit`, from `pytest.exit()`, which is meant to stop the whole session.
+- `KeyboardInterrupt`, except when `--pdb` is used, because the debugger has to deal with it itself.
+
+The effect of catching is that an exception your code raises becomes **data in a report**. That is why a plugin can read the cause of a failure from `call.excinfo` without any try/except.
+
+</Step>
+
+<Step>
+
+## What each phase does to a Function
+
+For a test that is a `Function`, the three phases are (source: `pytest_runtest_setup`, `pytest_runtest_call`, `pytest_runtest_teardown` in `runner.py`, `Function.setup` and `pytest_pyfunc_call` in `python.py`):
+
+| Phase | What it does |
+|---|---|
+| setup | `SetupState.setup(item)` calls `setup()` on the nodes of the chain from the Session down. `Function.setup` fills in the fixtures the test asks for (the [Fixture Engine lesson](/en/pytest/fixture-engine/)). |
+| call | `item.runtest()`, which calls the hook `pytest_pyfunc_call`. Our function is called with the fixtures as keyword arguments. |
+| teardown | `SetupState.teardown_exact(nextitem)` closes the nodes that are done, by the rule of `nextitem`. |
+
+`pytest_pyfunc_call` does one small thing: if a test returns something other than `None`, pytest issues `PytestReturnNotNoneWarning` ("Did you mean to use `assert` instead of `return`?"). The exercise confirms that a test with `return 1 == 2` passes with a warning, a trap people fall into often (ran: `exercises/08_design/test_smells.py`). Async functions are refused, because pytest itself does not run coroutines.
+
+</Step>
+
+<Step>
+
+## TestReport: the result of one phase
+
+`pytest_runtest_makereport(item, call)` builds one `TestReport` per phase (source: `TestReport.from_item_and_call` in `reports.py`). The main fields are `nodeid`, `when`, `outcome` (`passed`, `failed`, `skipped`), `longrepr` (the text printed on failure), `sections` (captured output), `duration`, and `user_properties`, which plugins can add to. The report is sent through `pytest_runtest_logreport` for the terminal, junitxml and other plugins to read.
+
+`internals/05_reports.py` runs a project with nine kinds of test and records every report (ran: `internals/05_reports.py`):
+
+| Test | Report of each phase |
+|---|---|
+| passes normally | setup:passed call:passed teardown:passed |
+| a false `assert` | setup:passed **call:failed** teardown:passed |
+| fixture breaks in setup | **setup:failed** teardown:passed (no call) |
+| fixture breaks in teardown | setup:passed call:passed **teardown:failed** |
+| `pytest.skip()` in the test | setup:passed **call:skipped** teardown:passed |
+| `@pytest.mark.skip` | **setup:skipped** teardown:passed |
+| `@pytest.mark.xfail` that fails | setup:passed call:skipped(xfail:known) teardown:passed |
+| `@pytest.mark.xfail` that passes | setup:passed call:passed(xfail:fixed already) teardown:passed |
+| `@pytest.mark.xfail(strict=True)` that passes | setup:passed **call:failed** teardown:passed |
+
+The summary at the end for this project is `2 failed, 2 passed, 2 skipped, 1 xfailed, 1 xpassed, 2 errors`. Each number comes from different reports: **failed** counts call reports that failed, and **errors** counts setup or teardown reports that failed. That is why a test that passes while its fixture breaks on closing is counted both as passed and as an error.
+
+</Step>
+
+<Step>
+
+## Skip and xfail are hooks, not magic
+
+Both live in the `skipping` plugin (source: `_pytest/skipping.py`) and attach at two places:
+
+- **`pytest_runtest_setup`** evaluates the `skip` and `skipif` markers. If the condition holds it raises `skip.Exception`, so the test is reported as skipped in the **setup phase**, before any fixture is called (matching the `@pytest.mark.skip` row in the table). `xfail` is evaluated and stored in `item.stash`.
+- **A wrapper around `pytest_runtest_makereport`** lets the report be built as usual (`yield`) and then **changes the result** the way xfail says (source: this wrapper in `skipping.py`):
+  - fails and matches (including `raises=`): `outcome = "skipped"` with `wasxfail`
+  - fails but the exception does not match `raises=`: still `failed`
+  - passes and not strict: `passed` with `wasxfail`, which is XPASS
+  - passes and strict: `failed` with the text `[XPASS(strict)] reason`
+
+The table above confirms every row, and it matches what the [Markers lesson](/en/pytest/markers/) describes from the outside. The key point is that **the skipped of an xfail comes from changing the outcome afterwards**. pytest did not skip the test. It really ran in the call phase.
+
+`--runxfail` makes this wrapper keep out of the way (source: the `item.config.option.runxfail` condition), so tests marked xfail report their real result. Use it when you want to know whether a known bug is still there.
+
+</Step>
+
+<Step>
+
+## When the session has to stop
+
+After `setup` and `call`, if `session.shouldfail` or `session.shouldstop` is set (for example by `-x` or `--maxfail`), `runtestprotocol` sets `nextitem = None` before calling teardown (source: a comment in the code says this is so teardown errors are reported correctly). The effect is that teardown closes the whole `SetupState` stack at once, instead of waiting for a next test that will never come. Module and session fixtures are therefore closed even if the run is cut short.
+
+`--maxfail=1 -q` in the exercise stops after the first failure and summarizes `1 failed, 1 passed` with the message `stopping after 1 failures` (ran: `internals/08_output_flags.py`).
+
+<Callout type="try" title="Try it in this repo">
+Run `uv run python internals/05_reports.py`, then add a new test to `FILES` that uses `bad_setup` and `bad_teardown` together and see how many reports it has and what the outcome of each phase is. After that add `@pytest.mark.xfail(raises=KeyError)` on a test that raises `ValueError`, and predict the result before running.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- A fixture breaks during the setup of a test. Is the summary a failed or an error, and is the test called?
+- A test marked `@pytest.mark.xfail` really fails. What outcome does the call-phase report have, and why, when the test really ran?
+- Why must `-x` set `nextitem = None` during teardown?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| `runtestprotocol`, `call_and_report`, `CallInfo.from_call`, the exceptions that are re-raised (`Exit`, `KeyboardInterrupt`), `nextitem = None` on `shouldfail`/`shouldstop` | source: `_pytest/runner.py` |
+| the xfail wrapper on `makereport`, skip evaluated in `pytest_runtest_setup`, `--runxfail` | source: `_pytest/skipping.py` |
+| `TestReport` and its fields, `pytest_pyfunc_call` and `PytestReturnNotNoneWarning` | source: `_pytest/reports.py`, `_pytest/python.py` |
+| the table of nine kinds of report and the summary `2 failed, 2 passed, 2 skipped, 1 xfailed, 1 xpassed, 2 errors` | ran: `internals/05_reports.py` |
+| `return` instead of `assert` passes with a warning | ran: `exercises/08_design/test_smells.py` |
+| `--maxfail=1` stops and summarizes `1 failed, 1 passed` | ran: `internals/08_output_flags.py` |
+| why exceptions are caught as data (a failing test must not kill the session) | author |
+
+</Step>

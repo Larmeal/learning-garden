@@ -1,8 +1,8 @@
 ---
 title: Designing good tests
 summary: You have the tools. A good test reads like a sentence, fails for one reason, and does not break when the code inside changes. This lesson wraps up with Arrange-Act-Assert, testing behaviour instead of internals, boundaries and failure paths, independence between tests, and a closing exercise.
-order: 8
-phase: D
+order: 15
+phase: E
 level: 3
 stage: sprout
 format: steps
@@ -17,7 +17,7 @@ import Callout from '../../../../components/Callout.astro';
 
 ## What a good test looks like
 
-The last seven lessons taught **tools**. This one is about **judgement**: which tests to write, and how. The yardsticks used here are (author):
+The last fourteen lessons taught **tools** and what is inside them. This one is about **judgement**: which tests to write, and how. The yardsticks used here are (author):
 
 | Property | It means |
 |---|---|
@@ -46,7 +46,7 @@ def test_checkout_charges_the_cart_total(cart_with_one_apple):
     assert gateway.charges == [(100, "A-1")]
 ```
 
-The Act part should be one line. If it is several, the test is probably testing several behaviours, so split it. In the exercise `exercises/08_design` has 12 tests and they all pass (ran: `exercises/08_design`). Their names read as a list of the behaviours of checkout, so reading the names is reading the spec:
+The Act part should be one line. If it is several, the test is probably testing several behaviours, so split it. In the exercise `exercises/08_design/test_design.py` has 12 tests and they all pass (ran: `exercises/08_design/test_design.py`). Their names read as a list of the behaviours of checkout, so reading the names is reading the spec:
 
 ```text
 test_checkout_charges_the_cart_total
@@ -63,7 +63,7 @@ test_an_unknown_coupon_is_an_error_and_charges_nothing
 
 ## Test behaviour, not internals
 
-Compare two tests that both pass today (ran: `exercises/08_design`):
+Compare two tests that both pass today (ran: `exercises/08_design/test_design.py`):
 
 ```python
 def test_brittle_version_looks_inside(cart_with_one_apple):
@@ -84,7 +84,7 @@ A question to ask: "If I rewrote this function completely but gave the same resu
 
 ## Boundaries and failure paths
 
-Bugs like to live at the seams. Test both sides of every boundary. `shipping_fee` is free from 500 (ran: `exercises/08_design`):
+Bugs like to live at the seams. Test both sides of every boundary. `shipping_fee` is free from 500 (ran: `exercises/08_design/test_design.py`):
 
 ```python
 @pytest.mark.parametrize("total, fee", [(499.99, 50), (500, 0), (500.01, 0)])
@@ -92,7 +92,7 @@ def test_shipping_threshold_boundary(total, fee):
     assert shipping_fee(total) == fee
 ```
 
-And do not forget the failing paths. Several tests in `08_design` check that when something goes wrong there are **no side effects**:
+And do not forget the failing paths. Several tests in `exercises/08_design/test_design.py` check that when something goes wrong there are **no side effects**:
 
 - an empty cart: the gateway is never called (`gateway.charges == []`)
 - a coupon that does not exist: `KeyError` is raised, nobody is charged, and the cart is still there
@@ -147,7 +147,7 @@ The docstring or name records where it came from, so anyone who changes this cod
 
 Go back to [lesson 5](/en/pytest/markers/#xfail-known-to-fail-still-run). `test_two_coupons_should_not_stack` is marked xfail because the business had not decided. Suppose it now decides that **a coupon may be used only once per cart**. Doing this exercise practises everything in the path.
 
-1. Copy the test from `exercises/05_markers` and remove the `xfail`. Run it and confirm that it **fails** (red).
+1. Copy the test from `exercises/05_markers/test_markers.py` and remove the `xfail`. Run it and confirm that it **fails** (red).
 2. Design: should `apply_coupon` remember the coupons used inside `Cart`, or should it return a new cart? Decide, and write the requirement as a sentence first.
 3. Write more tests for the edge cases: using the same coupon twice, using a new coupon after removing everything, a coupon that does not exist. Use `parametrize` when there are several cases.
 4. Change the code until they pass (green).
@@ -178,7 +178,7 @@ Do the exercise above in `subjects/pytest/code/`, then run `uv run python verify
 
 | Statement | Source |
 |---|---|
-| the 12 tests in `08_design` pass, the test names as a list of behaviours, both brittle and robust pass today, boundaries 499.99/500/500.01, failure paths with no side effects, the regression test | ran: `exercises/08_design` |
+| the 12 tests in `exercises/08_design/test_design.py` pass, the test names as a list of behaviours, both brittle and robust pass today, boundaries 499.99/500/500.01, failure paths with no side effects, the regression test | ran: `exercises/08_design/test_design.py` |
 | the whole file gives 2 passed but `test_total` alone fails | ran: `demos/08_order_dependent`, `verify.py` |
 | the properties of a good test, why the brittle test breaks on refactor, the check question, the steps of the closing exercise | author |
 

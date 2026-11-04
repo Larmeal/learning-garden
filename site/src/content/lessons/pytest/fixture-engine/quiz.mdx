@@ -1,0 +1,74 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 5 ข้อ เพื่อเช็กว่าเข้าใจบทนี้แค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="fixture ระดับ module ชื่อ conn ถูกใช้โดย test_a1 และ test_a2 ใน module a แล้วตามด้วย test_b1 ใน module b conn ของ module a ถูกปิดตอนไหน"
+  options={['หลัง test_a1 เพราะ test แต่ละตัวปิด fixture ของตัวเอง', 'ระหว่าง teardown ของ test_a2 เพราะ nextitem (test_b1) อยู่คนละ Module', 'ตอนจบ session']}
+  answer={1}
+  why="SetupState.teardown_exact ดึง node ออกจาก stack จนกว่าจะเจอ node ที่ nextitem อยู่ในสายเดียวกัน test_a2 เป็นตัวสุดท้ายของ module a จึงปิด Module ของมัน และ finalizer ของ conn ผูกกับ Module นั้น (log ใน internals/04_setupstate.py)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="fixture ระดับ module โยน RuntimeError ตอน setup และมี test สองตัวใช้มัน ฟังก์ชัน fixture ถูกเรียกกี่ครั้ง"
+  options={['2 ครั้ง ครั้งละหนึ่ง test', '1 ครั้ง เพราะ pytest cache exception ไว้และโยนซ้ำให้ test ตัวถัดไป', '0 ครั้ง เพราะ pytest ข้าม test']}
+  answer={1}
+  why="FixtureDef เก็บ cached_result เป็น (ค่า, key, exception) ถ้า setup พัง exception ถูกเก็บไว้ แบบฝึกได้ 2 errors และตัวนับการเรียกเป็น 1"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="fixture ชื่อ price อยู่ใน conftest.py ที่ราก และ sub/conftest.py เขียน def price(price): return price * 2 ถ้าราก price เป็น 10 test ใน sub เห็นค่าเท่าไร และ test นอก sub ล่ะ"
+  options={['20 และ 10', '10 ทั้งสอง เพราะตัวรากชนะ', 'เกิด error เพราะชื่อซ้ำ']}
+  answer={0}
+  why="ตัวที่ใกล้ test กว่าชนะ และ fixture ที่ override ขอชื่อตัวเองเพื่อรับค่าจากตัวที่ถูกทับได้ ใน sub ได้ 10 * 2 = 20 ส่วนนอก sub เห็นเฉพาะตัวราก (internals/13_fixture_engine.py)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="fixture ระดับ session ชื่อ wide ขอ fixture ระดับ function ชื่อ per_test จะเกิดอะไรขึ้น"
+  options={['ทำงานได้ per_test ถูกสร้างครั้งเดียว', 'ScopeMismatch: pytest ฟ้อง error เพราะ fixture ที่แคบกว่าจะถูกปิดก่อน fixture ที่กว้างกว่าใช้เสร็จ', 'per_test ถูกเปลี่ยนเป็น session อัตโนมัติ']}
+  answer={1}
+  why="pytest ตรวจกฎนี้ตอนขอ fixture (_check_scope) แบบฝึกได้ข้อความ ScopeMismatch: You tried to access the function scoped fixture per_test with a session scoped request object"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="fixture second โยน error ตอน teardown แต่ first กับ third ปิดปกติ ผลเป็นอย่างไร"
+  options={['pytest หยุดปิดทันทีที่ second พัง first ค้างไว้', 'finalizer ทุกตัวถูกรัน และ test ได้ ERROR at teardown แยกจากผลผ่านของมัน', 'test ถูกนับว่าล้มโดยไม่มี error แยก']}
+  answer={1}
+  why="teardown_exact เก็บ exception แล้วรัน finalizer ที่เหลือต่อ แบบฝึกมี LOG ครบ third, second, first และสรุป 2 passed, 1 error (test_x ผ่านและมี error ตอน teardown)"
+/>
+
+</Step>
