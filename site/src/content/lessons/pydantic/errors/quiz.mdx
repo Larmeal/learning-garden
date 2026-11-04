@@ -1,0 +1,74 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 5 ข้อ เพื่อเช็กว่าเข้าใจบทนี้แค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="ข้อผิดอยู่ที่ sku ของสมาชิกตัวที่สอง (ดัชนี 1) ของ items loc ใน errors() ควรเป็นอะไร"
+  options={['(\'items\', 1, \'sku\')', '(\'items\', \'sku\', 1)', '\'items[1].sku\' เป็น string']}
+  answer={0}
+  why="loc เป็น tuple ที่เรียงตามเส้นทางจากนอกเข้าใน ชื่อ field ใช้ string ดัชนีของ list ใช้ตัวเลข ส่วนในข้อความ str(e) จะเขียนเป็น items.1.sku"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ควรใช้ field ใดของ error ในโค้ดที่ต้องตัดสินใจตามชนิดของปัญหา (เช่นแปลเป็นภาษาของผู้ใช้)"
+  options={['msg เพราะอ่านง่ายที่สุด', 'type เพราะเป็นรหัสที่เสถียรกว่าข้อความ ซึ่งอาจเปลี่ยนตามเวอร์ชัน', 'url']}
+  answer={1}
+  why="msg เป็นข้อความสำหรับคนอ่านและอาจถูกปรับถ้อยคำในเวอร์ชันถัดไป type เช่น int_parsing หรือรหัสที่เราตั้งเองด้วย PydanticCustomError ใช้จับคู่ได้ตรงกว่า"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เรียก json.dumps(e.errors()) แล้วล้มด้วย TypeError เมื่อ error มาจาก raise ValueError ใน validator เพราะอะไร และแก้ยังไง"
+  options={['ctx[\'error\'] เก็บ exception object ซึ่ง json.dumps ไม่รู้จัก แก้ด้วย e.json() หรือ include_context=False', 'loc เป็น tuple ซึ่ง JSON เก็บไม่ได้', 'input เป็น string ที่ยาวเกิน']}
+  answer={0}
+  why="เมื่อ validator โยน ValueError, ctx['error'] เก็บ exception ตัวเดิม json.dumps แปลง exception ไม่ได้ e.json() แปลงเป็นข้อความให้ ({'error': 'too big'}) tuple แปลงเป็น array ของ JSON ได้ จึงไม่ใช่สาเหตุ"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="อยากได้ error ที่มี type เป็น 'unknown_coupon' และข้อความ 'coupon NOPE does not exist' ควรโยนอะไรใน validator"
+  options={['ValueError(\'coupon NOPE does not exist\') เพราะ type จะเป็น unknown_coupon เอง', 'PydanticCustomError(\'unknown_coupon\', \'coupon {code} does not exist\', {\'code\': v})', 'KeyError']}
+  answer={1}
+  why="ValueError ได้ type เป็น value_error เสมอและข้อความนำหน้าด้วย 'Value error, ' ส่วน PydanticCustomError ให้เรากำหนด type เองและเติมค่าจาก ctx เข้า template"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เพื่อไม่ให้ password ที่พิมพ์ผิดไปปรากฏใน log ของ ValidationError ควรตั้งอะไรใน model"
+  options={['model_config = {\'hide_input_in_errors\': True}', 'ใส่ repr=False ที่ Field ของ password', 'ไม่ต้องทำอะไร เพราะ Pydantic ซ่อนให้อยู่แล้ว']}
+  answer={0}
+  why="ตามค่าเริ่มต้น str(e) แสดง input_value ของทุก error แบบฝึกยืนยันว่า hide_input_in_errors ทำให้ 'hunter2' หายจากข้อความ repr=False ซ่อนจาก repr ของ model ไม่ได้ซ่อนจากข้อความ error"
+/>
+
+</Step>

@@ -1,0 +1,219 @@
+---
+title: Field, defaults and constraints
+summary: This lesson covers required versus optional versus nullable, which people often mix up, defaults and default_factory, constraints such as gt, min_length and pattern, reusing constraints with Annotated, and the three kinds of alias.
+order: 2
+phase: A
+level: 1
+stage: sprout
+format: steps
+requires: [first-model]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Required, optional and nullable are three different things
+
+People use these words interchangeably, but in Pydantic V2 they are clearly separate (ran: `exercises/02_fields.py`):
+
+```python
+class A(BaseModel):
+    required: int                       # must be passed, cannot be None
+    with_default: int = 5               # may be left out
+    nullable_required: Optional[int]    # must be passed, but may be None
+    nullable_default: Optional[int] = None   # may be left out, may be None
+    ellipsis: int = Field(...)          # same as required
+```
+
+Calling `A()` with nothing gives three `missing` errors: `required`, `nullable_required` and `ellipsis`. `with_default` and `nullable_default` pass.
+
+The one that trips people who come from V1 is `nullable_required`. In V1, writing just `Optional[int]` made the field optional with a default of `None`. In V2, `Optional[int]` only says **the value may be `None`**. If you also want it to be optional, write `= None` yourself.
+
+When you design a field, ask two separate questions: must the caller pass it, and may the value be `None`? Two answers give four combinations, and the four fields above cover them all.
+
+</Step>
+
+<Step>
+
+## How defaults work
+
+**Defaults are not validated.** The default you write in the class is used as written and does not go through validation.
+
+```python
+class B(BaseModel):
+    tags: list[str] = []
+    n: int = "not checked"
+
+B().n    # 'not checked'  still a str although declared int
+```
+
+If you want the default checked too, use `Field("5", validate_default=True)`, and `B2().n` becomes `5`.
+
+**Mutable defaults are safe.** `tags: list[str] = []` is a classic bug in plain Python, because everyone shares one list. Pydantic copies the default for each instance. The exercise proves that `b1.tags.append("x")` does not affect `b2.tags`.
+
+**`default_factory`** calls a function once per instance, which suits values that must be computed fresh each time, such as the current time.
+
+```python
+class Stamp(BaseModel):
+    created: datetime = Field(default_factory=datetime.now)
+```
+
+A factory that takes one argument receives the dict of fields already validated (available since V2.10):
+
+```python
+class WithData(BaseModel):
+    first: str
+    slug: str = Field(default_factory=lambda data: data["first"].lower())
+
+WithData(first="Ann").slug    # 'ann'
+```
+
+</Step>
+
+<Step>
+
+## Constraints on values
+
+`Field` takes constraints as keywords:
+
+```python
+class Line(BaseModel):
+    sku: str = Field(min_length=3, max_length=8, pattern=r"^[A-Z]+-\d+$")
+    qty: int = Field(gt=0, le=100)
+    price: float = Field(ge=0)
+    note: str = Field("", max_length=10)
+```
+
+| keyword | applies to | error type when it fails |
+|---|---|---|
+| `gt`, `ge`, `lt`, `le` | numbers, dates | `greater_than`, `greater_than_equal`, `less_than`, `less_than_equal` |
+| `min_length`, `max_length` | string, list, set, dict | `string_too_short`, `string_too_long`, `too_short`, `too_long` |
+| `pattern` | string | `string_pattern_mismatch` |
+| `multiple_of` | numbers | `multiple_of` |
+| `max_digits`, `decimal_places` | `Decimal` | `decimal_max_digits`, `decimal_max_places` |
+
+Passing `Line(sku="ab", qty=0, price=-1)` gives three errors, in order `string_too_short`, `greater_than`, `greater_than_equal`. Each error carries a `ctx` that names the constraint, for example `{'gt': 0}` with the message `Input should be greater than 0`.
+
+`pattern` uses the Rust regex engine by default, which does not support lookahead. Writing `(?=a)` in a pattern gives a `SchemaError` **when the class is created**, not later when you validate. There are two ways out: set `regex_engine="python-re"` in the config to use Python's `re`, or write a validator instead ([lesson 5](/en/pydantic/validators/)).
+
+</Step>
+
+<Step>
+
+## Annotated: attach constraints to a type and reuse them
+
+When the same constraint applies to many fields, repeating it everywhere is tedious and hard to change. `Annotated` lets you name a new type that carries its constraints.
+
+```python
+from typing import Annotated
+
+Qty = Annotated[int, Field(gt=0, le=100)]
+Sku = Annotated[str, Field(pattern=r"^[A-Z]+-\d+$")]
+
+class Line2(BaseModel):
+    sku: Sku
+    qty: Qty
+    backorder: Qty = 1
+    parts: list[Qty] = []
+```
+
+The constraints of `Qty` also apply to the members of the list. `Line2(sku="X-1", qty=5, parts=[1, 0, 101])` gives two errors, at `parts.1` (`greater_than`) and `parts.2` (`less_than_equal`). The location in the report points at exactly the member that failed.
+
+The same pattern works for validators ([lesson 5](/en/pydantic/validators/)), and it is how Pydantic itself builds ready-made types such as `PositiveInt` ([lesson 3](/en/pydantic/types/)).
+
+</Step>
+
+<Step>
+
+## Alias: the input name differs from the Python name
+
+JSON from an outside API often uses `userId`, while your Python code wants `user_id`. `alias` solves that.
+
+```python
+class Alias(BaseModel):
+    user_id: int = Field(alias="userId")
+
+Alias(userId=1).user_id    # 1
+Alias(user_id=1)           # error: field "userId" missing
+```
+
+Once there is an `alias`, Pydantic accepts input under the alias name only. To accept the real name too, turn on `populate_by_name=True` in the config ([lesson 8](/en/pydantic/models-config/)).
+
+When you dump, the default is the real field name. Pass `by_alias=True` to get the alias back.
+
+```python
+a.model_dump()                 # {'user_id': 1}
+a.model_dump(by_alias=True)    # {'userId': 1}
+```
+
+There are three levels of alias, which you can use separately when the incoming and outgoing names differ:
+
+```python
+class Kinds(BaseModel):
+    a: int = Field(validation_alias="in_a", serialization_alias="out_a")
+    b: int = Field(validation_alias=AliasChoices("b", "bee", "B"), default=0)
+    city: str = Field(validation_alias=AliasPath("address", "city"))
+
+k = Kinds(in_a=1, bee=2, address={"city": "Chiang Mai"})
+k.model_dump(by_alias=True)    # {'out_a': 1, 'b': 2, 'city': 'Chiang Mai'}
+```
+
+`validation_alias` sets the incoming name and `serialization_alias` the outgoing one. `AliasChoices` accepts several names (the first one found wins), and `AliasPath` pulls a value out of a nested structure, as `city` comes from `address.city` without building a model for the address.
+
+</Step>
+
+<Step>
+
+## Other Field options you will use often
+
+```python
+class Account(BaseModel):
+    user: str
+    password: str = Field(exclude=True, repr=False, description="never leaves the process")
+    token: str = Field(frozen=True, default="t")
+```
+
+- `exclude=True` keeps the field out of `model_dump()` and `model_dump_json()`. The result of `Account(user="u", password="p").model_dump()` is `{'user': 'u', 'token': 't'}`.
+- `repr=False` hides the field from `repr`, so `password` does not show up when you log the object.
+- `frozen=True` forbids changing that field after creation. `acc.token = "new"` gives a `ValidationError` of type `frozen_field`.
+- `description`, `examples` and `title` go into the JSON Schema ([lesson 9](/en/pydantic/adapters/)).
+
+Per-field information is kept in `Model.model_fields`, a dict of `FieldInfo`. For example `Account.model_fields["user"]` prints `annotation=str required=True`, and you can call `.is_required()` on it.
+
+<Callout type="warn" title="exclude does not make a value fully safe">
+`exclude=True` and `repr=False` hide the value from dumps and from `repr` only. The value is still in `acc.password`, and in the error if validation fails (errors show `input_value`). For a real secret, look at `SecretStr` ([lesson 3](/en/pydantic/types/)) and `hide_input_in_errors` ([lesson 6](/en/pydantic/errors/)).
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- How do `x: Optional[int]` and `x: Optional[int] = None` differ, and if you migrate from V1, which one changes behavior?
+- Does `n: int = "5"` pass, and what type is `n` when you build the model without passing `n`?
+- You want to accept the JSON key `userId`, call `user.user_id` in code, and send `userId` back to the client. What do you need to set?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| the four combinations of required, optional and nullable, and three `missing` errors | ran: `exercises/02_fields.py` |
+| defaults are not validated, `validate_default`, mutable defaults are copied | ran: `exercises/02_fields.py` |
+| `default_factory` with no argument and with `data` | ran: `exercises/02_fields.py` |
+| error type for each constraint, and `ctx` | ran: `exercises/02_fields.py`, `exercises/12_capstone.py` (`decimal_max_places`) |
+| reusing `Annotated`, and the locations `parts.1` and `parts.2` | ran: `exercises/02_fields.py` |
+| alias, `populate_by_name`, `by_alias`, `AliasChoices`, `AliasPath` | ran: `exercises/02_fields.py` |
+| `exclude`, `repr=False`, `frozen` (`frozen_field`), `description` in JSON Schema, `FieldInfo` | ran: `exercises/02_fields.py` |
+| `pattern` rejects lookahead at class creation (`SchemaError`) and `regex_engine="python-re"` accepts it | ran: `exercises/02_fields.py` |
+| `Optional[int]` in V1 has a default of `None` | ran: `exercises/11_migration.py` (uses `pydantic.v1`) |
+| `default_factory` that takes `data` is available since V2.10 | author (from the docs, not run on older versions) |
+
+</Step>

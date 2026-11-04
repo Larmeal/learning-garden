@@ -1,0 +1,265 @@
+---
+title: "Capstone: ด่านรับ Order"
+summary: รวมบท 1 ถึง 11 เป็นด่านรับข้อมูลของระบบสั่งซื้อ รับ JSON ดิบ ได้ Order ที่สะอาดหรือรายการปัญหาที่ส่งต่อให้ผู้ใช้ได้ พร้อม discriminated union ของวิธีจ่ายเงิน ความลับที่ไม่หลุด และ JSON Schema เป็นสัญญาสำหรับฝั่งที่ส่งมา
+order: 12
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [migration, under-the-hood]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## โจทย์
+
+ระบบสั่งซื้อรับ order เป็น JSON จากหลายช่องทาง ต้องการด่านเดียวที่
+
+- รับ JSON ดิบ แล้วคืน `Order` ที่ข้อมูลถูกต้องแน่นอน หรือรายการปัญหาที่ผู้ส่งอ่านรู้เรื่อง
+- ไม่สะท้อนค่าที่ผู้ใช้ส่งมากลับไป และไม่ทำให้เลขบัตรหลุดลง log
+- ออก JSON Schema ให้ฝั่งที่ส่งมาใช้เป็นสัญญา
+
+โค้ดเต็มอยู่ใน `exercises/12_capstone.py` และทุกข้อในบทนี้มี `assert` ยืนยัน แต่ละส่วนข้างล่างย้อนไปยังบทที่สอนไว้
+
+</Step>
+
+<Step>
+
+## ชนิดที่ใช้ซ้ำ และ Line
+
+```python
+Sku = Annotated[str, Field(pattern=r"^[A-Z]{2,4}-\d{1,5}$")]
+Money = Annotated[Decimal, Field(ge=0, max_digits=10, decimal_places=2)]
+
+class Line(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    sku: Sku
+    qty: int = Field(gt=0, le=1000)
+    unit_price: Money
+
+    @computed_field
+    @property
+    def subtotal(self) -> Decimal:
+        return self.unit_price * self.qty
+```
+
+ใช้ของจาก [บท 2](/pydantic/fields/#annotated-เอาเงื่อนไขไปติดกับชนิด-แล้วใช้ซ้ำ) (`Annotated` พก `Field`), [บท 3](/pydantic/types/) (`Decimal` สำหรับเงิน), [บท 8](/pydantic/models-config/) (`extra="forbid"` ให้สะกด key ผิดแล้วโดนจับ และ `frozen` ให้ line แก้ไม่ได้หลังสร้าง) และ [บท 7](/pydantic/serialization/) (`computed_field` ให้ `subtotal` ออกไปในผลลัพธ์)
+
+`unit_price="1.999"` ถูกปฏิเสธด้วย `decimal_max_places` เพราะ `decimal_places=2` ส่วน `5` (จำนวนเต็ม) ผ่านและกลายเป็น `Decimal("5")`
+
+</Step>
+
+<Step>
+
+## วิธีจ่ายเงิน: Discriminated Union และความลับ
+
+```python
+class Card(BaseModel):
+    method: Literal["card"]
+    number: SecretStr
+
+    @field_validator("number")
+    @classmethod
+    def sixteen_digits(cls, v: SecretStr) -> SecretStr:
+        digits = v.get_secret_value()
+        if not (digits.isdigit() and len(digits) == 16):
+            raise PydanticCustomError("card_number", "card number must be 16 digits")
+        return v
+
+class Transfer(BaseModel):
+    method: Literal["transfer"]
+    reference: str = Field(min_length=6)
+
+Payment = Annotated[Union[Card, Transfer], Field(discriminator="method")]
+```
+
+สามเรื่องที่ตั้งใจ
+
+**ใช้ discriminated union** ([บท 4](/pydantic/unions/)) ให้ `{"method": "cash"}` ได้ `union_tag_invalid` ตรง ๆ แทนที่จะได้รายงานของทุกสมาชิก
+
+**เลขบัตรเป็น `SecretStr`** ([บท 3](/pydantic/types/)) แบบฝึกยืนยันว่า `"4111"` ไม่ปรากฏทั้งใน `repr(order)` และ `order.model_dump_json()`
+
+**ตรวจรูปแบบเลขบัตรใน validator ไม่ใช่ `Field(pattern=...)`** เพราะ `Field(pattern=...)` บน `SecretStr` ไม่ได้ผล ผู้เขียนลองก่อนในร่างแรกและได้ `TypeError: Unable to apply constraint 'pattern' ... for schema of type 'lax-or-strict'` (ไม่ได้เก็บกรณีนี้ไว้ในแบบฝึก) และ validator นี้โยน `PydanticCustomError` ที่ข้อความไม่ใส่ตัวเลขเข้าไป ([บท 6](/pydantic/errors/)) ถ้าใช้ `ValueError(f"bad card {digits}")` เลขบัตรจะไปอยู่ใน error และ log
+
+</Step>
+
+<Step>
+
+## Order: ประกอบทุกอย่าง
+
+```python
+class Order(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    id: int = Field(gt=0)
+    email: EmailStr
+    placed_at: Annotated[datetime, AfterValidator(not_in_past)]
+    channel: Channel = Channel.WEB
+    lines: list[Line] = Field(min_length=1)
+    payment: Payment
+    callback: HttpUrl | None = None
+
+    @field_validator("lines")
+    @classmethod
+    def unique_skus(cls, v):
+        skus = [x.sku for x in v]
+        if len(skus) != len(set(skus)):
+            raise ValueError("a sku appears on more than one line")
+        return v
+
+    @model_validator(mode="after")
+    def store_needs_transfer_or_card(self):
+        if self.channel is Channel.STORE and self.callback is not None:
+            raise ValueError("store orders cannot have a callback")
+        return self
+
+    @computed_field
+    @property
+    def total(self) -> Decimal:
+        return sum((x.subtotal for x in self.lines), Decimal(0))
+```
+
+ข้อมูลที่ถูกต้อง (`GOOD` ในแบบฝึก) ผ่านทุกด่านพร้อมการแปลง
+
+| ที่ส่งมา | ที่ได้ |
+|---|---|
+| `"id": "1001"` | `1001` (`int`) |
+| `"email": " Ann@Example.com "` | `"Ann@example.com"` (ตัดช่องว่างด้วย `str_strip_whitespace`, domain เป็นตัวเล็ก) |
+| `"placed_at": "2026-03-01T09:30:00+07:00"` | `datetime` มี timezone |
+| line ที่สอง `"qty": "1"`, `"unit_price": 5` | `qty=1`, `Decimal("5")` |
+| ไม่ส่ง `channel` | `Channel.WEB` |
+| `payment.method == "card"` | `Card` |
+
+`order.total == Decimal("44.80")` (19.90 × 2 + 5) และ JSON ที่ dump ออกมามี `"total": "44.80"` กับ `"subtotal": "39.80"` ของ line แรกเป็น string ตามที่ `Decimal` ออก JSON ([บท 7](/pydantic/serialization/))
+
+กฎที่คร่อมหลายค่าอยู่ใน validator ระดับ list (sku ซ้ำ) และระดับ model (store กับ callback) ตามที่ [บท 5](/pydantic/validators/) สอน
+
+</Step>
+
+<Step>
+
+## เมื่อข้อมูลผิดทุกจุด: รายการปัญหา
+
+```python
+def problems(raw: str) -> list[dict]:
+    try:
+        Order.model_validate_json(raw)
+    except ValidationError as e:
+        return [
+            {"field": ".".join(str(p) for p in x["loc"]),
+             "code": x["type"],
+             "message": x["msg"]}
+            for x in e.errors(include_url=False, include_context=False, include_input=False)
+        ]
+    return []
+```
+
+ส่ง order ที่ผิดเก้าจุดในคราวเดียว ผลที่แบบฝึกยืนยัน (เรียงตามที่ Pydantic รายงาน)
+
+| field | code |
+|---|---|
+| `surprise` | `extra_forbidden` |
+| `id` | `greater_than` |
+| `email` | `value_error` |
+| `placed_at` | `date_too_old` |
+| `lines.0.color` | `extra_forbidden` |
+| `lines.0.sku` | `string_pattern_mismatch` |
+| `lines.0.qty` | `greater_than` |
+| `lines.0.unit_price` | `decimal_max_places` |
+| `payment` | `union_tag_invalid` |
+
+สังเกตลำดับ key ที่เกินมาอยู่ก่อน field ปกติของ model เดียวกัน (`surprise` มาก่อน `id`, `lines.0.color` มาก่อน `lines.0.sku`) อย่าเขียนโค้ดที่พึ่งลำดับของ error ให้ตรงกับลำดับ field ในคลาส ถ้า client ต้องเรียง ให้เรียงเอง
+
+ไม่มีค่าที่ผู้ใช้ส่งมาอยู่ในรายการเลย (ใช้ `include_input=False`) และ `placed_at` ได้ `date_too_old` ที่เป็น code ของเราเอง จาก `PydanticCustomError` ใน `not_in_past` ([บท 6](/pydantic/errors/))
+
+กฎที่คร่อมค่าทำงานต่อเมื่อค่าพื้นฐานผ่านแล้ว ([บท 5](/pydantic/validators/)) ดังนั้น
+
+- ส่ง line ซ้ำสองบรรทัด (ที่ทุก field ถูกต้อง) ได้ `value_error` อันเดียว
+- ส่ง `channel="store"` พร้อม `callback` ได้ข้อความ `Value error, store orders cannot have a callback`
+- ส่ง `lines=[]` ได้ `too_short`
+- ส่งข้อความที่ไม่ใช่ JSON (`"{not json"`) ได้ `json_invalid`
+
+</Step>
+
+<Step>
+
+## สัญญาสำหรับฝั่งที่ส่งมา: JSON Schema
+
+```python
+schema = Order.model_json_schema()
+schema["required"]                                   # ['id', 'email', 'placed_at', 'lines', 'payment']
+schema["properties"]["payment"]["discriminator"]["propertyName"]   # 'method'
+schema["additionalProperties"]                       # False
+set(schema["$defs"])                                 # {'Card', 'Channel', 'Line', 'Transfer'}
+```
+
+schema บอกฝั่ง client ว่า field ไหนต้องส่ง, key ที่เกินไม่ได้ (`additionalProperties: False` มาจาก `extra="forbid"`) และ `payment` เลือกชนิดด้วย `method` ตามที่ [บท 9](/pydantic/adapters/) อธิบาย
+
+แต่ validator ที่เราเขียนเอง (sku ซ้ำ, `placed_at` ต้องหลังปี 2020, เลขบัตรต้อง 16 หลัก, store ห้ามมี callback) **ไม่อยู่ใน schema** ต้องเขียนใน `description` หรือในเอกสารแยก ไม่เช่นนั้นฝั่งที่ส่งมาจะเพิ่งรู้เมื่อโดนปฏิเสธ
+
+ถ้ามี order มาเป็นชุด สร้าง adapter ครั้งเดียวแล้วใช้ซ้ำ
+
+```python
+Batch = TypeAdapter(list[Order])
+two = Batch.validate_json(json.dumps([GOOD, dict(GOOD, id=1002)]))   # [Order(id=1001...), Order(id=1002...)]
+Batch.validate_json(json.dumps([GOOD, dict(GOOD, id=-1)]))           # error ที่ loc (1, 'id')
+```
+
+`loc` ขึ้นต้นด้วยดัชนีของ order ในชุด ผู้ส่งจึงรู้ว่าตัวที่สองผิด
+
+</Step>
+
+<Step>
+
+## ทบทวนว่าแต่ละส่วนมาจากบทไหน
+
+| ส่วนของด่าน | บท |
+|---|---|
+| model, lax แปลง `"1001"` เป็น `1001` | [1](/pydantic/first-model/) |
+| `Annotated` + `Field`, `min_length`, `gt`, `max_digits` | [2](/pydantic/fields/) |
+| `Decimal`, `EmailStr`, `HttpUrl`, `SecretStr`, `datetime` | [3](/pydantic/types/) |
+| `Payment` เป็น discriminated union | [4](/pydantic/unions/) |
+| `AfterValidator`, `field_validator`, `model_validator` | [5](/pydantic/validators/) |
+| `problems()`, `PydanticCustomError`, ไม่สะท้อน input | [6](/pydantic/errors/) |
+| `computed_field`, dump ของ `Decimal`, ความลับไม่หลุดใน JSON | [7](/pydantic/serialization/) |
+| `extra="forbid"`, `frozen`, `str_strip_whitespace` | [8](/pydantic/models-config/) |
+| `TypeAdapter(list[Order])`, JSON Schema | [9](/pydantic/adapters/) |
+| ประกาศ model ที่ระดับ module ครั้งเดียว, ต้นทุนการสร้าง | [10](/pydantic/under-the-hood/) |
+| ถ้าได้โค้ด V1 มา ให้ดูว่า `Optional`, `Config` เปลี่ยนอะไร | [11](/pydantic/migration/) |
+
+<Callout type="try" title="ลองทำใน repo นี้">
+ต่อยอดแบบฝึก `12_capstone.py` เพิ่ม `Coupon` ที่เป็นสมาชิกที่สามของ `Payment` (`method: Literal["coupon"]`) เขียน assert ว่า `{"method": "coupon"}` ที่ขาดรหัสได้ error เดียวแล้วดูว่า JSON Schema เปลี่ยนตรงไหน จากนั้นลองทำให้ `placed_at` รับเฉพาะ timezone-aware datetime และเพิ่ม assert ว่า `"2026-03-01T09:30:00"` (ไม่มี timezone) ถูกปฏิเสธด้วยรหัสของคุณเอง
+</Callout>
+
+</Step>
+
+<Step>
+
+## เช็กตัวเอง
+
+- ถ้าเปลี่ยน `Card.number` เป็น `str` ธรรมดาและ validator โยน `ValueError(f"bad {digits}")` เลขบัตรจะไปปรากฏที่ไหนบ้าง
+- ทำไม `problems(json.dumps(dup))` ที่ส่ง line ซ้ำ ได้ error เดียว ทั้งที่ order นั้นอาจมีปัญหาอื่นร่วมด้วยถ้า field พื้นฐานผิด
+- ฝั่ง client บอกว่า "schema ของคุณไม่บอกว่า sku ห้ามซ้ำ" คุณจะแก้ที่ใด
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| ข้อมูลที่ถูกต้องผ่านทุกด่าน, `total`, `subtotal`, เลขบัตรไม่หลุด, ตาราง "ที่ส่งมา / ที่ได้" | รัน: `exercises/12_capstone.py` |
+| ปัญหาเก้าจุด และลำดับที่ Pydantic รายงาน (extra ก่อน) | รัน: `exercises/12_capstone.py` |
+| กฎคร่อมหลายค่า: sku ซ้ำ, store กับ callback, `too_short`, `json_invalid` | รัน: `exercises/12_capstone.py` |
+| JSON Schema (`required`, `discriminator`, `additionalProperties`, `$defs`) และ `Batch` ที่ `loc == (1, 'id')` | รัน: `exercises/12_capstone.py` |
+| `Field(pattern=...)` บน `SecretStr` ได้ `TypeError` | ผู้เขียนเจอตอนเขียนร่างแรก (ไม่ได้เก็บไว้ในแบบฝึก) |
+| validator ของเราไม่อยู่ใน JSON Schema | รัน: `exercises/09_adapters.py` |
+| การจัดวางบทเรียนและคำแนะนำ | ผู้เขียน |
+
+</Step>

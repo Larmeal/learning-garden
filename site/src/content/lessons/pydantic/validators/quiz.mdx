@@ -1,0 +1,74 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 5 ข้อ เพื่อเช็กว่าเข้าใจบทนี้แค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="username: str มี field_validator แบบ after ผู้ใช้ส่ง username=123 เข้ามา เกิดอะไรขึ้น"
+  options={['validator ถูกเรียกด้วย 123 แล้ว isalnum() ล้ม', 'validator ไม่ถูกเรียก เพราะ Pydantic ตรวจชนิดก่อนแล้วได้ string_type', 'Pydantic แปลง 123 เป็น \'123\' แล้วเรียก validator']}
+  answer={1}
+  why="validator แบบ after ทำงานหลังการตรวจชนิดผ่านเท่านั้น str ไม่รับตัวเลข (บท 3) จึงได้ string_type และ validator ไม่ถูกเรียก ผลคือ validator แบบ after ไว้ใจชนิดของค่าได้"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Order มี field qty: int ประกาศก่อน note: str และ validator ของ note อ่าน info.data ถ้า qty='x' (ล้ม) จะได้อะไรใน info.data"
+  options={['{\'qty\': \'x\'}', 'dict ว่าง เพราะ field ที่ตรวจไม่ผ่านไม่ถูกเก็บใน info.data', 'KeyError ตอนเรียก']}
+  answer={1}
+  why="info.data เก็บเฉพาะ field ที่ประกาศก่อนและผ่านการตรวจแล้ว ถ้า qty ล้ม มันจึงไม่อยู่ ดังนั้นโค้ดที่อ่าน info.data['qty'] ตรง ๆ จะเจอ KeyError ควรเช็กว่ามีอยู่ก่อน"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Annotated[int, BeforeValidator(a), BeforeValidator(b), AfterValidator(c), AfterValidator(d)] ฟังก์ชันทำงานตามลำดับใด"
+  options={['a, b, c, d', 'b, a, c, d', 'd, c, b, a']}
+  answer={1}
+  why="before ทำงานย้อนกลับจากตัวล่างขึ้นบน (b ก่อน a) ส่วน after ทำงานตามที่เขียน (c แล้ว d) แบบฝึกพิมพ์ ['before2', 'before1', 'after1', 'after2']"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="model_validator(mode='after') ตรวจ low <= high ถ้าผู้ใช้ส่ง low='x' (ผิดชนิด) กับ high=1 ผลเป็นอย่างไร"
+  options={['validator ทำงานแล้วโยน TypeError เพราะเปรียบเทียบ str กับ int', 'ได้ error int_parsing อย่างเดียว และ validator ไม่ถูกเรียก', 'ได้ทั้ง int_parsing และ value_error']}
+  answer={1}
+  why="after validator ของ model ทำงานเมื่อทุก field ผ่านแล้วเท่านั้น จึงไว้ใจได้ว่า self.low เป็น int เสมอ แบบฝึกยืนยันว่าได้ int_parsing อย่างเดียว"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="validator ของ field ที่ตรวจไม่ผ่านด้วยการโยน TypeError (เช่นเรียกฟังก์ชันผิด) เกิดอะไรขึ้น"
+  options={['ถูกห่อเป็น ValidationError ชนิด type_error', 'TypeError หลุดออกมาตรง ๆ เพราะ Pydantic จับแค่ ValueError และ AssertionError', 'ถูกกลืนเงียบ ๆ และถือว่าผ่าน']}
+  answer={1}
+  why="Pydantic ถือว่า TypeError ในโค้ด validator เป็นบั๊กของโปรแกรม ไม่ใช่ข้อมูลผิด จึงไม่ห่อ (แบบฝึกยืนยันและบท 6 ทดสอบ ZeroDivisionError ได้ผลเดียวกัน) ส่วน ValueError และ AssertionError กลายเป็น ValidationError"
+/>
+
+</Step>

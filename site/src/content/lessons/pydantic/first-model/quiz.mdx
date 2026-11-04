@@ -1,0 +1,74 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 5 ข้อ เพื่อเช็กว่าเข้าใจบทนี้แค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="dataclass ที่ประกาศ id: int รับ Row(id='abc') ได้ไหม"
+  options={['ไม่ได้ เพราะ dataclass ตรวจชนิดตอนสร้าง', 'ได้ dataclass ไม่ตรวจ type hint ค่าที่เก็บจึงเป็น \'abc\'', 'ได้ แต่แปลง \'abc\' เป็น 0 ให้']}
+  answer={1}
+  why="type hint ของ Python เป็นข้อมูลให้คนและ type checker อ่าน ตัวภาษาไม่บังคับ แบบฝึกยืนยันว่าทั้งคลาสธรรมดาและ dataclass เก็บ 'not a number' ไว้ใน field int ได้ ส่วน BaseModel ตรวจให้"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="field id: int ได้รับค่าใดแล้วผ่านการตรวจใน lax mode (ค่าเริ่มต้น)"
+  options={['3.5 เพราะปัดเป็น 3 ได้', '\"3.0\" เพราะอ่านเป็นจำนวนเต็ม 3 ได้พอดี', 'None เพราะถือว่าเป็นศูนย์']}
+  answer={1}
+  why="'3.0' และ 3.0 แปลงเป็น 3 ได้โดยไม่เสียข้อมูล ส่วน 3.5 ติด int_from_float เพราะการทิ้งเศษทำให้ข้อมูลหาย และ None ติด int_type"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ส่งข้อมูลที่ผิดสามจุดเข้า model ครั้งเดียว Pydantic ทำอย่างไร"
+  options={['โยน ValidationError ที่จุดแรกที่เจอแล้วหยุด', 'เก็บทุกจุดที่ผิดแล้วโยน ValidationError เดียวที่มีสาม error', 'โยน ValidationError สามตัวต่อกัน']}
+  answer={1}
+  why="ValidationError ตัวเดียวถือรายการ error ทั้งหมด (e.error_count() บอกจำนวน) ทำให้ฟอร์มหรือ API ตอบผู้ใช้ครบในรอบเดียว ในแบบฝึก ส่ง 3.5, None และ 'maybe' พร้อม field ที่หายไป ได้สี่ error"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="หลังสร้าง c = Customer(id=1, name='a', email='e') แล้วสั่ง c.id = 'oops' ผลเป็นอย่างไรโดยไม่ตั้งค่าอะไรเพิ่ม"
+  options={['ValidationError เพราะ \'oops\' ไม่ใช่ int', 'สำเร็จ และ c.id เป็น \'oops\' เพราะตรวจเฉพาะตอนสร้าง', 'สำเร็จ แต่ c.id ยังเป็น 1']}
+  answer={1}
+  why="validate_assignment ปิดอยู่ตามค่าเริ่มต้น การ assign จึงไม่ถูกตรวจ แบบฝึกยืนยันว่า c.id == 'oops' ถ้าต้องการตรวจทุกครั้งให้เปิด validate_assignment ใน ConfigDict (บท 8)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="model_fields_set ของ Customer(id=1, name='a', email='e') คืนอะไร"
+  options={['{\"id\", \"name\", \"email\", \"is_vip\"} เพราะรวมทุก field', '{\"id\", \"name\", \"email\"} เพราะ is_vip ใช้ค่า default ไม่ได้ถูกส่งมา', 'set ว่าง เพราะไม่มี field ที่ผิด']}
+  answer={1}
+  why="model_fields_set เก็บเฉพาะ field ที่ผู้เรียกส่งเข้ามา ใช้แยก 'ไม่ได้ส่ง' ออกจาก 'ส่งมาเท่าค่า default' ถ้าส่ง is_vip=False ไปด้วย is_vip จะเข้า set"
+/>
+
+</Step>

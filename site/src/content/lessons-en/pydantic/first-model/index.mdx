@@ -1,0 +1,213 @@
+---
+title: The first model
+summary: BaseModel turns type hints into real checks when you create an object. This lesson shows what lax mode converts, what a ValidationError looks like, and the three ways into a model (direct call, model_validate, model_validate_json).
+order: 1
+phase: A
+level: 1
+stage: sprout
+format: steps
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Type hints check nothing
+
+In Python you can write `id: int`, but the interpreter never checks it. The hint is there for people and for type checkers such as mypy. Try a plain class and a `dataclass` (ran: `exercises/01_first_model.py`):
+
+```python
+from dataclasses import dataclass
+
+class Plain:
+    id: int
+    def __init__(self, id):
+        self.id = id
+
+@dataclass
+class Row:
+    id: int
+
+Plain("not a number").id    # 'not a number'
+Row(id="not a number").id   # 'not a number'
+```
+
+Both accept a string in a field declared as `int` and say nothing. If that data came from the JSON of a request or a CSV file, the mistake shows up far from its cause, for example as a `TypeError` three calls deeper when you add numbers.
+
+Pydantic fixes exactly this spot: it checks data at the edge of the program, where outside data comes in, and lets only data that passed move inside.
+
+</Step>
+
+<Step>
+
+## The first model
+
+A model is a class that inherits from `BaseModel` and declares its fields with type hints.
+
+```python
+from pydantic import BaseModel
+
+class Customer(BaseModel):
+    id: int
+    name: str
+    email: str
+    is_vip: bool = False
+
+c = Customer(id="42", name="Ann", email="ann@example.com")
+c.id            # 42
+type(c.id)      # <class 'int'>
+```
+
+The caller passed `"42"`, a string, but `c.id` is a real `int`. Pydantic checked it and converted it, because `"42"` can be read as an integer. A field with a default (`is_vip`) may be left out. A field without one must be passed.
+
+Printing shows:
+
+```text
+repr: Customer(id=42, name='Ann', email='ann@example.com', is_vip=False)
+str : id=42 name='Ann' email='ann@example.com' is_vip=False
+```
+
+`repr` gives the class name and every field, so you can debug without writing `__repr__`. `==` on models compares the model type and every field value.
+
+</Step>
+
+<Step>
+
+## Lax mode: convert when it is safe
+
+The default mode is called **lax**. It accepts a value of a different type when there is a clear conversion that loses nothing. The exercise tests what `int` and `bool` accept.
+
+| Passed to an `int` field | Result |
+|---|---|
+| `"42"` | `42` |
+| `3.0` | `3` |
+| `"3.0"` | `3` |
+| `True` | `1` |
+| `3.5` | error `int_from_float` (the fraction cannot be dropped) |
+| `"abc"` | error `int_parsing` |
+| `None` | error `int_type` |
+
+| Passed to a `bool` field | Result |
+|---|---|
+| `"yes"`, `"1"`, `"T"`, `1` | `True` |
+| `"no"`, `"off"` | `False` |
+| `"maybe"` | error `bool_parsing` |
+
+The rule is that Pydantic converts when the original value has one clear meaning in the target type. `3.0` is exactly three. `3.5` would silently lose data if it became `3`, so it is rejected. [Lesson 3](/en/pydantic/types/) covers this table in full and shows how to switch conversion off with strict mode.
+
+<Callout type="warn" title="Numbers are not converted to strings">
+A `str` field does not accept a number. Passing `123` gives the error `string_type`. V1 used to convert it. If your old code relied on that, you will hit the error when you migrate ([lesson 11](/en/pydantic/migration/)).
+</Callout>
+
+</Step>
+
+<Step>
+
+## When the data is wrong: ValidationError
+
+Pass four wrong things in one call:
+
+```python
+Customer(id=3.5, name=None, is_vip="maybe")
+```
+
+```text
+4 validation errors for Customer
+id
+  Input should be a valid integer, got a number with a fractional part [type=int_from_float, input_value=3.5, input_type=float]
+name
+  Input should be a valid string [type=string_type, input_value=None, input_type=NoneType]
+email
+  Field required [type=missing, input_value={'id': 3.5, 'name': None, 'is_vip': 'maybe'}, input_type=dict]
+is_vip
+  Input should be a valid boolean, unable to interpret input [type=bool_parsing, input_value='maybe', input_type=str]
+```
+
+Two things to notice. First, Pydantic **reports every problem in one go** and does not stop at the first, so a form user can fix everything in one round. Second, each entry has a `type` (for example `int_from_float`), a code your program can act on. The `msg` text may change between versions, while `type` is steadier.
+
+`ValidationError` is a subclass of `ValueError`, so `except ValueError` catches it. Use `e.error_count()` for the number and `e.errors()` for a list of dicts ([lesson 6](/en/pydantic/errors/) goes deeper).
+
+</Step>
+
+<Step>
+
+## Three ways in, two ways out
+
+You can build a model in three ways:
+
+```python
+Customer(id=1, name="Ann", email="a@x")                       # keyword arguments
+Customer.model_validate({"id": 1, "name": "Ann", "email": "a@x"})   # a dict or an object
+Customer.model_validate_json('{"id": 1, "name": "Ann", "email": "a@x"}')   # JSON text
+```
+
+All three give the same result (the exercise confirms it with `==`). The difference is that `model_validate_json` lets the JSON parser hand values straight to the validator, with no Python `dict` in between, and it has strict rules that differ from Python input ([lesson 3](/en/pydantic/types/) and [lesson 10](/en/pydantic/under-the-hood/)).
+
+There are two ways out as well:
+
+```python
+c.model_dump()        # {'id': 1, 'name': 'Ann', 'email': 'a@x', 'is_vip': False}
+c.model_dump_json()   # '{"id":1,"name":"Ann","email":"a@x","is_vip":false}'
+```
+
+The first returns a `dict`, the second a JSON string with no spaces. [Lesson 7](/en/pydantic/serialization/) is about controlling what comes out.
+
+</Step>
+
+<Step>
+
+## What a model does when you do not ask
+
+Four default behaviors that the exercise confirms, and that often surprise newcomers.
+
+**Unknown keys are dropped.** `Customer(id=1, name="a", email="e", nickname="x")` succeeds, and the object has no `nickname` at all. To get an error or to keep the key, set `extra` in the config ([lesson 8](/en/pydantic/models-config/)).
+
+**Fields are keyword-only.** `Customer(1, "a", "e")` raises `TypeError` because `BaseModel.__init__()` takes one positional argument, `self`. This lets you reorder fields in the class without breaking callers.
+
+**Assignment is not checked.** After you build `c`, `c.id = "oops"` succeeds and `c.id` is `"oops"`. Checking happens at construction only. To check every assignment, turn on `validate_assignment` ([lesson 8](/en/pydantic/models-config/)).
+
+**A model remembers which fields the caller passed.** `model_fields_set` is the set of field names that were actually given.
+
+```python
+Customer(id=1, name="a", email="e").model_fields_set
+# {'id', 'name', 'email'}   no is_vip, the default was used
+Customer(id=1, name="a", email="e", is_vip=False).model_fields_set
+# {'id', 'name', 'email', 'is_vip'}
+```
+
+This separates "not sent" from "sent as the default value", which matters for a PATCH request: if the user sent only `name`, you should change only `name` and not reset the other fields to their defaults. [Lesson 7](/en/pydantic/serialization/) uses it with `exclude_unset`.
+
+<Callout type="try" title="Try it in this repo">
+Open `subjects/pydantic/code/exercises/01_first_model.py` and run `uv run python exercises/01_first_model.py`. Try passing `id="  7  "` (with spaces around it) and `id="7_000"`, and guess before you run whether each one passes.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- A request's JSON has `"qty": "3"` going into a field `qty: int`. Does it pass? What about `"qty": 3.5`, and why?
+- You pass five wrong values into a model. How many errors do you get, and what would have happened to values two to five if Pydantic had stopped at the first?
+- `Customer(id=1, name="a", email="e")` and `Customer(id=1, name="a", email="e", is_vip=False)` give the same `model_dump()`. What is different between them?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| a plain class and a dataclass do not check type hints, `"42"` becomes an `int` `42`, `repr` and `str` | ran: `exercises/01_first_model.py` |
+| the lax tables for `int` and `bool`, `str` does not accept numbers (`string_type`) | ran: `exercises/01_first_model.py`, `exercises/03_types.py` |
+| V1 converts a number to a string, V2 does not | ran: `exercises/11_migration.py` (uses `pydantic.v1`) |
+| the result of `Customer(id=3.5, name=None, is_vip="maybe")` (four errors and the type of each) | ran: `exercises/01_first_model.py` |
+| the three ways in give the same result, `model_dump` and `model_dump_json` | ran: `exercises/01_first_model.py` |
+| unknown keys dropped, keyword-only, no check on assignment, `model_fields_set` | ran: `exercises/01_first_model.py` |
+| `model_validate_json` lets the JSON parser feed the validator directly | source: `input_json.rs` in the knowledge graph ([lesson 10](/en/pydantic/under-the-hood/)) |
+| the PATCH use of `model_fields_set` | author |
+
+</Step>

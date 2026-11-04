@@ -1,0 +1,74 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 5 ข้อ เพื่อเช็กว่าเข้าใจบทนี้แค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="ส่งตัวเลข 123 เข้า field ที่ประกาศเป็น str ใน lax mode ได้อะไร"
+  options={['\'123\' เพราะแปลงเป็น string ได้เสมอ', 'error string_type เพราะ V2 ไม่แปลงตัวเลขเป็น string', 'b\'123\' ชนิด bytes']}
+  answer={1}
+  why="str รับ bytes ได้ แต่ไม่รับตัวเลข ซึ่งต่างจาก V1 ที่แปลงให้ แบบฝึกในบท 3 ได้ string_type และบท 11 เทียบกับ pydantic.v1 ซึ่งได้ '123'"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ข้อใดเปิด strict mode ให้ field เดียว"
+  options={['Field(strict=True) หรือใช้ชนิด StrictInt', 'ตั้ง ConfigDict(strict=True) เท่านั้น', 'เปิดไม่ได้ strict ตั้งได้ทั้ง model เท่านั้น']}
+  answer={0}
+  why="strict ตั้งได้สามระดับ: ตอนเรียก validate (strict=True) ที่ field (Field(strict=True), StrictInt, Annotated[int, Strict()]) และที่ model ทั้งตัวด้วย ConfigDict"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="model ตั้ง strict=True และมี field d: date ส่ง '2026-01-31' ด้วย model_validate (dict ของ Python) กับ model_validate_json (JSON text) ผลเป็นอย่างไร"
+  options={['ผ่านทั้งสองทาง', 'model_validate ล้ม (date_type) ส่วน model_validate_json ผ่าน เพราะ JSON ไม่มีชนิด date', 'ล้มทั้งสองทางเพราะเป็น string']}
+  answer={1}
+  why="JSON ไม่มีชนิดวันที่ การเขียนเป็น string จึงเป็นรูปแบบปกติและ strict รับได้ ส่วน dict ของ Python ที่ส่ง string มาแทน object date คือส่งผิดชนิดจริง ๆ"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ผู้ใช้ส่งปี 2026 (เป็นตัวเลข) เข้า field datetime ใน lax mode ได้อะไร"
+  options={['error เพราะไม่ใช่รูปแบบวันที่', 'วันที่ในปี 2026', 'วันที่ 1970-01-01 00:33:46 เพราะตัวเลขถูกอ่านเป็น unix seconds']}
+  answer={2}
+  why="lax mode อ่านตัวเลขที่ส่งเข้า datetime เป็น unix timestamp 2026 วินาทีหลัง epoch ก็คือ 00:33:46 ของ 1970-01-01 ถ้าไม่ต้องการพฤติกรรมนี้ใช้ strict ซึ่งปฏิเสธตัวเลข (datetime_type)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เรียก login.password.get_secret_value() จำเป็นเมื่อใด"
+  options={['ทุกครั้งที่อ่าน field password แม้แต่ตอน log', 'เมื่ออยากได้ค่าจริงของ SecretStr อย่างตั้งใจ เพราะ repr, log และ dump จะเห็นแค่ **********', 'เมื่อต้องการเข้ารหัสค่า']}
+  answer={1}
+  why="SecretStr ซ่อนค่าจาก repr และการ dump เพื่อกันหลุดโดยไม่ตั้งใจ get_secret_value() เป็นประตูเดียวที่ได้ค่าจริง SecretStr ไม่ได้เข้ารหัสอะไร"
+/>
+
+</Step>

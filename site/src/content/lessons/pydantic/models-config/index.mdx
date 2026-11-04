@@ -1,0 +1,276 @@
+---
+title: ConfigDict, Model ซ้อน และ Generic
+summary: ตั้งค่า model ด้วย ConfigDict (extra, frozen, validate_assignment, from_attributes และอื่น ๆ), model ที่ซ้อนกันและ revalidate_instances, inheritance, RootModel, generic model, private attribute และ model_construct
+order: 8
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [serialization]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## ConfigDict: ตั้งค่าทั้ง Model
+
+ที่ผ่านมาเราเห็น `populate_by_name`, `strict`, `hide_input_in_errors` ไปบ้างแล้ว ทั้งหมดอยู่ใน `model_config`
+
+```python
+class Forbid(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    a: int
+```
+
+บทนี้เก็บตัวที่ใช้บ่อยที่สุดให้ครบ (รัน: `exercises/08_models_config.py`)
+
+**extra** ตัดสินว่าทำอะไรกับ key ที่ model ไม่รู้จัก
+
+| ค่า | ผลเมื่อส่ง `a=1, b=2` |
+|---|---|
+| `"ignore"` (ค่าเริ่มต้น) | `b` ถูกทิ้ง `model_dump()` ได้ `{"a": 1}` |
+| `"forbid"` | error ชนิด `extra_forbidden` |
+| `"allow"` | `b` ถูกเก็บ อ่านได้ที่ `x.b` และรวมใน `model_dump()` ส่วน `x.model_extra` ได้ `{"b": 2}` |
+
+`forbid` เหมาะกับ input ที่คุณคุมสัญญาเอง เพราะสะกดชื่อ field ผิดแล้วโดนจับทันที ค่าเริ่มต้นที่ทิ้งเงียบ ๆ ทำให้ `Customer(id=1, nmae="Ann")` ดูเหมือนสำเร็จทั้งที่ชื่อหาย (ถ้า `name` มีค่า default)
+
+**frozen** ทำให้ immutable และ hashable
+
+```python
+class Point(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    x: int
+
+p = Point(x=1)
+p.x = 2                                  # ValidationError ชนิด frozen_instance
+hash(p) == hash(Point(x=1))              # True  ใช้เป็น key ของ dict หรือใส่ set ได้
+```
+
+**validate_assignment** ตรวจทุกครั้งที่ assign
+
+```python
+class Checked(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+    n: int
+
+c = Checked(n=1)
+c.n = "5"       # c.n เป็น 5 (แปลงด้วย lax ตามปกติ)
+c.n = "x"       # ValidationError ชนิด int_parsing, c.n ยังเป็น 5
+```
+
+assign ที่ล้มไม่ทำให้ค่าเดิมเสีย model ยังอยู่ในสถานะที่ถูกต้อง validator จาก [บท 5](/pydantic/validators/) ก็ทำงานตอน assign เมื่อเปิดตัวเลือกนี้
+
+**ตัวจัดการ string ทั้ง model**
+
+```python
+class Clean(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, str_to_lower=True, str_min_length=1)
+    name: str
+
+Clean(name="  ANN ").name     # 'ann'
+Clean(name="   ")             # error string_too_short  (ตัดช่องว่างแล้วว่าง)
+```
+
+ลำดับคือตัดช่องว่างก่อน แล้วค่อยเช็กความยาว จึงจับ string ที่มีแต่ช่องว่างได้
+
+</Step>
+
+<Step>
+
+## from_attributes: อ่านจาก Object แทน Dict
+
+ข้อมูลไม่ได้มาเป็น dict เสมอไป ผลลัพธ์จาก ORM หรือ dataclass เป็น object ที่มี attribute `from_attributes` บอก model ให้อ่านจาก attribute
+
+```python
+@dataclass
+class Row:
+    id: int
+    name: str
+
+class Out(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+
+Out.model_validate(Row(1, "a")).name     # 'a'
+```
+
+model ที่ไม่เปิดตัวเลือกนี้ได้ error `model_type` เพราะ input ไม่ใช่ dict หรือ instance ของ model นั้น เปิดเฉพาะการเรียกครั้งเดียวก็ได้ด้วย `Out.model_validate(Row(1, "a"), from_attributes=True)`
+
+</Step>
+
+<Step>
+
+## Model ซ้อน Model
+
+field ที่เป็น model รับได้ทั้ง dict และ instance
+
+```python
+class Address(BaseModel):
+    city: str
+
+class Person(BaseModel):
+    name: str
+    address: Address
+
+home = Address(city="BKK")
+Person(name="a", address=home).address is home                  # True  ใช้ instance เดิม ไม่คัดลอก
+Person(name="a", address={"city": "CNX"}).address.city          # 'CNX'  สร้างใหม่จาก dict
+```
+
+ถ้าส่ง instance ที่ถูกต้องอยู่แล้ว Pydantic ใช้ตัวนั้นเลยโดยไม่ตรวจซ้ำ ซึ่งเร็ว แต่แปลว่า ถ้าใครแก้ `home` ทีหลัง `person.address` เปลี่ยนตามเพราะเป็นตัวเดียวกัน
+
+`revalidate_instances` เปลี่ยนพฤติกรรมนี้ มีสามค่า `"never"` (ค่าเริ่มต้น), `"always"` และ `"subclass-instances"` แบบฝึกพบว่า **ค่านี้อ่านจาก config ของ model ที่กำลังถูกตรวจ (ตัวใน) ไม่ใช่ของตัวนอก**
+
+```python
+class Revalidating(BaseModel):
+    model_config = ConfigDict(revalidate_instances="always")
+    city: str
+
+class Holder(BaseModel):
+    inner: Revalidating
+
+r = Revalidating(city="BKK")
+Holder(inner=r).inner is r        # False  ตรวจและสร้างใหม่
+
+class Outer(BaseModel):
+    model_config = ConfigDict(revalidate_instances="always")
+    address: Address
+
+Outer(address=home).address is home    # True  ตั้งที่ตัวนอก ไม่มีผลกับ Address
+```
+
+ส่วน `"subclass-instances"` ตรวจใหม่เฉพาะเมื่อ instance เป็น subclass ของชนิดที่ประกาศ และผลคือถูกสร้างเป็นชนิดที่ประกาศ: ส่ง `LooseChild` เข้า field ชนิด `Loose` ได้ `type(...) is Loose`
+
+</Step>
+
+<Step>
+
+## Inheritance
+
+field ถูกสืบทอดและต่อท้าย ลำดับคือของ base ก่อนแล้วของ subclass
+
+```python
+class Base(BaseModel):
+    id: int
+
+class Child(Base):
+    name: str = "x"
+
+list(Child.model_fields)    # ['id', 'name']
+```
+
+`model_config` ของ subclass **ผสาน** กับของ base ไม่ได้แทนที่ ถ้า base ตั้งอย่างหนึ่งและ subclass ตั้งอีกอย่าง ได้ทั้งสอง (key เดียวกันให้ subclass ชนะ) `Strictish(Base)` ที่ตั้ง `extra="forbid"` ได้ `model_config["extra"] == "forbid"` และ error ชนิด `extra_forbidden` เมื่อส่ง key เกิน
+
+ลำดับ field ใน dump ตามลำดับที่ประกาศในคลาส ไม่ใช่ลำดับที่ผู้เรียกส่ง `class Order: b: int = 0; a: int = 0` แล้ว `Order(a=1).model_dump()` มี key ตามลำดับ `["b", "a"]`
+
+</Step>
+
+<Step>
+
+## RootModel: Model ที่ค่าไม่ใช่ Dict
+
+บางครั้งข้อมูลทั้งก้อนเป็น list หรือค่าเดี่ยว แต่เราอยากได้ method และ validator ของ model `RootModel` ตอบโจทย์นี้
+
+```python
+class Tags(RootModel[list[str]]):
+    def first(self):
+        return self.root[0]
+
+t = Tags(["a", "b"])
+t.first()                 # 'a'
+t.model_dump()            # ['a', 'b']
+t.model_dump_json()       # '["a","b"]'
+Tags.model_validate_json('["z"]').root    # ['z']
+```
+
+ข้อมูลอยู่ที่ `.root` และ dump ออกมาเป็นค่าตรง ๆ ไม่ครอบด้วย key `root` ใช้เมื่อ API ส่ง array ที่ชั้นบนสุด หรือเมื่ออยากให้ชนิดค่าเดี่ยวมีพฤติกรรมของตัวเอง
+
+</Step>
+
+<Step>
+
+## Generic Model
+
+model ที่เหมือนกันหมดยกเว้นชนิดข้างใน เช่น response แบบแบ่งหน้า
+
+```python
+T = TypeVar("T")
+
+class Page(BaseModel, Generic[T]):
+    items: list[T]
+    total: int
+
+Page[int](items=["1", 2], total=2).items       # [1, 2]  แปลงตาม int
+Page[int](items=["x"], total=1)                # error int_parsing
+Page(items=["1"], total=1).items               # ['1']   ไม่ระบุ T ถือเป็น Any ไม่แปลง
+Page[int].__name__                             # 'Page[int]'
+```
+
+`Page[int]` สร้างคลาสใหม่ที่ตรวจสมาชิกเป็น `int` ถ้าลืมระบุ `[int]` ก็ไม่มีการตรวจชนิดสมาชิกเลย ซึ่งเป็นเรื่องที่ลืมง่าย
+
+</Step>
+
+<Step>
+
+## Private Attribute และ model_construct
+
+attribute ที่ขึ้นต้นด้วย `_` ไม่ใช่ field ใช้เก็บสถานะภายในที่ไม่ผ่านการตรวจและไม่ออกใน dump
+
+```python
+class WithPrivate(BaseModel):
+    a: int
+    _cache: dict = PrivateAttr(default_factory=dict)
+
+w = WithPrivate(a=1)
+w._cache["k"] = 1
+w.model_dump()     # {'a': 1}
+```
+
+**model_construct** สร้าง model **โดยข้ามการตรวจทั้งหมด**
+
+```python
+m = Out.model_construct(id="not an int", name=5)
+m.id                 # 'not an int'
+m.model_fields_set   # {'id', 'name'}
+```
+
+ใช้เมื่อข้อมูลมาจากแหล่งที่เชื่อถือได้ 100% และต้องการความเร็ว เช่นอ่านกลับจากที่ตัวเองเพิ่งเขียน ใช้กับ input ของผู้ใช้ไม่ได้เด็ดขาด เพราะไม่มีอะไรจับค่าผิดเลย
+
+`==` ระหว่าง model เทียบทั้งชนิดและค่า `Address(city="a") == Address(city="a")` เป็น `True` แต่ `Address(city="a") == {"city": "a"}` เป็น `False`
+
+<Callout type="try" title="ลองทำใน repo นี้">
+ในแบบฝึก เปลี่ยน `revalidate_instances` ใน `Outer` ให้ไปอยู่ที่ `Address` แล้วดูว่า `assert Outer(address=home).address is home` ยังจริงอยู่ไหม แล้วอธิบายว่าทำไม
+</Callout>
+
+</Step>
+
+<Step>
+
+## เช็กตัวเอง
+
+- API ภายนอกส่ง key ที่ model ไม่รู้จักมา คุณอยากให้ทิ้ง เก็บ หรือ error แต่ละแบบเหมาะกับสถานการณ์ไหน
+- `Page(items=["1"], total=1)` กับ `Page[int](items=["1"], total=1)` ได้ `items` ต่างกันยังไง
+- ตั้ง `revalidate_instances="always"` ที่ model ตัวนอก แล้วคาดหวังว่าตัวในถูกตรวจซ้ำ จะได้ผลไหม
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| `extra` สามค่า, `model_extra`, `frozen`, `validate_assignment`, ตัวจัดการ string | รัน: `exercises/08_models_config.py` |
+| `from_attributes`, `model_type`, ตัวเลือกระดับการเรียก | รัน: `exercises/08_models_config.py` |
+| model ซ้อน, instance ถูกใช้ซ้ำ, `revalidate_instances` อ่านจาก config ของตัวใน, `subclass-instances` | รัน: `exercises/08_models_config.py` |
+| inheritance, config ผสาน, ลำดับ field ใน dump | รัน: `exercises/08_models_config.py` |
+| `RootModel`, generic, `PrivateAttr`, `model_construct`, `==` | รัน: `exercises/08_models_config.py` |
+| ผู้เรียก `Customer(id=1, nmae="Ann")` สำเร็จเงียบ ๆ | รัน: `exercises/01_first_model.py` (key ที่ไม่รู้จักถูกทิ้ง) |
+| ใช้ `model_construct` เฉพาะข้อมูลที่เชื่อถือได้ | ผู้เขียน |
+| model validator ในชั้น Rust จัดการนโยบาย revalidate, root model และ assignment | source: `validators/model.rs` ใน knowledge graph |
+
+</Step>

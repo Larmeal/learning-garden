@@ -1,0 +1,74 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 5 ข้อ เพื่อเช็กว่าเข้าใจบทนี้แค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="TypeAdapter(list[int]).dump_json([1, 2]) คืนอะไร"
+  options={['\'[1,2]\' ชนิด str', 'b\'[1,2]\' ชนิด bytes', '[1, 2] ชนิด list']}
+  answer={1}
+  why="dump_json คืน bytes ต่างจาก model_dump_json ที่คืน str ถ้าต้องการ str ให้ .decode() หรือใช้ dump_python กับ json.dumps"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เหตุผลที่ควรประกาศ TypeAdapter เป็นตัวแปรระดับ module แทนสร้างในฟังก์ชัน"
+  options={['เพราะ TypeAdapter ต้องอยู่ระดับ module ตามกฎของ Python', 'เพราะการสร้างมีต้นทุนสูง (สร้าง core schema) ส่วนการเรียก validate ถูกกว่ามาก', 'เพราะ TypeAdapter ที่สร้างในฟังก์ชันใช้ไม่ได้']}
+  answer={1}
+  why="แบบฝึกวัดว่าสร้างทุกครั้งช้ากว่าใช้ซ้ำหลายสิบเท่า (รอบที่รันได้ 77 เท่า) และ assert ว่ามากกว่า 20 เท่า ตัวเลขขึ้นกับเครื่อง แต่ทิศทางไม่เปลี่ยน"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="TypeAdapter(Movie).validate_python({'title': 'x', 'year': '1999'}) เมื่อ Movie เป็น TypedDict ได้อะไร"
+  options={['instance ของคลาส Movie', 'dict ธรรมดา {\'title\': \'x\', \'year\': 1999} (ชนิดเดิม ไม่เปลี่ยนเป็น object ของ Pydantic)', 'ValidationError เพราะ year เป็น string']}
+  answer={1}
+  why="TypedDict ถูกตรวจและแปลงค่า (year กลายเป็น int) แต่ผลยังเป็น dict ธรรมดา แบบฝึกยืนยันด้วย type(m) is dict"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="@validate_call def add(a: int, b: int = 1) แล้วเรียก add(1, 2, 3) ได้อะไร"
+  options={['6', 'ValidationError ชนิด unexpected_positional_argument', 'TypeError จาก Python']}
+  answer={1}
+  why="validate_call ตรวจรูปแบบการเรียกด้วย จึงรายงาน argument เกินเป็น ValidationError ในรูปแบบเดียวกับ error อื่น ส่วน add(1, c=3) ได้ unexpected_keyword_argument"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Model มี field_validator ที่บังคับให้ n เป็นเลขคู่ JSON Schema ที่ model_json_schema() สร้างบอกเรื่องนี้ไหม"
+  options={['บอก ใช้ multipleOf: 2', 'ไม่บอก schema มีแค่ type: integer เพราะ validator ที่เป็นโค้ด Python มองไม่เห็น', 'บอกใน description อัตโนมัติ']}
+  answer={1}
+  why="JSON Schema สร้างจากเงื่อนไขที่ Pydantic เข้าใจ (ชนิด Field, Annotated) ไม่ได้อ่านเนื้อโค้ดของ validator แบบฝึกยืนยันว่า properties.n เป็น {'title': 'N', 'type': 'integer'}"
+/>
+
+</Step>

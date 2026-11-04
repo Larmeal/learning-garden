@@ -1,0 +1,290 @@
+---
+title: Writing your own validators
+summary: field_validator and model_validator in before, after, wrap and plain modes, reusable Annotated validators, the order they run in when stacked, ValidationInfo and context, and which exceptions become a ValidationError.
+order: 5
+phase: B
+level: 3
+stage: sprout
+format: steps
+requires: [fields, types]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## When Field constraints are not enough
+
+`Field(gt=0)` and `pattern` check one value at a time, but some rules need logic: a username must be letters and digits only and then lowercased, or two password fields must match. Pydantic gives you validators for this. The two main ones are `field_validator` (checks a field) and `model_validator` (checks the whole model).
+
+```python
+class Signup(BaseModel):
+    username: str
+    password: str
+    password2: str
+
+    @field_validator("username")
+    @classmethod
+    def clean_username(cls, v: str) -> str:
+        if not v.isalnum():
+            raise ValueError("must be letters and digits only")
+        return v.lower()
+
+    @field_validator("password2")
+    @classmethod
+    def same_password(cls, v: str, info: ValidationInfo) -> str:
+        if "password" in info.data and v != info.data["password"]:
+            raise ValueError("passwords do not match")
+        return v
+```
+
+(ran: `exercises/05_validators.py`) Three things to remember. The value the validator **returns** replaces the original (`"Ann99"` becomes `"ann99"`). A validator raises `ValueError` when the value fails. And `@classmethod` goes under `@field_validator`.
+
+Passing `username="a b", password="x", password2="y"` gives two errors, both of type `value_error`, with the message starting `Value error, ` followed by the text we wrote.
+
+</Step>
+
+<Step>
+
+## After, before, wrap, plain
+
+`field_validator` has four modes. They differ in when they run relative to Pydantic's own type check.
+
+| mode | runs when | receives | use for |
+|---|---|---|---|
+| `after` (default) | after Pydantic's type check passed | the checked value (the right type) | business rules, cleaning a value |
+| `before` | before the type check | the raw input, any type | reshaping input so Pydantic can accept it |
+| `wrap` | around the check | the raw input and a `handler` that runs the normal check | catching the result or the error of the normal check |
+| `plain` | replaces the normal check completely | the raw input | types that Pydantic does not know |
+
+**after** can always trust the type of the value. Pass `username=123` into the model above and the validator is never called, because Pydantic stops at `string_type`. The result is one error without a `Value error, ` prefix. That is why an after validator can be short: it does not need to fear a wrong type.
+
+**before** is for input that must be reshaped before checking.
+
+```python
+class Tags(BaseModel):
+    tags: list[str]
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def split(cls, v):
+        return v.split(",") if isinstance(v, str) else v
+
+Tags(tags="a,b").tags      # ['a', 'b']
+Tags(tags=["c"]).tags      # ['c']
+```
+
+After a before validator returns, Pydantic still checks the type. If the function returns a list of numbers, it fails against `list[str]` as usual.
+
+</Step>
+
+<Step>
+
+## ValidationInfo: reading earlier fields, and context
+
+A validator can take a second argument, `ValidationInfo`. It holds `data` (the fields already checked and passed), `field_name` and `context`.
+
+`info.data` has two limits you need to know. First, it holds only fields **declared before** the field being checked (in class order), because Pydantic checks in that order. Second, a field that failed is **not in** `info.data`. The exercise proves the second:
+
+```python
+class Order(BaseModel):
+    qty: int
+    note: str
+
+    @field_validator("note")
+    @classmethod
+    def look(cls, v, info: ValidationInfo):
+        seen["keys"] = sorted(info.data)
+        return v
+
+Order(qty="x", note="n")   # qty fails → seen["keys"] == []
+Order(qty=1, note="n")     # → seen["keys"] == ["qty"]
+```
+
+That is why `same_password` above writes `"password" in info.data` before reading it. If `password` failed it would not be there, and without the check you would get a `KeyError`.
+
+**context** is a dict the caller passes when validating, so a validator can use data that is not part of the input itself.
+
+```python
+class Ctx(BaseModel):
+    price: float
+
+    @field_validator("price")
+    @classmethod
+    def vat(cls, v, info: ValidationInfo):
+        rate = (info.context or {}).get("vat", 0)
+        return round(v * (1 + rate), 2)
+
+Ctx.model_validate({"price": 100}).price                          # 100
+Ctx.model_validate({"price": 100}, context={"vat": 0.07}).price   # 107.0
+```
+
+Watch out that `info.context` is `None` when the caller passes nothing, so handle that case.
+
+</Step>
+
+<Step>
+
+## Annotated validators: reusable and stackable
+
+A validator tied to a field by name stays inside one class. To use the same rule across many classes, attach it to a **type** with `Annotated`, the way [lesson 2](/en/pydantic/fields/#annotated-attach-constraints-to-a-type-and-reuse-them) did with `Field`.
+
+```python
+from pydantic import AfterValidator, BeforeValidator, PlainValidator, WrapValidator
+
+Stacked = Annotated[
+    int,
+    BeforeValidator(mark("before1")),
+    BeforeValidator(mark("before2")),
+    AfterValidator(mark("after1")),
+    AfterValidator(mark("after2")),
+]
+```
+
+When you stack several, the exercise shows this order:
+
+```text
+['before2', 'before1', 'after1', 'after2']
+```
+
+`after` runs in the order written (top to bottom), and `before` runs in reverse (bottom to top). A simple way to remember it: the validators are wrapped around each other in layers, and the one written later is outermost for before and innermost for after.
+
+**WrapValidator** gets a `handler` that runs the normal check, so you can catch its result or its error.
+
+```python
+def default_on_error(v, handler):
+    try:
+        return handler(v)
+    except ValidationError:
+        return 0
+
+class Lenient(BaseModel):
+    n: Annotated[int, WrapValidator(default_on_error)]
+
+Lenient(n="x").n    # 0
+Lenient(n="7").n    # 7
+```
+
+**PlainValidator** replaces the normal check entirely. `Annotated[int, PlainValidator(lambda v: int(v) * 2)]` takes `"4"` and gives `8`. Pydantic checks nothing more, and if the function returns the wrong type that still counts as a pass. Use it only when you know what you are doing.
+
+</Step>
+
+<Step>
+
+## model_validator: rules that span fields
+
+A rule such as "low must not be above high" involves two fields, so it is checked at the model level.
+
+```python
+class Range(BaseModel):
+    low: int
+    high: int
+
+    @model_validator(mode="after")
+    def ordered(self):
+        if self.low > self.high:
+            raise ValueError("low must not be above high")
+        return self
+```
+
+An `after` validator gets the finished instance (`self`) and must return `self`. For `Range(low=5, high=1)` the result is one error with an empty `loc` (it is not tied to any field) and the message `Value error, low must not be above high`.
+
+One thing to know: if any field failed, the `after` validator **does not run** at all. `Range(low="x", high=1)` gives only `int_parsing`. A rule that spans fields therefore never disturbs the report of basic mistakes, and you can write it knowing every field is already valid.
+
+`mode="before"` gets the raw input of the whole model, which can be anything and does not have to be a dict.
+
+```python
+class Point(BaseModel):
+    x: int
+    y: int
+
+    @model_validator(mode="before")
+    @classmethod
+    def from_tuple(cls, data):
+        if isinstance(data, (list, tuple)):
+            return {"x": data[0], "y": data[1]}
+        return data
+
+Point.model_validate((1, 2))    # Point(x=1, y=2)
+```
+
+</Step>
+
+<Step>
+
+## Which exceptions become a ValidationError
+
+Inside a validator you can raise many kinds of exception, but Pydantic catches only some. The exercise tries three:
+
+| raised | result |
+|---|---|
+| `ValueError` | a `ValidationError` of type `value_error` |
+| `AssertionError` (through `assert`) | a `ValidationError` of type `assertion_error` |
+| `TypeError` | **escapes as a plain `TypeError`**, not wrapped |
+
+The reason for the third: a `TypeError` inside a validator is usually a bug in the code (a function called with the wrong arguments), not bad data. Pydantic lets it surface so it does not get mixed up with the user's mistakes ([lesson 6](/en/pydantic/errors/) confirms the same with `ZeroDivisionError`).
+
+<Callout type="warn" title="assert is stripped when you run with -O">
+When you run Python with `python -O`, `assert` statements are removed. A validator that uses `assert` as its check then checks nothing. Use `raise ValueError(...)` for rules that must always run. This is a Python behavior that the Pydantic docs also warn about. The exercises in this lesson were not run with `-O`.
+</Callout>
+
+</Step>
+
+<Step>
+
+## A few more things to know
+
+**Checking list members, or several fields at once.** You can list several field names in `@field_validator`, and the validator of a list field gets the whole list.
+
+```python
+@field_validator("skus")
+@classmethod
+def unique(cls, v):          # v is the whole list
+    if len(set(v)) != len(v):
+        raise ValueError("duplicate sku")
+    return v
+
+@field_validator("first", "second")
+@classmethod
+def upper(cls, v):           # used on two fields
+    return v.upper()
+```
+
+**Validators do not run on defaults.** With `code: str = "abc"` and a validator that uppercases, `D().code` is still `"abc"` but `D(code="abc").code` is `"ABC"`. To make defaults go through too, use `validate_default=True` in `Field` ([lesson 2](/en/pydantic/fields/)).
+
+**They do not run on assignment** unless you turn on `validate_assignment` ([lesson 8](/en/pydantic/models-config/)).
+
+**They work in subclasses.** Validators are inherited from the parent class, and a subclass overrides one by declaring a function with the same name.
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- Is an after validator on a field `n: int` called if the user passes `"abc"`? What about a before validator?
+- Why must `same_password` check `"password" in info.data` before reading it, and which fields are not in `info.data`?
+- You want `Order.model_validate(raw, context={"vat": 0.07})` to make a validator use that tax rate. If the caller forgets to pass a context, what should the validator do?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| `field_validator` in after mode, the returned value replaces the original, the message `Value error, ...` | ran: `exercises/05_validators.py` |
+| an after validator does not run when the type is wrong | ran: `exercises/05_validators.py` |
+| `info.data` holds only earlier fields that passed | ran: `exercises/05_validators.py` |
+| `mode="before"`, the order `['before2', 'before1', 'after1', 'after2']`, `WrapValidator`, `PlainValidator` | ran: `exercises/05_validators.py` |
+| `model_validator` after does not run when a field fails, before takes the raw input | ran: `exercises/05_validators.py` |
+| `ValueError` and `AssertionError` become `ValidationError`, `TypeError` escapes | ran: `exercises/05_validators.py` |
+| validators on a list, on several fields, not run on defaults, `context` | ran: `exercises/05_validators.py` |
+| `assert` is stripped under `-O` | author (Python behavior, not run with `-O`) |
+| validators are inherited and can be overridden | author |
+| the validator kinds are stored and called through `function.rs` (before, after, plain, wrap) | source: `function.rs` in the knowledge graph |
+
+</Step>

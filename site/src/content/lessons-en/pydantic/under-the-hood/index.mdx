@@ -1,0 +1,234 @@
+---
+title: "Under the hood: the core schema and Rust validators"
+summary: What Pydantic does when you write class Order(BaseModel) and run it. The metaclass builds a core schema (a plain dict), pydantic-core in Rust turns it into a validator, plus forward references and model_rebuild, defer_build, and why building a class costs far more than validating.
+order: 10
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [adapters]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## The big picture: two halves
+
+Pydantic V2 is split into two parts written in different languages.
+
+- **pydantic** (Python) reads the type hints, config and decorators of your class and turns them into a description of the checks
+- **pydantic-core** (Rust, connected to Python through PyO3) takes that description and builds the validator and serializer that do the work
+
+The thing between the two halves is the **core schema**, which is a plain Python `dict`. This lesson follows the trail from class creation to a call of `validate_python`, and every step can be checked in `exercises/10_under_the_hood.py`.
+
+The files named here come from the knowledge graph of the 2.13.0 source in `subjects/pydantic/graphs/pydantic-current/` (230 files, split into the layers Public API, Internal Schema Generation, Core Python Bindings and the Rust layers). The version the exercises run is 2.13.0 as well (`verify.py` checks it).
+
+</Step>
+
+<Step>
+
+## At class creation: the metaclass builds a validator
+
+```python
+class Item(BaseModel):
+    sku: str
+    qty: int = Field(gt=0, default=1)
+
+class Order(BaseModel):
+    id: int
+    items: list[Item]
+```
+
+`BaseModel` uses a metaclass named `ModelMetaclass` (`type(Order).__name__`), which runs as soon as Python finishes reading the `class Order` statement. According to the graph, the file `_internal/_model_construction.py` does this work: it inspects the namespace, collects fields, handles private attributes, builds a core schema, and then builds the validator and serializer.
+
+The results are stored on the class:
+
+```python
+Order.__pydantic_complete__          # True   fully built
+Order.__pydantic_validator__         # SchemaValidator   (this type lives in pydantic_core._pydantic_core, compiled Rust code)
+Order.__pydantic_serializer__        # SchemaSerializer
+Order.__pydantic_core_schema__       # the dict handed to Rust
+```
+
+When you write `Order(id=1, ...)`, what is called under the hood is `Order.__pydantic_validator__.validate_python(...)`. The exercise calls it directly to show that you get an `Order` back just the same.
+
+</Step>
+
+<Step>
+
+## What the core schema looks like
+
+Open `Order.__pydantic_core_schema__`:
+
+```python
+schema["type"]                         # 'model'
+schema["cls"] is Order                 # True
+schema["schema"]["type"]               # 'model-fields'
+{k: v["schema"]["type"] for k, v in schema["schema"]["fields"].items()}
+# {'id': 'int', 'items': 'list'}
+```
+
+The structure is a `model` layer wrapping `model-fields`, which holds a dict of each field with the schema of its type. The field `items` is of type `list`, and its `items_schema` is the whole schema of `Item` (`inner["cls"] is Item`). Constraints and defaults are in there too:
+
+```python
+Item.__pydantic_core_schema__["schema"]["fields"]["qty"]["schema"]
+# {'type': 'default', 'schema': {'type': 'int', 'gt': 0}, 'default': 1}
+```
+
+`Field(gt=0, default=1)` in Python becomes two layers: the outer one is `default` with the value 1, and the inner one is an `int` with the condition `gt: 0`. This knowledge pays off, because **JSON Schema** ([lesson 9](/en/pydantic/adapters/)) and **serialization** ([lesson 7](/en/pydantic/serialization/)) read from this same core schema and not directly from the Python class.
+
+The file that defines the shape of these dicts is `pydantic_core/core_schema.py` (TypedDicts for every schema type, and constructor functions such as `int_schema`, `list_schema`, `model_schema`). The file that walks your types and writes the dict is `_internal/_generate_schema.py`, which the graph describes as the largest module on the Python side.
+
+</Step>
+
+<Step>
+
+## You can skip the Python half and talk to Rust directly
+
+Because a core schema is just a dict, you can write one yourself and hand it to Rust, without going through `BaseModel`.
+
+```python
+from pydantic_core import SchemaValidator, core_schema as cs
+
+v = SchemaValidator(cs.list_schema(cs.int_schema(gt=0)))
+v.validate_python(["1", 2])      # [1, 2]
+v.validate_python([0])           # ValidationError of type greater_than
+v.validate_json("[1, 2]")        # [1, 2]
+```
+
+The results match everything you have seen: lax converts `"1"` to `1`, and errors have the same `type` names. That is the evidence that `BaseModel`, `TypeAdapter` and `validate_call` are all thin shells that build a core schema and hand it to this `SchemaValidator`.
+
+On the Rust side, per the graph, `validators/mod.rs` holds `SchemaValidator` (the thing Python calls) and a build step that reads the `type` tag of a schema and builds the matching validator. There is one file per type in the same folder: `int.rs`, `string.rs`, `list.rs`, `model.rs`, `union.rs`, `function.rs` and so on. When an outer validator runs, it calls its inner ones in turn, which matches the nesting of the schema.
+
+</Step>
+
+<Step>
+
+## Input: why Python data and JSON differ in strict mode
+
+In Rust a validator does not read Python objects or JSON directly. It goes through a middle layer, the `Input` trait (`input/input_abstract.rs`). There are three implementations: Python data (`input_python.rs`), parsed JSON (`input_json.rs`) and strings (used for the keys of a JSON object). Each method has a strict version and a lax version.
+
+This is the reason for the behavior in [lesson 3](/en/pydantic/types/#strict-is-different-for-json-input-and-python-input), where strict decides differently depending on the source. The exercise uses a field `pair: tuple[int, int]` in a strict model:
+
+```python
+Strict.model_validate_json('{"pair": [1, 2]}').pair    # (1, 2)  passes, JSON has only arrays
+Strict.model_validate({"pair": [1, 2]})                # error of type tuple_type  a Python list is not a tuple
+Strict.model_validate({"pair": (1, 2)}).pair           # (1, 2)  passes
+```
+
+`model_validate_json` lets the JSON parser (the graph says it uses `jiter`) hand values straight to the validator. That means no Python `dict` and `list` need to be built first, which is the reason behind the advice to use `model_validate_json` when the data starts as a JSON string. A real speed measurement was not done in this lesson.
+
+</Step>
+
+<Step>
+
+## When a class cannot finish building in one go
+
+Sometimes Pydantic cannot build the validator when the `class` statement ends, because a type hint refers to a name that does not exist yet (a forward reference).
+
+```python
+class A(BaseModel):
+    b: "B"          # B has not been declared yet
+
+A.__pydantic_complete__                      # False
+type(A.__pydantic_validator__).__name__      # 'MockValSer'
+A(b=1)    # PydanticUserError: `A` is not fully defined; you should define `B`, then call `A.model_rebuild()`.
+```
+
+At that point `__pydantic_validator__` is a stand-in (`MockValSer`, from `_internal/_mock_val_ser.py` according to the graph) that waits to be used, then tries to build the real thing, or tells you what is missing.
+
+After you declare `B`, calling `A.model_rebuild()` gives a real validator (`A(b={"x": "1"}).b.x == 1`). In some cases you do not even need to call it: a class `C` refers to `D`, which is declared right after it, and on the first call `C(d={"x": 1})` Pydantic tries to rebuild by itself, and `C.__pydantic_complete__` becomes `True`.
+
+If you already know you want to postpone the build, use `defer_build`:
+
+```python
+class Lazy(BaseModel):
+    model_config = ConfigDict(defer_build=True)
+    x: int
+
+Lazy.__pydantic_complete__    # False
+Lazy(x=1)
+Lazy.__pydantic_complete__    # True   built on first use
+```
+
+It suits a program with hundreds of models of which only a few are used in a given run, since the build cost of the unused ones is postponed indefinitely.
+
+</Step>
+
+<Step>
+
+## The cost is in creating the class, not in validating
+
+The exercise times two things on the machine that ran it:
+
+```text
+create 200 classes 42 ms, validate 200 times 0.30 ms
+```
+
+Creating 200 classes took 42 ms, and validating 200 times with an already built validator took 0.30 ms. The numbers depend on the machine, and the two operations do different work. The conclusion the exercise can `assert` is that creating costs more than 20 times what validating does.
+
+What this means for how you write code:
+
+- Declare models at module level, once. Do not create classes or a `TypeAdapter` inside a function that is called repeatedly ([lesson 9](/en/pydantic/adapters/)).
+- Slow program startup comes from building models. If you have many, try `defer_build`.
+- `import pydantic` itself is cheap, because `pydantic/__init__.py` loads names lazily: at first `'pydantic.main' in sys.modules` is `False`, and it becomes `True` the first time you touch `pydantic.BaseModel`.
+
+<Callout type="note" title="A validator can describe itself">
+`repr(Order.__pydantic_validator__)` prints the structure of the validator Rust actually built. The exercise gets 117 lines, starting with `SchemaValidator(title="Order", validator=Model(` and containing a `ModelFieldsValidator`. It is a way to see what a schema was turned into when you are in doubt.
+</Callout>
+
+</Step>
+
+<Step>
+
+## If you want to read the source next
+
+In the order the story flows in this lesson (file names per the v2.13.0 graph):
+
+| step | file | role |
+|---|---|---|
+| 1 | `pydantic/main.py` | `BaseModel` and `create_model` |
+| 2 | `pydantic/_internal/_model_construction.py` | the metaclass, building the class |
+| 3 | `pydantic/_internal/_generate_schema.py` | walking types and writing the core schema |
+| 4 | `pydantic_core/core_schema.py` | the shape of schemas |
+| 5 | `pydantic-core/src/validators/mod.rs` | `SchemaValidator` and the build step |
+| 6 | `pydantic-core/src/validators/model.rs`, `model_fields.rs` | checking a model, matching keys to fields |
+| 7 | `pydantic-core/src/validators/union.rs`, `function.rs` | unions ([lesson 4](/en/pydantic/unions/)) and validators you write ([lesson 5](/en/pydantic/validators/)) |
+| 8 | `pydantic-core/src/errors/validation_exception.rs` | `ValidationError` ([lesson 6](/en/pydantic/errors/)) |
+| 9 | `pydantic-core/src/serializers/mod.rs` | `SchemaSerializer` ([lesson 7](/en/pydantic/serialization/)) |
+
+You can open the full graph with `/understand-dashboard` at `subjects/pydantic/graphs/pydantic-current/`.
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- What is `Order.__pydantic_validator__`, when is it built, and what language is it written in?
+- Why do JSON Schema and the serializer know about `Field(gt=0)` although they do not read the Python class while running?
+- A model refers to a forward reference that is not declared yet. What happens if you build an instance right away, and how do you fix it?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| `ModelMetaclass`, `__pydantic_complete__`, the types of the validator and serializer, living in `pydantic_core._pydantic_core` | ran: `exercises/10_under_the_hood.py` |
+| the structure of the core schema of `Order` and `Item.qty` | ran: `exercises/10_under_the_hood.py` |
+| using `SchemaValidator` with `core_schema` directly | ran: `exercises/10_under_the_hood.py` |
+| strict `tuple` differs between JSON and Python | ran: `exercises/10_under_the_hood.py` |
+| forward references: `MockValSer`, `PydanticUserError`, `model_rebuild`, automatic rebuild, `defer_build` | ran: `exercises/10_under_the_hood.py` |
+| 42 ms against 0.30 ms (numbers from the machine that ran it, the assert is above 20 times), lazy import, the 117-line `repr` | ran: `exercises/10_under_the_hood.py` |
+| file names, roles and layers of the source (metaclass, `_generate_schema.py`, `validators/mod.rs`, the `Input` trait, `jiter`, `MockValSer`) | source: knowledge graph v2.13.0 (read from each file's summary, not every line of code) |
+| JSON Schema and the serializer read from the core schema | source: `json_schema.py` and `serializers/mod.rs` in the knowledge graph |
+| no Python `dict` is built first when you use `model_validate_json`, and the advice to use it | author (from the summary of `input_json.rs`, speed not measured) |
+| when to use `defer_build` | author |
+
+</Step>
