@@ -1,0 +1,174 @@
+---
+title: Project setup and choosing what to run
+summary: With hundreds of tests you configure once in pyproject.toml and run only the part you need. This lesson covers config, folder layout, -k, node ids, -x, --lf, --ff, parallel runs with xdist, and a coverage report.
+order: 7
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [markers, fixtures]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Configure once, in pyproject.toml
+
+Instead of typing the same options every time, put them in `[tool.pytest.ini_options]` in `pyproject.toml` (Pytest also reads `pytest.ini`). These are the settings of the exercise project:
+
+```toml
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["exercises"]
+addopts = "-ra"
+markers = [
+    "slow: a test that takes a while",
+    "integration: a test that uses more than one module",
+]
+```
+
+| key | What it does |
+|---|---|
+| `pythonpath` | adds a folder to `sys.path` so `import shop` works without installing the package |
+| `testpaths` | where to look for tests when you just run `pytest` |
+| `addopts` | options added every time; `-ra` prints the reasons for skips, xfails and so on |
+| `markers` | registers markers ([lesson 5](/en/pytest/markers/#register-markers-so-typos-get-caught)) |
+
+The report header says where the settings came from: `rootdir: ...` and `configfile: pyproject.toml`.
+
+`pythonpath` matters. If you turn it off (`pytest -o pythonpath= exercises/01_first_test`) you get `ModuleNotFoundError: No module named 'shop'` at collection time (ran: `verify.py`).
+
+</Step>
+
+<Step>
+
+## Folder layout
+
+```text
+code/
+  pyproject.toml
+  src/shop/            the code under test
+  exercises/NN_name/   tests that must pass (each folder may have its own conftest.py)
+  demos/NN_name/       tests that fail on purpose, to read the output
+```
+
+`testpaths = ["exercises"]` makes a plain `pytest` leave `demos/` alone, so the whole suite is green: **85 passed, 2 skipped, 3 xfailed** (ran: `verify.py`). A demo has to be run by naming its path.
+
+Thoughts on where to put tests (author):
+
+- Keep tests structurally close to the code (`tests/` or `exercises/`, with folder names that mirror features), and put `conftest.py` in the folder whose tests share that fixture.
+- Separate slow or externally dependent tests with a marker (`slow`, `integration`) rather than a folder. It is easier to select by situation.
+
+</Step>
+
+<Step>
+
+## Choosing what to run: path, node id and -k
+
+| You want | Command | Result (ran: `verify.py`) |
+|---|---|---|
+| a whole folder | `pytest exercises/05_markers` | 6 passed, 2 skipped, 2 xfailed |
+| a whole file | `pytest exercises/03_fixtures/test_fixtures.py` | 12 passed |
+| one test by node id | `pytest exercises/03_fixtures/test_fixtures.py::test_save_and_load_with_tmp_path` | 1 passed |
+| by name | `pytest -k coupon exercises/04_parametrize` | 3 passed, 19 deselected |
+| by marker | `pytest -m "not slow" exercises/05_markers` | 4 passed, 2 skipped, 2 xfailed, 2 deselected |
+
+`-k` accepts `and`, `or` and `not`, and matches parts of the test name (including the ids from parametrize). If you are not sure what you can select, use `--collect-only -q` to list all tests without running them.
+
+If an option selects nothing, the exit code is 5 ([lesson 1](/en/pytest/first-test/#exit-codes-what-ci-reads)).
+
+</Step>
+
+<Step>
+
+## The fix-it loop: -x, --lf, --ff
+
+While fixing a bug you want to rerun the tests that failed, not the whole suite.
+
+| option | What it does | Result for `demos/01_failures` (3 failed, 1 error) |
+|---|---|---|
+| `-x` | stop after the first failure | `1 failed`, and the remaining tests are not run |
+| `--lf` (last failed) | run only the tests that failed last time | reruns 3 failed, 1 error |
+| `--ff` (failed first) | run last time's failures first, then the rest | |
+
+(ran: `verify.py`) Pytest remembers the previous result in the `.pytest_cache` folder, which should stay out of git.
+
+</Step>
+
+<Step>
+
+## Parallel runs with pytest-xdist
+
+With thousands of tests you can use several CPUs with `pytest-xdist`:
+
+```bash
+uv run pytest -n 2 exercises/04_parametrize
+```
+
+The result is the same as a serial run: 21 passed, 1 xfailed (ran: `verify.py`). The important condition is that the tests are independent, because the order and which tests run together change, and tests that share state start to fail at random ([lesson 8](/en/pytest/test-design/#tests-must-be-independent)).
+
+</Step>
+
+<Step>
+
+## coverage: which lines never ran
+
+`pytest-cov` measures which lines of your code ran during the tests:
+
+```bash
+uv run pytest --cov=shop --cov-report=term-missing
+```
+
+```text
+Name                   Stmts   Miss  Cover   Missing
+----------------------------------------------------
+src\shop\__init__.py       0      0   100%
+src\shop\cart.py          46      1    98%   34
+src\shop\checkout.py      14      0   100%
+src\shop\net.py            2      0   100%
+src\shop\pricing.py       15      1    93%   21
+src\shop\rates.py         10      0   100%
+src\shop\receipt.py        9      0   100%
+src\shop\sale.py           7      0   100%
+----------------------------------------------------
+TOTAL                    103      2    98%
+```
+
+The `Missing` column points at lines. Line 34 of `cart.py` is `raise ValueError(... price must not be negative ...)`, so no test passes a negative price yet, and line 21 of `pricing.py` is `with_tax`, which nobody calls (ran: `verify.py`).
+
+<Callout type="warn" title="Coverage says what is not tested, not that it is tested well">
+98% does not mean the tests are good. A line run by a test with no assert still counts as covered. Use coverage to find **gaps** (the lines in Missing), not as a target to push to 100% (author).
+</Callout>
+
+<Callout type="try" title="Try it in this repo">
+Write a test in `exercises/01_first_test` for `Cart().add("apple", price=-1)` using `pytest.raises`, then run coverage again. Does the Missing entry for `cart.py` go away, and what does the TOTAL become?
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- Your team has 2,000 tests and some need a real database. How would you set up markers and CI commands?
+- You just fixed a bug and want to rerun only the tests that failed a moment ago. Which option?
+- Why might running with `-n 4` make a test that used to pass start failing at random?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| the project config, `pythonpath` turned off breaks the import, a plain `pytest` gives 85 passed, 2 skipped, 3 xfailed | ran: `verify.py` |
+| results of selecting by path, node id, `-k`, `-m` | ran: `verify.py` |
+| results of `-x`, `--lf`, `--ff`, `-n 2` | ran: `verify.py` |
+| the coverage table and Missing lines 34 and 21 | ran: `verify.py` |
+| thoughts on laying out test folders, the caution about coverage | author |
+
+</Step>

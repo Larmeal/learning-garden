@@ -1,0 +1,185 @@
+---
+title: ออกแบบ Test ที่ดี
+summary: เครื่องมือครบแล้ว แต่ test ที่ดีคือ test ที่อ่านเป็นประโยค ล้มเพราะเหตุผลเดียว และไม่พังเมื่อโค้ดข้างในเปลี่ยน บทนี้สรุปด้วย Arrange-Act-Assert, ตรวจ behaviour แทนรายละเอียดภายใน, ขอบเขตและกรณีล้ม, ความอิสระของ test และโจทย์ปิดท้าย
+order: 8
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [isolation, parametrize]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Test ที่ดีหน้าตาเป็นอย่างไร
+
+เจ็ดบทที่ผ่านมาสอน **เครื่องมือ** บทนี้ว่าด้วย **วิจารณญาณ** ว่าจะเขียน test ตัวไหน และเขียนอย่างไร ตัวชี้วัดที่ใช้ (ผู้เขียน)
+
+| คุณสมบัติ | หมายความว่า |
+|---|---|
+| อ่านเป็นประโยค | ชื่อ test บอกพฤติกรรม เช่น `test_a_declined_card_leaves_the_cart_untouched` |
+| ล้มเพราะเหตุผลเดียว | test ล้มแล้วรู้ทันทีว่าพฤติกรรมไหนพัง |
+| อิสระ | รันตัวเดียว รันกลับลำดับ หรือรันขนานได้ผลเหมือนกัน |
+| กำหนดผลได้ (deterministic) | ไม่พึ่งเวลา สุ่ม เครือข่าย ([บท 6](/pytest/isolation/#test-ที่พึ่งโลกภายนอกจะเชื่อไม่ได้)) |
+| ไม่พังเพราะ refactor | ตรวจสิ่งที่ผู้เรียกใช้เห็น ไม่ใช่โครงภายใน |
+
+</Step>
+
+<Step>
+
+## Arrange, Act, Assert
+
+แบ่ง test เป็นสามช่วงที่เห็นชัด: จัดของ (Arrange) ลงมือ (Act) ตรวจ (Assert)
+
+```python
+def test_checkout_charges_the_cart_total(cart_with_one_apple):
+    # Arrange
+    gateway = FakeGateway()
+    # Act
+    charged = checkout(cart_with_one_apple, gateway, "A-1")
+    # Assert
+    assert charged == 100
+    assert gateway.charges == [(100, "A-1")]
+```
+
+ช่วง Act ควรมีบรรทัดเดียว ถ้ามีหลายบรรทัดแสดงว่า test กำลังทดสอบหลายพฤติกรรม ให้แยก ในแบบฝึก `exercises/08_design` มี 12 test ที่ผ่านทั้งหมด (รัน: `exercises/08_design`) ชื่อเรียงเป็นรายการพฤติกรรมของ checkout อ่านรายชื่อก็เข้าใจสเปก
+
+```text
+test_checkout_charges_the_cart_total
+test_checkout_applies_the_coupon_before_charging
+test_checkout_empties_the_cart_after_a_successful_charge
+test_a_declined_card_leaves_the_cart_untouched
+test_checkout_of_an_empty_cart_never_reaches_the_gateway
+test_an_unknown_coupon_is_an_error_and_charges_nothing
+```
+
+</Step>
+
+<Step>
+
+## ทดสอบ Behaviour ไม่ใช่โครงภายใน
+
+เทียบสอง test ที่ผ่านทั้งคู่วันนี้ (รัน: `exercises/08_design`)
+
+```python
+def test_brittle_version_looks_inside(cart_with_one_apple):
+    assert list(cart_with_one_apple._lines) == ["apple"]
+
+def test_robust_version_uses_the_public_interface(cart_with_one_apple):
+    assert cart_with_one_apple.skus() == ["apple"]
+    assert cart_with_one_apple.total() == 100
+```
+
+ตัวแรกอ่าน `_lines` ซึ่งเป็นรายละเอียดภายใน ถ้าวันหนึ่งเราเปลี่ยนโครงเก็บข้อมูลเป็นอย่างอื่น test นี้ล้มทั้งที่ลูกค้าไม่เห็นอะไรเปลี่ยน และมันไม่สังเกตด้วยว่า `total()` ผิดหรือไม่ ตัวที่สองตรวจสิ่งที่ผู้เรียกใช้เห็น จึงรอดการ refactor และจับ bug ของ `total()` ได้ (ผู้เขียน)
+
+คำถามตรวจ: "ถ้าฉันเขียนฟังก์ชันนี้ใหม่ทั้งหมดแต่ให้ผลเหมือนเดิม test ของฉันควรยังเขียว ใช่ไหม" ถ้าไม่ใช่ test กำลังผูกกับวิธีทำ ไม่ใช่ผลที่ต้องการ
+
+</Step>
+
+<Step>
+
+## เส้นแบ่งและกรณีล้ม
+
+bug ชอบอยู่ที่รอยต่อ ทดสอบทั้งสองข้างของทุกเส้นแบ่ง `shipping_fee` ส่งฟรีตั้งแต่ 500 (รัน: `exercises/08_design`)
+
+```python
+@pytest.mark.parametrize("total, fee", [(499.99, 50), (500, 0), (500.01, 0)])
+def test_shipping_threshold_boundary(total, fee):
+    assert shipping_fee(total) == fee
+```
+
+และอย่าลืมทางล้ม test หลายตัวใน `08_design` ตรวจว่าเมื่อผิดพลาด **ไม่มีผลข้างเคียง**
+
+- ตะกร้าว่าง → ไม่เรียก gateway เลย (`gateway.charges == []`)
+- คูปองไม่มีจริง → โยน `KeyError` และไม่เก็บเงิน และตะกร้ายังอยู่
+- บัตรถูกปฏิเสธ → ตะกร้ายังมีของ
+
+การทดสอบว่า "ไม่เกิดอะไร" ในทางล้มเป็นสิ่งที่ถูกลืมบ่อยที่สุด และเป็นต้นเหตุของ bug ที่ลูกค้าเห็น เช่น เก็บเงินแต่ไม่ส่งของ
+
+</Step>
+
+<Step>
+
+## Test ต้องอิสระต่อกัน
+
+`demos/08_order_dependent` มีสอง test ที่แชร์ตะกร้าระดับ module
+
+```python
+cart = Cart()        # สร้างครั้งเดียวตอน import
+
+def test_add():
+    cart.add("apple", price=10)
+    assert cart.qty("apple") == 1
+
+def test_total():
+    assert cart.total() == 10     # จริงก็ต่อเมื่อ test_add รันก่อน
+```
+
+รันทั้งไฟล์ **ผ่านทั้งสอง** (2 passed) แต่รัน `test_total` ตัวเดียวด้วย node id จะ **ล้ม** (1 failed) (รัน: `demos/08_order_dependent`, `verify.py`) นี่คืออาการที่น่ากลัวที่สุด: CI เขียวทุกวัน แล้ววันหนึ่งมีคนรันเฉพาะตัว หรือเปิด `-n 4` หรือสลับลำดับ แล้วทุกอย่างแดง
+
+วิธีแก้คือทำให้แต่ละ test สร้างของที่ใช้เอง ด้วย fixture ระดับ function ([บท 3](/pytest/fixtures/#scope-สร้างบ่อยแค่ไหน)) แล้ว `test_total` จะเตรียมตะกร้าที่มีแอปเปิลเองแทนที่จะหวังว่าคนอื่นเตรียมให้
+
+</Step>
+
+<Step>
+
+## Regression Test: Bug Report ที่กลายเป็นเกราะ
+
+เมื่อพบ bug เขียน test ที่ทำให้ bug แสดงตัวก่อน แล้วค่อยแก้ test นั้นอยู่ต่อเป็นเกราะป้องกันไม่ให้ bug กลับมา
+
+```python
+def test_coupon_lookup_is_case_insensitive():
+    """Bug report #12: 'save10' typed in lower case was rejected."""
+    assert discount_for("save10") == discount_for("SAVE10")
+```
+
+docstring หรือชื่อบอกที่มา ใครมาแก้โค้ดตรงนี้ทีหลังจะรู้ว่ากติกานี้มีเหตุผล (ผู้เขียน)
+
+</Step>
+
+<Step>
+
+## โจทย์ปิดท้าย: ทำให้ Test ที่ Xfail ผ่าน
+
+กลับไปที่[บท 5](/pytest/markers/#xfail-รู้ว่าล้ม-แต่ยังรันอยู่) มี `test_two_coupons_should_not_stack` ที่ถูกทำเครื่องหมาย xfail เพราะธุรกิจยังไม่ตัดสินใจ สมมติธุรกิจตัดสินใจแล้วว่า **คูปองใช้ได้ครั้งเดียวต่อตะกร้า** ทำตามขั้นนี้เป็นการฝึกทุกอย่างในเส้นทาง
+
+1. คัดลอก test จาก `exercises/05_markers` แล้วลบ `xfail` ออก รัน ยืนยันว่า **ล้ม** (red)
+2. ออกแบบ: `apply_coupon` ควรจำคูปองที่ใช้ไปในตัว `Cart` ไหม หรือควรคืนตะกร้าใหม่ ตัดสินใจแล้วเขียนข้อกำหนดเป็นประโยคก่อน
+3. เขียน test เพิ่มสำหรับกรณีขอบ: ใช้คูปองเดิมซ้ำ, ใช้คูปองใหม่หลังเอาของออกจนว่าง, คูปองที่ไม่มีจริง ใช้ `parametrize` ถ้ามีหลายกรณี
+4. แก้โค้ดให้ผ่าน (green)
+5. เก็บกวาด (refactor) แล้วรันทั้งชุด รัน `--cov` ดูว่ามีบรรทัดใหม่ที่ Missing ไหม
+6. ตรวจ: ใช้ `FakeGateway` ผ่าน `checkout` ด้วยคูปอง ยังได้ยอดที่ถูกต้องไหม ยังไม่มีใคร assert ในโค้ดภายใน (`_lines`) ใช่ไหม
+
+ไม่มีเฉลยตายตัว เพราะการออกแบบข้อ 2 เป็นการตัดสินใจ และ test ที่ดีคือ test ที่บอกการตัดสินใจนั้นชัดเจน
+
+<Callout type="try" title="ลองทำใน repo นี้">
+ทำโจทย์ข้างบนใน `subjects/pytest/code/` จากนั้นรัน `uv run python verify.py` ตัวเลขที่เปลี่ยนไปคือหลักฐานว่า test ชุดใหม่ถูกเพิ่มเข้ามา (ถ้า verify ไม่ผ่านเพราะจำนวน test เปลี่ยน ให้แก้ตัวเลขใน `verify.py` ให้ตรง)
+</Callout>
+
+</Step>
+
+<Step>
+
+## เช็กตัวเอง
+
+- test ของคุณมีชื่อว่า `test_1`, `test_2` อ่านแล้วบอกอะไรไม่ได้ ถ้าคุณเปลี่ยนชื่อเป็นประโยคพฤติกรรม ได้อะไรเพิ่ม
+- test ใดในโค้ดที่คุณเขียนล่าสุดจะล้มถ้าเปลี่ยนชื่อ attribute ภายใน และคุณแก้ให้ใช้ interface สาธารณะได้อย่างไร
+- ถ้า CI เขียวทุกวันแต่รัน `pytest path::test_x` ตัวเดียวแล้วล้ม มันบอกอะไรเกี่ยวกับชุด test
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| 12 test ใน `08_design` ผ่าน, ชื่อ test ที่เรียงเป็นรายการพฤติกรรม, ทั้ง brittle และ robust ผ่านวันนี้, boundary 499.99/500/500.01, ทางล้มไม่มีผลข้างเคียง, regression test | รัน: `exercises/08_design` |
+| รันทั้งไฟล์ได้ 2 passed แต่ `test_total` ตัวเดียวล้ม | รัน: `demos/08_order_dependent`, `verify.py` |
+| คุณสมบัติของ test ที่ดี, ทำไม brittle พังเมื่อ refactor, คำถามตรวจ, ขั้นตอนโจทย์ปิดท้าย | ผู้เขียน |
+
+</Step>

@@ -1,0 +1,185 @@
+---
+title: Designing good tests
+summary: You have the tools. A good test reads like a sentence, fails for one reason, and does not break when the code inside changes. This lesson wraps up with Arrange-Act-Assert, testing behaviour instead of internals, boundaries and failure paths, independence between tests, and a closing exercise.
+order: 8
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [isolation, parametrize]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## What a good test looks like
+
+The last seven lessons taught **tools**. This one is about **judgement**: which tests to write, and how. The yardsticks used here are (author):
+
+| Property | It means |
+|---|---|
+| reads like a sentence | the name states a behaviour, such as `test_a_declined_card_leaves_the_cart_untouched` |
+| fails for one reason | when it fails you know straight away which behaviour broke |
+| independent | running it alone, in reverse order, or in parallel gives the same result |
+| deterministic | it does not depend on time, randomness or the network ([lesson 6](/en/pytest/isolation/#a-test-that-depends-on-the-outside-world-cannot-be-trusted)) |
+| survives a refactor | it checks what the caller sees, not the inner structure |
+
+</Step>
+
+<Step>
+
+## Arrange, Act, Assert
+
+Split a test into three visible parts: set things up (Arrange), do the thing (Act), check (Assert).
+
+```python
+def test_checkout_charges_the_cart_total(cart_with_one_apple):
+    # Arrange
+    gateway = FakeGateway()
+    # Act
+    charged = checkout(cart_with_one_apple, gateway, "A-1")
+    # Assert
+    assert charged == 100
+    assert gateway.charges == [(100, "A-1")]
+```
+
+The Act part should be one line. If it is several, the test is probably testing several behaviours, so split it. In the exercise `exercises/08_design` has 12 tests and they all pass (ran: `exercises/08_design`). Their names read as a list of the behaviours of checkout, so reading the names is reading the spec:
+
+```text
+test_checkout_charges_the_cart_total
+test_checkout_applies_the_coupon_before_charging
+test_checkout_empties_the_cart_after_a_successful_charge
+test_a_declined_card_leaves_the_cart_untouched
+test_checkout_of_an_empty_cart_never_reaches_the_gateway
+test_an_unknown_coupon_is_an_error_and_charges_nothing
+```
+
+</Step>
+
+<Step>
+
+## Test behaviour, not internals
+
+Compare two tests that both pass today (ran: `exercises/08_design`):
+
+```python
+def test_brittle_version_looks_inside(cart_with_one_apple):
+    assert list(cart_with_one_apple._lines) == ["apple"]
+
+def test_robust_version_uses_the_public_interface(cart_with_one_apple):
+    assert cart_with_one_apple.skus() == ["apple"]
+    assert cart_with_one_apple.total() == 100
+```
+
+The first reads `_lines`, an internal detail. If we change how the data is stored, this test fails although no customer sees any change, and it would not notice if `total()` were wrong. The second checks what a caller sees, so it survives a refactor and can catch a bug in `total()` (author).
+
+A question to ask: "If I rewrote this function completely but gave the same results, should my test still be green?" If not, the test is tied to how the work is done, not to the result you want.
+
+</Step>
+
+<Step>
+
+## Boundaries and failure paths
+
+Bugs like to live at the seams. Test both sides of every boundary. `shipping_fee` is free from 500 (ran: `exercises/08_design`):
+
+```python
+@pytest.mark.parametrize("total, fee", [(499.99, 50), (500, 0), (500.01, 0)])
+def test_shipping_threshold_boundary(total, fee):
+    assert shipping_fee(total) == fee
+```
+
+And do not forget the failing paths. Several tests in `08_design` check that when something goes wrong there are **no side effects**:
+
+- an empty cart: the gateway is never called (`gateway.charges == []`)
+- a coupon that does not exist: `KeyError` is raised, nobody is charged, and the cart is still there
+- a declined card: the cart still has its items
+
+Testing that "nothing happens" on the failing path is what people forget most, and it is behind bugs customers notice, such as charging for an order that is never sent.
+
+</Step>
+
+<Step>
+
+## Tests must be independent
+
+`demos/08_order_dependent` has two tests that share a module-level cart:
+
+```python
+cart = Cart()        # created once at import time
+
+def test_add():
+    cart.add("apple", price=10)
+    assert cart.qty("apple") == 1
+
+def test_total():
+    assert cart.total() == 10     # true only if test_add ran first
+```
+
+Run the whole file and **both pass** (2 passed), but run `test_total` alone by node id and it **fails** (1 failed) (ran: `demos/08_order_dependent`, `verify.py`). This is the most frightening symptom: CI is green every day, and then one day someone runs a single test, turns on `-n 4`, or the order changes, and everything goes red.
+
+The fix is to have each test build what it uses, with a function-scoped fixture ([lesson 3](/en/pytest/fixtures/#scope-how-often-it-is-created)). Then `test_total` prepares a cart with an apple itself instead of hoping someone else did.
+
+</Step>
+
+<Step>
+
+## A regression test: a bug report that becomes armour
+
+When you find a bug, write the test that makes the bug show itself first, then fix the code. That test stays as protection so the bug cannot come back.
+
+```python
+def test_coupon_lookup_is_case_insensitive():
+    """Bug report #12: 'save10' typed in lower case was rejected."""
+    assert discount_for("save10") == discount_for("SAVE10")
+```
+
+The docstring or name records where it came from, so anyone who changes this code later knows the rule has a reason (author).
+
+</Step>
+
+<Step>
+
+## Closing exercise: make the xfail test pass
+
+Go back to [lesson 5](/en/pytest/markers/#xfail-known-to-fail-still-run). `test_two_coupons_should_not_stack` is marked xfail because the business had not decided. Suppose it now decides that **a coupon may be used only once per cart**. Doing this exercise practises everything in the path.
+
+1. Copy the test from `exercises/05_markers` and remove the `xfail`. Run it and confirm that it **fails** (red).
+2. Design: should `apply_coupon` remember the coupons used inside `Cart`, or should it return a new cart? Decide, and write the requirement as a sentence first.
+3. Write more tests for the edge cases: using the same coupon twice, using a new coupon after removing everything, a coupon that does not exist. Use `parametrize` when there are several cases.
+4. Change the code until they pass (green).
+5. Tidy up (refactor) and run the whole suite. Run `--cov` to see whether any new line is in Missing.
+6. Check: does `FakeGateway` through `checkout` with a coupon still get the right amount? And did nobody assert on something internal (`_lines`)?
+
+There is no fixed answer, because the design in step 2 is a decision, and a good test is one that states that decision clearly.
+
+<Callout type="try" title="Try it in this repo">
+Do the exercise above in `subjects/pytest/code/`, then run `uv run python verify.py`. The numbers that change are the evidence that the new tests were added (if verify fails because the number of tests changed, update the numbers in `verify.py` to match).
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- Your tests are named `test_1` and `test_2`, and reading them tells you nothing. What do you gain by renaming them as behaviour sentences?
+- Which test in the code you wrote most recently would fail if you renamed an internal attribute, and how would you change it to use the public interface?
+- If CI is green every day but `pytest path::test_x` fails when run alone, what does that tell you about the suite?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| the 12 tests in `08_design` pass, the test names as a list of behaviours, both brittle and robust pass today, boundaries 499.99/500/500.01, failure paths with no side effects, the regression test | ran: `exercises/08_design` |
+| the whole file gives 2 passed but `test_total` alone fails | ran: `demos/08_order_dependent`, `verify.py` |
+| the properties of a good test, why the brittle test breaks on refactor, the check question, the steps of the closing exercise | author |
+
+</Step>

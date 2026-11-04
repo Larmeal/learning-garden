@@ -1,0 +1,173 @@
+---
+title: Marker
+summary: marker คือป้ายที่แปะบน test เพื่อบอก Pytest ว่าให้ข้าม ให้คาดว่าจะล้ม หรือให้จัดกลุ่ม บทนี้สอน skip, skipif, xfail (รวมแบบ strict), marker ของเราเอง และการเลือกรันด้วย -m
+order: 5
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [first-test]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## ป้ายบน Test
+
+ทุกทีมจะมี test ที่ "ยังรันไม่ได้" เช่น ฟีเจอร์ยังไม่เสร็จ รันได้เฉพาะบางระบบปฏิบัติการ หรือเป็น bug ที่รู้แล้วแต่ยังไม่แก้ ทางลัดที่แย่ที่สุดคือคอมเมนต์ test ทิ้ง เพราะมันหายไปจากรายงาน **marker** ทำให้ test ยังอยู่ในรายงานพร้อมเหตุผล
+
+แบบฝึก `exercises/05_markers` มี 10 test ผลคือ 6 passed, 2 skipped, 2 xfailed (รัน: `exercises/05_markers`) บรรทัดผลแบบย่อ `s.sxx.....` เรียงตามลำดับ test ในไฟล์
+
+</Step>
+
+<Step>
+
+## Skip และ Skipif: ไม่รัน
+
+```python
+@pytest.mark.skip(reason="the invoice PDF feature is not built yet")
+def test_invoice_pdf(): ...
+
+@pytest.mark.skipif(sys.version_info < (3, 99), reason="needs a Python that does not exist yet")
+def test_skipped_because_the_condition_is_true(): ...
+```
+
+`skip` ข้ามเสมอ `skipif` ข้ามเมื่อเงื่อนไขเป็นจริง ในแบบฝึกเงื่อนไข `sys.platform == "plan9"` เป็นเท็จ test จึงรัน ส่วน `sys.version_info < (3, 99)` เป็นจริง test จึงข้าม
+
+บรรทัดสรุปท้ายรายงานบอกเหตุผลเพราะ `-ra` ตั้งไว้ใน `addopts` ของโปรเจกต์ ([บท 7](/pytest/project/#ตั้งค่าครั้งเดียว-ใน-pyprojecttoml))
+
+```text
+SKIPPED [1] exercises\05_markers\test_markers.py:10: the invoice PDF feature is not built yet
+SKIPPED [1] exercises\05_markers\test_markers.py:20: needs a Python that does not exist yet
+```
+
+ถ้าต้องตัดสินใจระหว่างรัน (หลังจากอ่านข้อมูลบางอย่างแล้ว) เรียก `pytest.skip("เหตุผล")` ในตัว test ได้ แบบฝึกมีตัวอย่าง `test_imperative_skip` ซึ่งในรอบนี้เงื่อนไขไม่เป็นจริงจึงรันจนจบและผ่าน
+
+<Callout type="warn" title="skip ที่ไม่มีวันหมดอายุ">
+test ที่ถูก skip นานๆ ก็เหมือนตายแล้ว ใส่ `reason` ที่ระบุว่ารออะไร (ตั๋วงาน หรือเวอร์ชัน) และตรวจรายการ SKIPPED ทุกครั้งที่ปล่อยเวอร์ชัน (ผู้เขียน)
+</Callout>
+
+</Step>
+
+<Step>
+
+## Xfail: รู้ว่าล้ม แต่ยังรันอยู่
+
+`xfail` บอกว่า test นี้ **คาดว่าจะล้ม** Pytest ยังรันมัน แต่ถ้าล้มจะนับเป็น `xfailed` ไม่ทำให้ชุดทดสอบแดง
+
+```python
+@pytest.mark.xfail(reason="coupons stack, which the business has not decided on yet")
+def test_two_coupons_should_not_stack():
+    cart = Cart()
+    cart.add("apple", price=100)
+    after_one = cart.apply_coupon("SAVE10")
+    after_two = cart.apply_coupon("SAVE20")
+    assert after_two == after_one
+```
+
+test นี้เขียนพฤติกรรมที่ **ต้องการ** ไว้ก่อน วันนี้ล้ม (90 กับ 80) จึงเป็น xfailed เมื่อมีคนแก้โค้ดจนผ่าน จะได้รู้เพราะมันเปลี่ยนสถานะ
+
+ปัญหาคือ ถ้า xfail ธรรมดาเริ่มผ่าน ก็ไม่มีใครถูกบังคับให้มาลบเครื่องหมาย `strict=True` จัดการข้อนี้ (รัน: `demos/05_markers`)
+
+```python
+@pytest.mark.xfail(strict=True, reason="was a known bug")
+def test_strict_xfail_that_now_passes():
+    assert Cart().is_empty()
+```
+
+```text
+[XPASS(strict)] was a known bug
+FAILED demos/05_markers/test_marker_problems.py::test_strict_xfail_that_now_passes
+```
+
+เมื่อ xfail แบบ strict ผ่าน มันกลายเป็นล้ม เพื่อเตือนให้ลบ marker ใช้ strict กับ bug ที่รู้แล้ว ส่วน xfail ธรรมดาเหมาะกับกรณีที่ผลไม่แน่นอน (ผู้เขียน) และใส่ `raises=KeyError` เพื่อให้ xfail จับเฉพาะ exception ชนิดที่คาด ([บท 4](/pytest/parametrize/#ใส่-mark-ให้บางแถวด้วย-pytestparam) ใช้แบบนี้)
+
+</Step>
+
+<Step>
+
+## Marker ของเราเอง
+
+ตั้งชื่อเองได้ เช่น `slow` และ `integration` แล้วแปะบน test
+
+```python
+@pytest.mark.slow
+def test_a_slow_one(): ...
+
+@pytest.mark.slow
+@pytest.mark.integration
+def test_both_marks(): ...
+```
+
+แล้วเลือกรันด้วย `-m` ซึ่งรับนิพจน์ได้ (รัน: `verify.py`)
+
+| คำสั่ง | ผล (จาก 10 test ใน `05_markers`) |
+|---|---|
+| `-m "not slow"` | 4 passed, 2 skipped, 2 xfailed, 2 deselected |
+| `-m slow` | 2 passed, 8 deselected |
+| `-m "slow and integration"` | 1 passed, 9 deselected |
+
+ใช้ตอน CI แยกชั้น: รัน `-m "not slow"` ทุก commit และรันทั้งหมดตอนกลางคืน
+
+</Step>
+
+<Step>
+
+## ลงทะเบียน Marker กันพิมพ์ผิด
+
+ถ้าพิมพ์ `@pytest.mark.slwo` (สะกดผิด) Pytest ไม่ถือเป็น error เป็นแค่ warning และ test ไม่ถูกจัดกลุ่มตามที่ตั้งใจ (รัน: `demos/05_markers`)
+
+```text
+PytestUnknownMarkWarning: Unknown pytest.mark.slwo - is this a typo?
+```
+
+แก้สองขั้น ขั้นแรกลงทะเบียน marker ในไฟล์ตั้งค่า
+
+```toml
+[tool.pytest.ini_options]
+markers = [
+    "slow: a test that takes a while",
+    "integration: a test that uses more than one module",
+]
+```
+
+ขั้นสองเปิด `--strict-markers` ให้ marker ที่ไม่ลงทะเบียนเป็น error ตั้งแต่ตอน collect
+
+```text
+'slwo' not found in `markers` configuration option
+!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+```
+
+(รัน: `verify.py`) เมื่อเลือกด้วย `-m slow` แล้ว test ที่สะกดผิดจะหายเงียบๆ จึงควรเปิด `--strict-markers` ในโปรเจกต์จริง
+
+<Callout type="try" title="ลองทำใน repo นี้">
+รัน `uv run pytest exercises/05_markers -m "not slow" -rs` แล้วอ่านรายการ SKIPPED จากนั้นลบ `strict=True` ออกจาก `test_strict_xfail_that_now_passes` ใน `demos/05_markers/test_marker_problems.py` แล้วรัน `uv run pytest demos/05_markers` ดูว่าสถานะของ test นี้เปลี่ยนเป็นอะไร (แก้กลับเมื่อเสร็จ)
+</Callout>
+
+</Step>
+
+<Step>
+
+## เช็กตัวเอง
+
+- ฟีเจอร์ที่ยังไม่เสร็จ ควรใช้ `skip` หรือ `xfail` เมื่อไหร่ และต่างกันอย่างไรในรายงาน
+- ทำไม bug ที่รู้แล้วควรใช้ `xfail(strict=True)`
+- ถ้าลืมลงทะเบียน `slow` แล้วรัน `-m "not slow"` จะเกิดอะไรกับ test ที่แปะ `slwo`
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| 10 test คือ 6 passed, 2 skipped, 2 xfailed, ผลของ skip, skipif, skip ในตัว test, xfail, marker ของเรา | รัน: `exercises/05_markers` |
+| xfail แบบ strict กลายเป็นล้ม, warning ของ marker ที่ไม่รู้จัก | รัน: `demos/05_markers` |
+| ผลของ `-m` สามแบบ, `--strict-markers` ทำให้ collect ล้ม | รัน: `verify.py` |
+| ข้อแนะนำเรื่อง skip ที่ไม่มีวันหมดอายุ, เมื่อไรใช้ strict, การแยกชั้น CI | ผู้เขียน |
+
+</Step>

@@ -1,0 +1,74 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 5 ข้อ เพื่อเช็กว่าเข้าใจบทนี้แค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="fixture ชื่อ filled_cart ถูกเรียกใช้ใน test อย่างไร"
+  options={['import แล้วเรียก filled_cart() ในตัว test', 'ใส่ชื่อ filled_cart เป็น parameter ของฟังก์ชัน test', 'ต้องเรียก pytest.use_fixture(\"filled_cart\") ก่อน']}
+  answer={1}
+  why="Pytest ดูชื่อ parameter ของ test แล้วจับคู่กับ fixture ที่ชื่อเดียวกัน รัน fixture ก่อนแล้วส่งค่าที่คืนเข้ามา ถ้าอยู่ใน conftest.py ก็ไม่ต้อง import"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="test แรกเพิ่ม kiwi ลงตะกร้าจาก fixture filled_cart (scope ค่าเริ่มต้น) test ที่สองรันต่อทันทีและเช็ก qty('kiwi') ผลเป็นอย่างไร"
+  options={['1 เพราะตะกร้าเดียวกันถูกใช้ต่อ', '0 เพราะ fixture ระดับ function สร้างตะกร้าใหม่ให้ทุก test', 'KeyError เพราะ kiwi ไม่มีในตะกร้า']}
+  answer={1}
+  why="ค่าเริ่มต้นของ fixture คือ function scope จึงสร้างใหม่ทุก test แบบฝึกยืนยันด้วย test_the_previous_test_did_not_leak qty ของ kiwi เป็น 0 (Cart.qty คืน 0 ถ้าไม่มี sku)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="fixture ที่ใช้ yield มีโค้ดเก็บกวาดหลัง yield ถ้า test ที่ใช้มันล้ม โค้ดเก็บกวาดจะเกิดอะไรขึ้น"
+  options={['ไม่รัน เพราะ test ล้ม', 'รัน teardown ยังทำงานแม้ test ล้ม', 'รันเฉพาะเมื่อมี try/finally ใน fixture']}
+  answer={1}
+  why="โค้ดหลัง yield เป็น teardown ที่ Pytest รันเสมอหลัง test จบ ไม่ว่าผ่านหรือล้ม แบบฝึก demos/03_teardown ยืนยันว่าเหตุการณ์คือ setup แล้ว teardown ทั้งที่ test ล้ม"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เมื่อ connection เป็น scope module และ transaction เป็น scope function มี test สองตัวใช้ transaction ลำดับเหตุการณ์ใดถูกต้อง"
+  options={['connect, begin, rollback, disconnect, connect, begin, rollback, disconnect', 'connect, begin, rollback, begin, rollback, ... แล้ว disconnect เมื่อไฟล์จบ', 'begin, connect, rollback, disconnect']}
+  answer={1}
+  why="module scope สร้างครั้งเดียวและเก็บเมื่อไฟล์จบ function scope สร้างและเก็บทุก test รายการ EVENTS ในแบบฝึกคือ connect, begin, test 1, rollback, begin, test 2, rollback โดย disconnect ยังไม่เกิด"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ไฟล์ test มีฟังก์ชัน test 11 ตัว หนึ่งในนั้นใช้ fixture ที่มี params สองค่า ผลรันรายงานกี่ test"
+  options={['11 passed', '12 passed เพราะ test ที่ใช้ fixture ที่มี params ถูกรันหนึ่งครั้งต่อค่า', '13 passed']}
+  answer={1}
+  why="test ที่ใช้ fixture ที่มี params สองค่ารัน 2 ครั้ง 10 ตัวรัน 1 ครั้งและอีกตัวรัน 2 ครั้ง รวม 12 ตรงกับ 12 passed ของ test_fixtures.py"
+/>
+
+</Step>

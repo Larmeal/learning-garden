@@ -1,0 +1,173 @@
+---
+title: Markers
+summary: A marker is a label on a test that tells Pytest to skip it, expect it to fail, or group it. This lesson covers skip, skipif, xfail (including strict), your own markers, and selecting tests with -m.
+order: 5
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [first-test]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Labels on tests
+
+Every team has tests that "cannot run yet": a feature is unfinished, they only run on some operating systems, or they are a known bug that nobody has fixed. The worst shortcut is to comment the test out, because it then vanishes from the report. A **marker** keeps the test in the report, with a reason.
+
+The exercise `exercises/05_markers` has 10 tests. The result is 6 passed, 2 skipped, 2 xfailed (ran: `exercises/05_markers`). The short line `s.sxx.....` follows the order of the tests in the file.
+
+</Step>
+
+<Step>
+
+## skip and skipif: do not run
+
+```python
+@pytest.mark.skip(reason="the invoice PDF feature is not built yet")
+def test_invoice_pdf(): ...
+
+@pytest.mark.skipif(sys.version_info < (3, 99), reason="needs a Python that does not exist yet")
+def test_skipped_because_the_condition_is_true(): ...
+```
+
+`skip` always skips. `skipif` skips when the condition is true. In the exercise the condition `sys.platform == "plan9"` is false, so that test runs, while `sys.version_info < (3, 99)` is true, so that test is skipped.
+
+The summary at the end of the report gives the reasons because `-ra` is set in the project's `addopts` ([lesson 7](/en/pytest/project/#configure-once-in-pyprojecttoml)):
+
+```text
+SKIPPED [1] exercises\05_markers\test_markers.py:10: the invoice PDF feature is not built yet
+SKIPPED [1] exercises\05_markers\test_markers.py:20: needs a Python that does not exist yet
+```
+
+If the decision can only be made while running (after reading something), call `pytest.skip("reason")` inside the test. The exercise has `test_imperative_skip`, whose condition is not true in this run, so it ran to the end and passed.
+
+<Callout type="warn" title="A skip with no expiry date">
+A test that stays skipped for a long time is as good as dead. Give a `reason` that says what you are waiting for (a ticket or a version) and review the SKIPPED list every time you release (author).
+</Callout>
+
+</Step>
+
+<Step>
+
+## xfail: known to fail, still run
+
+`xfail` says this test is **expected to fail**. Pytest still runs it, and if it fails it counts as `xfailed` and the suite does not turn red.
+
+```python
+@pytest.mark.xfail(reason="coupons stack, which the business has not decided on yet")
+def test_two_coupons_should_not_stack():
+    cart = Cart()
+    cart.add("apple", price=100)
+    after_one = cart.apply_coupon("SAVE10")
+    after_two = cart.apply_coupon("SAVE20")
+    assert after_two == after_one
+```
+
+This test writes down the behaviour you **want**. Today it fails (90 against 80), so it is xfailed. When someone changes the code until it passes, you find out because its status changes.
+
+The catch is that when a plain xfail starts passing, nobody is forced to remove the mark. `strict=True` handles that (ran: `demos/05_markers`):
+
+```python
+@pytest.mark.xfail(strict=True, reason="was a known bug")
+def test_strict_xfail_that_now_passes():
+    assert Cart().is_empty()
+```
+
+```text
+[XPASS(strict)] was a known bug
+FAILED demos/05_markers/test_marker_problems.py::test_strict_xfail_that_now_passes
+```
+
+When a strict xfail passes, it becomes a failure so that you are reminded to remove the marker. Use strict for known bugs, and a plain xfail where the outcome is not certain (author). Add `raises=KeyError` so that xfail only catches the type of exception you expect ([lesson 4](/en/pytest/parametrize/#marking-some-rows-with-pytestparam) uses this form).
+
+</Step>
+
+<Step>
+
+## Your own markers
+
+You can invent names such as `slow` and `integration` and put them on tests:
+
+```python
+@pytest.mark.slow
+def test_a_slow_one(): ...
+
+@pytest.mark.slow
+@pytest.mark.integration
+def test_both_marks(): ...
+```
+
+Then select with `-m`, which accepts an expression (ran: `verify.py`):
+
+| Command | Result (of the 10 tests in `05_markers`) |
+|---|---|
+| `-m "not slow"` | 4 passed, 2 skipped, 2 xfailed, 2 deselected |
+| `-m slow` | 2 passed, 8 deselected |
+| `-m "slow and integration"` | 1 passed, 9 deselected |
+
+Use this to layer CI: run `-m "not slow"` on every commit and run everything overnight.
+
+</Step>
+
+<Step>
+
+## Register markers so typos get caught
+
+If you type `@pytest.mark.slwo` (a typo), Pytest does not treat it as an error. It is only a warning, and the test is not grouped the way you meant (ran: `demos/05_markers`):
+
+```text
+PytestUnknownMarkWarning: Unknown pytest.mark.slwo - is this a typo?
+```
+
+Fix it in two steps. First register the markers in the config file:
+
+```toml
+[tool.pytest.ini_options]
+markers = [
+    "slow: a test that takes a while",
+    "integration: a test that uses more than one module",
+]
+```
+
+Second, turn on `--strict-markers` so an unregistered marker is an error at collection time:
+
+```text
+'slwo' not found in `markers` configuration option
+!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+```
+
+(ran: `verify.py`) Once you select with `-m slow`, the misspelled test silently disappears, so turn on `--strict-markers` in a real project.
+
+<Callout type="try" title="Try it in this repo">
+Run `uv run pytest exercises/05_markers -m "not slow" -rs` and read the SKIPPED list. Then remove `strict=True` from `test_strict_xfail_that_now_passes` in `demos/05_markers/test_marker_problems.py`, run `uv run pytest demos/05_markers`, and see what the status of that test becomes (put it back when you are done).
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- For a feature that is not finished, when would you use `skip` and when `xfail`, and how do they differ in the report?
+- Why should a known bug use `xfail(strict=True)`?
+- If you forget to register `slow` and run `-m "not slow"`, what happens to a test marked `slwo`?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| 10 tests are 6 passed, 2 skipped, 2 xfailed; the behaviour of skip, skipif, skip inside a test, xfail and our own markers | ran: `exercises/05_markers` |
+| a strict xfail becomes a failure, the warning for an unknown marker | ran: `demos/05_markers` |
+| the three `-m` results, `--strict-markers` makes collection fail | ran: `verify.py` |
+| advice on skips that never expire, when to use strict, layering CI | author |
+
+</Step>
