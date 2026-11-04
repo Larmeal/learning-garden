@@ -9,7 +9,10 @@ tooling docs are English. Do not use the em dash in explanations, docstrings or 
 
 In Thai lesson text, keep technical terms and the nouns that match code or table names in English (dimension, rule,
 dataset, row, column, order, customer, threshold) instead of coining Thai words. The owner finds that easier to read.
-Only `data-quality` has been rewritten this way so far; write new Thai text like it.
+Only `data-quality` has been rewritten this way so far; write new Thai text like it. In Thai headings and page titles,
+start every English word with a capital letter (`## Data Contract คืออะไร`, `## Producer-driven และ Consumer-driven`), but
+leave file names, identifiers and anything in backticks as they are (`conftest.py`, `pytest.param`). Body text keeps its
+normal case.
 
 ## Layout
 
@@ -43,6 +46,20 @@ Thai is the original language and keeps the original URLs (`/<subject>/<slug>/`)
 - The header switch goes to the same page in the other language when it exists, otherwise to that language's home.
 - To translate another subject: add `lessons-en/<id>/`, add the `en` block to its JSON, and give its labs a `lang` prop.
   Build fails if `requires` points to a slug that has no English page.
+
+## Links between lessons
+
+Write a reference to another lesson as a Markdown link with a root-relative path, pointing at the heading the sentence is
+about when there is one: `[บท 3](/data-quality/profiling/#ดู-frequency-ของค่าใน-column-ที่มีค่าไม่กี่แบบ)`,
+`[lesson 3](/en/data-quality/profiling/#...)`, or a sub-page `[the reasonability page](/en/data-quality/dimensions/reasonability/)`.
+The fragment is the slug of the heading text (the `id` on the `<h2>` in the built page, lower case, spaces to hyphens, no
+punctuation); `LessonPage.astro` opens the card that holds it. Renaming a heading changes its id and silently breaks links to
+it, so after renaming one, search the lessons for the old id. A reference to a whole range ("บท 1 ถึง 10") stays a plain
+lesson link.
+`MdLink.astro` (passed to `<Content components={{ a: MdLink }} />` in `LessonPage.astro`) puts the GitHub Pages base path in
+front of paths that start with `/`, so do not add `BASE_PATH` yourself. This works in lesson text only: inside a `<Question>`
+prop (`why`, `q`, `options`) or a `<Callout title>` a Markdown link is not rendered, so leave those as plain text. Every
+"lesson N" or "บท N" in the data-quality and pytest lessons is linked this way, numbers being the `order` of the main page.
 
 ## Add a subject
 
@@ -79,4 +96,5 @@ an existing id. Categories live in the subject JSON, not in folders, for the sam
   not verified. `code/make_lab_data.py` regenerates the data of the metric lab; `26`, `30`, `31`, `32` and `33` write the JSON that the registry, support, call-trace, version-diff and graph labs read.
 - `guitar` (11 lessons for any level, each with a quiz: an introduction with history, types, a harmonics page with an animated string and a searchable glossary of English terms (`labs/guitar/glossaryData.ts`), practice method, technique, fretboard, chords, rhythm, barre and CAGED, scales, lead techniques, improvisation, ear and songs; labs in `components/labs/guitar/`; overview and backlog in `docs/overview.md`).
 - `music-theory` (9 lessons, each with a quiz: notes, rhythm, intervals, major keys, minor and modes, chords, diatonic harmony, beyond the key, melody and form; labs in `components/labs/music-theory/`; `code/verify.mts` checks the facts). The two music subjects link by lesson title, not by URL. Lab sound is Web Audio and was not listened to in a browser when it was written.
-- `data-quality` (11 lessons, each with a quiz: assurance basics, dimensions, profiling, rule design, checkpoints, agreements and data contracts, monitoring, reconciliation, incidents, ownership and scorecards, capstone; labs `DimensionLab`, `ContractLab`, `ThresholdLab` in `components/labs/data-quality/`). Focus is Data Quality Assurance, tool-neutral; it links to `great-expectations` by lesson title. Exercises `01` to `11` in `subjects/data-quality/code/` (own `uv` project: DuckDB, pandas, PyYAML) run on a synthetic dataset from `dqlab.py` with defects planted in fixed numbers, and each exercise asserts that it finds what was planted or that its stated expectation holds; shared modules are `dqrules.py` (rule registry) and `dqcontract.py` (contracts in `contracts/*.yaml`). `07_monitoring.py --write` regenerates `monitoring.json` for the threshold lab; `node subjects/data-quality/code/verify_monitoring.mts` checks the lab's TypeScript detectors against the Python scores. Plan, source list (books in `E:\books`, not in the repo) and `verified-findings.md` are in `docs/`. Every claim in a lesson is tagged book, ran or author. Available in Thai and English (English in `lessons-en/data-quality/`, labs take `lang`). The pages were built but never looked at in a browser, and the labs were not clicked through.
+- `data-quality` (13 lessons, each with a quiz: assurance basics, dimensions (with eight deep-dive sub-pages, one per dimension), profiling, rule design, checkpoints, agreements and data contracts (with a deep-dive sub-page, `contracts-in-practice`), monitoring, reconciliation, incidents, ownership and scorecards, capstone, then the optional phase E: running a project with the Ten Steps, and data quality inside data governance; labs `DimensionLab`, `ContractLab`, `ThresholdLab` in `components/labs/data-quality/`). Focus is Data Quality Assurance, tool-neutral; it links to `great-expectations` by lesson title. Exercises `01` to `13` in `subjects/data-quality/code/` (own `uv` project: DuckDB, pandas, PyYAML) run on a synthetic dataset from `dqlab.py` with defects planted in fixed numbers, and each exercise asserts that it finds what was planted or that its stated expectation holds; shared modules are `dqrules.py` (rule registry) and `dqcontract.py` (contracts in `contracts/*.yaml`). `13_dimension_pitfalls.py` asserts every number on the dimension deep-dive pages (a few use a tiny made-up table or a modified copy, and say so). `07_monitoring.py --write` regenerates `monitoring.json` for the threshold lab; `node subjects/data-quality/code/verify_monitoring.mts` checks the lab's TypeScript detectors against the Python scores. Plan, source list (books in `E:\books` and the markdown versions of the newer ones in `E:\Development\Project\personal-project\personal-knowledge\Clippings\book`, none in the repo) and `verified-findings.md` are in `docs/`. Every claim in a lesson is tagged book, ran or author. A book tag gives the section number (or chapter number) and the printed page, for example `DMBOK2 หัวข้อ 2.7.1 หน้า 478` in Thai and `DMBOK2 section 2.7.1, page 478` in English; never use the section sign or `ch.` (the owner finds them unreadable). Page offsets to the PDF viewer are in `docs/sources.md`. Available in Thai and English (English in `lessons-en/data-quality/`, labs take `lang`). The pages were built but never looked at in a browser, and the labs were not clicked through.
+- `pytest` (8 lessons, each with a quiz: first test, assertions, fixtures, parametrize, markers, isolation with monkeypatch and mock, project setup and choosing what to run, test design with a closing exercise; Thai and English in `lessons/pytest/` and `lessons-en/pytest/`; no labs yet). Runnable code in `subjects/pytest/code/` (own `uv` project: pytest, pytest-cov, pytest-xdist): the code under test is a shopping cart in `src/shop/`, `exercises/NN_*` must pass and `demos/NN_*` fail on purpose. `uv run python verify.py` re-runs everything and checks every number the lessons print (Pytest 9.2.0); update it when you change an exercise. Claims are tagged ran or author in `docs/verified-findings.md`; no book was used. The pages were built but never looked at in a browser.

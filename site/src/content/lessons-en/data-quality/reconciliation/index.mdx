@@ -1,7 +1,7 @@
 ---
 title: Reconciliation and testing transformations
 summary: A system that passes checks layer by layer can still be wrong. This lesson uses count-and-sum reconciliation across the whole line as an end-to-end check, explains every unit of a difference, and tests the SQL that transforms data on small data with known answers.
-order: 7
+order: 8
 phase: C
 level: 4
 stage: sprout
@@ -17,7 +17,7 @@ import Callout from '../../../../components/Callout.astro';
 
 ## "Trust, but verify"
 
-*Designing Data-Intensive Applications* (DDIA) has a section called "Trust, but Verify" in its chapter on correctness. It starts from the observation that every system assumes that some things can go wrong and others never will (the system model). Those assumptions are true nearly all the time, but in reality they are a matter of probability, and if you operate at a large enough scale, even rare things do happen (book: DDIA ch.13 "Trust, but Verify").
+*Designing Data-Intensive Applications* (DDIA) has a section called "Trust, but Verify" in its chapter on correctness. It starts from the observation that every system assumes that some things can go wrong and others never will (the system model). Those assumptions are true nearly all the time, but in reality they are a matter of probability, and if you operate at a large enough scale, even rare things do happen (book: DDIA chapter 13, section "Trust, but Verify", pages 575 to 577).
 
 The book gives examples that matter for data quality:
 
@@ -35,7 +35,7 @@ The book's conclusion: data corruption seems bound to happen, so we should have 
 
 The end-to-end argument (Saltzer, Reed, Clark, 1984), which DDIA cites, says some functions can be made fully correct only with the knowledge and help of the application at both ends, not in the communication system in the middle. Lower-level functions can reduce the chance of error, but they are not enough on their own.
 
-For data correctness: the checksums of Ethernet, TCP and TLS catch corruption of packets on the network, but they cannot catch corruption caused by bugs in the software at the sending and receiving ends, or by the disks that store the data. To catch every source you need an end-to-end checksum (book: DDIA ch.13 "The end-to-end argument").
+For data correctness: the checksums of Ethernet, TCP and TLS catch corruption of packets on the network, but they cannot catch corruption caused by bugs in the software at the sending and receiving ends, or by the disks that store the data. To catch every source you need an end-to-end checksum (book: DDIA chapter 13, section "The end-to-end argument", page 565).
 
 The conclusions that apply to a data pipeline (as the book states them):
 
@@ -67,7 +67,7 @@ WHERE o.status <> 'CANCELLED';
 | Difference | **+17** | **+48,977.68** |
 | Mart that uses `SELECT DISTINCT * FROM orders` before the join | 2,533 | 6,454,814.21 (matches exactly) |
 
-The difference of 17 rows is the duplicated, non-cancelled orders (20 rows were planted, and 17 of them are not CANCELLED), which is why a plain join adds rows for the same order. The double-counted amount of +48,977.68 equals the duplicate amount found in lesson 5, because it is the same set of orders and its payment equals the order amount.
+The difference of 17 rows is the duplicated, non-cancelled orders (20 rows were planted, and 17 of them are not CANCELLED), which is why a plain join adds rows for the same order. The double-counted amount of +48,977.68 equals the duplicate amount found in [lesson 5](/en/data-quality/checkpoints/#when-a-check-fails-let-it-through-quarantine-or-stop), because it is the same set of orders and its payment equals the order amount.
 
 The advantage of this method is that you do not need to know in advance where the error will be. Checking just two numbers at the destination shows that "something went wrong along the way", and then you can hunt for it by comparing key sets (in the exercise: the keys that appear in the mart more than once give 267, 572, 797, 931, 986, ..., matching the duplicated order_id values).
 
@@ -88,7 +88,7 @@ Reconciliation does not mean "it must be exactly equal". It means **every unit o
 | Explained by: payments of orders that do not exist (20 items) | -33,856.70 |
 | Still unexplained | **0.00** |
 
-The result you can trust is "still unexplained = 0". If an unexplained remainder is left, even a small one, there is a problem you do not know about. And the 35 orders and 20 payments that are the reasons are the two rules of lesson 2 that we already know.
+A reconciliation earns trust when "still unexplained" is 0. If any remainder is left, even a small one, there is a problem you do not know about. And the 35 orders and 20 payments that are the reasons are the two rules of [lesson 2](/en/data-quality/dimensions/#all-14-rules-together) that we already know.
 
 </Step>
 
@@ -96,7 +96,7 @@ The result you can trust is "still unexplained = 0". If an unexplained remainder
 
 ## Test the SQL that transforms data on small data with known answers
 
-Reconciliation catches problems **after** a run, while unit tests catch them **before** real data goes up. DQF divides tests into kinds (book: DQF ch.5):
+Reconciliation catches problems **after** a run, while unit tests catch them **before** real data goes up. DQF divides tests into kinds (book: DQF chapter 5, pages 121 to 122):
 
 | Kind | What it is for |
 |---|---|
@@ -117,7 +117,7 @@ An example unit test for `mart` uses three cases small enough to see the answer 
 | Plain join | **Fails on case 3** (gets 200, should get 100) |
 | DISTINCT before the join | Passes all three cases |
 
-A bug that reconciliation catches after loading real data is caught much earlier by a test of 3 rows, because case 3 was written by asking "what happens if the source sends a duplicate?" (which came from the profile in lesson 3 showing duplicate order_id values).
+A bug that reconciliation catches after loading real data is caught much earlier by a test of 3 rows, because case 3 was written by asking "what happens if the source sends a duplicate?" (which came from the profile in [lesson 3](/en/data-quality/profiling/#profile-every-column-without-knowing-what-it-means) showing duplicate order_id values).
 
 </Step>
 
@@ -125,7 +125,7 @@ A bug that reconciliation catches after loading real data is caught much earlier
 
 ## "Return the bad rows" tests, and their limits
 
-dbt uses singular tests: write a query that returns the **rows that violate the requirement**, and treat it as passing when there are no rows (book: DQF ch.3). The exercise uses the same form for "no duplicate order_id in the mart":
+dbt uses singular tests: write a query that returns the **rows that violate the requirement**, and treat it as passing when there are no rows (book: DQF chapter 3, page 57). The exercise uses the same form for "no duplicate order_id in the mart":
 
 ```sql
 SELECT order_id FROM mart GROUP BY 1 HAVING count(*) > 1;
@@ -137,10 +137,10 @@ SELECT order_id FROM mart GROUP BY 1 HAVING count(*) > 1;
 | Plain join | 17 | Fails |
 | With DISTINCT | 0 | Passes |
 
-DQF also lists the common kinds of tests: nulls, volume, distribution, uniqueness and **known invariants** (things that are always true, such as profit equals revenue minus cost). It points to the limits of tests written as code (book: DQF ch.3):
+DQF also lists the common kinds of tests: nulls, volume, distribution, uniqueness and **known invariants** (things that are always true, such as profit equals revenue minus cost). It points to the limits of tests written as code (book: DQF chapter 3, pages 56 to 58):
 
 - **Maintenance burden**: when a model changes, its tests have to change too. Complex tests can take nearly as long as developing the model itself.
-- **Test fatigue**: tests with no reason behind them get deleted when they get in the way (lesson 4).
+- **Test fatigue**: tests with no reason behind them get deleted when they get in the way ([lesson 4](/en/data-quality/rule-design/#too-many-rules-that-nobody-believes)).
 - **Limited visibility**: a test may fail because of an upstream problem further up, which tells you something is wrong but does not help you fix it quickly, if the tests do not cover end to end.
 
 The last point is why you need both. Reconciliation looks across the whole line, and unit tests check the logic at specific points.
@@ -151,11 +151,11 @@ The last point is why you need both. Reconciliation looks across the whole line,
 
 ## Design so that it can be checked afterwards
 
-DDIA talks about **auditability**: a system that shows its dataflow clearly and where its data came from makes correctness checking practical. If the creation of derived data is deterministic (repeatable), we can rerun the same processor on the same source data to see whether we get the same result, or run a parallel line to compare (book: DDIA ch.13 "Designing for auditability").
+DDIA talks about **auditability**: a system that shows its dataflow clearly and where its data came from makes correctness checking practical. If the creation of derived data is deterministic (repeatable), we can rerun the same processor on the same source data to see whether we get the same result, or run a parallel line to compare (book: DDIA chapter 13, section "Designing for auditability", pages 577 to 578).
 
 Applied to a data pipeline:
 
-- Make loads **safely repeatable** (idempotent), for example by loading with batch_id as the key so that a rerun does not duplicate data (lesson 9 is a real case of this kind of mistake).
+- Make loads **safely repeatable** (idempotent), for example by loading with batch_id as the key so that a rerun does not duplicate data ([lesson 9](/en/data-quality/incidents/#fix-temporary-first-then-permanent) is a real case of this kind of mistake).
 - Keep the raw data and never overwrite it, so you can rebuild the destination tables from the source when you find a bug.
 - Run reconciliation continuously, not only when you are suspicious. The book says continuous checking makes you "not afraid of change" and lets you develop apps that fit changing needs better.
 
@@ -181,9 +181,9 @@ Open `08_reconcile.py` and add a 4th test case: one order with two payments (pai
 
 | Statement | Source |
 |---|---|
-| System model, bugs in databases, auditing, the end-to-end argument, continuous end-to-end checking, auditability | book: DDIA ch.13 ("Trust, but Verify" and "The end-to-end argument" sections) |
-| Kinds of tests (unit, functional, integration), common kinds of tests | book: DQF ch.5, ch.3 |
-| Singular tests, the limits of tests written as code | book: DQF ch.3 |
+| System model, bugs in databases, auditing, the end-to-end argument, continuous end-to-end checking, auditability | book: DDIA chapter 13, pages 565 and 575 to 578 ("Trust, but Verify" and "The end-to-end argument" sections) |
+| Kinds of tests (unit, functional, integration), common kinds of tests | book: DQF chapter 5, pages 121 to 122; chapter 3, pages 55 to 62 |
+| Singular tests, the limits of tests written as code | book: DQF chapter 3, pages 56 to 58 |
 | The mart numbers, the fully explained difference, the unit test results on small data | ran: `08_reconcile.py` |
 | The choice of test cases, reading the end-to-end argument as count-and-sum reconciliation, the advice to load idempotently and keep raw data | author |
 

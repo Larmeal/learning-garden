@@ -1,0 +1,102 @@
+---
+title: Reasonability in depth
+summary: Does the pattern look the way we expect? Reasonability catches what no row-level rule can, a day where every value is valid and the whole day is wrong. This page builds one such day, catches it, and shows how a careless threshold fires on a normal week.
+order: 8
+stage: sprout
+format: steps
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## What the word asks
+
+DMBOK2 says reasonability asks whether a data pattern meets expectations. Its example is whether the distribution of sales across a geographic area makes sense, given what is known about the customers in that area. The measurement can take different forms: a comparison with benchmark data, or with past instances of a similar data set, such as sales from the previous quarter. Once benchmark measurements exist, they can be used to compare new instances of the same data set and detect change (book: DMBOK2 Table 29, page 459).
+
+Picture a shop owner who looks at the till roll at closing. Every receipt looks fine. The total is 1% of a normal Tuesday, and the owner knows something is wrong without having read a single receipt. The expectation lives in the owner's head. Reasonability turns it into a number.
+
+Ten Steps gives smaller examples of the same idea inside a row or a column. A date of birth and an age that disagree: an applicant who must be 18 or older whose dates make them 2 years old. A frequency distribution of country codes that does not line up with your expectation of how much you sell in each country (book: Ten Steps chapter 4, pages 128 to 135).
+
+</Step>
+
+<Step>
+
+## A bad day that no row-level rule sees
+
+Our dataset has no planted defect of this kind, so this page works on a modified copy: all the totals on one day, 30 August, are divided by 100, as if one source sent cents where the others send whole units. This is made up, and the original data is untouched (run: `13_dimension_pitfalls.py`).
+
+| Check | Result on the modified copy |
+|---|---|
+| Validity: `total_amount >= 0` | 0 rows fail. Every total is a positive number |
+| Reasonability: the day's average total is far from the usual | 1 day flagged |
+
+On the untouched data the daily average total is about 2,537, with a spread (standard deviation) of 304. On the modified copy, 30 August has an average of 27.89. The rule is "flag a day whose average is more than 3 standard deviations from the mean of the daily averages." It flags 1 day on the copy and 0 days on the untouched data.
+
+```sql
+SELECT CAST(order_ts AS DATE) AS d, count(*) AS n, avg(total_amount) AS avg_total
+FROM (SELECT DISTINCT * FROM orders WHERE total_amount >= 0)
+GROUP BY 1 ORDER BY 1;
+-- then compare avg_total with its own history
+```
+
+The check cannot be written as a filter on one row. It needs an aggregate over many rows and a baseline from other days, which is why the monitoring lesson ([lesson 7](/en/data-quality/monitoring/#volume-seasonality-fools-the-z-score)) is where it lives in practice.
+
+</Step>
+
+<Step>
+
+## Meanings that get misread
+
+<Callout type="warn" title="1. A threshold taken from the mean alone fires on normal days">
+The book's example bar for consistency over time is a day above 105% of the running average of the previous 30 days (book: DMBOK2 Table 29, page 458). Our daily order count has a mean of 24.7 and a standard deviation of 4.8. Applying that bar here fires on 34 of the 91 days that have a 30-day history (run: `13_dimension_pitfalls.py`). Nothing is wrong on those days. The count is noisy, and a bar of 5% is much tighter than the noise. A bar needs the spread as well as the mean, for example "more than 3 standard deviations from the mean". Treat the book's figure as an illustration of the idea.
+</Callout>
+
+**2. "Makes sense" is someone's opinion until you write it down.** The book says some ideas about reasonability may be perceived as subjective, and that you should work with the data consumers to articulate the basis of their expectations and turn them into objective comparisons (book: DMBOK2 Table 29, page 459). Ask: what would a person who knows the business expect here, and how far from it is "too far"?
+
+**3. Passing is weak evidence, and failing is not proof.** A wrong value that is plausible passes: a total that is 10% too high stays well inside the usual band. A real event fails: a promotion day will sit far from the mean and the rule will fire. An alert here asks a person to look. It does not say the data is wrong (this remark is the author's).
+
+**4. The baseline has to be trustworthy.** If the history that sets the mean and the spread contains bad days, the band gets wider and misses the next bad day. In the example above, the one bad day among 121 raised the spread from 304 to 379 when it was counted in its own history. It was still caught, because it was so far out. Build the baseline from data you have already checked, and update it on purpose.
+
+**5. It is the only dimension in this path without planted defects.** The other seven have a count that the script checks. This one has a made-up day and a threshold. That is a weaker kind of evidence, and it is stated as such.
+
+</Step>
+
+<Step>
+
+## Easy to confuse with
+
+| Looks like | How to tell them apart | In our data |
+|---|---|---|
+| Validity | Validity judges one value against a domain. Reasonability judges a pattern across many values | the bad day passes validity completely |
+| Consistency over time | The book's temporal consistency example (the 105% rule) is a reasonability check by another name | see [the consistency page](/en/data-quality/dimensions/consistency/#meanings-that-get-misread) |
+| Accuracy | A reasonable pattern can still be wrong, and an odd one can be true | a good promotion day looks unreasonable |
+| Timeliness | A missing day shows up as a count of 0, which is also an unreasonable pattern | a quiet pipeline looks like a very quiet shop |
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- For one number you report every day, what is the usual range, and who told you?
+- Your alert uses "5% above the 30-day average" and fires every other day. What do you change first?
+- The same check flags a real marketing campaign. How should a rule tell the difference, and should it?
+
+</Step>
+
+<Step>
+
+## Sources of this page
+
+| Statement | Source |
+|---|---|
+| Definition, benchmark or past instances, subjective expectations, compare new instances to detect change | book: DMBOK2 Table 29, page 459 |
+| The 105% of a 30 day average example | book: DMBOK2 Table 29, page 458 |
+| Age against birth date, frequency distribution of countries | book: Ten Steps chapter 4, pages 128 to 135 |
+| The modified copy, 0 rows by validity and 1 day by reasonability, 2,537 and 304 and 379 and 27.89, 34 of 91 days, mean 24.7 and spread 4.8 | ran: `13_dimension_pitfalls.py` |
+| The till roll picture; the notes on thresholds, baselines and the weak evidence | author |
+
+</Step>

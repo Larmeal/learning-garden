@@ -117,3 +117,50 @@ def enforce_on_ingest(batch_columns: dict[str, str], contract: dict) -> None:
             problems.append(f"{col['name']} arrived as {batch_columns[col['name']]}, expected {col['type']}")
     if problems:
         raise ContractError("; ".join(problems))
+
+
+REQUIRED_TOP = ("dataset", "version", "owner", "consumers", "purpose", "schema", "on_breach")
+
+
+def lint_definition(contract: dict) -> list[str]:
+    """Problems in the contract file itself, before any data is looked at.
+
+    Contracts are written by people and are not reviewed by a central team, so the contract is checked by code in
+    continuous integration: the required top-level fields exist, and every column has a name, a type and a description.
+    """
+    problems = [f"missing {key}" for key in REQUIRED_TOP if not contract.get(key)]
+    for i, col in enumerate(contract.get("schema") or []):
+        label = col.get("name", f"column #{i + 1}")
+        for key in ("name", "type", "description"):
+            if not col.get(key):
+                problems.append(f"{label}: missing {key}")
+    return problems
+
+
+def release_gate(old: dict, new: dict) -> list[str]:
+    """Reasons to refuse releasing `new` over `old`. Empty means the release may go ahead.
+
+    A breaking change is allowed, but only as a new version, so consumers can be moved over on a plan. Releasing it
+    under the old version number would change the promise for everyone at once.
+    """
+    breaking = [change for change, kind in diff(old, new) if kind == "breaking"]
+    reasons = []
+    if breaking and new["version"] <= old["version"]:
+        reasons.append(f"{len(breaking)} breaking change(s) but version stays {new['version']}: bump the version")
+    return reasons
+
+
+def slis(con: duckdb.DuckDBPyConnection, contract: dict, within_hours: int = 24) -> dict[str, float]:
+    """Two service level indicators measured on the data, as percentages over all rows.
+
+    completeness: rows where every column the contract says is not null is filled in.
+    timeliness: rows that reached the warehouse within `within_hours` of the order being placed.
+    """
+    table = contract["dataset"]
+    required = [c["name"] for c in contract["schema"] if not c.get("nullable", True)]
+    all_filled = " AND ".join(f'"{n}" IS NOT NULL' for n in required)
+    complete, on_time, total = con.execute(
+        f"SELECT count(*) FILTER (WHERE {all_filled}), "
+        f"count(*) FILTER (WHERE ingested_at - order_ts <= INTERVAL {within_hours} HOUR), count(*) FROM {table}"
+    ).fetchone()
+    return {"completeness_percent": 100 * complete / total, "timeliness_percent": 100 * on_time / total}

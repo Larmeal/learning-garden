@@ -1,0 +1,120 @@
+---
+title: Uniqueness แบบเจาะลึก
+summary: แต่ละสิ่งถูกบันทึกครั้งเดียวไหม หน้านี้แยก row ที่ copy ซ้ำเป๊ะ ออกจาก key ที่ซ้ำ และจากสิ่งเดียวกันที่ถูกเขียนสองครั้ง แล้วดูว่าทำไมตัวเลขที่รายงานขึ้นกับวิธีนับ
+order: 3
+stage: sprout
+format: steps
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## คำนี้ถามอะไร
+
+DMBOK2 บอกว่า uniqueness คือไม่มี entity ใดมีมากกว่าหนึ่งครั้งใน data set นั่นหมายความว่าค่า key หนึ่งค่าโยงกับ entity หนึ่งตัว และมีแค่ตัวนั้น คำแนะนำของหนังสือสำหรับการวัดคือทดสอบกับโครงสร้างของ key (หนังสือ: DMBOK2 Table 29 หน้า 459) DAMA UK เขียนว่า: ไม่มี entity instance ใดถูกบันทึกมากกว่าหนึ่งครั้ง ตามวิธีที่สิ่งนั้นถูกระบุ (หนังสือ: DMBOK2 หัวข้อ 1.3.3 หน้า 457)
+
+key รับงานหนักในประโยคนั้น การเช็ก uniqueness เจอได้เท่าที่ key มองเห็น ลองนึกถึงทะเบียนห้องเรียนที่ระบุนักเรียนด้วยเลขที่นั่ง ทะเบียนไม่มีเลขที่นั่งซ้ำ แต่นักเรียนคนเดียวกันยังนั่งได้สองที่ภายใต้ชื่อที่สะกดต่างกันสองแบบ
+
+</Step>
+
+<Step>
+
+## สามอย่างที่เรียกรวมว่า "ซ้ำ"
+
+Ten Steps แยกสามคำออกจากกัน เพราะเครื่องมือและคนใช้คำว่า "match" กับ "duplicate" ปนกัน (หนังสือ: Ten Steps บทที่ 4 หน้า 140 ถึง 146):
+
+| คำ | ความหมาย | ใน data ของเรา |
+|---|---|---|
+| Duplicate record | สอง record ที่เป็น copy ตรงกันเป๊ะ | order 267 ปรากฏสองครั้ง เหมือนกันทุก column |
+| Matching records | record ที่คล้ายกันมาก | `user1@example.com` อยู่ที่ customer 1 และ customer 491 |
+| Equivalent records | record ที่หมายถึง entity เดียวกันในโลกจริง | customer 1 กับ 491 เป็นคนเดียวหรือสองคน data บอกไม่ได้ |
+
+| order_id | customer_id | status | total_amount |
+|---:|---:|---|---:|
+| 267 | 360 | PLACED | 4383.96 |
+| 267 | 360 | PLACED | 4383.96 |
+
+| customer_id | email | country |
+|---:|---|---|
+| 1 | user1@example.com | SG |
+| 491 | user1@example.com | TH |
+
+คู่แรกคือ defect ตรงๆ คู่ที่สองคือคำถาม email เดียวกัน country ต่างกัน `customer_id` ต่างกัน อาจเป็นคนเดียวที่สมัครสองครั้ง หรือครอบครัวที่ใช้ mailbox ร่วมกัน Ten Steps เตือนเพิ่มว่าการวัดความคล้ายให้ได้แค่ความน่าจะเป็นที่ record จะซ้ำ ไม่ใช่หลักฐาน และ record ที่คล้ายกันมากก็อาจเป็นคนละคน (หนังสือ: Ten Steps บทที่ 4 หน้า 140 ถึง 146)
+
+</Step>
+
+<Step>
+
+## วัดอย่างไร
+
+```sql
+-- row ส่วนเกินหลังสำเนาแรกของแต่ละ order_id
+SELECT count(*) - count(DISTINCT order_id), count(*) FROM orders;
+-- 20 จาก 3,020
+
+-- เช่นเดียวกันกับ email นับเฉพาะ row ที่ไม่ NULL
+SELECT count(email) - count(DISTINCT email), count(email) FROM customers;
+-- 10 จาก 460
+```
+
+ทั้งสองจำนวนตรงกับที่ฝังไว้ (รัน: `02_dimensions.py`) อันแรก unique 99.34% อันที่สอง 97.83%
+
+</Step>
+
+<Step>
+
+## ความหมายที่ถูกเข้าใจผิดบ่อย
+
+<Callout type="warn" title="1. คุณจะรายงานตัวเลขไหน">
+order ที่ซ้ำนับได้สองแบบ มี 20 row ส่วนเกิน ซึ่งคือจำนวนที่การ cleanup จะลบ และมี 40 row ที่อยู่ในกลุ่มที่ซ้ำ ซึ่งคือจำนวน row ที่คนต้องไปดู (รัน: `13_dimension_pitfalls.py`) ทั้งสองจริงทั้งคู่ การรายงาน "20 จาก 3,020" ที่หนึ่ง และ "40 จาก 3,020" อีกที่หนึ่ง จะดูเหมือน data เปลี่ยน ให้เลือกหนึ่งแบบ เขียนลงใน rule และเก็บอีกแบบไว้เป็นหมายเหตุ
+</Callout>
+
+**2. key ที่ unique ไม่ได้ทำให้ entity unique** `customer_id` unique ทั้ง 500 row แต่ email ที่ไม่ NULL 460 ค่ามีค่าที่ต่างกันแค่ 450 (รัน: `13_dimension_pitfalls.py`) rule บน `customer_id` ผ่าน column หรือชุด column ไหนที่นิยามคำว่า "customer คนเดียวกัน" เป็นการตัดสินใจของธุรกิจ และ check ควรเขียนตามการเลือกนั้น
+
+**3. ข้อความที่ตรงเป๊ะซ่อนสำเนาที่เกือบเหมือน** ใน table email สมมติ 4 ค่า (`ann@example.com`, `Ann@Example.com`, `ann@example.com ` ที่มีช่องว่างท้าย และ `bob@example.com`) `count(DISTINCT email)` ได้ 4 หลังใช้ `lower(trim(email))` ได้ 2 (รัน: `13_dimension_pitfalls.py`) การทำ standardize ก่อนเทียบเจอมากขึ้น และหนังสือก็บอกประเด็นนี้ว่าเครื่องมือแต่ละตัวต่างกันที่ว่า standardize ก่อนหรือไม่ (หนังสือ: Ten Steps บทที่ 4 หน้า 140 ถึง 146)
+
+**4. `SELECT DISTINCT` ซ่อน defect ได้แทนที่จะแก้** ผลรวม `total_amount` ของ `orders` คือ 7,616,911.36 หลังลบสำเนาที่ตรงกันเป๊ะเหลือ 7,560,842.09 แปลว่า row ซ้ำทำให้รายได้สูงเกินไป 56,069.27 (รัน: `13_dimension_pitfalls.py`) model ที่ใส่ `DISTINCT` ให้รายได้ที่ถูก และ check uniqueness ที่วางหลังมันก็ผ่าน แต่ต้นทางยังส่ง row ซ้ำออกมา และคนอื่นที่อ่าน table ดิบยังได้ยอดผิด ให้ check ก่อน cleanup ไม่ใช่หลัง
+
+**5. defect เดียวกันมีสองชื่อได้** DMBOK2 ใส่ row ซ้ำไว้ใต้ integrity ด้วย คือ row ที่เหมือนกันเป๊ะและอาจทำให้ aggregation เพี้ยน (หนังสือ: DMBOK2 Table 29 หน้า 459) `order_id` ที่ซ้ำจะจัดเข้า uniqueness หรือ integrity ก็ได้ สิ่งที่สำคัญคืออย่าให้ทีมหนึ่งนับมันในทั้งสองที่
+
+</Step>
+
+<Step>
+
+## ที่มักสับสนด้วย
+
+| ดูคล้ายกับ | แยกอย่างไร | ใน data ของเรา |
+|---|---|---|
+| Integrity | Integrity หา key ที่ชี้ไปที่ไม่มีอะไร Uniqueness หา key ที่โผล่มากเกินไป | orphan 30 order เทียบกับ row ซ้ำ 20 |
+| Consistency | customer หนึ่งคนที่สะกดสองแบบเป็นปัญหา consistency จนกว่าคุณจะตัดสินว่าเป็น entity เดียวกัน | `TH` กับ `ไทย` ใน `country` และ `Ann@Example.com` ใน `email` |
+| Validity | row ซ้ำอาจ valid สมบูรณ์ | 20 customer ที่ใช้ email ซ้ำกัน ทุกคนมี email รูปแบบถูกต้อง |
+
+</Step>
+
+<Step>
+
+## เช็กตัวเอง
+
+- ใน table ที่คุณดูแล column หรือชุด column ไหนนิยามว่า "สิ่งเดียวกัน" และใครตกลงเรื่องนั้นไว้
+- job cleanup ลบไป 20 row และรายงานของคุณบอกว่ามี 40 row ได้รับผลกระทบ ใครถูก
+- customer สอง row ใช้ email เดียวกันแต่ country ต่างกัน คุณต้องรู้อะไรก่อนจะรวมมัน
+
+</Step>
+
+<Step>
+
+## ที่มาของหน้านี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| นิยาม, โครงสร้าง key, row ซ้ำที่ถูกจัดไว้ใต้ integrity ด้วย | หนังสือ: DMBOK2 Table 29 หน้า 459 |
+| ไม่มี entity instance ใดถูกบันทึกมากกว่าหนึ่งครั้ง | หนังสือ: DMBOK2 หัวข้อ 1.3.3 หน้า 457 |
+| duplicate, matching และ equivalent records; ความคล้ายให้แค่ความน่าจะเป็น; standardize ก่อน | หนังสือ: Ten Steps บทที่ 4 หน้า 140 ถึง 146 |
+| row ส่วนเกิน 20 และ 10; 40 row ในกลุ่ม; 460 เทียบ 450; ผลรวมรายได้; table email สมมติ | รัน: `13_dimension_pitfalls.py` |
+| row 267, 1 และ 491 | รัน: query บน data ชุดเดียวกัน |
+| ภาพทะเบียนห้องเรียน; คำแนะนำให้ check ก่อน cleanup | ผู้เขียน |
+
+</Step>

@@ -1,13 +1,13 @@
 ---
-title: Dimension ของ data quality
-summary: dimension คือคำศัพท์ที่ใช้พูดถึง rule ไม่ใช่รายการตายตัว บทนี้ตรวจข้อมูลจริงทีละ dimension ด้วย SQL และอ่านผลเป็นเปอร์เซ็นต์ที่ผ่านกับที่ไม่ผ่าน
-order: 1
+title: Dimension ของ Data Quality
+summary: dimension คือคำศัพท์ที่ใช้พูดถึง rule ไม่ใช่รายการตายตัว บทนี้ตรวจข้อมูลจริงทีละ dimension ด้วย SQL และอ่านผลเป็นเปอร์เซ็นต์ที่ผ่านกับที่ไม่ผ่าน แล้วมีหน้าเจาะลึกของแต่ละ dimension ตามมา พร้อม row ให้ดูและวิธีที่คำนั้นถูกเข้าใจผิด
+order: 2
 phase: A
 level: 2
 stage: sprout
 format: steps
 requires: [assurance-basics]
-updated: 2026-11-02
+updated: 2026-11-04
 ---
 
 import Step from '../../../../components/Step.astro';
@@ -16,9 +16,9 @@ import DimensionLab from '../../../../components/labs/data-quality/DimensionLab'
 
 <Step>
 
-## dimension คือคำศัพท์สำหรับพูดถึง rule
+## Dimension คือคำศัพท์สำหรับพูดถึง Rule
 
-DMBOK2 นิยามว่า **dimension ของ data quality** คือคุณลักษณะของข้อมูลที่วัดได้ ชื่อ "dimension" ยืมมาจากการวัดวัตถุ (ยาว กว้าง สูง) dimension ให้คำศัพท์สำหรับเขียน requirement ด้านคุณภาพ ใช้ตั้ง rule ที่วัดได้ และใช้รายงานผลทั้งตอนประเมินครั้งแรกและตอนวัดต่อเนื่อง (หนังสือ: DMBOK2 §1.3.3)
+DMBOK2 นิยามว่า **dimension ของ data quality** คือคุณลักษณะของข้อมูลที่วัดได้ ชื่อ "dimension" ยืมมาจากการวัดวัตถุ (ยาว กว้าง สูง) dimension ให้คำศัพท์สำหรับเขียน requirement ด้านคุณภาพ ใช้ตั้ง rule ที่วัดได้ และใช้รายงานผลทั้งตอนประเมินครั้งแรกและตอนวัดต่อเนื่อง (หนังสือ: DMBOK2 หัวข้อ 1.3.3 หน้า 454 ถึง 460)
 
 ตัวอย่างในหนังสือ: ถ้าช่อง email ของ customer ไม่ครบ เราส่งข้อมูลสินค้าทาง email ไม่ได้และเสียยอดขาย เราจึงวัด "เปอร์เซ็นต์ customer ที่มี email ใช้ได้" และปรับกระบวนการจนถึงอย่างน้อย 98% dimension (completeness) บอกว่าจะวัดอะไร ผลกระทบทางธุรกิจบอกว่าทำไมต้องวัด
 
@@ -26,9 +26,9 @@ DMBOK2 นิยามว่า **dimension ของ data quality** คือ�
 
 <Step>
 
-## ไม่มีชุด dimension ที่ตกลงกันได้ชุดเดียว
+## ไม่มีชุด Dimension ที่ตกลงกันได้ชุดเดียว
 
-หนังสือเล่าถึงชุด dimension ที่มีอิทธิพลสามชุด แล้วสรุปว่า "ไม่มีชุด dimension ที่ตกลงกันได้ชุดเดียว แต่ทุกชุดมีแนวคิดร่วมกัน" (หนังสือ: DMBOK2 §1.3.3)
+หนังสือเล่าถึงชุด dimension ที่มีอิทธิพลสามชุด แล้วสรุปว่า "ไม่มีชุด dimension ที่ตกลงกันได้ชุดเดียว แต่ทุกชุดมีแนวคิดร่วมกัน" (หนังสือ: DMBOK2 หัวข้อ 1.3.3 หน้า 454 ถึง 460)
 
 | ชุด | ลักษณะ |
 |---|---|
@@ -36,18 +36,24 @@ DMBOK2 นิยามว่า **dimension ของ data quality** คือ�
 | Redman (1996) | มองจากโครงสร้างข้อมูล แบ่งเป็น model, value และ representation รวมมากกว่าสองโหล |
 | English (1999) | แบ่งเป็นคุณลักษณะ inherent (ไม่ขึ้นกับการใช้) กับ pragmatic (ขึ้นกับการนำเสนอและการใช้) |
 | DAMA UK (2013) | หก dimension หลัก: completeness, uniqueness, timeliness, validity, accuracy, consistency |
+| Ten Steps (ฉบับที่ 2) | จัดกลุ่มตามวิธี assess แต่ละ dimension completeness กับ validity อยู่ใน dimension เดียวคือ data integrity fundamentals เพราะ profiling ชุดเดียวกันหาได้ทั้งคู่ |
+| Governance และ FoDE | สามคุณลักษณะ: accuracy, completeness, timeliness |
 
-เส้นทางนี้ใช้หก dimension ของ DAMA UK บวก **integrity** และ **reasonability** ที่ DMBOK2 Table 29 เพิ่มไว้ เพราะวัดด้วย SQL ได้ตรงที่สุด ข้อควรจำคือชื่อ dimension เป็นภาษากลางในทีม ถ้าทีมของคุณใช้ชุดอื่นก็ใช้ได้ ขอแค่ทุกคนใช้ตรงกัน
+(หนังสือสำหรับสองแถวสุดท้าย: Ten Steps บทที่ 3 หน้า 42 ถึง 46; Governance บทที่ 5 หน้า 113; FoDE บทที่ 2 หน้า 54 ถึง 56)
+
+เส้นทางนี้ใช้หก dimension ของ DAMA UK บวก **integrity** และ **reasonability** ที่ DMBOK2 Table 29 หน้า 459 เพิ่มไว้ เพราะ SQL วัดได้ตรงที่สุด ชื่อเหล่านี้เป็นภาษากลางของทีม ถ้าทีมคุณใช้ชุดอื่นก็ใช้ได้เหมือนกัน ขอแค่ทุกคนใช้ตรงกัน
+
+และไม่จำเป็นต้องวัดทุก dimension วิธี Ten Steps ถามสองข้อกับแต่ละตัว: ผลจะให้อะไรที่ลงมือทำต่อได้ไหม และ assess ได้จริงไหม ถ้าข้อใดตอบว่าไม่ก็ข้าม [บท 12](/data-quality/ten-steps/#เลือกสิ่งที่จะ-assess-และสิ่งที่จะข้าม) จะกลับมาเรื่องนี้
 
 </Step>
 
 <Step>
 
-## dataset ที่ใช้ตลอดเส้นทาง
+## Dataset ที่ใช้ตลอดเส้นทาง
 
 customer 500 คน (`customers`) order 3,020 row (`orders`) และ payment 2,553 รายการ (`payments`) สร้างโดย `dqlab.py` ด้วย seed คงที่ **defect ทุกชนิดถูกฝังไว้ในจำนวนที่กำหนดเอง** เช่น email ว่าง 40 ราย order ที่ customer ไม่มีอยู่จริง 30 row ดังนั้นเมื่อ SQL ของเราเจอจำนวนตรงกับที่ฝัง ก็รู้ว่า rule ทำงานถูก แบบฝึกทุกข้อจบด้วยการตรวจแบบนี้
 
-ผลของการวัดแต่ละ rule จะรายงานแบบ DMBOK2 Table 30 คือบอก **ทั้งส่วนที่ผ่านและไม่ผ่านเป็นเปอร์เซ็นต์** ตัวอย่าง: ตรวจ 1,000,000 row พบ 2,000 row มาไม่ทันเวลา ได้ 99.8% ผ่านและ 0.20% ไม่ผ่าน
+ผลของการวัดแต่ละ rule จะรายงานแบบ DMBOK2 Table 30 หน้า 480 คือบอก **ทั้งส่วนที่ผ่านและไม่ผ่านเป็นเปอร์เซ็นต์** ตัวอย่าง: ตรวจ 1,000,000 row พบ 2,000 row มาไม่ทันเวลา ได้ 99.8% ผ่านและ 0.20% ไม่ผ่าน
 
 </Step>
 
@@ -55,14 +61,14 @@ customer 500 คน (`customers`) order 3,020 row (`orders`) และ payment 2
 
 ## Completeness, Validity, Uniqueness
 
-**Completeness**: มีข้อมูลที่ต้องมีครบหรือไม่ วัดได้ที่ระดับ dataset, row หรือ column ต้องแยก field ที่บังคับ field ที่มีเงื่อนไข และ field ที่ไม่เกี่ยวข้องออกจากกัน (หนังสือ: DMBOK2 Table 29)
+**Completeness**: มีข้อมูลที่ต้องมีครบหรือไม่ วัดได้ที่ระดับ dataset, row หรือ column ต้องแยก field ที่บังคับ field ที่มีเงื่อนไข และ field ที่ไม่เกี่ยวข้องออกจากกัน (หนังสือ: DMBOK2 Table 29 หน้า 458)
 
 ```sql
 SELECT count(*) FILTER (WHERE email IS NULL), count(*) FROM customers;
 -- 40 จาก 500
 ```
 
-**Validity**: ค่าอยู่ใน domain ที่นิยามไว้หรือไม่ domain อาจเป็นรายการค่า ช่วง หรือ rule รวมถึง data type และ format (หนังสือ: DMBOK2 Table 29)
+**Validity**: ค่าอยู่ใน domain ที่นิยามไว้หรือไม่ domain อาจเป็นรายการค่า ช่วง หรือ rule รวมถึง data type และ format (หนังสือ: DMBOK2 Table 29 หน้า 459)
 
 ```sql
 -- format ของ email (เฉพาะ row ที่ไม่ null)
@@ -74,7 +80,7 @@ SELECT count(*) FILTER (WHERE country NOT IN ('TH','SG','JP','US')), count(*) FR
 -- 25 จาก 500
 ```
 
-**Uniqueness**: ไม่มี entity ใดถูกบันทึกซ้ำ วัดโดยทดสอบกับ key (หนังสือ: DMBOK2 Table 29)
+**Uniqueness**: ไม่มี entity ใดถูกบันทึกซ้ำ วัดโดยทดสอบกับ key (หนังสือ: DMBOK2 Table 29 หน้า 459)
 
 ```sql
 SELECT count(*) - count(DISTINCT order_id), count(*) FROM orders;
@@ -93,7 +99,7 @@ column `orders.customer_id` มี NULL 15 row ซึ่งเป็นปัญ
 
 ## Consistency, Integrity
 
-**Consistency**: ค่าถูกแสดงสอดคล้องกันภายในและข้าม dataset หรือไม่ หนังสือแยกเป็นสามระดับ: ใน row เดียวกัน (record-level) ข้าม row (cross-record) และข้ามเวลา (temporal) และเตือนว่าอย่าสับสนกับ accuracy (หนังสือ: DMBOK2 Table 29)
+**Consistency**: ค่าถูกแสดงสอดคล้องกันภายในและข้าม dataset หรือไม่ หนังสือแยกเป็นสามระดับ: ใน row เดียวกัน (record-level) ข้าม row (cross-record) และข้ามเวลา (temporal) และเตือนว่าอย่าสับสนกับ accuracy (หนังสือ: DMBOK2 Table 29 หน้า 458)
 
 ```sql
 -- status SHIPPED ต้องมีเวลาส่ง
@@ -108,7 +114,7 @@ SELECT count(*) FILTER (WHERE shipped_ts < order_ts), count(shipped_ts) FROM ord
 
 ทั้งสองข้อ ค่าแต่ละช่องดูถูกเมื่อดูเดี่ยวๆ แต่ขัดกันเมื่อดูรวม rule แบบนี้ไม่มีทางเห็นจากการตรวจทีละ column
 
-**Integrity**: หนังสือหมายถึงโดยหลัก referential integrity คือความสอดคล้องระหว่าง object ผ่าน reference key ถ้าขาดจะเกิด orphan (reference key ที่ไม่มีตัวจริง) หรือ duplicate (หนังสือ: DMBOK2 Table 29)
+**Integrity**: หนังสือหมายถึงโดยหลัก referential integrity คือความสอดคล้องระหว่าง object ผ่าน reference key ถ้าขาดจะเกิด orphan (reference key ที่ไม่มีตัวจริง) หรือ duplicate (หนังสือ: DMBOK2 Table 29 หน้า 459)
 
 ```sql
 SELECT count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM customers c WHERE c.customer_id = o.customer_id)),
@@ -123,7 +129,7 @@ FROM orders o WHERE customer_id IS NOT NULL;
 
 ## Timeliness, Accuracy
 
-**Timeliness**: ข้อมูลสะท้อนความจริง ณ เวลาที่ต้องการหรือไม่ ต้องอ่านคู่กับความถี่ที่ข้อมูลเปลี่ยน (volatility) หนังสือแยก *currency* (ค่าเป็นเวอร์ชันล่าสุดไหม) กับ *latency* (เวลาตั้งแต่ข้อมูลเกิดจนพร้อมใช้) (หนังสือ: DMBOK2 Table 29)
+**Timeliness**: ข้อมูลสะท้อนความจริง ณ เวลาที่ต้องการหรือไม่ ต้องอ่านคู่กับความถี่ที่ข้อมูลเปลี่ยน (volatility) หนังสือแยก *currency* (ค่าเป็นเวอร์ชันล่าสุดไหม) กับ *latency* (เวลาตั้งแต่ข้อมูลเกิดจนพร้อมใช้) (หนังสือ: DMBOK2 Table 29 หน้า 459)
 
 ```sql
 -- ระดับ row: มาถึง warehouse ภายใน 24 ชั่วโมงหรือไม่
@@ -133,7 +139,7 @@ SELECT count(*) FILTER (WHERE ingested_at - order_ts > INTERVAL 24 HOUR), count(
 
 ระดับ table: order ล่าสุดคือ 29 ต.ค. ตอนที่ถามคือ 1 พ.ย. 08:00 ช้ากว่า 2 วัน 8 ชั่วโมงเศษ ถ้าสัญญาไว้ว่าอัปเดตภายใน 24 ชั่วโมง คือผิดสัญญา (รัน: `02_dimensions.py`)
 
-**Accuracy**: ข้อมูลตรงกับวัตถุหรือเหตุการณ์จริงแค่ไหน หนังสือบอกตรงๆ ว่า **วัดยาก** นอกจากจะทำซ้ำการเก็บข้อมูลหรือยืนยันด้วยมือได้ การวัดส่วนใหญ่อาศัยการเทียบกับแหล่งที่ยืนยันแล้วว่าถูก เช่น system of record (หนังสือ: DMBOK2 Table 29)
+**Accuracy**: ข้อมูลตรงกับวัตถุหรือเหตุการณ์จริงแค่ไหน หนังสือบอกตรงๆ ว่า **วัดยาก** นอกจากจะทำซ้ำการเก็บข้อมูลหรือยืนยันด้วยมือได้ การวัดส่วนใหญ่อาศัยการเทียบกับแหล่งที่ยืนยันแล้วว่าถูก เช่น system of record (หนังสือ: DMBOK2 Table 29 หน้า 458)
 
 เราใช้ payment system เป็นแหล่งอ้างอิง เทียบยอดของ order กับผลรวมของ payment
 
@@ -145,13 +151,13 @@ FROM o JOIN p USING (order_id);
 -- ไม่ตรง 35 จาก 2,533
 ```
 
-ข้อควรระวังจากหนังสือ: ข้อมูลอาจ **valid แต่ไม่ accurate** ได้ วันเกิด 1990-01-01 ผ่าน rule ช่วงปี แต่ถ้า customer เกิดปี 1985 ก็ผิด
+หนังสือเตือนอีกข้อว่าข้อมูลอาจ valid โดยไม่ accurate ก็ได้ วันเกิด 1990-01-01 ผ่าน rule ช่วงปี แต่ถ้า customer เกิดปี 1985 ก็ผิด
 
 </Step>
 
 <Step>
 
-## สรุปทั้ง 14 rule
+## สรุปทั้ง 14 Rule
 
 | dimension | rule | ไม่ผ่าน | ทั้งหมด | ผ่าน% | ไม่ผ่าน% |
 |---|---|---:|---:|---:|---:|
@@ -170,7 +176,7 @@ FROM o JOIN p USING (order_id);
 | timeliness | order มาถึงภายใน 24 ชม. | 40 | 3,020 | 98.68 | 1.32 |
 | accuracy | ยอดตรงกับ payment system | 35 | 2,533 | 98.62 | 1.38 |
 
-สังเกตว่า "ทั้งหมด" ไม่เท่ากันทุก rule: email ที่ format ผิดนับจาก 460 (ไม่นับ row ที่ว่าง) เพราะ row ว่างถูกจับไปแล้วโดย rule ของ completeness การเลือกตัวหารแบบนี้กันไม่ให้ข้อผิดพลาดเดียวถูกนับซ้ำในสอง rule
+คอลัมน์ "ทั้งหมด" ไม่เท่ากันทุก rule: email ที่ format ผิดนับจาก 460 (ไม่นับ row ที่ว่าง) เพราะ row ว่างถูกจับไปแล้วโดย rule ของ completeness การเลือกตัวหารแบบนี้กันไม่ให้ข้อผิดพลาดเดียวถูกนับซ้ำในสอง rule
 
 </Step>
 
@@ -190,6 +196,27 @@ defect หนึ่ง row อยู่ได้หลาย dimension เช่
 
 <Step>
 
+## หนึ่งหน้าต่อหนึ่ง Dimension
+
+หน้าต่อจากนี้ไล่ทีละ dimension: completeness, validity, uniqueness, consistency, integrity, timeliness, accuracy และ reasonability ทุกหน้าใช้รูปแบบเดียวกัน คือ คำถามที่นิยามของหนังสือถาม ภาพจากชีวิตประจำวัน row จาก dataset ของเราที่ไม่ผ่าน วิธีที่คำนั้นถูกเข้าใจผิด และ dimension ข้างเคียงที่มักสับสนด้วย ส่วนที่ควรใช้เวลามากที่สุดคือข้อที่ถูกเข้าใจผิด นี่คือข้อที่ทำให้ทีมเสียหายมากที่สุด พร้อมตัวเลขจาก data ของเราที่แสดงให้เห็น:
+
+| หน้า | ความเข้าใจผิด | data ของเราแสดงอะไร |
+|---|---|---|
+| Completeness | "ไม่มี NULL แปลว่าครบ" | `shipped_ts` เป็น NULL 41.4% ของ row และมีแค่ 25 row ที่เป็น defect |
+| Validity | "ผ่าน rule แปลว่าถูก" | ยอดผิดทั้ง 35 รายการผ่าน `total_amount >= 0` |
+| Uniqueness | "key ไม่ซ้ำ แปลว่า entity ไม่ซ้ำ" | `customer_id` ไม่ซ้ำทั้ง 500 row แต่ email 460 ค่ามีค่าต่างกันแค่ 450 |
+| Consistency | "สองแหล่งตรงกัน แปลว่าถูก" | ยอดตรงกับ copy ของตัวเอง 3 จาก 3 และตรงกับ payment system 1 จาก 3 (table สมมติ) |
+| Integrity | "`NOT IN` หา orphan ได้" | เจอ 30 และเจอ 0 ทันทีที่รายการ parent มี NULL หนึ่งตัว |
+| Timeliness | "pipeline รันแล้ว แปลว่าข้อมูลสด" | load ล่าสุดเก่า 5 ชั่วโมง 49 นาที และ order ล่าสุดเก่า 56 ชั่วโมง |
+| Accuracy | "เรา accurate 98.62%" | จำนวนที่ไม่ตรงขยับจาก 35 เหลือ 11 เมื่อเปลี่ยน tolerance |
+| Reasonability | "bar จากค่าเฉลี่ยก็พอ" | bar 5% fire ใน 34 จาก 91 วันปกติ |
+
+`13_dimension_pitfalls.py` สร้างตัวเลขทุกตัวในหน้าเหล่านี้ซ้ำ และหยุดทันทีถ้าตัวไหนขยับ บางการสาธิตใช้ table สมมติขนาดเล็กหรือ copy ที่ดัดแปลง เพราะ dataset ที่ใช้ร่วมกันไม่มี defect ชนิดนั้นที่ฝังไว้ แต่ละหน้าบอกไว้ทุกครั้ง
+
+</Step>
+
+<Step>
+
 ## เช็กตัวเอง
 
 - ถ้าทีมหนึ่งใช้ 6 dimension อีกทีมใช้ 15 dimension รายงานจะเปรียบเทียบกันได้ไหม ต้องตกลงอะไร
@@ -204,12 +231,13 @@ defect หนึ่ง row อยู่ได้หลาย dimension เช่
 
 | ข้อความ | ที่มา |
 |---|---|
-| นิยาม dimension, สามชุด dimension ที่มีอิทธิพล, หก dimension ของ DAMA UK, "ไม่มีชุดเดียวที่ตกลงกัน" | หนังสือ: DMBOK2 §1.3.3 |
-| ความหมายและวิธีวัดของแต่ละ dimension, integrity, reasonability | หนังสือ: DMBOK2 Table 29 |
-| การรายงานผ่าน% และไม่ผ่าน% | หนังสือ: DMBOK2 §2.7.2 และ Table 30 |
+| นิยาม dimension, สามชุด dimension ที่มีอิทธิพล, หก dimension ของ DAMA UK, "ไม่มีชุดเดียวที่ตกลงกัน" | หนังสือ: DMBOK2 หัวข้อ 1.3.3 หน้า 454 ถึง 460 |
+| ความหมายและวิธีวัดของแต่ละ dimension, integrity, reasonability | หนังสือ: DMBOK2 Table 29 หน้า 458 ถึง 459 |
+| การรายงานผ่าน% และไม่ผ่าน% | หนังสือ: DMBOK2 หัวข้อ 2.7.2 หน้า 479 ถึง 481 และ Table 30 หน้า 480 |
 | dimension ทับซ้อนกัน | หนังสือ: DMBOK2 Figure 92 |
 | ตัวเลขทั้ง 14 rule และการตรวจกับจำนวนที่ฝัง | รัน: `02_dimensions.py` |
 | SQL ที่ใช้ (SQL ของ DuckDB) และการตีความว่า rule ใดนับเป็น dimension ใด | ผู้เขียน |
-| reasonability ยังไม่มีแบบฝึกในบทนี้ | บท 7 จะพูดถึงด้วยการเฝ้าดู distribution และ volume |
+| ตารางความเข้าใจผิดและตัวเลขข้างๆ | รัน: `13_dimension_pitfalls.py` |
+| reasonability ไม่มี defect ที่ฝังไว้ใน dataset | หน้าเจาะลึกสร้างวันเสียใน copy [บท 7](/data-quality/monitoring/#volume-ฤดูกาลทำให้-z-score-หลง) พูดถึงด้วยการเฝ้าดู distribution และ volume |
 
 </Step>
