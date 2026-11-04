@@ -1,7 +1,7 @@
 ---
 title: When the data breaks
 summary: What to do after you detect a problem. This lesson follows a simulated incident whose cause is known, from detection through a five-step root cause search, the fix and the backfill, to a postmortem that blames no one.
-order: 8
+order: 9
 phase: D
 level: 4
 stage: sprout
@@ -17,7 +17,7 @@ import Callout from '../../../../components/Callout.astro';
 
 ## The cycle of a data incident
 
-DQF lays out the data incident cycle like DevOps work: **detect, respond, root cause analysis (RCA), fix, and a blameless postmortem**, then loop back to prevention (book: DQF ch.6). DMBOK2 gives a similar sequence for the data quality team: diagnose, find options for the fix, and fix, recording every decision in an incident tracking system (book: DMBOK2 §2.7.3).
+DQF lays out the data incident cycle like DevOps work: **detect, respond, root cause analysis (RCA), fix, and a blameless postmortem**, then loop back to prevention (book: DQF chapter 6, pages 143 to 157). DMBOK2 gives a similar sequence for the data quality team: diagnose, find options for the fix, and fix, recording every decision in an incident tracking system (book: DMBOK2 section 2.7.3, pages 481 to 483).
 
 This lesson uses one simulated incident whose answer we know, to walk the whole cycle. **The incident is injected into a clean copy of the orders table**, so every query gives a provable result (ran: `09_incident.py`).
 
@@ -31,9 +31,9 @@ The story: on 12 and 13 September the loading system was rerun and loaded those 
 
 Comparing daily revenue with the value it should have shows two days above 1.5 times: 2026-09-12 and 2026-09-13. The ratio on both days is exactly 2.00.
 
-In real work nobody has the "value it should be" to compare with. What you can compare with is a baseline from the past, such as the detector that compares with the same weekday of earlier weeks in lesson 7, and a revenue anomaly like this one would be caught by that volume detector. (The exercise in this lesson compares with the correct values directly to make the incident clear.)
+In real work nobody has the "value it should be" to compare with. What you can compare with is a baseline from the past, such as the detector that compares with the same weekday of earlier weeks in [lesson 7](/en/data-quality/monitoring/#volume-seasonality-fools-the-z-score), and a revenue anomaly like this one would be caught by that volume detector. (The exercise in this lesson compares with the correct values directly to make the incident clear.)
 
-DQF warns that detection is only the first step. An executive the book quotes says "you need to know what broke, who is affected, why, where, and what the cause probably is", which is the work of the next steps (book: DQF ch.6).
+DQF warns that detection is only the first step. An executive the book quotes says "you need to know what broke, who is affected, why, where, and what the cause probably is", which is the work of the next steps (book: DQF chapter 6, pages 145 to 147).
 
 </Step>
 
@@ -41,7 +41,7 @@ DQF warns that detection is only the first step. An executive the book quotes sa
 
 ## Respond: who is in charge, who knows
 
-DQF recommends that a team prepares documents in advance (book: DQF ch.6):
+DQF recommends that a team prepares documents in advance (book: DQF chapter 6, pages 147 to 148):
 
 - **Runbook**: a guide to the various services and the problems that come up often.
 - **Playbook**: step-by-step procedures for handling an incident.
@@ -49,7 +49,7 @@ DQF recommends that a team prepares documents in advance (book: DQF ch.6):
 
 The main duties of an incident commander according to the book: tell the team and those involved early and often, record the affected assets, coordinate and assign, publish runbooks and playbooks, and assess severity and impact.
 
-**Assess severity**: the book suggests tagging a status (fixed, expected, investigating, no action needed, false alarm) and asking whether the broken data matters, because of "phantom data": data nobody has used for months can cost you time fixing it for nothing. Data that drives financial reports is high priority (in line with the criticality principle of lesson 1).
+**Assess severity**: the book suggests tagging a status (fixed, expected, investigating, no action needed, false alarm) and asking whether the broken data matters, because of "phantom data": data nobody has used for months can cost you time fixing it for nothing. Data that drives financial reports is high priority (in line with the criticality principle of [lesson 1](/en/data-quality/assurance-basics/#not-all-data-matters-equally)).
 
 **Blast radius**: the exercise uses a small lineage graph and walks downstream from the point of failure:
 
@@ -66,7 +66,7 @@ The damage from this incident covers four downstream nodes: `stg_orders`, `daily
 
 ## Root cause analysis: DQF's five steps
 
-DQF summarizes that most data problems come from three groups: **the incoming data changed, the transformation logic changed, or a problem in operations** (runtime errors, permissions, infrastructure, schedules). It warns that an incident "often has no single root cause" but is a combination of several (book: DQF ch.6). The five steps the book proposes, followed with real queries:
+DQF summarizes that most data problems come from three groups: **the incoming data changed, the transformation logic changed, or a problem in operations** (runtime errors, permissions, infrastructure, schedules). It warns that an incident "often has no single root cause" but is a combination of several (book: DQF chapter 6, pages 148 to 157). The five steps the book proposes, followed with real queries:
 
 **Step 1: Look at lineage.** Find the most upstream node that still shows the problem.
 
@@ -117,7 +117,7 @@ These two batches were loaded twice, matching the two days that are duplicated.
 | 4 | Why are there duplicate rows in raw_orders? | The load job was rerun and loaded both batches twice |
 | 5 | Why could it load twice, and why did nobody see it? | The load is not idempotent, and there is no test for uniqueness on stg_orders |
 
-DMBOK2 uses the same techniques (Five Whys, Pareto, fishbone, track and trace) and points out that both technical and business experts need to take part in the analysis (book: DMBOK2 §4.6, §2.7.3).
+DMBOK2 uses the same techniques (Five Whys, Pareto, fishbone, track and trace) and points out that both technical and business experts need to take part in the analysis (book: DMBOK2 section 4.6, page 490; section 2.7.3, pages 481 to 483). The Ten Steps method adds categories to hang causes on (machines, methods, materials and people; policies, procedures and plant; environment, measurement and management) and asks for a facilitator with no stake in the outcome (book: Ten Steps chapter 4, pages 206 to 219). [Lesson 12](/en/data-quality/ten-steps/#find-the-cause-then-improve-in-three-directions) has the details.
 
 </Step>
 
@@ -125,13 +125,13 @@ DMBOK2 uses the same techniques (Five Whys, Pareto, fishbone, track and trace) a
 
 ## Fix: temporary first, then permanent
 
-DQF separates the **initial fix** (such as stopping or "circuit breaking" the pipeline) from the **final fix** that solves the real cause, and stresses communicating status in the one channel the people involved watch (book: DQF ch.6).
+DQF separates the **initial fix** (such as stopping or "circuit breaking" the pipeline) from the **final fix** that solves the real cause, and stresses communicating status in the one channel the people involved watch (book: DQF chapter 6, pages 157 to 158).
 
 - **Initial**: stop the refresh of the finance dashboard so nobody reads the doubled numbers.
 - **Final**: restore `DISTINCT`, make the load idempotent using `batch_id`, and add a test for uniqueness on `stg_orders`.
 - **Backfill**: rebuild `daily_revenue` with the corrected query. The result for the two days returns to the value it should have (checked in `09_incident.py`).
 
-DMBOK2 offers a wider range of options for the fix, including one that many teams forget: **"do nothing", depending on cost and impact**, when the cost of fixing is higher than the value (book: DMBOK2 §2.7.3). It also warns to "fix it where the problem occurs" and that the fix should include preventing a recurrence (§4.2). Editing data directly in production without control and traces is "extremely risky and should be avoided".
+DMBOK2 offers a wider range of options for the fix, including one that many teams forget: **"do nothing", depending on cost and impact**, when the cost of fixing is higher than the value (book: DMBOK2 section 2.7.3, pages 481 to 483). It also warns to "fix it where the problem occurs" and that the fix should include preventing a recurrence (section 4.2, pages 486 to 487). Editing data directly in production without control and traces is "extremely risky and should be avoided".
 
 The impact of this incident: revenue was overstated by **71,120.46** over the two days (ran: `09_incident.py`).
 
@@ -141,7 +141,7 @@ The impact of this incident: revenue was overstated by **71,120.46** over the tw
 
 ## A blameless postmortem
 
-DQF quotes a site reliability engineer (SRE): "in every incident, the system is what is at fault, not the person who wrote the code. A good system tolerates human error", and makes the postmortem a meeting with a document after the fix is done (book: DQF ch.6). The practices:
+DQF quotes a site reliability engineer (SRE): "in every incident, the system is what is at fault, not the person who wrote the code. A good system tolerates human error", and makes the postmortem a meeting with a document after the fix is done (book: DQF chapter 6, pages 157 to 158). The practices:
 
 - See it as learning, not as finding someone to blame.
 - Assess readiness for next time: adjust runbooks, monitoring and alerts.
@@ -155,14 +155,14 @@ The record of this incident in the exercise (the time figures are assumptions of
 | Summary | Revenue on 12 and 13 Sep was shown at double to finance and the forecast model |
 | Impact | Overstated by 71,120.46; consumers: finance_dashboard, forecast_model |
 | Time to detect / fix | 30 h / 6 h |
-| Cost by the formula of lesson 1 | (30 + 6) × 300 = 10,800 |
+| Cost by the formula of [lesson 1](/en/data-quality/assurance-basics/#the-price-of-bad-data) | (30 + 6) × 300 = 10,800 |
 | Causes | Two days loaded twice; DISTINCT was dropped; no uniqueness test |
 | Actions | Idempotent load (ingest team); restore DISTINCT with a test (analytics engineering); monitor volume against the same weekday (analytics engineering) |
 
-Notice that all three causes are about the system, none has a person's name, and each action has an owner.
+All three causes are about the system, none has a person's name, and each action has an owner.
 
 <Callout type="warn" title="This story is too easy">
-The incident in this lesson has two clean causes and we already know the answer. Real incidents often have conflicting evidence, missing data and several passes of going back. DQF warns that a single root cause is the exception, not the rule (book: DQF ch.6).
+The incident in this lesson has two clean causes and we already know the answer. Real incidents often have conflicting evidence, missing data and several passes of going back. DQF warns that a single root cause is the exception, not the rule (book: DQF chapter 6, pages 148 to 157).
 </Callout>
 
 <Callout type="try" title="Try it in this repo">
@@ -187,9 +187,9 @@ Open `09_incident.py` and change the days that are loaded twice to three days, o
 
 | Statement | Source |
 |---|---|
-| The incident cycle, incident commander, three groups of causes, the five RCA steps, Five Whys, initial and final fix, blameless postmortem, status tags | book: DQF ch.6 |
-| The diagnosis step, options for the fix (including "do nothing"), the incident tracking system | book: DMBOK2 §2.7.3 |
-| Fix where it happens, manual fixes in production are risky; RCA techniques | book: DMBOK2 §4.2, §4.6 |
+| The incident cycle, incident commander, three groups of causes, the five RCA steps, Five Whys, initial and final fix, blameless postmortem, status tags | book: DQF chapter 6, pages 143 to 165 |
+| The diagnosis step, options for the fix (including "do nothing"), the incident tracking system | book: DMBOK2 section 2.7.3, pages 481 to 483 |
+| Fix where it happens, manual fixes in production are risky; RCA techniques | book: DMBOK2 section 4.2, pages 486 to 487; section 4.6, page 490 |
 | Every number of the incident, the results of the queries in all five steps, the backfill result | ran: `09_incident.py` |
 | The simulated incident (injected into a clean copy), the time and cost figures | author (an invented story) |
 

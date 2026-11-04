@@ -1,0 +1,179 @@
+---
+title: Completeness in depth
+summary: Is everything that should be there actually there? This page shows completeness on real rows, separates mandatory from conditional columns, and walks through the ways a "complete" score can mislead.
+order: 1
+stage: sprout
+format: steps
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## What the word asks
+
+DMBOK2 puts it as a single question: is all the required data present? The book says completeness can be measured at the data set, the record or the column level (book: DMBOK2 Table 29, page 458). The DAMA UK white paper gives a ratio: the proportion of data stored against the potential for 100% (book: DMBOK2 section 1.3.3, page 457).
+
+Picture a paper form with some boxes marked required. Completeness is the share of forms where every required box has something in it. Whether the something is correct is a different question, and the other dimensions answer it.
+
+| Level | The question | Where to look |
+|---|---|---|
+| Data set | Are all the records we expect here? | Compare with a source of record or with past row counts ([lesson 8](/en/data-quality/reconciliation/#reconcile-with-row-counts-and-sums)) |
+| Record | Is this row filled in the way its status requires? | A SHIPPED order needs `shipped_ts` |
+| Column | Is this field filled as much as it should be? | `customers.email`: 460 of 500 |
+
+The data set level asks whether all the records we expect are here. No rule on the rows can answer that, because a missing row leaves nothing to test. The book names two ways to measure it. One is to compare with a source of record, for example the row count in the source system. The other is to compare with how full this data set has been in the past, which the book calls its historical levels of population (book: DMBOK2 Table 29, page 458). The second way needs no source. You only need to know what is normal. If a table usually receives about 25 orders a day and today it has 6, rows are probably missing, even if every row that did arrive is complete. Misreading 3 below shows this on our data.
+
+</Step>
+
+<Step>
+
+## Mandatory, conditional, inapplicable
+
+Before you write a completeness rule, ask when the column should have a value. The book sorts the answers into three groups (book: DMBOK2 Table 29, page 458):
+
+| Group | Meaning | An empty cell means | Example |
+|---|---|---|---|
+| Mandatory | Every row must have a value | a defect | `order_id` in `orders`. Without it you cannot say which order the row is |
+| Conditional or optional | A value is required only when a condition holds, or it may be present or not | a defect only in rows where the condition holds. If it is truly optional, not a defect | `shipped_ts` is required when status is SHIPPED. A field the customer may leave blank, such as a phone number, is optional (our dataset has no such column) |
+| Inapplicable | The field has no meaning for this row, so it must be empty | normal. A value would be the mistake | `shipped_ts` on an order that is still PLACED or was CANCELLED |
+
+An empty cell looks the same in every group, and means something different in each. Empty in a mandatory column is a defect. Empty in an inapplicable column is correct. The middle group needs the condition before you can judge.
+
+Our `shipped_ts` sits in two groups at once, depending on the row's status, which makes it the clearest example:
+
+| status | rows | `shipped_ts` filled | What is expected |
+|---|---:|---:|---|
+| PLACED | 756 | 0 | empty, nothing has shipped |
+| SHIPPED | 1,794 | 1,769 | filled for every row |
+| CANCELLED | 470 | 0 | empty |
+
+The column is NULL in 1,251 of 3,020 rows (41.4%). Of those, 1,226 are right and 25 are SHIPPED orders with no time, which is the planted defect (run: `13_dimension_pitfalls.py`).
+
+```sql
+SELECT count(*) FILTER (WHERE status = 'SHIPPED' AND shipped_ts IS NULL),
+       count(*) FILTER (WHERE status = 'SHIPPED')
+FROM orders;
+-- 25 of 1,794
+```
+
+</Step>
+
+<Step>
+
+## What it looks like in the rows
+
+Customers with no email, and orders with no customer:
+
+| customer_id | email | country |
+|---:|---|---|
+| 14 | NULL | TH |
+| 24 | NULL | TH |
+| 30 | NULL | TH |
+
+| order_id | customer_id | status | total_amount |
+|---:|---:|---|---:|
+| 344 | NULL | SHIPPED | 1091.11 |
+| 696 | NULL | SHIPPED | 2365.87 |
+| 838 | NULL | CANCELLED | 2556.54 |
+
+The first table is 40 rows in the whole dataset, so `customers.email` is 92.00% complete. The second is 15 rows, so `orders.customer_id` is 99.50% complete (run: `02_dimensions.py`). The first number looks alarming and the second looks fine. Whether either one matters depends on who reads the column: marketing cannot send mail to 40 people, while a finance report that groups revenue by customer loses 15 orders.
+
+</Step>
+
+<Step>
+
+## Misreading 1: NULL is always a defect
+
+- **The usual belief:** every empty cell is missing data
+- **What is true:** an empty cell in a conditional or inapplicable column is normal
+- **In our data:** `shipped_ts` is NULL in 1,251 rows, and 1,226 of them are right already (PLACED and CANCELLED). Only 25 rows are real defects
+- **What to do:** put the scope in the rule, for example "when status is SHIPPED". A completeness score with no scope is a score nobody can interpret
+
+</Step>
+
+<Step>
+
+## Misreading 2: A filled cell holds real data
+
+- **The usual belief:** `IS NULL` counts everything that is missing
+- **What is true:** an empty string, `N/A`, a row of spaces, a dash and `000-000-0000` all pass `IS NULL` without holding any data
+- **In our data:** on a made-up phone table of 8 rows, `IS NULL` finds 1 empty value, and a check that also looks for blanks and placeholders finds 6 (run: `13_dimension_pitfalls.py`)
+- **What to do:** look at the most frequent values in the column ([lesson 3](/en/data-quality/profiling/#look-at-the-frequency-of-values-in-columns-with-only-a-few-values)) for defaults and for characters people type to get past a form. Ten Steps mentions typing a period into a mandatory field to finish the record, and says some teams count a field that holds only the default as not filled (book: Ten Steps chapter 4, pages 128 to 135)
+
+</Step>
+
+<Step>
+
+## Misreading 3: Every row is full, so the table is full
+
+- **The usual belief:** if every row is fully populated, completeness is 100%
+- **What is true:** a column-level rule only sees the rows that arrived. A missing row leaves nothing to test
+- **In our data:** the shared dataset has no gap, so this uses a copy in which 4 of every 5 orders of 30 August are removed, leaving 6 rows instead of 30. A row-level check passes 2,976 of 2,976 rows. On the other days the table receives 24.8 orders a day (standard deviation 4.7), so the lowest usual day is about 10.6, and 6 is far below it (run: `13_dimension_pitfalls.py`)
+- **What to do:** compare the row count with the source ([lesson 8](/en/data-quality/reconciliation/#reconcile-with-row-counts-and-sums)) or with the table's own history
+- **The cost of using history:** it is only as good as the past that built it, and a day that is quiet for a real business reason looks the same as a day with missing rows
+
+</Step>
+
+<Step>
+
+## Misreading 4: Every rule divides by the same total
+
+- **The usual belief:** every rule uses the total number of rows
+- **What is true:** the denominator changes the score, and each rule can choose its own
+- **In our data:** `customers.email` is 92.00% complete out of 500 customers, while the email format rule uses 460, because the 40 blank rows were already counted here
+- **What to do:** different denominators are fine as long as you say so. It stops one blank cell from failing two rules at once (see the summary table in the [main lesson](/en/data-quality/dimensions/#all-14-rules-together))
+
+</Step>
+
+<Step>
+
+## Misreading 5: Completeness can wait until later
+
+- **The usual belief:** a field the team "knows" is important must be filled nearly all the time
+- **What is true:** the Ten Steps author tells of a deduplication project that went through many rounds of tuning without good results, because a field the team knew was essential for matching had a fill rate of only 20% (book: Ten Steps chapter 3, pages 42 to 46)
+- **What to do:** check the field's completeness first, then build logic that depends on it
+
+</Step>
+
+<Step>
+
+## Easy to confuse with
+
+| Looks like | How to tell them apart | In our data |
+|---|---|---|
+| Validity | Completeness asks whether a value is there. Validity asks whether the value is allowed | email NULL (40 rows) against `user23example.com` (15 rows) |
+| Integrity | A NULL key is missing. An orphan key is present but points at nothing | `orders.customer_id`: 15 NULL, 30 orphans, so 45 orders cannot be tied to a customer |
+| Accuracy | A filled value may be wrong | `birth_date` is filled for all 500 customers, and 6 of the dates are impossible |
+
+Ten Steps does not treat completeness and validity as separate dimensions. They sit together in "data integrity fundamentals" because one profiling pass finds both (book: Ten Steps chapter 3, pages 42 to 46). The book says that assessing and reporting are different things, so you may still report them apart.
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- Pick one column in a table you own. Is it mandatory, conditional or inapplicable? Does its rule say so?
+- Your pipeline loads 2% fewer rows today than yesterday and every loaded row is fully populated. Which level of completeness has failed, and which check would have shown it?
+- Find a column where people type a placeholder to get past a required field. How would you count those?
+
+</Step>
+
+<Step>
+
+## Sources of this page
+
+| Statement | Source |
+|---|---|
+| Definition, three levels, mandatory and conditional and inapplicable, comparison with a source of record | book: DMBOK2 Table 29, page 458 |
+| Proportion of data stored against the potential for 100% | book: DMBOK2 section 1.3.3, page 457 |
+| Default values and placeholders, completeness reported with validity | book: Ten Steps chapter 4, pages 128 to 135 |
+| The 20% fill rate story; completeness and validity in one dimension | book: Ten Steps chapter 3, pages 42 to 46 |
+| Shipped_ts table, 1,251 / 1,226 / 25, the phone table, the copy with a gap (6 rows instead of 30, 2,976 of 2,976 rows pass, 24.8 and 4.7 on other days) | ran: `13_dimension_pitfalls.py`. The copy is made up: the dataset has no missing rows |
+| Rows shown, 92.00% and 99.50%, 15 NULL + 30 orphans | ran: `02_dimensions.py`, `13_dimension_pitfalls.py` |
+| The examples in the three-group table (`order_id`, the phone number), the five misreadings and the reading of who is hurt by which column | author |
+
+</Step>

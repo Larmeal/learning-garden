@@ -1,0 +1,115 @@
+---
+title: Consistency แบบเจาะลึก
+summary: สอง representation ของสิ่งเดียวกันตรงกันไหม หน้านี้ดู consistency สามระดับบน row จริง และดูว่าทำไมการที่สองค่าตรงกันไม่ใช่หลักฐานว่าค่าใดค่าหนึ่งถูก
+order: 4
+stage: sprout
+format: steps
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## คำนี้ถามอะไร
+
+DMBOK2 อธิบาย consistency ว่าค่าถูกแสดงในแบบเดียวกันภายใน data set และระหว่าง data set และถูกผูกเข้าด้วยกันแบบเดียวกันข้าม data set นอกจากนั้นอาจหมายถึงขนาดและองค์ประกอบของ data set ข้ามระบบหรือข้ามเวลา และอาจหมายถึงความสอดคล้องของ format (หนังสือ: DMBOK2 Table 29 หน้า 458) DAMA UK ใช้คำว่าไม่มีความต่าง เมื่อเทียบสอง representation ขึ้นไปของสิ่งหนึ่งกับนิยามของมัน (หนังสือ: DMBOK2 หัวข้อ 1.3.3 หน้า 457)
+
+นาฬิกาสองเรือนในบ้านเดียวกัน ถ้าบอกเวลาเท่ากัน มันก็ consistent ถ้าเรือนหนึ่งเร็วไปสิบนาที มันก็ไม่ consistent ทั้งสองกรณีไม่ได้บอกว่าตอนนี้กี่โมง ประโยคสุดท้ายในคำอธิบายของหนังสือบอกเรื่องเดียวกัน: ระวังอย่าสับสน consistency กับ accuracy หรือความถูกต้อง (หนังสือ: DMBOK2 Table 29 หน้า 458)
+
+</Step>
+
+<Step>
+
+## สามระดับ
+
+หนังสือเรียกสามระดับ (หนังสือ: DMBOK2 Table 29 หน้า 458):
+
+| ระดับ | สิ่งที่เทียบ | rule ของเรา | ไม่ผ่าน |
+|---|---|---|---:|
+| Record-level | สอง attribute ใน row เดียวกัน | order ที่ SHIPPED ต้องมี `shipped_ts` | 25 จาก 1,794 |
+| Record-level | สอง attribute ใน row เดียวกัน | `shipped_ts` ไม่ก่อน `order_ts` | 10 จาก 1,769 |
+| Cross-record | attribute เดียวข้าม row หรือ data set | country เขียนแบบเดียวกันทุก row | 25 row ที่เขียนอีกห้าแบบ |
+| Temporal | attribute เดียวในเวลาต่างกัน | จำนวน order วันนี้ใกล้กับจำนวนของวันก่อนๆ | ดู[หน้า reasonability](/data-quality/dimensions/reasonability/#ความหมายที่ถูกเข้าใจผิดบ่อย) |
+
+row ที่ตกสอง rule แรก:
+
+| order_id | status | order_ts | shipped_ts |
+|---:|---|---|---|
+| 84 | SHIPPED | 2026-07-03 06:01 | NULL |
+| 816 | SHIPPED | 2026-10-02 03:26 | 2026-10-01 03:26 |
+
+ใน order 816 timestamp แต่ละตัวเป็น timestamp ที่ valid ตัว order ถูกส่งไปหนึ่งวันก่อนที่มันจะถูกสั่ง defect อยู่ที่คู่เท่านั้น จึงไม่มี check ต่อ column ใดเจอได้ ส่วน cross-record consistency หน้าตาเป็นแบบนี้ใน `customers.country`:
+
+| country | row |
+|---|---:|
+| TH | 330 |
+| SG | 58 |
+| JP | 56 |
+| US | 31 |
+| THA, T.H., th, Thailand, ไทย | อย่างละ 5 |
+
+หกการสะกดแทนประเทศเดียว (รัน: `02_dimensions.py`, `13_dimension_pitfalls.py`)
+
+</Step>
+
+<Step>
+
+## ความหมายที่ถูกเข้าใจผิดบ่อย
+
+<Callout type="warn" title="1. ตรงกัน ไม่ได้แปลว่าถูก">
+ลองดู order 3 รายการ column `total_amount` เท่ากับ copy ของยอดใน table รายงานทั้ง 3 รายการ และเท่ากับที่ payment system บันทึกไว้ 1 จาก 3 (table สมมติ รัน: `13_dimension_pitfalls.py`) copy ย่อมตรงกับต้นฉบับที่มันถูก copy มาเสมอ ถ้าสองระบบมี bug ร่วมกัน consistency check ทุกอันระหว่างสองระบบนั้นก็ผ่านหมด consistency บอกให้รู้ว่าควรไปดูตรงไหน ส่วน accuracy ต้องมีแหล่งที่เชื่อถือได้
+</Callout>
+
+**2. การวัดรายงานความต่าง นิยามเป็นตัวตัดสินว่าใครถูก** "สะกดประเทศไทยหกแบบ" เป็นสิ่งที่ค้นพบ การเลือก `TH` แล้ว map อีกห้าแบบเข้าหามัน คือ standardization ซึ่งหนังสืออธิบายว่าเป็นการปรับข้อมูลขาเข้าให้เป็นไปตาม rule ด้านเนื้อหาและ format (หนังสือ: DMBOK2 Table 29 หน้า 458) การวัดเลือกให้เราไม่ได้ จึงมีคำว่า "เทียบกับนิยาม" ในถ้อยคำของ DAMA UK
+
+**3. ทุก column อาจดูปกติ** ลอง profile `order_ts` กับ `shipped_ts` ทีละตัว ([บท 3](/data-quality/profiling/#profile-ของทุก-column-โดยไม่ต้องรู้ความหมาย)) แล้วทั้งคู่ดูไม่มีอะไร rule ระดับ record ต้องรู้ความสัมพันธ์ทางธุรกิจระหว่างสอง column และความสัมพันธ์นั้นมักอยู่ในหัวคนบางคน ให้ไปถามเขา
+
+**4. rule ที่ไม่เจออะไรก็ยังเป็นข้อมูล** "order ที่ PLACED ต้องไม่มี `shipped_ts`" ตก 0 row ใน data ของเรา (รัน: `13_dimension_pitfalls.py`) คุณได้รู้ว่าระบบไม่ได้เอาเวลาส่งไปใส่ใน order ที่ยังไม่ส่ง เก็บ rule ไว้ มันจะเห็นเมื่อเรื่องนี้เปลี่ยน
+
+**5. rule เดียวกันอาจมีบ้านต่างกัน** Ten Steps จัด "order date ต้องมาก่อน ship date เสมอ" ไว้ใต้ referential integrity เพราะมองว่า integrity ในความหมายกว้างคือความสอดคล้องของข้อมูลภายใน relationship (หนังสือ: Ten Steps บทที่ 4 หน้า 128 ถึง 135) ส่วน DMBOK2 จัดไว้ใต้ consistency ทั้งสองแบบอธิบายได้ rule เหมือนกัน ต่างแค่ป้าย ควรตกลงป้ายเดียวสำหรับรายงานของคุณ
+
+**6. หนังสือเอา "ข้ามเวลา" มาไว้ที่นี่ด้วย** ตัวอย่างของหนังสือคือ rule ที่ว่าจำนวน transaction ในหนึ่งวันไม่ควรเกิน 105% ของค่าเฉลี่ยเคลื่อนที่ 30 วันก่อนหน้า (หนังสือ: DMBOK2 Table 29 หน้า 458) หลายทีมเรียกสิ่งนี้ว่า volume monitoring หรือ reasonability [หน้า reasonability](/data-quality/dimensions/reasonability/#ความหมายที่ถูกเข้าใจผิดบ่อย) แสดงว่า bar แบบนี้ทำอะไรกับ data ของเรา
+
+</Step>
+
+<Step>
+
+## ที่มักสับสนด้วย
+
+| ดูคล้ายกับ | แยกอย่างไร | ใน data ของเรา |
+|---|---|---|
+| Accuracy | Consistency เทียบสอง representation Accuracy เทียบกับความจริงหรือแหล่งที่มีอำนาจ | ยอดตรงกับ copy ของตัวเอง 3 จาก 3 ตรงกับ payment 1 จาก 3 |
+| Validity | ค่าที่อยู่ในรายการยังขัดกับ column อื่นได้ | order 816 timestamp ทั้งคู่ valid |
+| Reconciliation | Reconciliation คือ consistency ระหว่างสองระบบที่วัดเป็น process ([บท 8](/data-quality/reconciliation/#reconcile-ด้วยจำนวน-row-และผลรวม)) | ยอด order เทียบกับยอด payment |
+
+Ten Steps ยังแยก consistency ข้าม data store เป็นอีก dimension หนึ่งคือ "consistency and synchronization" เพื่อให้วางแผนเวลาไว้สำหรับ profile ทุก store แล้วเทียบกัน (หนังสือ: Ten Steps บทที่ 4 หน้า 146 ถึง 148)
+
+</Step>
+
+<Step>
+
+## เช็กตัวเอง
+
+- ยกตัวอย่างคู่ column ใน table ที่คุณดูแลที่ต้องตรงกัน rule นั้นเขียนไว้ที่ไหนตอนนี้
+- สอง dashboard แสดงตัวเลขเดียวกัน นั่นบอกอะไรเกี่ยวกับว่าตัวเลขนั้นถูกหรือไม่
+- ทีมของคุณจัด "order date ก่อน ship date" ไว้ใต้ consistency ส่วนอีกทีมจัดไว้ใต้ integrity คุณทำอะไรก่อนจะเทียบรายงานของสองทีม
+
+</Step>
+
+<Step>
+
+## ที่มาของหน้านี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| นิยาม สามระดับ standardization ตัวอย่าง 105% การไม่สับสนกับ accuracy | หนังสือ: DMBOK2 Table 29 หน้า 458 |
+| ไม่มีความต่างเมื่อเทียบกับนิยาม | หนังสือ: DMBOK2 หัวข้อ 1.3.3 หน้า 457 |
+| order date ก่อน ship date ใต้ referential integrity | หนังสือ: Ten Steps บทที่ 4 หน้า 128 ถึง 135 |
+| consistency and synchronization เป็นอีก dimension | หนังสือ: Ten Steps บทที่ 4 หน้า 146 ถึง 148 |
+| 25 จาก 1,794, 10 จาก 1,769, หกการสะกด; table สมมติสาม order; rule ที่เจอ 0 | รัน: `02_dimensions.py`, `13_dimension_pitfalls.py` |
+| order 84 และ 816, จำนวน country | รัน: query บน data ชุดเดียวกัน |
+| ภาพนาฬิกาสองเรือน และคำแนะนำเรื่องป้าย | ผู้เขียน |
+
+</Step>

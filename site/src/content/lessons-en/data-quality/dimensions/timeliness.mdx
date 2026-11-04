@@ -1,0 +1,106 @@
+---
+title: Timeliness in depth
+summary: Is the data current enough, and how long did it take to get here? This page separates latency from currency, row level from table level, and shows a table that was loaded this morning and is two days old.
+order: 6
+stage: sprout
+format: steps
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## What the word asks
+
+DAMA UK defines timeliness as the degree to which data represent reality from the required point in time (book: DMBOK2 section 1.3.3, page 457). DMBOK2 says that timeliness refers to several characteristics, and that a measure has to be read against the expected volatility of the data: how often it is likely to change, and why (book: DMBOK2 Table 29, page 459). Two of those characteristics have their own names:
+
+| Term | Question | Book's example |
+|---|---|---|
+| Currency | Is this value the most up-to-date version of the information? | Country codes may stay current for years. Stock prices stay current for minutes |
+| Latency | How long passed between the data being created and it being available for use? | An overnight batch gives a latency of 1 day at 8 am for data entered the day before |
+
+(book: DMBOK2 Table 29, page 459)
+
+Picture a carton of milk. The date it was filled is one fact, and whether it is still good today is another. A carton filled this morning can be off, and an old carton of long-life milk can be fine.
+
+</Step>
+
+<Step>
+
+## Row level and table level
+
+Row level asks whether each row arrived quickly enough. Table level asks whether the table is up to date now. They have different numbers.
+
+```sql
+-- row level: did each order reach the warehouse within 24 hours?
+SELECT count(*) FILTER (WHERE ingested_at - order_ts > INTERVAL 24 HOUR), count(*) FROM orders;
+-- 40 of 3,020, so 98.68% on time
+```
+
+| order_id | order_ts | ingested_at | Latency |
+|---:|---|---|---|
+| 2 | 2026-07-17 05:33 | 2026-07-17 05:53 | 20 minutes |
+| 135 | 2026-10-22 12:07 | 2026-10-26 12:07 | 4 days |
+
+Across all rows the median latency is 16 minutes and the worst is 120 hours (run: `13_dimension_pitfalls.py`).
+
+At table level, the newest `order_ts` is 29 October 23:59. The question is asked at 1 November 08:00, which is 56 hours later. If the promise was 24 hours, the promise is broken, even though 98.68% of the rows were on time (run: `02_dimensions.py`).
+
+</Step>
+
+<Step>
+
+## Meanings that get misread
+
+<Callout type="warn" title="1. The load time is not the event time">
+The newest `ingested_at` in `orders` is 1 November 02:11. That is 5 hours 49 minutes before the as-of time: the pipeline ran this morning. The newest order in the table is 56 hours old (run: `13_dimension_pitfalls.py`). A freshness check on the load time, or on "when the job last finished", passes. A check on the event time fails. Say which column your rule reads. The two diverge when the source stops sending data and the pipeline keeps running over nothing.
+</Callout>
+
+**2. "Timely" has no meaning without a volatility.** A 24-hour bar suits orders. The same bar on a table of country codes would raise an alarm every day for nothing, and on a price feed it would be far too loose. The book makes the point with stock prices: while the market is open they update often, and once it closes the data does not change but is still current (book: DMBOK2 Table 29, page 459). Set the bar per data set, together with its consumer ([lesson 7](/en/data-quality/monitoring/#freshness-how-long-a-gap-counts-as-an-incident)).
+
+**3. Silence can be right.** The same example means that a freshness alarm on a weekend, for a source that does not run on weekends, is a false alarm. Encode the calendar in the rule or the alarm teaches people to ignore it.
+
+**4. Late rows move numbers that were already reported.** 40 orders reached the warehouse more than a day after they were placed, some of them 5 days later. A daily total that was computed before they arrived was too low, and when they arrive it changes. Decide whether your reports are restated or frozen, and tell the people who read them.
+
+**5. Timeliness covers more than a number of hours.** The Ten Steps version of this dimension looks at the timing of events as data moves through its life cycle, and checks that the agreed synchronization happens, for example that sales representatives sync their handheld databases every evening by 6 pm (book: Ten Steps chapter 4, pages 148 to 151). That is a statement about a process, and the hours follow from it.
+
+</Step>
+
+<Step>
+
+## Easy to confuse with
+
+| Looks like | How to tell them apart | In our data |
+|---|---|---|
+| Accuracy | An old value can be accurate for the moment it describes. A fresh value can be wrong | the order total is exact and 56 hours old |
+| Completeness | Missing recent rows look like a freshness problem and a completeness problem | the newest day has no rows yet |
+| Consistency over time | The book's "temporal consistency" compares a value at two points in time. Timeliness compares data with the clock | see the [consistency](/en/data-quality/dimensions/consistency/#meanings-that-get-misread) and [reasonability](/en/data-quality/dimensions/reasonability/#meanings-that-get-misread) pages |
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- For one table you own, which timestamp does the freshness check read: when the event happened or when the pipeline wrote it?
+- Which table in your platform changes rarely, and does it have the same freshness bar as a table that changes every minute?
+- A report ran at 8 am and was correct. By noon the same query gives a different number. Is that a defect?
+
+</Step>
+
+<Step>
+
+## Sources of this page
+
+| Statement | Source |
+|---|---|
+| Timeliness definition | book: DMBOK2 section 1.3.3, page 457 |
+| Several characteristics, volatility, currency, latency, the stock price and overnight batch examples | book: DMBOK2 Table 29, page 459 |
+| Timing of events through the life cycle, the 6 pm synchronization example | book: Ten Steps chapter 4, pages 148 to 151 |
+| 40 of 3,020, 98.68%, 56 hours, the newest ingested_at, median 16 minutes and worst 120 hours | ran: `02_dimensions.py`, `13_dimension_pitfalls.py` |
+| Orders 2 and 135 | ran: query on the same data |
+| The milk picture; the weekend alarm; the advice on restating reports | author |
+
+</Step>

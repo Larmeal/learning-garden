@@ -1,0 +1,137 @@
+---
+title: Data Quality ในกรอบ Data Governance
+summary: งานคุณภาพไม่ได้ทำโดดๆ บทนี้วางมันไว้ในกรอบ governance ว่าใครเป็น accountable, class และ policy ผูกกับข้อมูลอย่างไร catalog กับ lineage ให้อะไรทีมคุณภาพ และอะไรเปลี่ยนเมื่อข้อมูลไปป้อน machine learning model
+order: 13
+phase: E
+level: 3
+stage: sprout
+format: steps
+requires: [ten-steps]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Quality เป็นส่วนหนึ่งของ Governance
+
+*Data Governance: The Definitive Guide* ให้เหตุผลว่าโปรแกรมที่ govern life cycle, control และการใช้ข้อมูล ควร govern คุณภาพของมันด้วย และองค์กรมักประเมินคุณภาพข้อมูลของตัวเองสูงเกินไป และประเมินผลของข้อมูลไม่ดีต่ำเกินไป (หนังสือ: Governance บทที่ 5 หน้า 113 ถึง 131) คุณภาพไม่ต้องมีองค์กรแยก แต่ต้องอยู่ในการตัดสินใจชุดเดียวกันเรื่อง owner, policy และ tooling
+
+หนังสือนิยาม data quality ด้วยสามอย่าง: accuracy, completeness และ timeliness (หนังสือ: Governance บทที่ 5 หน้า 113) *Fundamentals of Data Engineering* ย้ำสามอย่างนี้และเพิ่มนิยามตรงๆ ว่า quality คือการทำให้ข้อมูลเข้าใกล้สถานะที่ต้องการ และวนรอบคำถามว่า "สิ่งที่ได้ เทียบกับสิ่งที่คาดไว้ ต่างกันแค่ไหน" (หนังสือ: FoDE บทที่ 2 หน้า 54 ถึง 56) [บท 2](/data-quality/dimensions/#ไม่มีชุด-dimension-ที่ตกลงกันได้ชุดเดียว) ให้รายการที่ยาวกว่านี้ไว้แล้ว หนังสือต่างเล่มเลือกชุดไม่เหมือนกัน ซึ่งตรงกับที่ DMBOK2 บอกว่าไม่มีชุดเดียวที่ตกลงกัน
+
+</Step>
+
+<Step>
+
+## ใคร Accountable
+
+*Fundamentals of Data Engineering* วางเรื่อง accountability ไว้ดังนี้ data accountability คือการกำหนดบุคคลหนึ่งคนให้ govern ข้อมูลส่วนหนึ่ง คนนั้นประสานคนอื่นที่แตะข้อมูลนั้น ไม่จำเป็นต้องเป็น data engineer และมักไม่มี resource ครบสำหรับรักษาคุณภาพด้วยตัวเอง "ส่วน" ที่ว่าอาจเป็น table, log stream หรือ field เดียวที่โผล่ในหลาย table เช่น customer id การจัดการคุณภาพทำยากถ้าไม่มีใครรับผิดชอบข้อมูลนั้น (หนังสือ: FoDE บทที่ 2 หน้า 54 ถึง 56)
+
+ตอนนี้มีสี่เล่มที่ตอบคำถาม "ใครเป็นเจ้าของคุณภาพ" และคำตอบเข้ากันได้
+
+| หนังสือ | ใคร | เพิ่มอะไร |
+|---|---|---|
+| DMBOK2 ([บท 10](/data-quality/ownership-scorecard/#ใครรับผิดชอบ)) | เจ้าของ business process ที่สร้างข้อมูล | บังคับ standard ใน process ของตัวเอง |
+| Contracts ([บท 6](/data-quality/agreements/#data-contract-คืออะไร-และข้อควรระวังเรื่องคำนี้)) | ทีมที่สร้างข้อมูล ผ่าน contract | ความรับผิดชอบย้ายไปที่ต้นทาง governance council ส่วนกลางตั้ง standard และสร้าง tool แต่ไม่เข้ามาคุมข้อมูลเอง (หนังสือ: Contracts บทที่ 5 หน้า 75 ถึง 78) |
+| Governance | data owner และ data steward รวมกับ "หมวก" อื่น | steward จัดหมวดและจัดชั้นข้อมูล privacy lead ดูเรื่อง compliance legal อธิบาย requirement ผู้บริหารให้ทุน (หนังสือ: Governance บทที่ 3 หน้า 58 ถึง 65) |
+| FoDE | หนึ่งคนต่อข้อมูลหนึ่งส่วน | ละเอียดได้ถึงระดับ field เดียว |
+
+Governance ยังเสนอ data acceptance process: ข้อมูลยังไม่ถูกใช้จนกว่าเจ้าของจะพิสูจน์ว่าผ่านมาตรฐานคุณภาพขององค์กร และ business unit ที่สร้างข้อมูลเป็นเจ้าของคุณภาพของมัน ไม่ทิ้งไว้ให้ผู้ใช้ปลายน้ำ (หนังสือ: Governance บทที่ 2 หน้า 46) นี่คือแนวคิดเดียวกับ certification ใน[บท 10](/data-quality/ownership-scorecard/#data-certification) และ contract ใน[บท 6](/data-quality/agreements/#ทำไมต้องมี-contract)
+
+</Step>
+
+<Step>
+
+## Class และ Policy
+
+governance ต้องมีวิธีบอกว่าข้อมูลนี้เป็นชนิดไหน Governance เสนอ enterprise dictionary ที่ลิสต์ class ของข้อมูล คือกลุ่มของ information type ที่องค์กรปฏิบัติต่อกันแบบเดียวกัน และ policy ควรผูกกับ class ไม่ใช่กับ table หรือ column เดียว "analyst เข้าถึงข้อมูลส่วนบุคคลไม่ได้" เข้าใจง่ายและขยายได้ ส่วน "analyst เข้าถึง column 3 ของ table B ไม่ได้" ไม่ใช่ทั้งสองอย่าง (หนังสือ: Governance บทที่ 2 หน้า 37 ถึง 43)
+
+policy ที่หนังสืออธิบายมี retention ขั้นต่ำและขั้นสูง และ access ที่ไม่ใช่แค่ได้หรือไม่ได้: ไม่มีสิทธิ์ มีสิทธิ์บางส่วน (ซ่อนบางหลักด้วยดาว หรือแทนค่าด้วยรูปแบบ tokenized ที่ยัง group ได้) และมีสิทธิ์เต็ม (หนังสือ: Governance บทที่ 2 หน้า 37 ถึง 43) ส่วน Contracts บอกว่าจะบันทึกเรื่องนี้ของ dataset ไว้ที่ไหน contract ระบุได้ทีละ field ว่าเป็นข้อมูลส่วนบุคคลไหม จัดชั้นอย่างไร ใครเข้าถึงได้และนานแค่ไหน และลบหรือ anonymize อย่างไร คนที่เหมาะกรอกที่สุดคือคนที่สร้างข้อมูล (หนังสือ: Contracts บทที่ 2 หน้า 29 ถึง 30 และบทที่ 5 หน้า 73 ถึง 78)
+
+สำหรับทีมคุณภาพ นี่คือ rule อีกข้อ field ใน contract ที่ไม่มี class คือ contract ที่ไม่ครบ field ที่ใส่ class ผิดจะได้ policy ผิด ภาพร่างของแนวคิดกับสอง column ของเรา (ชื่อ field เป็นของผู้เขียน ไม่ใช่มาตรฐาน)
+
+```yaml
+schema:
+  - {name: email, type: VARCHAR, personal_data: true, class: contact_details, anonymize: hash}
+  - {name: country, type: VARCHAR, personal_data: false, class: reference}
+```
+
+</Step>
+
+<Step>
+
+## Catalog, Scorecard และ Annotation
+
+data catalog เก็บ metadata ทางเทคนิคของ dataset (schema, ชื่อ table และ column, description) และ metadata ทางธุรกิจ: ใครเป็นเจ้าของ สร้างเองหรือซื้อมา ใช้ใน production หรือทดสอบ เมื่อ governance โตขึ้น ก็แนบ data class, quality และ sensitivity เข้าไปด้วย เพื่อค้นได้เช่น "ทุก table ของ class X ใน production" (หนังสือ: Governance บทที่ 2 หน้า 44 ถึง 45)
+
+สำหรับคุณภาพ บทที่ 5 ของเล่มเดียวกันเสนอนิสัยสามอย่างที่ลงทุนน้อย (หนังสือ: Governance บทที่ 5 หน้า 123)
+
+- **scorecard ต่อแหล่งข้อมูล** บอกที่มา accuracy, completeness, timeliness รวมถึง administrative owner และใครเป็นคนขอ คนสร้าง pipeline ใช้ตัดสินว่าจะใช้ข้อมูลที่ไหนและเพื่ออะไร
+- **Prioritization** แหล่งข้อมูลสำคัญไม่เท่ากัน และ lineage ช่วยไล่ว่าแหล่งไหนป้อนงานสำคัญ
+- **Annotation** วิธีมาตรฐานในการติดป้ายแหล่งข้อมูลว่า vetted หรือ not vetted แม้ยังทำ scorecard เต็มไม่ได้ เริ่มเล็กๆ เพื่อไม่ให้ข้อมูลเป็น tribal knowledge หนังสือเล่าถึงการให้ผู้ใช้ให้คะแนนข้อมูล โดยตั้งค่าเริ่มต้นเป็นไม่เชื่อถือ และมี curator ตรวจคะแนนสูงก่อนปล่อยสัญญาณคุณภาพ
+
+หนังสือเล่าถึงบริษัท healthcare ที่โตเร็ว ซื้อบริษัทอื่นเพราะข้อมูลของเขาส่วนหนึ่ง แล้วพบว่า dictionary, metadata และการจัดการคุณภาพของสองฝั่งรวมกันไม่ได้ จึงได้บทเรียนว่าต้องมีแนวทาง governance ส่วนกลางที่ขยายถึงบริษัทที่ซื้อมา (หนังสือ: Governance บทที่ 5 หน้า 123) scorecard กับ annotation คือฉบับเล็กของสิ่งที่[บท 10](/data-quality/ownership-scorecard/#data-certification) เรียกว่า certification
+
+</Step>
+
+<Step>
+
+## Lineage และข้อมูลที่คุณภาพปนกัน
+
+Governance ให้เหตุผลหลายข้อที่ควรตาม lineage ทีมใช้เวลาส่วนมากไม่ใช่กับการแก้ปัญหา แต่กับการหาว่ามีปัญหาไหม การตามที่ดีขึ้นช่วยประหยัดเวลานั้น lineage ยังอธิบายคุณภาพของผลลัพธ์ได้ dashboard ที่สร้างจากข้อมูลดีแต่ถูกรวมกับข้อมูลแย่ทีหลัง ควรถูกอ่านต่างออกไป และมันช่วยอธิบายย้อนหลังว่าการตัดสินใจอย่างอนุมัติสินเชื่อใช้ input อะไร tool ที่ซับซ้อนกว่าตาม lineage ข้ามเวลาด้วย (หนังสือ: Governance บทที่ 2 หน้า 46 ถึง 47)
+
+เรื่อง join หนังสือพูดตรง การรู้คุณภาพของแต่ละแหล่งควรเป็นตัวชี้ว่าจะ join dataset ที่คุณภาพต่างกันหรือไม่ เพราะข้อมูลคุณภาพต่ำลดความเชื่อมั่นต่อข้อมูลคุณภาพสูง dataset ควรมีระดับความเชื่อมั่นต่างกัน และผลลัพธ์ที่มีต้นตอคุณภาพปนกันควรถูกคัดสรร (หนังสือ: Governance บทที่ 2 หน้า 45 ถึง 46) นั่นคือสิ่งที่เกิดใน[บท 10](/data-quality/ownership-scorecard/#trend-ค่าเฉลี่ยขยับน้อยกว่าความจริง) ตอนที่การล้าง table หนึ่งทำให้ table ข้างเคียงดูแย่ลง ถ้ามี lineage จะเห็นว่า table ไหนพึ่ง table ไหน
+
+</Step>
+
+<Step>
+
+## เมื่อข้อมูลป้อน Model
+
+Governance แยกหัวข้อ machine learning ไว้ต่างหาก model ประมาณการจากข้อมูลที่มี error ใน input จึงมักถูกขยาย ถ้าผลทำนายถูกนำไปลงมือแล้วป้อนกลับเข้ามาอีก ผลทำนายกลายเป็นความจริง และ error ก็โตผ่าน positive feedback loop ข้อมูลถูกแบ่งเป็น training, validation และ test และ error ใน set ใดก็ได้ทำให้ train model ออกมาไม่ดี หนังสือยังชี้ trade-off: การล้าง error ทุกตัวด้วยมือมักแพงเกินไป ขณะที่ model ที่ทนทานรับ error ระดับหนึ่งได้ (หนังสือ: Governance บทที่ 5 หน้า 117 ถึง 121)
+
+ฝั่ง warehouse เพื่อ analytics แรงกดดันต่างออกไป warehouse รวมหลายแหล่ง ทั้งการรับข้อมูล การล้าง การแปลง และการเชื่อมจึงเป็นจุดที่คุณภาพตกได้ และอะไรถือว่าดีพอขึ้นกับการใช้ หนังสือเทียบ warehouse ค้าปลีกที่ปัดเศษห้าสตางค์ กับ warehouse เทรดหุ้นที่ต้องแม่นระดับ microsecond (หนังสือ: Governance บทที่ 5 หน้า 116 ถึง 117)
+
+เรื่องเล่าจากบทเดียวกันแสดงว่าคุณภาพผูกกับการใช้ สัมมนาของนักบรรพชีวินวิทยาพบว่าคำว่า "bone" และคำสามัญอื่นของสาขาตัวเองถูกซ่อนจากแชทและคำบรรยาย แพลตฟอร์มประชุมสร้างมาสำหรับโรงเรียนและกรองคำที่ไม่เหมาะกับที่นั่น ตัวกรองเดียวกันกับงานประชุมวิทยาศาสตร์จึงเป็น defect (หนังสือ: Governance บทที่ 5 หน้า 121 ถึง 122) นี่คือ[บท 1](/data-quality/assurance-basics/#quality-คือ-เหมาะกับการใช้งาน) อีกครั้ง: เหมาะกับวัตถุประสงค์ของ consumer
+
+เส้นทางนี้ไม่มีแบบฝึกเรื่องข้อมูลสำหรับ machine learning การตรวจของ[บท 2](/data-quality/dimensions/) ถึง [8](/data-quality/reconciliation/) ใช้กับ training data ได้เหมือนกัน และ model ซ่อน input ที่แย่ได้เก่งกว่ารายงาน
+
+</Step>
+
+<Step>
+
+## สิ่งที่เส้นทางนี้ยังไม่ครอบคลุม
+
+เมื่อมีบทนี้และบท Ten Steps สองข้อในรายการช่องว่างของ capstone ก็มีคำอธิบายแล้ว: วัฒนธรรมและการสื่อสาร ([บท 12](/data-quality/ten-steps/#พาคนไปด้วย)) กับ privacy และ machine learning ในระดับแนวคิด (บทนี้) ทั้งสองยังไม่มีแบบฝึก ที่ยังไม่ครอบคลุมคือแบบฝึก reasonability โดยเฉพาะ ([บท 7](/data-quality/monitoring/#volume-ฤดูกาลทำให้-z-score-หลง) แตะผ่าน monitoring) รายละเอียดของเครื่องมือเฉพาะตัว และข้อมูล streaming จริง
+
+</Step>
+
+<Step>
+
+## เช็กตัวเอง
+
+- ใครคือคนหนึ่งคนที่ accountable ต่อ dataset ที่สำคัญที่สุดของคุณ ความรับผิดชอบนั้นตั้งที่ระดับไหน: table, stream หรือ field เดียว
+- catalog หรือ contract ของคุณบอกไหมว่าแต่ละ field เป็นข้อมูลส่วนบุคคลหรือไม่ และจัดชั้นอย่างไร ใครเป็นคนกรอก และใครรู้ตัวเมื่อมันผิด
+- มี model ในองค์กรคุณที่ train ด้วยข้อมูลที่ไม่มีใคร profile การตรวจข้อไหนจากเส้นทางนี้ที่คุณจะรันกับ training set ก่อน
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| ควร govern คุณภาพด้วยโปรแกรมเดียวกัน; องค์กรประเมินคุณภาพสูงเกิน; สามคุณลักษณะ; ML, warehouse และเรื่องนักบรรพชีวินวิทยา | หนังสือ: Governance บทที่ 5 หน้า 113 ถึง 131 |
+| data accountability และระดับของมัน; quality คือ "สิ่งที่ได้เทียบกับสิ่งที่คาด" | หนังสือ: FoDE บทที่ 2 หน้า 54 ถึง 56 |
+| enterprise dictionary, data class, policy ผูกกับ class, retention และ partial access | หนังสือ: Governance บทที่ 2 หน้า 37 ถึง 43 |
+| catalog และ business metadata | หนังสือ: Governance บทที่ 2 หน้า 44 ถึง 45 |
+| data acceptance process; dataset คุณภาพปนกัน; lineage และเหตุผลที่สำคัญ | หนังสือ: Governance บทที่ 2 หน้า 45 ถึง 47 |
+| scorecard ของแหล่งข้อมูล, prioritization, annotation | หนังสือ: Governance บทที่ 5 หน้า 123 |
+| หมวกต่างๆ และหน้าที่ | หนังสือ: Governance บทที่ 3 หน้า 58 ถึง 65 |
+| contract เก็บ governance metadata; generator เป็นคนกรอก; governance council | หนังสือ: Contracts บทที่ 2 หน้า 29 ถึง 30 และบทที่ 5 หน้า 73 ถึง 78 |
+| การเรียงสี่เล่มเข้าตารางเดียว; ภาพร่าง YAML; สิ่งที่เส้นทางยังไม่ครอบคลุม | ผู้เขียน |
+
+</Step>

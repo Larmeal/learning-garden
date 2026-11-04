@@ -1,0 +1,171 @@
+---
+title: Data contracts in practice
+summary: What changes when the team that produces the data owns the promise about it. This page follows Andrew Jones's book on data contracts and ties it to the orders contract of the main lesson, with a small exercise that lints a contract, gates a release and measures two SLIs.
+order: 1
+stage: sprout
+format: steps
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Who gets the call when the source changes
+
+In many data platforms the raw tables of a service are copied into the warehouse as they are, by an ELT tool or by change data capture. The team that owns the service often does not know that its tables are somebody's input. Nobody asked them for a promise, so nobody made one (book: Contracts chapter 1, pages 14 to 17).
+
+The result is that the data engineering team ends up accountable for the reliability of data it did not shape. When the source changes, a schema change makes pipelines fail loudly. A change in the data or in the logic needed to read it fails quietly, and the first person to notice is often a reader of a report. The usual fix is another `CASE` or `IFNULL` inside a pipeline, and the pipelines get more brittle with each one (book: Contracts chapter 1, pages 14 to 17).
+
+[Lesson 9](/en/data-quality/incidents/#respond-who-is-in-charge-who-knows) had this shape: `raw_orders` fed `stg_orders`, which fed `daily_revenue`, which fed two consumers. A contract moves the promise to the place where the data is made. The book shows the same invalid data hitting several pipelines when they all read the raw table, and hitting one place, fixed once, when they read from a contract (book: Contracts chapter 4, pages 61 to 64).
+
+</Step>
+
+<Step>
+
+## The definition has four parts
+
+Jones defines a data contract as an agreed interface between the generators of data and its consumers, which sets expectations around that data, defines how it should be governed, and makes the generation of quality data explicit (book: Contracts chapter 2, pages 22 to 31). Each of the four words does something:
+
+| Word | What it asks for | Where it shows in `orders.v1.yaml` (author's mapping) |
+|---|---|---|
+| Interface | A published way to read the data that is separate from the service's own tables | The `orders` dataset and its `schema` |
+| Expectations | Structure, valid values, how timely and dependable the data is, and who owns it | `schema`, `quality.rules`, `freshness`, `owner` |
+| Governance | Whether the data is personal, how it is classified, how long it is kept | Not in v1. The book lists these as fields a contract can carry |
+| Explicit | The producer builds the data on purpose for its consumers instead of exposing whatever the service stores | The decision that `orders-platform` publishes this dataset |
+
+The book says plainly that it is mostly about data your own organization generates, because that is the data you can change. Third-party data can still get a contract, but then it is closer to a document you agree on with the vendor, or to rules you run yourself (book: Contracts chapter 2, pages 22 to 23).
+
+</Step>
+
+<Step>
+
+## Producer-driven and consumer-driven
+
+A producer-driven contract is written and owned by whoever generates the data, the way an API is owned by the service behind it. A consumer-driven contract is written by the consumer and applied to data it does not control. The book calls the first kind the only way to make data quality the generator's responsibility, and says the second kind is useful for data you have little control over (book: Contracts chapter 2, pages 24 to 29).
+
+In this path both exist. The 14 rules of [lesson 4](/en/data-quality/rule-design/#the-rule-registry-a-query-with-an-owner-a-threshold-and-an-impact) are consumer-side: an analyst wrote them to protect a report. The `orders` contract of [lesson 6](/en/data-quality/agreements/#a-sample-contract) is producer-driven, because `orders-platform` is named as its owner and promises it. The difference matters when a check fails. A consumer-side rule tells you the data is bad. A producer-side contract also says who has to fix it and how fast.
+
+</Step>
+
+<Step>
+
+## What the expectations can cover
+
+The book groups the expectations a contract can set into four (book: Contracts chapter 2, pages 24 to 29):
+
+- **Structure.** The name and type of each field and a description of what it is for. Optionally the primary key, the entity the data is about, units of measure, whether a field is personal data, and how it is classified.
+- **Valid values.** Ranges, formats, uniqueness, allowed lists, references to other fields. These are the same checks as in [lesson 2](/en/data-quality/dimensions/#completeness-validity-uniqueness), now written where the producer can run them in its own tests and in production.
+- **Performance and dependability.** Three measures are named: completeness, timeliness and availability. These are service level indicators (SLIs), measured directly on the system. A service level objective (SLO) is the percentage over time that the consumers can count on. The book's example is an SLO that the oldest available record is no more than an hour old.
+- **Ownership and responsibilities.** The generator owns the contract and answers for it. The consumer's part is to explain what the data is used for and what level it needs.
+
+The reason to write the SLO down is practical. If you do not know how timely your inputs are, you cannot tell your own users when to expect the latest numbers (book: Contracts chapter 2, pages 24 to 29).
+
+</Step>
+
+<Step>
+
+## Changing a contract
+
+A change is **non-breaking** when data written to the new schema can still be read with the old one and the other way around. The book's examples are adding an optional field and removing a field that is not required and has a default. A change is **breaking** when it affects existing consumers, for example removing a required field or changing a field's type (book: Contracts chapter 6, pages 89 to 91).
+
+Non-breaking changes should be easy for the producer to make. Breaking changes should cost something on purpose: a new version, a conversation with the consumers, and a migration plan. A small change with one or two consumers might run both versions side by side for a few weeks. A bigger change, or one with many consumers, may need both versions for longer and a library to help people move. What matters is that the plan exists and was agreed (book: Contracts chapter 6, pages 89 to 91). The book calls this favoring stability over agility, which is what you want if consumers are going to build on the data.
+
+The classification in the contract lab of [lesson 6](/en/data-quality/agreements/#how-to-change-a-contract-without-breaking-anyone) follows this where the book speaks. The rename and the type change are breaking by the book's own examples. The `review` bucket (a new allowed value in `status`) and the loosened `nullable` are the author's calls, because the book does not name them.
+
+<Callout type="try" title="Try it in this repo">
+Run `uv run python 12_contract_checks.py`. It checks `v1 -> v2` against a release gate. The gate allows the three breaking changes because the version went from 1 to 2, and refuses the same changes when the version is left at 1. Adding only an optional column under the old version is allowed.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Checking the contract file itself
+
+Contracts are written by people and are meant to be self-served, without a central review. So the book adds automatic checks on the contract before it can be released (book: Contracts chapter 10, page 162):
+
+- Required metadata is there: a valid version, an owner, documentation.
+- Every field has at least a name, a type and a description.
+- If governance is embedded, the field is categorized, and personal data has an anonymization strategy.
+- A breaking change is not applied to a contract that is already in production. A schema registry can enforce that.
+- All of it runs in continuous integration on every commit, and only a passing commit can be released.
+
+The exercise does the first two. Both contract files pass. A copy with the owner dropped and two descriptions emptied fails with three findings, one for each (ran: `12_contract_checks.py`).
+
+</Step>
+
+<Step>
+
+## Where to check the data
+
+The book splits quality problems into those you predicted and tested for, and those you did not. Schemas and the tests you wrote cover the first kind. The second kind will happen anyway, rarely but often enough to expect. The defense it suggests is software that does not fall over on one bad record: invalid records go to a dead letter queue, where they can be inspected and replayed after the fix, and observability tools watch the published data for anomalies (book: Contracts chapter 10, pages 163 to 166).
+
+It also names three places to run checks:
+
+| Place | What it catches | Contained at the source? | Matching lesson |
+|---|---|---|---|
+| At publishing time (a library the producer calls) | Values outside the contract's ranges and formats | Yes. The record is not written | [Lesson 5](/en/data-quality/checkpoints/#pipeline-layers-bronze-and-silver), Bronze checks and quarantine |
+| In the infrastructure (a table or topic that enforces the schema) | Wrong types, missing fields | Yes. The write is refused | [Lesson 6](/en/data-quality/agreements/#how-to-enforce-a-contract-test-after-loading-or-reject-before-loading), reject before loading |
+| After publishing (rules and observability tools) | Whatever the first two missed, including problems nobody predicted | No. Consumers may have read it already | [Lesson 7](/en/data-quality/monitoring/#rules-catch-what-we-anticipated-what-about-the-rest), monitoring |
+
+The first two keep the problem inside the producing system, which shortens the incident. The third is the only option for a batch pipeline built with a tool such as dbt, and the data may already have been consumed by the time it fires (book: Contracts chapter 10, pages 163 to 166). That is the argument for doing all three.
+
+</Step>
+
+<Step>
+
+## Measuring an SLO
+
+A contract that promises 99% timeliness needs a number to compare with. The exercise measures two SLIs on the orders data over all 3,020 rows and compares them with objectives written for this course:
+
+| SLI | Measured | Objective | Result |
+|---|---:|---:|---|
+| Completeness: rows where every not-null column is filled | 99.50% | 100% | Breach |
+| Timeliness: rows that reached the warehouse within 24 hours of the order | 98.68% | 99.0% | Breach |
+
+The 99.50% is the 15 rows without a `customer_id` and the 98.68% is the 40 late rows, the same defects as [lesson 2](/en/data-quality/dimensions/#all-14-rules-together) seen as promises (ran: `12_contract_checks.py`). The objectives are the author's examples. Availability, the third measure, needs access logs and is not computed here.
+
+</Step>
+
+<Step>
+
+## A word on adoption
+
+The book says early and often that data contracts are about changing how people work with data more than about tooling (book: Contracts chapter 3, pages 41 to 42). Producers take on a responsibility they may not have known they had, so they need to understand why. Consumers have to make the case for what they need and what it is worth, in business terms. A contract the producing team has not heard of is just a file in a repository.
+
+<Callout type="warn" title="A caution about the source">
+The author introduced data contracts at his employer, a fintech, and argues for the approach. The sample implementation in the book uses specific tools. This page takes the ideas and the definitions, not the tools, and does not repeat the industry survey figures from chapter 1.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- Pick a dataset you consume. Is it produced for you on purpose, or are you reading a copy of a service's internal tables? Who would you call if a column changed type tonight?
+- For that dataset, which of timeliness, completeness and availability matters most to your users, and what would you write as the objective?
+- Which of the three places (publishing, infrastructure, after publishing) does your team use today? Which would have caught the last incident sooner?
+
+</Step>
+
+<Step>
+
+## Sources of this page
+
+| Statement | Source |
+|---|---|
+| Responsibility lands on the data engineering team; failures are loud or silent; patches pile up | book: Contracts chapter 1, pages 14 to 17 |
+| The definition of a data contract and its four parts | book: Contracts chapter 2, pages 22 to 31 |
+| Producer-driven and consumer-driven contracts | book: Contracts chapter 2, pages 24 to 29 |
+| What expectations cover; SLIs and SLOs | book: Contracts chapter 2, pages 24 to 29 |
+| Pipelines reading a raw table versus a contract | book: Contracts chapter 4, pages 61 to 64 |
+| Breaking and non-breaking changes; migration plans | book: Contracts chapter 6, pages 89 to 91 |
+| Checks on the contract file; the two kinds of quality issue; three places to check | book: Contracts chapter 10, pages 162 to 166 |
+| Adoption is about people | book: Contracts chapter 3, pages 41 to 42 |
+| Lint results, release gate behaviour, SLI numbers | ran: `12_contract_checks.py` |
+| Mapping of the four words to the YAML; which lab choices are not from the book; the objectives 100% and 99.0% | author |
+
+</Step>

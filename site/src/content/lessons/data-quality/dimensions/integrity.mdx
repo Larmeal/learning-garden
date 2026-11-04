@@ -1,0 +1,112 @@
+---
+title: Integrity แบบเจาะลึก
+summary: ทุก reference ชี้ไปที่สิ่งที่มีอยู่จริงไหม integrity เป็น dimension ที่ชื่อเดียวกันแต่หมายถึงหลายอย่างในหนังสือต่างเล่ม หน้านี้จึงกำหนดความหมายก่อน แล้วดู orphan บน row จริงและกับดักใน SQL ที่ซ่อนมัน
+order: 5
+stage: sprout
+format: steps
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## คำนี้ถามอะไร
+
+DMBOK2 อธิบาย data integrity หรือ coherence ว่ารวมแนวคิดจาก completeness, accuracy และ consistency ในทางปฏิบัติมักหมายถึงสองอย่าง อย่างแรกคือ referential integrity คือความสอดคล้องระหว่าง data object ผ่าน reference key ที่ทั้งสอง object มี อย่างที่สองคือความสอดคล้องภายใน data set ที่ไม่มีช่องโหว่หรือส่วนที่หายไป data set ที่ไม่มี integrity จะดูเหมือนเสียหายหรือสูญเสียข้อมูล data set ที่ไม่มี referential integrity จะมี orphan คือ reference key ที่ไม่ valid หรือ duplicate คือ row ที่เหมือนกันเป๊ะซึ่งอาจทำให้ aggregation เพี้ยน ระดับของ orphan วัดได้เป็นจำนวนดิบหรือเป็นเปอร์เซ็นต์ของ data set (หนังสือ: DMBOK2 Table 29 หน้า 459)
+
+นึกถึงบัตรยืมของห้องสมุดที่ระบุชื่อหนังสือเล่มหนึ่ง ถ้าในแคตตาล็อกไม่มีหนังสือเล่มนั้น บัตรใบนี้คือ orphan บัตรกรอกถูกต้องและรูปแบบถูก แต่ชี้ไปที่ที่ไม่มีอะไร
+
+</Step>
+
+<Step>
+
+## หนึ่งคำ สามความหมาย
+
+ก่อนวัด ให้บอกก่อนว่าคุณใช้ความหมายไหน มีอย่างน้อยสามความหมายที่ใช้กันอยู่:
+
+| ที่ไหน | "integrity" หมายถึงอะไร |
+|---|---|
+| DMBOK2 | หลักๆ คือ referential integrity บวก "ไม่มีช่องโหว่" ภายใน data set (หนังสือ: DMBOK2 Table 29 หน้า 459) |
+| Ten Steps | "Data integrity fundamentals" เป็น dimension ที่กว้างกว่ามาก ครอบคลุม existence, validity, structure และ content และเป็นสิ่งที่ได้จาก profiling ส่วน referential integrity เป็นแค่หนึ่งแถวในนั้น (หนังสือ: Ten Steps บทที่ 4 หน้า 128 ถึง 135) |
+| ฐานข้อมูล | integrity constraint เช่น foreign key ที่ engine บังคับให้ |
+
+รายงานที่เขียนว่า "integrity 99%" หมายถึงสามอย่างต่างกันขึ้นกับว่าผู้เขียนนึกถึงความหมายไหน เส้นทางนี้ใช้ความหมายของ DMBOK2 table `orders` และ `customers` ของเราสร้างจาก `CREATE TABLE ... AS` จึงไม่มี foreign key ที่ประกาศไว้ และไม่มีอะไรในฐานข้อมูลห้าม order จากการชี้ไปหา customer ที่ไม่มี การเช็กจึงต้องเป็น query
+
+</Step>
+
+<Step>
+
+## Orphan บน Row จริง
+
+```sql
+SELECT count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM customers c WHERE c.customer_id = o.customer_id)),
+       count(customer_id)
+FROM orders o WHERE customer_id IS NOT NULL;
+-- 30 จาก 3,005
+```
+
+| order_id | customer_id | มี customer 9017 ไหม |
+|---:|---:|---|
+| 65 | 9017 | ไม่มี |
+| 221 | 9001 | ไม่มี |
+| 287 | 9023 | ไม่มี |
+
+อีกฝั่งก็เหมือนกัน: `payments.order_id` ชี้ไปหา order ที่ไม่มีอยู่จริง 20 จาก 2,553 payment (เช่น payment 2534, 2535 และ 2536 ชี้ไปที่ order 9001, 9002 และ 9003) ทั้งสองจำนวนตรงกับที่ฝังไว้ (รัน: `02_dimensions.py`)
+
+</Step>
+
+<Step>
+
+## ความหมายที่ถูกเข้าใจผิดบ่อย
+
+<Callout type="warn" title="1. NOT IN รายงานว่า table สะอาด ทั้งที่ไม่ใช่ได้">
+รัน `customer_id NOT IN (SELECT customer_id FROM customers)` แล้วได้ orphan 30 row ตามที่คาด ทีนี้สมมติว่ารายการ parent มี NULL อยู่ตัวเดียว query เดิมให้ผลเป็น 0 (รัน: `13_dimension_pitfalls.py`) ใน SQL `x NOT IN (..., NULL)` ไม่เคยเป็นจริง check จึงบอกเงียบๆ ว่าทุก key ปกติ ให้ใช้ `NOT EXISTS` ซึ่งไม่มีปัญหานี้ ตามที่ SQL ใน[บทหลัก](/data-quality/dimensions/#consistency-integrity)ทำ
+</Callout>
+
+**2. key ที่หายกับ key ที่เป็น orphan เป็นคนละปัญหาที่มีผลเหมือนกัน** order 15 row มี `customer_id` เป็น NULL ซึ่งเป็น defect ของ completeness order 30 row มี `customer_id` ที่ชี้ไปที่ไม่มีอะไร ซึ่งเป็น defect ของ integrity ทั้งสองกรณีผูก order กับ customer ไม่ได้ รายงานรายได้แยกตาม customer จึงขาดไป 45 order (รัน: `13_dimension_pitfalls.py`) ให้รายงานแยกกัน เพราะวิธีแก้ต่างกัน และบวกรวมเมื่อมีคนถามว่าข้อมูลใช้ไม่ได้เท่าไร
+
+**3. การเช็กมีทิศทาง** order ที่ชี้ไปหา customer ที่ไม่มี คือ orphan customer ที่ไม่มี order ไม่ใช่การละเมิด เว้นแต่ rule ทางธุรกิจบอกว่าทุก customer ต้องเคยสั่งของ ใน data ของเรามี customer แบบนั้น 0 คน และถ้ามี ก็คือคนที่ยังไม่เคยซื้อ ให้เขียนทิศทางลงใน rule: จาก child ไปหา parent
+
+**4. key ที่มีอยู่จริงก็ยังเป็น key ที่ผิดได้** order ที่ชี้ไปหา customer 55 ทั้งที่คนซื้อคือ customer 56 ผ่าน integrity check ทุกอัน integrity เช็กว่า reference ไปลงที่ไหนสักแห่ง ไม่ได้เช็กว่าลงถูกที่ นั่นเป็นคำถามของ accuracy และมีแต่แหล่งที่เชื่อถือได้ที่ตอบได้
+
+**5. หนังสือจัด duplicate ไว้ที่นี่ด้วย** คำอธิบายเดียวกันพูดถึง row ที่เหมือนกันเป๊ะซึ่งทำให้ aggregation เพี้ยน (หนังสือ: DMBOK2 Table 29 หน้า 459) ดู[หน้า uniqueness](/data-quality/dimensions/uniqueness/#วัดอย่างไร) สำหรับ order ที่ซ้ำ 20 row ถ้าสองหน้านับ row ชุดเดียวกัน scorecard ของคุณจะนับซ้ำ
+
+</Step>
+
+<Step>
+
+## ที่มักสับสนด้วย
+
+| ดูคล้ายกับ | แยกอย่างไร | ใน data ของเรา |
+|---|---|---|
+| Completeness | NULL คือไม่มี reference orphan คือ reference ไปหาที่ที่ไม่มีอะไร | `orders.customer_id`: NULL 15, orphan 30 |
+| Consistency | Ten Steps จัดการเทียบภายใน row เดียว (order ก่อน ship) ไว้ใต้ referential integrity ส่วน DMBOK2 จัดไว้ใต้ consistency | `shipped_ts` ก่อน `order_ts`: 10 จาก 1,769 |
+| Uniqueness | Integrity หา key ที่ชี้ไปที่ไม่มีอะไร Uniqueness หา key ที่โผล่สองครั้ง | orphan 30 order เทียบกับ row order ซ้ำ 20 |
+
+</Step>
+
+<Step>
+
+## เช็กตัวเอง
+
+- ทีมของคุณใช้ความหมายไหนในสามความหมายของ "integrity" และมีเขียนไว้ที่ไหนไหม
+- ผู้ review เขียน check orphan ของคุณใหม่ด้วย `NOT IN` แล้วได้ 0 บน table ที่คุณรู้ว่ามี orphan คุณมองหาอะไรเป็นอย่างแรก
+- customer 55 และ 56 มีอยู่ทั้งคู่ คุณจะรู้ได้อย่างไรว่า order ควรชี้ไปที่ 56
+
+</Step>
+
+<Step>
+
+## ที่มาของหน้านี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| referential integrity, ไม่มีช่องโหว่, orphan และ duplicate, ระดับ orphan เป็นจำนวนหรือเปอร์เซ็นต์ | หนังสือ: DMBOK2 Table 29 หน้า 459 |
+| data integrity fundamentals เป็น dimension ที่กว้างกว่า; referential integrity เป็นหนึ่งแถว; order date ก่อน ship date | หนังสือ: Ten Steps บทที่ 4 หน้า 128 ถึง 135 |
+| 30 จาก 3,005 และ 20 จาก 2,553; NOT IN ได้ 30 แล้วได้ 0; 15 + 30 = 45; customer ที่ไม่มี order 0 คน | รัน: `02_dimensions.py`, `13_dimension_pitfalls.py` |
+| order 65, 221, 287 และ payment 2534 ถึง 2536 | รัน: query บน data ชุดเดียวกัน |
+| ภาพห้องสมุด; ทิศทางของการเช็ก; key ที่มีอยู่แต่ผิด | ผู้เขียน |
+
+</Step>

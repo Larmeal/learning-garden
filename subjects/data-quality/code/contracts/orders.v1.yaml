@@ -1,20 +1,21 @@
 # A data contract for the orders dataset, as the producer promises it to its consumers.
 # The fields are the ones DMBOK2 2.7.4 lists for a data quality SLA (data elements, expectations per dimension,
 # measurement, thresholds, who is told, how fast, escalation) plus a schema, in the YAML-in-Git style that
-# Building Medallion Architectures shows for data contracts. The numbers are examples written for this course.
+# Building Medallion Architectures shows for data contracts. Every field carries a description, as the contract checks of
+# Driving Data Quality with Data Contracts expect. The numbers are examples written for this course.
 dataset: orders
 version: 1
 owner: orders-platform
 consumers: [finance, marketing]
 purpose: Daily revenue reporting and customer campaigns
 schema:
-  - {name: order_id, type: BIGINT, nullable: false, unique: true}
-  - {name: customer_id, type: BIGINT, nullable: false}
-  - {name: order_ts, type: TIMESTAMP, nullable: false}
-  - {name: ingested_at, type: TIMESTAMP, nullable: false}
-  - {name: status, type: VARCHAR, nullable: false, allowed: [PLACED, SHIPPED, CANCELLED]}
-  - {name: total_amount, type: DOUBLE, nullable: false}
-  - {name: shipped_ts, type: TIMESTAMP, nullable: true}
+  - {name: order_id, type: BIGINT, nullable: false, unique: true, description: "Unique id of the order, assigned by the orders service."}
+  - {name: customer_id, type: BIGINT, nullable: false, description: "Id of the customer who placed the order, as in the customers dataset."}
+  - {name: order_ts, type: TIMESTAMP, nullable: false, description: "When the customer placed the order (UTC)."}
+  - {name: ingested_at, type: TIMESTAMP, nullable: false, description: "When the row reached the warehouse (UTC)."}
+  - {name: status, type: VARCHAR, nullable: false, allowed: [PLACED, SHIPPED, CANCELLED], description: "Where the order is in its life: placed, shipped or cancelled."}
+  - {name: total_amount, type: DOUBLE, nullable: false, description: "Order total in the shop currency, including tax."}
+  - {name: shipped_ts, type: TIMESTAMP, nullable: true, description: "When the order left the warehouse (UTC). Empty until it ships."}
 quality:
   rules: [ORD-ID-UNIQUE, ORD-CUST-POPULATED, ORD-CUST-EXISTS, ORD-TOTAL-MATCHES-PAID]
 freshness:

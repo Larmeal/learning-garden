@@ -1,0 +1,137 @@
+---
+title: Data quality inside data governance
+summary: Quality work does not happen alone. This lesson places it inside governance, with who is accountable, how classes and policies attach to data, what a catalog and a lineage graph give a quality team, and what changes when the data feeds a machine learning model.
+order: 13
+phase: E
+level: 3
+stage: sprout
+format: steps
+requires: [ten-steps]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Quality is one part of governance
+
+*Data Governance: The Definitive Guide* argues that the program that governs the data life cycle, its controls and its usage should also govern its quality, and that organizations often overestimate the quality of their data and underestimate the effect of bad data (book: Governance chapter 5, pages 113 to 131). Quality does not need a separate organization, but it does need to be part of the same decisions about owners, policies and tooling.
+
+The book defines data quality by three things: accuracy, completeness and timeliness (book: Governance chapter 5, page 113). *Fundamentals of Data Engineering* repeats the three and adds a plain definition: quality is the optimization of data toward the desired state, and it orbits the question "what do you get compared with what you expect?" (book: FoDE chapter 2, pages 54 to 56). You have met a longer list in [lesson 2](/en/data-quality/dimensions/#no-single-set-of-dimensions-is-agreed). Different books pick different sets, and that is the point DMBOK2 made about there being no single set.
+
+</Step>
+
+<Step>
+
+## Who is accountable
+
+*Fundamentals of Data Engineering* puts accountability this way. Data accountability means assigning an individual to govern a portion of data. That person coordinates the other people who touch it. They need not be a data engineer, and they rarely have all the resources to maintain quality themselves. The portion can be a table, a log stream, or a single field that appears in many tables, such as a customer id. Managing quality is hard if nobody is accountable for the data in question (book: FoDE chapter 2, pages 54 to 56).
+
+Four books now give an answer to "who owns quality", and they fit together:
+
+| Book | Who | What it adds |
+|---|---|---|
+| DMBOK2 ([lesson 10](/en/data-quality/ownership-scorecard/#who-is-responsible)) | The owner of the business process that creates the data | Standards are enforced in that process |
+| Contracts ([lesson 6](/en/data-quality/agreements/#what-a-data-contract-is-and-a-caution-about-the-term)) | The team that generates the data, through its contract | Responsibility moves to the source. A central governance council sets standards and builds tools, but does not take over the data (book: Contracts chapter 5, pages 75 to 78) |
+| Governance | A data owner and a data steward, among other hats | The steward categorizes and classifies data. A privacy lead oversees compliance. Legal explains the requirements. Executives fund it (book: Governance chapter 3, pages 58 to 65) |
+| FoDE | One named person per portion of data | Can be at the level of a single field |
+
+The Governance book also suggests a data acceptance process: data is not used until its owners show that it meets the organization's quality standards, and the business unit that generates the data owns its quality instead of leaving it to the users downstream (book: Governance chapter 2, page 46). This is the same idea as the certification of [lesson 10](/en/data-quality/ownership-scorecard/#data-certification) and the contract of [lesson 6](/en/data-quality/agreements/#why-you-need-a-contract).
+
+</Step>
+
+<Step>
+
+## Classes and policies
+
+Governance needs a way to say what kind of data something is. The Governance book proposes an enterprise dictionary that lists classes of data, groups of information types that the organization treats the same way. A policy should attach to a class, not to a single table or column. "Analysts cannot access personal data" is easy to understand and to scale. "Analysts cannot access column 3 of table B" is neither (book: Governance chapter 2, pages 37 to 43).
+
+Policies it describes include minimum and maximum retention, and access that is not just yes or no: no access, partial access (some digits starred out, or values replaced by a tokenized form that can still be grouped) and full access (book: Governance chapter 2, pages 37 to 43). Contracts shows where to record this for a dataset. A contract can say, field by field, whether the data is personal, how it is classified, who may access it and for how long, and how it is deleted or anonymized. The people best placed to fill that in are the ones who generate the data (book: Contracts chapter 2, pages 29 to 30; chapter 5, pages 73 to 78).
+
+For a quality team this is a rule like any other. A field in the contract with no class is an incomplete contract. A field with the wrong class gets the wrong policy. Sketch of the idea on two of our columns (the field names are the author's, not a standard):
+
+```yaml
+schema:
+  - {name: email, type: VARCHAR, personal_data: true, class: contact_details, anonymize: hash}
+  - {name: country, type: VARCHAR, personal_data: false, class: reference}
+```
+
+</Step>
+
+<Step>
+
+## Catalog, scorecard and annotation
+
+A data catalog holds the technical metadata of a dataset (schema, table and column names, descriptions) and also business metadata: who owns it, whether it was generated in house or bought, whether it is for production or testing. As governance matures, the data class, quality and sensitivity are attached too, so that you can search for "all tables of class X in production" (book: Governance chapter 2, pages 44 to 45).
+
+For quality, chapter 5 of the same book offers three habits that cost little (book: Governance chapter 5, page 123):
+
+- **A scorecard for each data source**, with its origin, accuracy, completeness and timeliness, plus the administrative owner and who asked for it. Pipeline builders use it to decide where and for what to use the data.
+- **Prioritization.** Sources differ in importance, and lineage helps trace which ones feed the critical uses.
+- **Annotation.** A standard way to mark a source as vetted or not vetted, even if you cannot give a full scorecard yet. Start small so that the information does not stay tribal knowledge. The book mentions letting users rate data, with the default set to untrusted and a curator reviewing high ratings before a quality signal goes out.
+
+The book tells of a growing healthcare company that bought other companies partly for their data and then found that its dictionaries, metadata and quality management could not be combined. It came away convinced it needed a central governance approach that scales to acquisitions (book: Governance chapter 5, page 123). A scorecard and an annotation are the small version of what [lesson 10](/en/data-quality/ownership-scorecard/#data-certification) called certification.
+
+</Step>
+
+<Step>
+
+## Lineage and data of mixed quality
+
+The Governance book gives several reasons to track lineage. Teams spend much of their time not fixing problems but finding out whether there are any, and better tracking saves that time. Lineage also explains the quality of a result: a dashboard built from good data that is later merged with poor data should be read differently. It also lets you explain, later, why a decision such as a loan approval was made from certain inputs. The more advanced tools track lineage across time (book: Governance chapter 2, pages 46 to 47).
+
+On joins it is blunt. Knowing the quality of each source should guide whether you join datasets of different quality, because low-quality data lowers confidence in the high-quality data. Datasets should carry different confidence levels, and results with mixed-quality ancestors should be curated (book: Governance chapter 2, pages 45 to 46). That is what happened in [lesson 10](/en/data-quality/ownership-scorecard/#the-trend-the-average-moves-less-than-reality), where cleaning one table made a neighboring table look worse. Lineage would have shown which table depended on which.
+
+</Step>
+
+<Step>
+
+## When the data feeds a model
+
+The Governance book gives machine learning its own section. A model extrapolates from existing data, so errors in the input tend to be amplified. If its predictions are acted on and then fed back in, the predictions become the reality and the errors grow through a positive feedback loop. The data is split into training, validation and test sets, and errors in any of them can produce a badly trained model. The book also names a trade-off: cleaning every error by hand is often too costly, while a robust model can tolerate some level of error (book: Governance chapter 5, pages 117 to 121).
+
+For analytics warehouses, the pressure is different. A warehouse integrates many sources, so acquisition, cleaning, transformation and linking all become places where quality can drop. And what counts as good enough depends on the use. The book contrasts a retail warehouse that rounds to five cents with a trading warehouse that needs microseconds (book: Governance chapter 5, pages 116 to 117).
+
+A story from the same chapter makes the point that quality is tied to the use. A symposium of paleontologists found that "bone" and other everyday words in their field were being hidden from the chat and captions. The meeting platform had been built for schools and filtered out words that would be inappropriate there. The same filter on a science conference was a defect (book: Governance chapter 5, pages 121 to 122). It is [lesson 1](/en/data-quality/assurance-basics/#quality-means-fit-for-use) again: fit for the consumer's purpose.
+
+This path has no exercise for machine learning data. The checks of [lessons 2](/en/data-quality/dimensions/) to [8](/en/data-quality/reconciliation/) apply to training data too, and a model hides bad inputs better than a report does.
+
+</Step>
+
+<Step>
+
+## What the path still does not cover
+
+With this lesson and the Ten Steps lesson, two items from the capstone's list of gaps now have an explanation: culture and communication ([lesson 12](/en/data-quality/ten-steps/#bring-people-along)) and privacy and machine learning as ideas (this lesson). Neither has an exercise. What remains uncovered: a dedicated reasonability exercise ([lesson 7](/en/data-quality/monitoring/#volume-seasonality-fools-the-z-score) touches it through monitoring), the details of any single tool, and real streaming data.
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- Who is the one named person accountable for your most important dataset? At what level is that accountability set: table, stream or single field?
+- Does your catalog or contract say, for each field, whether it is personal data and how it is classified? Who fills that in, and who notices when it is wrong?
+- A model in your organization was trained on data that nobody has profiled. Which checks from this path would you run on the training set first?
+
+</Step>
+
+<Step>
+
+## Sources of this lesson
+
+| Statement | Source |
+|---|---|
+| Quality should be governed by the same program; organizations overestimate quality; the three characteristics; ML, warehouses and the paleontology story | book: Governance chapter 5, pages 113 to 131 |
+| Data accountability and its levels; quality as "what you get compared with what you expect" | book: FoDE chapter 2, pages 54 to 56 |
+| Enterprise dictionary, data classes, policies attached to classes, retention and partial access | book: Governance chapter 2, pages 37 to 43 |
+| Catalog and business metadata | book: Governance chapter 2, pages 44 to 45 |
+| Data acceptance process; mixed-quality datasets; lineage and why it matters | book: Governance chapter 2, pages 45 to 47 |
+| Scorecard for sources, prioritization, annotation | book: Governance chapter 5, page 123 |
+| The hats and their tasks | book: Governance chapter 3, pages 58 to 65 |
+| Contracts carry governance metadata; generators populate it; the governance council | book: Contracts chapter 2, pages 29 to 30; chapter 5, pages 73 to 78 |
+| The fit of the four books into one table; the YAML sketch; what the path does not cover | author |
+
+</Step>

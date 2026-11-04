@@ -1,7 +1,7 @@
 ---
 title: Data owners and scorecards
 summary: How to measure data quality without fooling yourself, who is responsible when it breaks, and when a dataset deserves a "certified" label. This lesson builds three kinds of scorecard from the same rule registry, looks at the trend, and sets an SLO for data downtime.
-order: 9
+order: 10
 phase: D
 level: 4
 stage: sprout
@@ -17,7 +17,7 @@ import Callout from '../../../../components/Callout.astro';
 
 ## Who to report data quality to, and what to report
 
-Assessment and incident handling are of no use if nobody sees the results. DMBOK2 §2.7.5 lists what should be reported (book):
+Assessment and incident handling are of no use if nobody sees the results. DMBOK2 section 2.7.5 (page 484) lists what should be reported (book):
 
 - **A data quality scorecard**: an overview of scores by metric, reported to the various levels of the organization against thresholds.
 - **Trends**: is quality getting better or worse over time?
@@ -26,7 +26,7 @@ Assessment and incident handling are of no use if nobody sees the results. DMBOK
 - **Compliance with governance policy** by the quality, IT and business teams.
 - **The benefits of improvement projects.**
 
-This lesson does the first three with the 14-rule registry of lesson 4, then moves on to the SLO and certification.
+This lesson does the first three with the 14-rule registry of [lesson 4](/en/data-quality/rule-design/#the-rule-registry-a-query-with-an-owner-a-threshold-and-an-impact), then moves on to the SLO and certification.
 
 </Step>
 
@@ -42,7 +42,7 @@ The result of running the rule registry (ran: `10_scorecard.py`) can be read lik
 | Rules that meet their own threshold | **0 of 14** | Not one passes |
 | Failing rules at severity error (can block the pipeline) | **6** | Something serious |
 
-The average misleads because it mixes many slightly wrong rules with a badly wrong one, and ignores severity. A rule that is wrong only 1% of the time may be a payment that does not match the order amount, which matters many times more than the email rule that is wrong 8% of the time. This matches the DMBOK2 principle that a metric must be tied to business impact (lesson 4). So report all three views, and open it up to be examined rule by rule.
+The average misleads because it mixes many slightly wrong rules with a badly wrong one, and ignores severity. A rule that is wrong only 1% of the time may be a payment that does not match the order amount, which matters many times more than the email rule that is wrong 8% of the time. This matches the DMBOK2 principle that a metric must be tied to business impact ([lesson 4](/en/data-quality/rule-design/#six-properties-of-a-good-metric)). So report all three views, and open it up to be examined rule by rule.
 
 The worst rule of each dimension, and who gets called:
 
@@ -83,7 +83,7 @@ Two observations:
 After all five steps, 8 rules still fail (3 email rules, birth date, the negative amount that is still proposed, SHIPPED with no ship time, ship time before order time, late arrival), all at severity warn.
 
 <Callout type="warn" title="These five steps edit data in a copy">
-In the exercise, each step overwrites data in a copy to see the effect on the scores. In a real system this would be a fix at the source or a quarantine of rows, not a quiet edit. And the last step (using the payment amount as the order amount) needs the finance data owner to confirm first that the payment system is the reference. DMBOK2 §4.2 warns that editing data directly in production is extremely risky.
+In the exercise, each step overwrites data in a copy to see the effect on the scores. In a real system this would be a fix at the source or a quarantine of rows, not a quiet edit. And the last step (using the payment amount as the order amount) needs the finance data owner to confirm first that the payment system is the reference. DMBOK2 section 4.2 (pages 486 to 487) warns that editing data directly in production is extremely risky.
 </Callout>
 
 </Step>
@@ -92,11 +92,13 @@ In the exercise, each step overwrites data in a copy to see the effect on the sc
 
 ## Who is responsible
 
-DQF uses the term **blast radius** to explain that when data breaks, the impact flows downstream and hits everyone who depends on the data, and says the answer to "who owns data quality?" depends on the size and needs of the company. The authors describe the roles involved: the chief data officer (CDO), BI analyst, analytics engineer, data scientist, data governance lead, data engineer and data product manager, and use a RACI table (Responsible, Accountable, Consulted, Informed) to match roles with responsibilities (book: DQF ch.8). The book concludes that "ultimately it is everyone's responsibility", but at most companies the burden of monitoring and alerting tends to fall on data engineers and data product managers, and the pain tends to fall on BI analysts.
+DQF uses the term **blast radius** to explain that when data breaks, the impact flows downstream and hits everyone who depends on the data, and says the answer to "who owns data quality?" depends on the size and needs of the company. The authors describe the roles involved: the chief data officer (CDO), BI analyst, analytics engineer, data scientist, data governance lead, data engineer and data product manager, and use a RACI table (Responsible, Accountable, Consulted, Informed) to match roles with responsibilities (book: DQF chapter 8, pages 204 to 208). The book concludes that "ultimately it is everyone's responsibility", but at most companies the burden of monitoring and alerting tends to fall on data engineers and data product managers, and the pain tends to fall on BI analysts.
 
-DQF also points out a common problem: **a data engineer is not a data catalog**. Analysts have to guess whether data can be trusted, and teams build the same model six different ways without anyone knowing which is the latest. The result is lower trust and higher downtime (book: DQF ch.8).
+DQF also points out a common problem: **a data engineer is not a data catalog**. Analysts have to guess whether data can be trusted, and teams build the same model six different ways without anyone knowing which is the latest. The result is lower trust and higher downtime (book: DQF chapter 8, page 208).
 
-DMBOK2 sets out a clearer principle: business process owners are responsible for the quality of the data their process creates and must enforce standards in their own process, while system owners must enforce requirements through the system (book: DMBOK2 §1.2).
+DMBOK2 sets out a clearer principle: business process owners are responsible for the quality of the data their process creates and must enforce standards in their own process, while system owners must enforce requirements through the system (book: DMBOK2 section 1.2, pages 452 to 453).
+
+The data contracts book adds a sharper version for data that moves between teams. The team that generates the data owns the promise about it, because only that team can change how the data is made, and the data engineering team should stop absorbing the consequences of changes it did not make (book: Contracts chapter 4, pages 61 to 64). [Lesson 13](/en/data-quality/governance/#who-is-accountable) sets the four books' answers side by side.
 
 A condensed RACI for one data incident (**this table was drafted by the author of this path** and is not a DQF table). Each row must have exactly one A.
 
@@ -114,7 +116,7 @@ A condensed RACI for one data incident (**this table was drafted by the author o
 
 ## Data downtime as an SLO
 
-DQF proposes three steps for setting a reliability target: **define with an SLA, measure with an SLI, track with an SLO**. It says a good SLA is "specific and detailed", not "data is reliable all the time": it must say why it matters, what the expectation is, when and how to do it, where the data is, who is affected, and what the team will do when the SLA is not met (book: DQF ch.5, ch.8). DMBOK2 §2.7.4 lists nine contents of an SLA (lesson 6).
+DQF proposes three steps for setting a reliability target: **define with an SLA, measure with an SLI, track with an SLO**. It says a good SLA is "specific and detailed", not "data is reliable all the time": it must say why it matters, what the expectation is, when and how to do it, where the data is, who is affected, and what the team will do when the SLA is not met (book: DQF chapter 5, pages 135 to 137; chapter 8, page 208). DMBOK2 section 2.7.4 (pages 483 to 484) lists nine contents of an SLA ([lesson 6](/en/data-quality/agreements/#a-sample-contract)).
 
 The metric DQF uses as its core is **data downtime = number of incidents × (time to detect + time to fix)**. An example SLO: table X has no more than Y hours of downtime per year.
 
@@ -128,9 +130,9 @@ In the exercise (the incident data and the SLO **are assumptions**):
 | INC-104 column renamed | 1 | 2 | 3 |
 | **Total in the quarter** | | | **126** |
 
-Against an SLO of 80 hours per quarter: **it fails**, and **85% of the downtime is time spent not knowing it was broken**. If detection were twice as fast, the total would be 72 hours, which passes. This is the numerical reason to invest in lesson 7 (monitoring) rather than in rushing the fix.
+Against an SLO of 80 hours per quarter: **it fails**, and **85% of the downtime is time spent not knowing it was broken**. If detection were twice as fast, the total would be 72 hours, which passes. This is the numerical reason to invest in [lesson 7](/en/data-quality/monitoring/#rules-catch-what-we-anticipated-what-about-the-rest) (monitoring) rather than in rushing the fix.
 
-A caution from DQF: an SLO must be realistic for current capability. Without automated monitoring tools, the TTD part of the SLO has to be more generous than at an organization that has them, and "setting an SLA just to have one" without investment behind it leaves the team worse off.
+DQF adds that an SLO must be realistic for current capability. Without automated monitoring tools, the TTD part of the SLO has to be more generous than at an organization that has them, and "setting an SLA just to have one" without investment behind it leaves the team worse off.
 
 </Step>
 
@@ -138,7 +140,7 @@ A caution from DQF: an SLO must be realistic for current capability. Without aut
 
 ## Data certification
 
-DQF defines data certification as the process of approving a data asset for use across the organization after it meets agreed SLAs on quality, observability, ownership, resolution and communication, and proposes seven steps (book: DQF ch.8).
+DQF defines data certification as the process of approving a data asset for use across the organization after it meets agreed SLAs on quality, observability, ownership, resolution and communication, and proposes seven steps (book: DQF chapter 8, pages 211 to 216).
 
 | Step | What to do |
 |---|---|
@@ -165,7 +167,7 @@ The exercise checks the six items of the seven steps that code can check (step 7
 
 ## What to invest in first
 
-DMBOK2 §2.6 gives variables for judging whether fixing a problem is worth it (book):
+DMBOK2 section 2.6 (page 477) gives variables for judging whether fixing a problem is worth it (book):
 
 - The importance of the affected data
 - The volume of affected data
@@ -178,7 +180,7 @@ DMBOK2 §2.6 gives variables for judging whether fixing a problem is worth it (b
 
 The book stresses that "nobody cares about the completeness of a field if it has no business impact", and that an improvement must have a positive return. An example target: raise the completeness of customer data from 90% to 95% by improving the process and system edits, then measure the benefits, such as fewer complaints and less time spent fixing errors.
 
-DQF proposes a formula for the yearly cost of bad data: labor cost + regulatory risk + opportunity cost. The authors themselves admit it is a "starting point". The supporting figures (such as regulatory risk of 4% of revenue in a footnote) are the book authors' estimates, to be used as a way of thinking and not as reference numbers (book: DQF ch.5).
+DQF proposes a formula for the yearly cost of bad data: labor cost + regulatory risk + opportunity cost. The authors themselves admit it is a "starting point". The supporting figures (such as regulatory risk of 4% of revenue in a footnote) are the book authors' estimates, to be used as a way of thinking and not as reference numbers (book: DQF chapter 5, pages 133 to 135).
 
 <Callout type="try" title="Try it in this repo">
 Open `10_scorecard.py` and add a 5th incident to the downtime table. See how the SLO changes. Then try weighting the rules by importance (error counts 5, warn counts 1) and compute a weighted score. Compare it with the plain average: how does it differ at each step of the trend?
@@ -202,9 +204,9 @@ Open `10_scorecard.py` and add a 5th incident to the downtime table. See how the
 
 | Statement | Source |
 |---|---|
-| What to report; the variables for whether a fix is worth it; the example target of 90% to 95% | book: DMBOK2 §2.7.5, §2.6 |
-| Business process owners are responsible for the data their process creates | book: DMBOK2 §1.2 |
-| Blast radius, roles, RACI (the book has a table, not copied here), data downtime, the three steps of SLA/SLI/SLO, the seven certification steps, the yearly cost formula | book: DQF ch.5, ch.8 |
+| What to report; the variables for whether a fix is worth it; the example target of 90% to 95% | book: DMBOK2 section 2.7.5, page 484; section 2.6, page 477 |
+| Business process owners are responsible for the data their process creates | book: DMBOK2 section 1.2, pages 452 to 453 |
+| Blast radius, roles, RACI (the book has a table, not copied here), data downtime, the three steps of SLA/SLI/SLO, the seven certification steps, the yearly cost formula | book: DQF chapter 5, pages 133 to 138; chapter 8, pages 204 to 216 |
 | The scorecard numbers, the 5-step trend, the certification check results | ran: `10_scorecard.py` |
 | The incidents in the quarter (INC-101 to 104), the 80-hour SLO, the condensed RACI table, the rule weights | author (invented examples) |
 

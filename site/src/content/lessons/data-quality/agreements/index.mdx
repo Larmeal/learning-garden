@@ -1,7 +1,7 @@
 ---
-title: ข้อตกลงระหว่าง producer กับ consumer
+title: ข้อตกลงระหว่าง Producer กับ Consumer
 summary: SLA ด้าน data quality และ data contract คือสัญญาที่ producer ให้ไว้กับ consumer บทนี้เขียน contract เป็นไฟล์ YAML ตรวจข้อมูลเทียบ contract ด้วยโค้ด และจัดประเภทการเปลี่ยน contract ว่าทำให้ consumer พังหรือไม่
-order: 5
+order: 6
 phase: C
 level: 3
 stage: sprout
@@ -16,12 +16,12 @@ import ContractLab from '../../../../components/labs/data-quality/ContractLab';
 
 <Step>
 
-## ทำไมต้องมี contract
+## ทำไมต้องมี Contract
 
 data quality rule ที่เขียนฝั่ง consumer ตรวจได้ว่าข้อมูลเสีย แต่ไม่ได้บอกว่า**ใครต้องรับผิดชอบ** หรือเมื่อ producer จะเปลี่ยนข้อมูลควรแจ้งใคร DMBOK2 พูดถึงสองระดับ
 
-- **data quality SLA**: ระบุความคาดหวังของการตอบสนองและการแก้ไขปัญหาในแต่ละระบบ (หนังสือ: DMBOK2 §2.7.4)
-- **data sharing agreement**: ระบุว่าข้อมูลใดแบ่งปันได้และภายใต้เงื่อนไขใด ผู้รับผิดชอบสภาพแวดล้อมแบ่งปันมีพันธะต่อ consumer ปลายทางให้ข้อมูลคุณภาพสูง และพึ่งพาระบบต้นทาง จึงควรมี SLA และ metric วัด availability และคุณภาพ มีกระบวนการแก้ที่ต้นเหตุ และมีวิธีสื่อสารมาตรฐานเมื่อมีปัญหา (หนังสือ: DMBOK2 บท Reference and Master Data §4.4)
+- **data quality SLA**: ระบุความคาดหวังของการตอบสนองและการแก้ไขปัญหาในแต่ละระบบ (หนังสือ: DMBOK2 หัวข้อ 2.7.4 หน้า 483 ถึง 484)
+- **data sharing agreement**: ระบุว่าข้อมูลใดแบ่งปันได้และภายใต้เงื่อนไขใด ผู้รับผิดชอบสภาพแวดล้อมแบ่งปันมีพันธะต่อ consumer ปลายทางให้ข้อมูลคุณภาพสูง และพึ่งพาระบบต้นทาง จึงควรมี SLA และ metric วัด availability และคุณภาพ มีกระบวนการแก้ที่ต้นเหตุ และมีวิธีสื่อสารมาตรฐานเมื่อมีปัญหา (หนังสือ: DMBOK2 บท Reference and Master Data หัวข้อ 4.4 หน้า 377)
 
 *Building Medallion Architectures* ใช้คำว่า **data contract** สำหรับเรื่องเดียวกันในโลกสมัยใหม่
 
@@ -29,21 +29,23 @@ data quality rule ที่เขียนฝั่ง consumer ตรวจไ�
 
 <Step>
 
-## data contract คืออะไร และข้อควรระวังเรื่องคำนี้
+## Data Contract คืออะไร และข้อควรระวังเรื่องคำนี้
 
-หนังสือนิยามว่า data contract คือข้อตกลงอย่างเป็นทางการระหว่าง producer กับ consumer ของข้อมูล ระบุ format ของข้อมูล คุณภาพ availability นโยบายความปลอดภัย และความรับผิดชอบของแต่ละฝ่าย contract เน้น **interface** ของข้อมูล ส่วน data product คือนิยามและเนื้อหาของข้อมูลเอง (หนังสือ: Medallion ch.12)
+หนังสือนิยามว่า data contract คือข้อตกลงอย่างเป็นทางการระหว่าง producer กับ consumer ของข้อมูล ระบุ format ของข้อมูล คุณภาพ availability นโยบายความปลอดภัย และความรับผิดชอบของแต่ละฝ่าย contract เน้น **interface** ของข้อมูล ส่วน data product คือนิยามและเนื้อหาของข้อมูลเอง (หนังสือ: Medallion บทที่ 12 หน้า 329 ถึง 333)
 
-หนังสือเตือนไว้ตรงๆ ว่า **คำนี้กำกวม ไม่มีนิยามมาตรฐานในอุตสาหกรรม** องค์กรจึงต้องนิยามคำนี้ให้ชัดภายในองค์กร ไม่เช่นนั้นแต่ละคนจะเข้าใจต่างกัน และ contract ไม่ใช่ใช้ได้กับทุกที่ ส่วนใหญ่เป็นเรื่องของการควบคุมการไหลของข้อมูล เก็บเป็น metadata ใน platform
+หนังสือเตือนไว้ตรงๆ ว่าคำนี้กำกวมและไม่มีนิยามมาตรฐานในอุตสาหกรรม องค์กรจึงต้องนิยามเอง ไม่เช่นนั้นแต่ละคนจะอ่านต่างกัน และ contract ใช้ไม่ได้กับทุกที่ ส่วนใหญ่ควบคุมการไหลของข้อมูล และเก็บเป็น metadata ใน platform
 
-หนังสือยกวิธีเก็บ contract หลายแบบ: ใน catalog (เช่น Microsoft Purview, Unity Catalog), ใน metastore ที่สร้างเอง, เป็นไฟล์ YAML พร้อม GitOps, และตาม specification เปิด เช่น Open Data Contract Standard และ Data Contract Specification (หนังสือ: Medallion ch.12) บทนี้ใช้แบบ YAML ใน Git เพราะอ่านง่ายและตรวจด้วยโค้ดได้ในแบบฝึก
+*Driving Data Quality with Data Contracts* ของ Andrew Jones ให้นิยามที่เป็นรูปธรรมหนึ่งแบบ: interface ที่ตกลงกันระหว่างผู้สร้างข้อมูลกับ consumer ซึ่งกำหนด expectation ของข้อมูล บอกว่าต้อง govern อย่างไร และทำให้การสร้างข้อมูลคุณภาพเป็นเรื่องที่ทำโดยตั้งใจ (หนังสือ: Contracts บทที่ 2 หน้า 22 ถึง 31) สองเล่มเห็นตรงกันในส่วนที่สำคัญตรงนี้ คือ producer เป็นคนให้สัญญา และ consumer สร้างงานต่อบนสัญญานั้นได้ หน้า data contract ในทางปฏิบัติ ใต้บทนี้ ไล่ฉบับของ Jones ให้ละเอียด
+
+หนังสือยกวิธีเก็บ contract หลายแบบ: ใน catalog (เช่น Microsoft Purview, Unity Catalog), ใน metastore ที่สร้างเอง, เป็นไฟล์ YAML พร้อม GitOps, และตาม specification เปิด เช่น Open Data Contract Standard และ Data Contract Specification (หนังสือ: Medallion บทที่ 12 หน้า 329 ถึง 332) บทนี้ใช้แบบ YAML ใน Git เพราะอ่านง่ายและตรวจด้วยโค้ดได้ในแบบฝึก
 
 </Step>
 
 <Step>
 
-## contract ฉบับตัวอย่าง
+## Contract ฉบับตัวอย่าง
 
-ไฟล์ `contracts/orders.v1.yaml` มีสิ่งที่ DMBOK2 §2.7.4 ระบุว่า SLA ควรมี (ข้อมูลที่ครอบคลุม impact dimension และความคาดหวัง วิธีวัด threshold ผู้ที่ต้องได้รับแจ้ง กรอบเวลา การ escalate) บวกส่วน schema ตามแบบ YAML ของ Medallion (**การเลือกรวมกันเป็นของผู้เขียน ตัวเลขทั้งหมดเป็นตัวอย่าง**)
+ไฟล์ `contracts/orders.v1.yaml` มีสิ่งที่ DMBOK2 หัวข้อ 2.7.4 หน้า 483 ถึง 484 ระบุว่า SLA ควรมี (ข้อมูลที่ครอบคลุม impact dimension และความคาดหวัง วิธีวัด threshold ผู้ที่ต้องได้รับแจ้ง กรอบเวลา การ escalate) บวกส่วน schema ตามแบบ YAML ของ Medallion (**การเลือกรวมกันเป็นของผู้เขียน ตัวเลขทั้งหมดเป็นตัวอย่าง**)
 
 ```yaml
 dataset: orders
@@ -64,13 +66,13 @@ freshness: {column: order_ts, max_age_hours: 24}
 on_breach: {notify: "#orders-data", respond_within_hours: 2, resolve_within_business_days: 1}
 ```
 
-(ตัดบาง column ออกเพื่อให้สั้น ไฟล์เต็มอยู่ใน repo) สังเกตว่า `quality.rules` ชี้ไปที่ id ใน rule registry ของบท 4 contract ไม่ได้เขียน rule ซ้ำ แต่ระบุว่า rule ไหนคือคำสัญญาของ dataset นี้
+(ตัดบาง column ออกเพื่อให้สั้น ไฟล์เต็มอยู่ใน repo) `quality.rules` ชี้ไปที่ id ใน rule registry ของ[บท 4](/data-quality/rule-design/#rule-registry-query-พร้อมเจ้าของ-threshold-และ-impact) contract ไม่ได้เขียน rule ซ้ำ แต่ระบุว่า rule ไหนคือคำสัญญาของ dataset นี้
 
 </Step>
 
 <Step>
 
-## ตรวจข้อมูลเทียบกับ contract
+## ตรวจข้อมูลเทียบกับ Contract
 
 ฟังก์ชันใน `dqcontract.py` ตรวจสามส่วน (รัน: `06_contract.py`)
 
@@ -94,15 +96,15 @@ type และชื่อของ column ตรง contract ทั้งหม
 
 **3. freshness** order ล่าสุดอายุ 56.0 ชั่วโมง contract ให้ไม่เกิน 24 ชั่วโมง ผิดสัญญา
 
-เมื่อละเมิด contract ระบุไว้แล้วว่าใครต้องทำอะไร: แจ้ง channel `#orders-data` ตอบสนองภายใน 2 ชั่วโมง แก้ภายใน 1 วันทำการ นี่คือส่วนที่ต่างจาก "rule ที่ล้ม" เฉยๆ
+เมื่อละเมิด contract ระบุไว้แล้วว่าใครต้องทำอะไร: แจ้ง channel `#orders-data` ตอบสนองภายใน 2 ชั่วโมง แก้ภายใน 1 วันทำการ ต่างจาก rule ที่ล้มเฉยๆ ตรงที่ contract ที่ผิดสัญญามีชื่อคนรับเรื่องอยู่แล้ว
 
 </Step>
 
 <Step>
 
-## เปลี่ยน contract อย่างไรไม่ให้ใครพัง
+## เปลี่ยน Contract อย่างไรไม่ให้ใครพัง
 
-producer แก้ข้อมูลได้เสมอ แต่ consumer บางคนจะพังเมื่อ producer แก้ ในแบบฝึกเทียบ `orders.v1.yaml` กับ `orders.v2.yaml` และจัดประเภทความต่างจากมุมของ consumer ที่อ่านข้อมูล (**เกณฑ์การจัดประเภทเป็นของผู้เขียน ไม่ใช่มาตรฐาน**)
+producer แก้ข้อมูลได้เสมอ แต่ consumer บางคนจะพังเมื่อ producer แก้ ในแบบฝึกเทียบ `orders.v1.yaml` กับ `orders.v2.yaml` และจัดประเภทความต่างจากมุมของ consumer ที่อ่านข้อมูล (เกณฑ์นี้เขียนสำหรับเส้นทางนี้ แต่บางส่วนตามหนังสือ: การเปลี่ยนชื่อและการเปลี่ยน type เป็น breaking ตามตัวอย่างใน Contracts บทที่ 6 หน้า 89 ถึง 91 ส่วนกลุ่ม `review` กับการผ่อน `nullable` เป็นการตัดสินของผู้เขียน)
 
 | ความต่าง | ประเภท | เหตุผล |
 |---|---|---|
@@ -121,9 +123,9 @@ producer แก้ข้อมูลได้เสมอ แต่ consumer บ
 
 <Step>
 
-## บังคับ contract แบบไหน: test หลัง load หรือปฏิเสธก่อน load
+## บังคับ Contract แบบไหน: Test หลัง Load หรือปฏิเสธก่อน Load
 
-Medallion บรรยาย contract ในสองรูปแบบที่ต่างกันตรงจุดที่บังคับ (หนังสือ: Medallion ch.12)
+Medallion บรรยาย contract ในสองรูปแบบที่ต่างกันตรงจุดที่บังคับ (หนังสือ: Medallion บทที่ 12 หน้า 329 ถึง 333)
 
 - **contract แบบโครงสร้างของข้อมูลที่ผลิต**: dbt เรียกว่า "model contract" ระบุ schema, type ของ column และ constraint ของ model **ต่างจาก test ตรงที่ถ้าตรรกะหรือข้อมูลขาเข้าไม่ตรง contract model จะ build ไม่ผ่าน** ไม่ใช่ build แล้วค่อยแจ้งว่าผิด
 - **contract ตอนนำข้อมูลเข้า**: ข้อมูลที่เข้ามาต้องตรง format, schema และคุณภาพที่สัญญาไว้ ถ้าไม่ตรงก็ปฏิเสธ คล้าย SLA ในงานซอฟต์แวร์
@@ -135,12 +137,12 @@ Medallion บรรยาย contract ในสองรูปแบบที่
 | test หลัง load | table มี format ใหม่ไปแล้ว test บอกว่า `column total_amount is missing` และ `column amount_total is not in the contract` |
 | ปฏิเสธก่อน load | `enforce_on_ingest()` ปฏิเสธ dataset table ไม่ถูกแตะ เหตุผล: `customer_id arrived as VARCHAR, expected BIGINT; missing column total_amount` |
 
-ปฏิเสธก่อน load ปกป้อง consumer ได้มากกว่า แต่ก็ทำให้ producer รู้สึกถึง contract เร็วกว่า และต้องมีช่องทางให้แก้และส่งใหม่ ทางที่เหมาะขึ้นกับว่า consumer ทนข้อมูลชุดที่พังได้แค่ไหน (บท 5 เรื่อง intrusive กับ nonintrusive)
+ปฏิเสธก่อน load ปกป้อง consumer ได้มากกว่า แต่ก็ทำให้ producer รู้สึกถึง contract เร็วกว่า และต้องมีช่องทางให้แก้และส่งใหม่ ทางที่เหมาะขึ้นกับว่า consumer ทนข้อมูลชุดที่พังได้แค่ไหน ([บท 5](/data-quality/checkpoints/#เมื่อไม่ผ่าน-ปล่อยผ่าน-quarantine-หรือหยุด) เรื่อง intrusive กับ nonintrusive)
 
 (ในแบบฝึกส่วน "test หลัง load" ใช้ table ว่างที่สร้างใหม่ด้วยชื่อ column ใหม่เพื่อสาธิตข้อความของ test ไม่ได้ load ข้อมูลจริง)
 
 <Callout type="warn" title="contract ไม่แก้ปัญหาด้านวัฒนธรรม">
-DQF เตือนเรื่อง SLA ว่า การตั้ง SLA เพียงเพื่อตั้ง ถ้าไม่มีการลงทุนและความรับผิดชอบที่จะทำให้ได้ ทำให้ทีมอยู่ในสถานะแย่กว่าเดิม SLA ต้องได้รับความเห็นพ้องจาก producer, engineer, analyst และ consumer ก่อน (หนังสือ: DQF ch.5) contract ที่ producer ไม่รู้ว่ามีอยู่ ก็เป็นแค่ไฟล์ YAML
+DQF เตือนเรื่อง SLA ว่า การตั้ง SLA เพียงเพื่อตั้ง ถ้าไม่มีการลงทุนและความรับผิดชอบที่จะทำให้ได้ ทำให้ทีมอยู่ในสถานะแย่กว่าเดิม SLA ต้องได้รับความเห็นพ้องจาก producer, engineer, analyst และ consumer ก่อน (หนังสือ: DQF บทที่ 5 หน้า 135 ถึง 138) contract ที่ producer ไม่รู้ว่ามีอยู่ ก็เป็นแค่ไฟล์ YAML
 </Callout>
 
 </Step>
@@ -161,11 +163,12 @@ DQF เตือนเรื่อง SLA ว่า การตั้ง SLA �
 
 | ข้อความ | ที่มา |
 |---|---|
-| รายการสิ่งที่ data quality SLA ควรมี | หนังสือ: DMBOK2 §2.7.4 |
-| data sharing agreement และพันธะต่อ consumer ปลายทาง | หนังสือ: DMBOK2 บท Reference and Master Data §4.4 |
-| นิยาม data contract, คำนี้กำกวม, วิธีเก็บ contract, YAML + GitOps, model contract ของ dbt, contract ตอนนำข้อมูลเข้า | หนังสือ: Medallion ch.12 |
-| SLA ต้องมีความเห็นพ้องและการลงทุนรองรับ | หนังสือ: DQF ch.5 |
+| รายการสิ่งที่ data quality SLA ควรมี | หนังสือ: DMBOK2 หัวข้อ 2.7.4 หน้า 483 ถึง 484 |
+| data sharing agreement และพันธะต่อ consumer ปลายทาง | หนังสือ: DMBOK2 บท Reference and Master Data หัวข้อ 4.4 หน้า 377 |
+| นิยาม data contract, คำนี้กำกวม, วิธีเก็บ contract, YAML + GitOps, model contract ของ dbt, contract ตอนนำข้อมูลเข้า | หนังสือ: Medallion บทที่ 12 หน้า 329 ถึง 333 |
+| SLA ต้องมีความเห็นพ้องและการลงทุนรองรับ | หนังสือ: DQF บทที่ 5 หน้า 135 ถึง 138 |
 | ผลตรวจข้อมูลเทียบ contract, 3 ข้อ breaking, ข้อความของสองวิธีบังคับ | รัน: `06_contract.py` |
-| เกณฑ์ breaking, review, safe; การเลือกเนื้อหาของ contract; ตัวเลขใน YAML ทั้งหมด | ผู้เขียน |
+| อะไรนับเป็น breaking change พร้อมตัวอย่าง; รันสองเวอร์ชันคู่กันระหว่างที่ consumer ย้าย | หนังสือ: Contracts บทที่ 6 หน้า 89 ถึง 91 |
+| กลุ่ม review, การผ่อน `nullable`, การเลือกเนื้อหาของ contract ตัวอย่าง, ตัวเลขใน YAML ทั้งหมด | ผู้เขียน |
 
 </Step>
