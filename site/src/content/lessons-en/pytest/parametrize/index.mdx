@@ -1,0 +1,179 @@
+---
+title: parametrize
+summary: When one test must try many values, write one test and pass in a table of values. This lesson covers parametrize, the test names it produces (ids), stacking several decorators, pytest.param, and running only some rows.
+order: 4
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [assertions]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## One test, many values
+
+A 10% discount on 100 should give 90. What about 0%, 100%, and 20% of 250? If you write one test each, you get functions that differ only in their numbers. `@pytest.mark.parametrize` lets you write the test body once and pass in a table of values:
+
+```python
+@pytest.mark.parametrize(
+    "total, percent, expected",
+    [
+        (100, 0, 100),
+        (100, 10, 90),
+        (100, 100, 0),
+        (250, 20, 200),
+    ],
+)
+def test_apply_discount(total, percent, expected):
+    assert apply_discount(total, percent) == pytest.approx(expected)
+```
+
+The first argument is the parameter names separated by commas. The second is the list of rows. Each row is its own independent test. In the exercise this function is collected as 4 tests (ran: `exercises/04_parametrize`):
+
+```text
+test_apply_discount[100-0-100]
+test_apply_discount[100-10-90]
+test_apply_discount[100-100-0]
+test_apply_discount[250-20-200]
+```
+
+</Step>
+
+<Step>
+
+## One row fails, the others still run
+
+Because every row is a separate test, a wrong row does not hide the others. `demos/04_one_row_fails` has one row that is wrong on purpose (50% of 100 is not 40). The result is `1 failed, 2 passed`, and the name of the failed test tells you the row (ran: `demos/04_one_row_fails`):
+
+```text
+FAILED demos/04_one_row_fails/test_rows.py::test_rows[100-50-40]
+E       assert 50.0 == 40 ± 4.0e-05
+```
+
+If you loop with `for` and assert inside one test, the first wrong row stops the whole test and the later rows are never tried, so you see problems one at a time.
+
+</Step>
+
+<Step>
+
+## ids: names you can read
+
+Pytest builds an id from the values, such as `[100-10-90]`. That works when the values are easy to read. When they are not, name the rows yourself with `pytest.param(..., id="...")` (ran: `exercises/04_parametrize`):
+
+```python
+@pytest.mark.parametrize(
+    "total, fee",
+    [
+        pytest.param(499.99, 50.0, id="just-below-the-line"),
+        pytest.param(500, 0.0, id="exactly-on-the-line"),
+        pytest.param(0, 50.0, id="empty"),
+    ],
+)
+def test_shipping_fee(total, fee):
+    assert shipping_fee(total) == fee
+```
+
+When a test fails, the name `test_shipping_fee[exactly-on-the-line]` tells you the case without opening the code, and you can use the id with `-k`, for example `pytest -k exactly` ([lesson 7](/en/pytest/project/#choosing-what-to-run-path-node-id-and--k)). Run `pytest --collect-only -q` to see all ids before running.
+
+</Step>
+
+<Step>
+
+## Failing cases are rows too
+
+The table does not have to contain only successes. Values that must be rejected can go in it too, with a test body that uses `pytest.raises` ([lesson 2](/en/pytest/assertions/#check-that-code-raises-with-raises)):
+
+```python
+@pytest.mark.parametrize("percent", [-1, 101, 1000])
+def test_apply_discount_rejects_bad_percent(percent):
+    with pytest.raises(ValueError, match="between 0 and 100"):
+        apply_discount(100, percent)
+```
+
+Keep it separate from the successful cases because it is a different behaviour (author). One table that mixes "returns a value" with "raises" forces the test body to contain an `if`.
+
+</Step>
+
+<Step>
+
+## Stacking: every pair
+
+Put two `parametrize` decorators on one test and you get the product (cartesian product):
+
+```python
+@pytest.mark.parametrize("percent", [0, 50])
+@pytest.mark.parametrize("total", [100, 200, 300])
+def test_stacked_parametrize_makes_every_combination(total, percent):
+    assert apply_discount(total, percent) <= total
+```
+
+3 times 2 gives 6 tests, and in the id `total` comes first (the decorator closest to the function comes first) (ran: `exercises/04_parametrize`):
+
+```text
+[100-0]  [100-50]  [200-0]  [200-50]  [300-0]  [300-50]
+```
+
+Watch how fast the count grows: three decorators of 10 values each is 1,000 tests. Stack when you really want every pair. If you only want specific pairs, use one table with the pairs written out.
+
+</Step>
+
+<Step>
+
+## Marking some rows with pytest.param
+
+`pytest.param` accepts `marks=`, for example to mark a row as "not supported yet" without deleting it ([lesson 5](/en/pytest/markers/#xfail-known-to-fail-still-run) covers `xfail`):
+
+```python
+pytest.param("NOPE", None,
+             marks=pytest.mark.xfail(raises=KeyError, reason="unknown code is not handled yet"))
+```
+
+This row shows as `XFAIL` and the other two pass normally (ran: `exercises/04_parametrize` gives 21 passed and 1 xfailed).
+
+</Step>
+
+<Step>
+
+## Running only some rows, and when not to use it
+
+Because the id is part of the test name, `-k` can select by it. In the exercise `-k coupon` selects the tests whose names contain coupon, giving 3 passed and skipping 19 (ran: `verify.py`).
+
+When not to use `parametrize`:
+
+- The test body starts to contain an `if` on a parameter. That is two behaviours, so split the test.
+- Every row needs a long comment to explain it. The table may hide the intent, so try ids that tell the story.
+- You want a whole **fixture** to change with the value (for example two kinds of database). Use a fixture with `params` instead ([lesson 3](/en/pytest/fixtures/#autouse-factories-and-params)).
+
+<Callout type="try" title="Try it in this repo">
+Add the row `(250, 100, 0)` to the `test_apply_discount` table and run `uv run pytest exercises/04_parametrize --collect-only -q` to see what the new id is and how many tests there are now. Then add one wrong row and read the failure.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- If you used `for row in rows: assert ...` in one test instead of parametrize, what is different when the second row is wrong?
+- Two `parametrize` decorators with 4 and 5 values give how many tests?
+- Which row in the shipping_fee table is a boundary, and why should it be there?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| 4 tests from the table, the ids, ids set by `pytest.param`, stacking gives 6 and the id order, a row with an xfail mark (21 passed, 1 xfailed) | ran: `exercises/04_parametrize` |
+| a wrong row fails alone (`1 failed, 2 passed`) | ran: `demos/04_one_row_fails` |
+| `-k coupon` gives 3 passed, 19 deselected | ran: `verify.py` |
+| advice on when not to use parametrize, keeping successful and raising cases apart | author |
+
+</Step>

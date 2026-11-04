@@ -1,0 +1,174 @@
+---
+title: Assertions that say what went wrong
+summary: The plain Python assert, in Pytest's hands, reports values and diffs by itself. This lesson covers approx for floats, raises and warns for exceptions and warnings, and how to read the diff of a dict or a string.
+order: 2
+phase: A
+level: 1
+stage: sprout
+format: steps
+requires: [first-test]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## A plain assert that gives more than you expect
+
+In [lesson 1](/en/pytest/first-test/#reading-a-traceback-when-a-test-fails), `assert cart.total() == 31` failed and Pytest printed `assert 30 == 31`, although we wrote no message. Pytest changes the `assert` statements in your test files **before** they run (assertion rewriting) so that the values of sub-expressions are kept for display. The result is that you can use a bare `assert` and do not need `assertEqual`, `assertIn` or `assertAlmostEqual` from unittest.
+
+This lesson covers three cases where a bare `==` is not enough: floats, exceptions and warnings. Then it looks at how to read a diff.
+
+</Step>
+
+<Step>
+
+## Floats need approx
+
+```python
+def test_float_sums_need_approx():
+    assert 0.1 + 0.2 != 0.3
+    assert 0.1 + 0.2 == pytest.approx(0.3)
+```
+
+As floats, `0.1 + 0.2` is not exactly `0.3` (ran: `exercises/02_assertions`). `pytest.approx` compares with a tolerance. The default is a relative 1e-6, which you can see in a failure:
+
+```text
+E       assert 0.5 == 0.3 ± 3.0e-07
+E         Obtained: 0.5
+E         Expected: 0.3 ± 3.0e-07
+```
+
+You can set the tolerance yourself, and use `approx` on lists and dicts (ran: `exercises/02_assertions`):
+
+```python
+assert 100.04 == pytest.approx(100, abs=0.05)    # may differ by at most 0.05
+assert 100.04 != pytest.approx(100, abs=0.01)
+assert 100.04 == pytest.approx(100, rel=1e-3)    # may differ by at most 0.1% of 100
+assert [0.1 + 0.2, 1.1 + 2.2] == pytest.approx([0.3, 3.3])
+assert {"a": 0.1 + 0.2} == pytest.approx({"a": 0.3})
+```
+
+Keep in mind: for money, use `Decimal` or store integer cents from the start. `approx` helps when testing float results you cannot avoid. It does not make floats safe for money (author).
+
+</Step>
+
+<Step>
+
+## Check that code raises, with raises
+
+A good test also checks the failing path, not only the successful one. `pytest.raises` is a context manager.
+
+```python
+def test_raises_checks_the_type():
+    with pytest.raises(ValueError):
+        Cart().add("apple", price=10, qty=0)
+
+def test_raises_with_match_checks_the_message():
+    with pytest.raises(ValueError, match=r"qty must be positive, got -1"):
+        Cart().add("apple", price=10, qty=-1)
+```
+
+| Need | Use | Result (ran: `exercises/02_assertions`) |
+|---|---|---|
+| check the type of the exception | `pytest.raises(ValueError)` | passes when `ValueError` or a subclass is raised |
+| check the message | `match="positive"` | a regular expression that is **searched** for in the message, so part of the message is enough |
+| read the exception | `with pytest.raises(E) as info:` then `info.value`, `info.type` | check the message and attributes |
+| a parent class matches too | `pytest.raises(LookupError)` | `KeyError` is a `LookupError`, so it passes |
+
+Two common mistakes:
+
+1. **It does not raise.** If the code does not raise the expected exception, the test fails with `Failed: DID NOT RAISE ValueError` (ran: `demos/02_assertions`). That is correct: the test says the code is guaranteed to raise.
+2. **Lines in the block.** A line after the raising line in the same block never runs, and lines before it have a real effect. In the exercise `add("apple")` succeeds before the line that raises, so `qty("apple") == 1` after the block (ran: `exercises/02_assertions`). Put only the line you expect to raise inside the block.
+
+</Step>
+
+<Step>
+
+## Warnings
+
+Deprecated code often raises `DeprecationWarning`, not an exception. `pytest.warns` checks it:
+
+```python
+def test_warns_catches_a_deprecation():
+    with pytest.warns(DeprecationWarning, match="old_total"):
+        assert old_total([1, 2, 3]) == 6
+```
+
+In the other direction, to make sure new code produces **no** warning, use `warnings.simplefilter("error")` so that a warning becomes an exception inside that test (ran: `exercises/02_assertions`, `test_no_warning_for_the_new_code`). This catches calls to APIs that are about to be removed before they actually break.
+
+</Step>
+
+<Step>
+
+## Reading a diff
+
+When you compare a large dict, list or string, Pytest shows only the part that differs (ran: `demos/02_assertions`):
+
+```text
+E       AssertionError: assert {'sku': 'appl..., 'price': 10} == {'sku': 'appl...note': 'gift'}
+E         Omitting 2 identical items, use -vv to show
+E         Differing items:
+E         {'qty': 3} != {'qty': 2}
+E         Right contains 1 more item:
+E         {'note': 'gift'}
+```
+
+You can read straight away that `qty` differs (3 against 2) and that the right side has an extra key `note`. `-vv` expands the text that was shortened.
+
+For a string that differs in one character, Pytest marks the position with `^`:
+
+```text
+E         - total: 31 THB
+E         ?         ^
+E         + total: 30 THB
+E         ?         ^
+```
+
+When order does not matter, such as a list of SKUs, convert to a `set` before comparing. When order is part of the contract (for example `skus()` returns them alphabetically), compare lists directly (ran: `exercises/02_assertions`).
+
+</Step>
+
+<Step>
+
+## When to write your own message
+
+Pytest already tells you the **values**. A message you write is useful when it explains **why** the two sides should be equal:
+
+```python
+assert cart.qty("apple") == 1, "one apple was added, so qty must be 1"
+```
+
+If the message only repeats the values, such as `"total is wrong"`, leave it out. And if one test has several asserts, check that the message helps you tell which one really failed (author).
+
+<Callout type="try" title="Try it in this repo">
+Open `demos/02_assertions/test_diffs.py`, run `uv run pytest demos/02_assertions`, and read all five failures. Then fix `test_raises_not_raised` so that it passes (hint: `int("42")` raises nothing, so what should you call instead?).
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- Why should `assert price * qty == 0.3` not be used bare when price is 0.1 and qty is 3, and how would you rewrite it?
+- Does `with pytest.raises(ValueError, match="positive")` pass when the message is `qty must be positive, got 0`? Why?
+- What goes wrong if you put ten lines of code in a `raises` block?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| `0.1 + 0.2 != 0.3`, tolerance, `approx` with lists and dicts, the output `0.3 ± 3.0e-07` | ran: `exercises/02_assertions`, `demos/02_assertions` |
+| `raises` type, `match` is a search, `info.value`, subclass, block behaviour, `DID NOT RAISE` | ran: `exercises/02_assertions`, `demos/02_assertions` |
+| `warns` and turning a warning into an error | ran: `exercises/02_assertions` |
+| diff of a dict and a string | ran: `demos/02_assertions` |
+| advice about Decimal for money, when to write a message | author |
+
+</Step>

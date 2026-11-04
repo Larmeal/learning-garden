@@ -1,0 +1,192 @@
+---
+title: Your first test
+summary: A test is a short piece of code that calls the real code and checks the result with assert. This lesson writes a first test for a shopping cart, shows how Pytest finds tests, and teaches you to read the output when a test fails.
+order: 1
+phase: A
+level: 1
+stage: sprout
+format: steps
+requires: []
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## A test is code that checks code for you
+
+Think of a shopping cart. Put in 3 apples at 10 baht each and the total should be 30. You can check that by eye once, but if the code changes 50 times in six months you will not open it every time. An **automated test** is code that does the check every time you ask, and tells you what changed.
+
+Pytest is a very popular test runner for Python. Its main idea is that a test is just a plain function with a plain `assert`, with no base class to inherit. This path uses the same code in every lesson, the `shop` package (cart, coupons, checkout) in `subjects/pytest/code/src/shop/`. Every number printed in the lessons comes from a real run with Pytest 9.2.0 (ran: `verify.py`).
+
+Install and run:
+
+```bash
+uv add --dev pytest      # or pip install pytest
+uv run pytest            # or python -m pytest
+```
+
+</Step>
+
+<Step>
+
+## The first test
+
+```python
+from shop.cart import Cart
+
+
+def test_new_cart_is_empty():
+    cart = Cart()
+    assert cart.is_empty()
+    assert cart.total() == 0
+
+
+def test_add_item_increases_total():
+    cart = Cart()
+    cart.add("apple", price=10, qty=3)
+    assert cart.total() == 30
+```
+
+Nothing is imported from Pytest. `assert` is the ordinary Python assert. After it you write a condition that comes out true or false, for example `cart.total() == 30`, which asks "is the cart total 30?". If the answer is yes (True) the test passes, and if it is no (False) the test fails. `assert cart.is_empty()` works the same way, because `is_empty()` already returns True or False. A test also fails if the code it calls raises an exception before the `assert` line is reached. Running `exercises/01_first_test` gives (ran: `exercises/01_first_test`):
+
+```text
+exercises/01_first_test/test_cart_basics.py::test_new_cart_is_empty PASSED
+exercises/01_first_test/test_cart_basics.py::test_add_item_increases_total PASSED
+exercises/01_first_test/test_cart_basics.py::test_adding_the_same_sku_twice_merges_the_lines PASSED
+exercises/01_first_test/test_cart_basics.py::TestRemove::test_remove_drops_the_line PASSED
+exercises/01_first_test/test_cart_basics.py::TestRemove::test_remove_missing_sku_raises_key_error PASSED
+exercises/01_first_test/discount_test.py::test_ten_percent_off_one_hundred PASSED
+============================== 6 passed ==============================
+```
+
+The full name of a test, such as `test_cart_basics.py::TestRemove::test_remove_drops_the_line`, is its **node id**. You can use it to run a single test ([lesson 7](/en/pytest/project/#choosing-what-to-run-path-node-id-and--k)).
+
+</Step>
+
+<Step>
+
+## How Pytest finds tests
+
+Pytest does not run every file. It searches by naming rules (**discovery**).
+
+| What | Must be named | Example in the exercise |
+|---|---|---|
+| file | `test_*.py` or `*_test.py` | `test_cart_basics.py`, `discount_test.py` |
+| function | starts with `test` | `test_new_cart_is_empty` |
+| class | starts with `Test`, with methods that start with `test` | `TestRemove.test_remove_drops_the_line` |
+
+The same folder holds three things that are **not run** (ran: `--collect-only` finds 6 tests, the same as above):
+
+- `cart_extra.py`: the file name does not match the rules. It contains `assert 1 == 2` and nobody finds out.
+- `make_cart()`: a helper whose name does not start with `test`.
+- `check_total_is_ten()`: starts with `check_`, which is not a test prefix either.
+
+<Callout type="warn" title="A wrong name means a lost test, with no error">
+If you name a file `cart_tests.py` or a function `tets_total`, Pytest says nothing. You get green because there was nothing to run. When you write a new test, check that the number of tests that run went up.
+</Callout>
+
+One exception to know: if you name a file directly on the command line, Pytest collects that file whatever its name. `pytest exercises/01_first_test/cart_extra.py` runs the test inside and one test fails (ran: `verify.py`).
+
+</Step>
+
+<Step>
+
+## Reading the symbols in the output
+
+The short result line has one character per test.
+
+| Character | Meaning |
+|---|---|
+| `.` | passed |
+| `F` | failed: an `assert` was false, or an exception was raised in the test or in the code it calls |
+| `E` | error: the problem is **outside the test body**, for example a fixture blew up during setup ([lesson 3](/en/pytest/fixtures/)) |
+| `s` / `x` | skipped / xfailed ([lesson 5](/en/pytest/markers/#skip-and-skipif-do-not-run)) |
+
+`demos/01_failures` fails on purpose in three ways. The result is `FFFE` and the summary says `3 failed, 1 error` (ran: `demos/01_failures`). The difference between `F` and `E` matters: `F` says the code did something different from what the test expected, while `E` says the test never got to start because something it needs could not be set up.
+
+</Step>
+
+<Step>
+
+## Reading a traceback when a test fails
+
+Case one, a wrong total:
+
+```text
+    def test_wrong_total():
+        cart = Cart()
+        cart.add("apple", price=10, qty=3)
+>       assert cart.total() == 31
+E       assert 30 == 31
+E        +  where 30 = total()
+```
+
+The line that starts with `>` is the line that failed. The `E` lines are what Pytest adds: the real value of both sides (30 and 31), with no message written by us. Pytest can do this because it **rewrites the assert** before running it ([lesson 2](/en/pytest/assertions/#a-plain-assert-that-gives-more-than-you-expect) covers this).
+
+Case two, comparing lists:
+
+```text
+E       AssertionError: assert ['apple', 'pear'] == ['apple', 'banana']
+E         At index 1 diff: 'pear' != 'banana'
+```
+
+Case three, an exception raised inside the code the test calls. The traceback continues down into the real code:
+
+```text
+>           raise ValueError(f"qty must be positive, got {qty}")
+E           ValueError: qty must be positive, got 0
+
+src\shop\cart.py:32: ValueError
+```
+
+The last case is a fixture that blows up. The heading is `ERROR at setup of test_uses_a_broken_fixture` and the test body never runs.
+
+A way to read that always works: find `>` first (which line failed), then read the `E` lines one by one (why it failed), and then see whether that line is in the test or in the real code.
+
+</Step>
+
+<Step>
+
+## Exit codes: what CI reads
+
+Pytest returns an exit code so that scripts and CI can decide what to do (ran: `verify.py`).
+
+| What happened | exit code |
+|---|---|
+| everything passed | 0 |
+| a test failed or errored | 1 |
+| no test was selected at all (for example `-k` matched nothing) | 5 |
+
+The last one matters. A suite that ran nothing is not "green", so Pytest uses a separate number for it.
+
+<Callout type="try" title="Try it in this repo">
+From `subjects/pytest/code/`, run `uv sync` once, then `uv run pytest exercises/01_first_test -v`. Change `assert cart.total() == 30` to `31` and read the output. Then rename `test_new_cart_is_empty` to `new_cart_is_empty` and see how the number of tests that run changes.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- You just wrote `cart_checks.py` with 10 tests, ran `pytest`, and got `no tests ran`. Where is the problem?
+- A run shows one `E` and one `F`. How do you fix them differently?
+- Why should exit code 5 make a pipeline fail, instead of counting as a pass?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| the list of 6 passing tests, the discovery rules for file, function and class, what is not collected, a file named directly is run | ran: `exercises/01_first_test`, `verify.py` |
+| `FFFE`, `3 failed, 1 error`, the four traceback texts | ran: `demos/01_failures` |
+| exit codes 0, 1 and 5 | ran: `verify.py` |
+| why tests help, the suggested way to read output, the whole shopping cart example | author |
+
+</Step>

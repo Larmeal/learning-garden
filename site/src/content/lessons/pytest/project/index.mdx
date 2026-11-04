@@ -1,0 +1,174 @@
+---
+title: ตั้งค่าโปรเจกต์และเลือกรัน
+summary: เมื่อมี test หลายร้อยตัว ต้องตั้งค่าครั้งเดียวใน pyproject.toml และเลือกรันเฉพาะส่วนที่ต้องการ บทนี้สอน config, โครงโฟลเดอร์, -k, node id, -x, --lf, --ff, การรันขนานด้วย xdist และรายงาน coverage
+order: 7
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [markers, fixtures]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## ตั้งค่าครั้งเดียว ใน pyproject.toml
+
+แทนที่จะพิมพ์ option ซ้ำทุกครั้ง ใส่ไว้ใน `[tool.pytest.ini_options]` ของ `pyproject.toml` (Pytest ยังอ่าน `pytest.ini` ได้เช่นกัน) นี่คือค่าของโปรเจกต์แบบฝึก
+
+```toml
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["exercises"]
+addopts = "-ra"
+markers = [
+    "slow: a test that takes a while",
+    "integration: a test that uses more than one module",
+]
+```
+
+| key | ทำอะไร |
+|---|---|
+| `pythonpath` | เพิ่มโฟลเดอร์เข้า `sys.path` เพื่อให้ `import shop` ได้โดยไม่ต้องติดตั้ง package |
+| `testpaths` | โฟลเดอร์ที่ค้น test เมื่อรัน `pytest` เฉยๆ |
+| `addopts` | option ที่ใส่ให้ทุกครั้ง `-ra` แสดงสรุปเหตุผลของ skip, xfail ฯลฯ |
+| `markers` | ลงทะเบียน marker ([บท 5](/pytest/markers/#ลงทะเบียน-marker-กันพิมพ์ผิด)) |
+
+หัวรายงานบอกว่าอ่านค่าจากไหน: `rootdir: ...` และ `configfile: pyproject.toml`
+
+`pythonpath` สำคัญ: ถ้าปิดมัน (รัน `pytest -o pythonpath= exercises/01_first_test`) จะได้ `ModuleNotFoundError: No module named 'shop'` ตั้งแต่ตอน collect (รัน: `verify.py`)
+
+</Step>
+
+<Step>
+
+## โครงโฟลเดอร์
+
+```text
+code/
+  pyproject.toml
+  src/shop/            โค้ดที่ถูกทดสอบ
+  exercises/NN_name/   test ที่ต้องผ่าน (มี conftest.py ได้ในแต่ละโฟลเดอร์)
+  demos/NN_name/       test ที่ตั้งใจให้ล้ม ไว้ดูผล
+```
+
+`testpaths = ["exercises"]` ทำให้ `pytest` เฉยๆ ไม่แตะ `demos/` ผลคือเขียวทั้งชุด: **85 passed, 2 skipped, 3 xfailed** (รัน: `verify.py`) ส่วน demo ต้องสั่งโดยระบุ path เอง
+
+หลักคิดของการวาง test (ผู้เขียน)
+
+- ให้ test อยู่ใกล้โค้ดในเชิงโครงสร้าง (`tests/` หรือ `exercises/` ที่ชื่อโฟลเดอร์สะท้อนฟีเจอร์) และ `conftest.py` อยู่ในโฟลเดอร์ที่ fixture นั้นใช้ร่วมกัน
+- แยก test ที่ช้าหรือต้องพึ่งภายนอกด้วย marker (`slow`, `integration`) แทนการแยกโฟลเดอร์ จะเลือกรันตามสถานการณ์ได้ง่ายกว่า
+
+</Step>
+
+<Step>
+
+## เลือกรัน: Path, Node Id และ -k
+
+| ต้องการ | คำสั่ง | ผล (รัน: `verify.py`) |
+|---|---|---|
+| ทั้งโฟลเดอร์ | `pytest exercises/05_markers` | 6 passed, 2 skipped, 2 xfailed |
+| ทั้งไฟล์ | `pytest exercises/03_fixtures/test_fixtures.py` | 12 passed |
+| test เดียวด้วย node id | `pytest exercises/03_fixtures/test_fixtures.py::test_save_and_load_with_tmp_path` | 1 passed |
+| ตามชื่อ | `pytest -k coupon exercises/04_parametrize` | 3 passed, 19 deselected |
+| ตาม marker | `pytest -m "not slow" exercises/05_markers` | 4 passed, 2 skipped, 2 xfailed, 2 deselected |
+
+`-k` รับนิพจน์ `and`, `or`, `not` และจับคู่กับส่วนของชื่อ test (รวมถึง id จาก parametrize) ถ้าไม่แน่ใจว่าจะเลือกอะไรได้บ้าง ใช้ `--collect-only -q` ดูรายชื่อ test ทั้งหมดโดยไม่รัน
+
+ถ้า option เลือกไม่ได้สักตัว exit code จะเป็น 5 ([บท 1](/pytest/first-test/#exit-code-สิ่งที่-ci-อ่าน))
+
+</Step>
+
+<Step>
+
+## วงจรแก้โค้ด: -x, --lf, --ff
+
+ตอนแก้ bug เราอยากรัน test ที่ล้มซ้ำๆ ไม่ใช่ทั้งชุด
+
+| option | ทำอะไร | ผลในแบบฝึก `demos/01_failures` (3 failed, 1 error) |
+|---|---|---|
+| `-x` | หยุดหลังล้มตัวแรก | `1 failed` และ test ที่เหลือไม่ถูกรัน |
+| `--lf` (last failed) | รันเฉพาะ test ที่ล้มรอบก่อน | รันซ้ำ 3 failed, 1 error |
+| `--ff` (failed first) | รัน test ที่ล้มรอบก่อนก่อน แล้วตามด้วยที่เหลือ | |
+
+(รัน: `verify.py`) Pytest จำผลรอบก่อนไว้ในโฟลเดอร์ `.pytest_cache` ซึ่งไม่ควรเข้า git
+
+</Step>
+
+<Step>
+
+## รันขนานด้วย pytest-xdist
+
+เมื่อมี test หลายพันตัว ใช้หลาย CPU ได้ด้วย `pytest-xdist`
+
+```bash
+uv run pytest -n 2 exercises/04_parametrize
+```
+
+ผลเหมือนรันทีละตัว: 21 passed, 1 xfailed (รัน: `verify.py`) ข้อแม้สำคัญคือ test ต้องอิสระต่อกัน เพราะลำดับและตัวที่รันร่วมกันเปลี่ยนไป test ที่แชร์สถานะจะเริ่มล้มแบบสุ่ม ([บท 8](/pytest/test-design/#test-ต้องอิสระต่อกัน))
+
+</Step>
+
+<Step>
+
+## Coverage: บอกว่าบรรทัดไหนไม่เคยถูกรัน
+
+`pytest-cov` วัดว่าบรรทัดไหนของโค้ดถูกรันระหว่าง test
+
+```bash
+uv run pytest --cov=shop --cov-report=term-missing
+```
+
+```text
+Name                   Stmts   Miss  Cover   Missing
+----------------------------------------------------
+src\shop\__init__.py       0      0   100%
+src\shop\cart.py          46      1    98%   34
+src\shop\checkout.py      14      0   100%
+src\shop\net.py            2      0   100%
+src\shop\pricing.py       15      1    93%   21
+src\shop\rates.py         10      0   100%
+src\shop\receipt.py        9      0   100%
+src\shop\sale.py           7      0   100%
+----------------------------------------------------
+TOTAL                    103      2    98%
+```
+
+คอลัมน์ `Missing` ชี้บรรทัด `cart.py` บรรทัด 34 คือ `raise ValueError(... price must not be negative ...)` ยังไม่มี test ที่ส่งราคาติดลบ และ `pricing.py` บรรทัด 21 คือ `with_tax` ไม่มีใครเรียก (รัน: `verify.py`)
+
+<Callout type="warn" title="coverage บอกว่าอะไรไม่ถูกทดสอบ ไม่ได้บอกว่าถูกทดสอบดี">
+98% ไม่ได้แปลว่า test ดี บรรทัดที่ถูกรันโดย test ที่ไม่ assert อะไรก็นับเป็น covered ใช้ coverage หา **ช่องโหว่** (บรรทัดใน Missing) ไม่ใช่เป้าหมายที่ต้องไปให้ถึง 100% (ผู้เขียน)
+</Callout>
+
+<Callout type="try" title="ลองทำใน repo นี้">
+เขียน test สำหรับ `Cart().add("apple", price=-1)` ที่ใช้ `pytest.raises` ใน `exercises/01_first_test` แล้วรัน coverage ใหม่ ดูว่า Missing ของ `cart.py` หายไปไหม และตัวเลข TOTAL เปลี่ยนเป็นเท่าไร
+</Callout>
+
+</Step>
+
+<Step>
+
+## เช็กตัวเอง
+
+- ทีมของคุณมี test 2,000 ตัว บางตัวต้องใช้ database จริง คุณจะตั้ง marker และคำสั่งใน CI อย่างไร
+- คุณเพิ่งแก้ bug และอยากรันเฉพาะ test ที่ล้มเมื่อกี้ ใช้ option อะไร
+- ทำไมการรันด้วย `-n 4` จึงอาจทำให้ test ที่เคยผ่านเริ่มล้มแบบสุ่ม
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| ค่า config ของโปรเจกต์, `pythonpath` ที่ปิดแล้ว import ล้ม, `pytest` เฉยๆ ได้ 85 passed, 2 skipped, 3 xfailed | รัน: `verify.py` |
+| ผลของการเลือกรันด้วย path, node id, `-k`, `-m` | รัน: `verify.py` |
+| ผลของ `-x`, `--lf`, `--ff`, `-n 2` | รัน: `verify.py` |
+| ตาราง coverage และบรรทัด Missing 34 กับ 21 | รัน: `verify.py` |
+| หลักคิดการวางโฟลเดอร์ test, ข้อควรระวังเรื่อง coverage | ผู้เขียน |
+
+</Step>

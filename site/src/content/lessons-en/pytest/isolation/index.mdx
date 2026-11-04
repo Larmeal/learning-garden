@@ -1,0 +1,204 @@
+---
+title: Isolating tests from the outside world
+summary: A reliable test gives the same answer on every machine. This lesson covers monkeypatch, unittest.mock and the rule to patch where a name is used, passing in a fake instead of a mock, testing code that depends on time, and reading what code prints or logs with capsys and caplog.
+order: 6
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [fixtures]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## A test that depends on the outside world cannot be trusted
+
+`rates.convert(100, "USD")` converts baht to dollars and asks for the exchange rate over the network. If a test calls the real thing, the result depends on the internet, on the server at the other end, and on today's rate. The test will be slow, fail at random, and give different numbers each time.
+
+In the exercise `shop/net.py` always raises `ConnectionError`, so that a test that forgot to replace the real call fails loudly instead of reaching out (ran: `exercises/06_isolation`):
+
+```python
+def test_without_a_replacement_the_network_call_fails():
+    with pytest.raises(ConnectionError, match="no network"):
+        rates.convert(100, "USD")
+```
+
+This lesson replaces three things whose results you cannot control: the **network**, the **environment variables**, and the **time**. It also covers reading what the code sends out through print and logging.
+
+</Step>
+
+<Step>
+
+## monkeypatch: replace for now, restored when the test ends
+
+`monkeypatch` is a fixture that comes with Pytest. Everything changed through it is put back when the test ends, with no cleanup of your own.
+
+```python
+def test_monkeypatch_replaces_the_function_used_by_convert(monkeypatch):
+    monkeypatch.setattr(rates, "fetch_rate", lambda currency: 0.03)
+    assert rates.convert(100, "USD") == 3.0
+
+def test_monkeypatch_setenv_sets_the_default_currency(monkeypatch):
+    monkeypatch.setenv("SHOP_CURRENCY", "USD")
+    monkeypatch.setattr(rates, "fetch_rate", lambda currency: 0.5)
+    assert rates.convert(100) == 50.0
+```
+
+The next test does not see the change. The exercise confirms that `SHOP_CURRENCY` is not in the environment after the previous test ends (ran: `exercises/06_isolation`). Methods you will use often: `setattr`, `setenv`, `delenv`, `setitem`, `chdir`.
+
+</Step>
+
+<Step>
+
+## unittest.mock, and the key rule: patch where the name is used
+
+`unittest.mock` comes with Python. It replaces things and records calls. The most common problem is patching the wrong place. `rates.py` says:
+
+```python
+from shop.net import fetch_json
+```
+
+That gives `rates` its own name `fetch_json`, pointing at the same function as the one in `net` but under a different name. If you patch `net`, `rates` still calls the original (ran: `exercises/06_isolation`):
+
+```python
+def test_patching_the_wrong_place_does_nothing():
+    with mock.patch.object(net, "fetch_json", return_value={"rate": 0.03}):
+        with pytest.raises(ConnectionError):      # still calling the real one
+            rates.convert(100, "USD")
+
+def test_patching_where_the_name_is_used_works():
+    with mock.patch.object(rates, "fetch_json", return_value={"rate": 0.03}) as fake:
+        assert rates.convert(100, "USD") == 3.0
+    fake.assert_called_once()
+    (url,), _ = fake.call_args
+    assert url.endswith("to=USD")
+```
+
+The rule: patch in the module that **uses** the name, not the module that defines it. And `fake.call_args` shows what it was called with, which is evidence that our code asked for the rate of the right currency.
+
+</Step>
+
+<Step>
+
+## A fake you pass in is often simpler than a patch
+
+`checkout(cart, gateway, order_id)` takes the gateway as a parameter, so a test can hand over a fake and patch nothing.
+
+```python
+class FakeGateway:
+    def __init__(self, accept: bool):
+        self.accept = accept
+        self.charges = []
+
+    def charge(self, amount, order_id):
+        self.charges.append((amount, order_id))
+        return self.accept
+
+def test_a_declined_payment_keeps_the_cart():
+    cart = Cart()
+    cart.add("apple", price=100)
+    with pytest.raises(PaymentDeclined):
+        checkout(cart, FakeGateway(accept=False), "A-2")
+    assert cart.qty("apple") == 1
+```
+
+`FakeGateway` has a little real logic (it records calls and answers as configured). `mock.Mock()` is an object that accepts any call and remembers it:
+
+```python
+gateway = mock.Mock()
+gateway.charge.return_value = True
+checkout(cart, gateway, "A-3")
+gateway.charge.assert_called_once_with(100, "A-3")
+```
+
+Both pass in the exercise (ran: `exercises/06_isolation`). Which to pick: when you want to check the **result** of our code, a fake reads more easily. When you only want to check that a call was made with the right arguments, a mock is shorter (author). Designing code to take its dependencies as parameters makes it easy to test without patching.
+
+</Step>
+
+<Step>
+
+## Time
+
+`is_sale_day(today=None)` uses the date passed in and falls back to today only when none is given, so the test never touches the clock (ran: `exercises/06_isolation`):
+
+```python
+def test_an_argument_beats_patching_the_clock():
+    assert is_sale_day(dt.date(2026, 11, 11))
+    assert is_sale_day(dt.date(2026, 11, 13))      # a Friday the 13th
+    assert not is_sale_day(dt.date(2026, 11, 12))
+```
+
+`greeting_now()` has the clock built in, so the test must replace `datetime` with a class that returns a fixed time:
+
+```python
+class FakeNow(dt.datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return cls(2026, 11, 11, 8, 0)
+
+monkeypatch.setattr("shop.sale.dt.datetime", FakeNow)
+assert greeting_now() == "good morning"
+```
+
+It works, but it is much messier, and it is a hint that code should take the time as a parameter from the start. Time is one of the main causes of tests that fail at random (author).
+
+</Step>
+
+<Step>
+
+## Reading what the code prints and logs
+
+A function that returns nothing but prints or logs can be tested with `capsys` and `caplog` (ran: `exercises/06_isolation`):
+
+```python
+def test_capsys_reads_what_was_printed(capsys):
+    cart = Cart()
+    cart.add("apple", price=10, qty=2)
+    print_receipt(cart)
+    out = capsys.readouterr().out
+    assert out.splitlines() == ["apple x2", "TOTAL 20.00"]
+
+def test_caplog_reads_what_was_logged(caplog):
+    cart = Cart()
+    cart.add("tv", price=2000)
+    with caplog.at_level(logging.WARNING, logger="shop.receipt"):
+        print_receipt(cart)
+    assert [r.levelname for r in caplog.records] == ["WARNING"]
+    assert "large order" in caplog.text
+```
+
+<Callout type="warn" title="Do not mock until nothing is left to test">
+If a test replaces everything around a function and then checks only that the mock was called, it proves only that the code makes the calls it was written to make. It does not prove the system works. Replace only the **edges** of the system (network, time, disk, outside providers) and let your own code run for real (author).
+</Callout>
+
+<Callout type="try" title="Try it in this repo">
+In `test_patching_where_the_name_is_used_works`, change `rates` to `net` in `mock.patch.object` and run it to see what it fails with. Then change it back.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- Why does `mock.patch.object(net, "fetch_json", ...)` not help when `rates` uses `from shop.net import fetch_json`?
+- What makes `is_sale_day(today)` easier to test than `greeting_now()`?
+- How do a fake and a mock differ, and which would you choose for a test that checks "a declined payment leaves the cart as it was"?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| a test that forgot to replace the network fails with ConnectionError, monkeypatch, setenv, restoring, patching the wrong place does nothing, patching the right place, `call_args` | ran: `exercises/06_isolation` |
+| both FakeGateway and mock.Mock pass, the time argument, replacing datetime, capsys, caplog | ran: `exercises/06_isolation` |
+| advice on choosing a fake or a mock, taking time as a parameter, mocking only the edges of the system | author |
+
+</Step>

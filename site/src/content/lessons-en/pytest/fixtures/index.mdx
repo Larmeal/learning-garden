@@ -1,0 +1,231 @@
+---
+title: Fixtures
+summary: A fixture is a function that prepares things for a test, requested by parameter name, so repeated setup disappears and cleanup happens automatically. This lesson covers yield, scope, conftest.py, tmp_path, autouse, factories and fixtures with params.
+order: 3
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [first-test]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## The problem: the same setup in every test
+
+A cart test that needs 3 apples and 1 pear before it starts opens with the same code every time:
+
+```python
+def test_total():
+    cart = Cart()
+    cart.add("apple", price=10, qty=3)
+    cart.add("pear", price=20)
+    assert cart.total() == 50
+```
+
+With ten tests you copy it ten times, and when `Cart()` changes how it is built you edit ten places. A **fixture** is a function that prepares things for a test, and the test asks for it by putting its name in the parameters.
+
+```python
+@pytest.fixture
+def cart():
+    return Cart()
+
+@pytest.fixture
+def filled_cart(cart):          # a fixture can ask for another fixture in the same way
+    cart.add("apple", price=10, qty=3)
+    cart.add("pear", price=20)
+    return cart
+
+def test_fixture_that_uses_another_fixture(filled_cart):
+    assert filled_cart.total() == 50
+```
+
+Pytest sees the name `filled_cart` in the parameters, runs that fixture first, and passes in the value it returned.
+
+</Step>
+
+<Step>
+
+## Every test gets new things
+
+By default a fixture runs **again for every test**. The exercise confirms it with two tests in a row (ran: `exercises/03_fixtures`):
+
+```python
+def test_every_test_gets_a_fresh_cart(filled_cart):
+    filled_cart.add("kiwi", price=5)
+    assert filled_cart.qty("kiwi") == 1
+
+def test_the_previous_test_did_not_leak(filled_cart):
+    assert filled_cart.qty("kiwi") == 0
+```
+
+The first test adds a kiwi and the second does not see it. This is why tests are independent of each other ([lesson 8](/en/pytest/test-design/#tests-must-be-independent) comes back to this).
+
+</Step>
+
+<Step>
+
+## conftest.py: share without importing
+
+A fixture that several files use goes in `conftest.py`. Pytest loads this file by itself, and every test file in that folder (and its sub-folders) can use the fixtures with no import. In the exercise `cart` and `filled_cart` live in `exercises/03_fixtures/conftest.py` and `test_fixtures.py` uses them without importing anything.
+
+If the same name is defined twice, the `conftest.py` closest to the test wins, and a fixture written in the test file itself beats both. That lets you override locally. The `nested/` folder of the exercise overrides `cart` at two levels, and each test gets the nearest one (ran: `exercises/03_fixtures/nested`).
+
+</Step>
+
+<Step>
+
+## yield: setup and teardown in one place
+
+Some things must be cleaned up after a test, such as closing a connection or deleting a file. Use `yield` instead of `return`. The code before `yield` is setup. The code after it is teardown, which **runs even if the test fails** (ran: `demos/03_teardown`, where the events are setup and then teardown although the test failed).
+
+```python
+@pytest.fixture
+def transaction(connection):
+    EVENTS.append("begin")
+    yield connection
+    EVENTS.append("rollback")
+```
+
+To see the real order, use `--setup-show` (ran: `exercises/03_fixtures`):
+
+```text
+SETUP    M connection
+    SETUP    F count_tests
+    SETUP    F transaction (fixtures used: connection)
+    ...::test_first_user_of_the_fixtures .
+    TEARDOWN F transaction
+    TEARDOWN F count_tests
+    SETUP    F count_tests
+    SETUP    F transaction (fixtures used: connection)
+    ...::test_second_user_of_the_fixtures .
+    TEARDOWN F transaction
+    TEARDOWN F count_tests
+    ...
+TEARDOWN M connection
+```
+
+Teardown always runs in the reverse order of setup (what was set up last is cleaned up first).
+
+</Step>
+
+<Step>
+
+## scope: how often it is created
+
+`connection` above sets `scope="module"` (the letter `M` in the output). It is created once for the whole file. `transaction` has function scope (`F`) and is created again for every test.
+
+| scope | created again when | use for |
+|---|---|---|
+| `function` (default) | every test | things a test may change, such as a cart |
+| `class` | every class | |
+| `module` | every file | expensive things that tests do not change |
+| `package` | every package | |
+| `session` | once for the whole run | for example starting a database container |
+
+The exercise proves it with a list called `EVENTS` (ran: `exercises/03_fixtures`):
+
+```python
+def test_the_events_show_scope():
+    assert EVENTS == ["connect", "begin", "test 1", "rollback", "begin", "test 2", "rollback"]
+```
+
+One connect, two begin/rollback pairs, and the disconnect does not happen until the file ends.
+
+<Callout type="warn" title="A wider scope trades isolation for speed">
+A module or session fixture that returns a mutable object (such as a cart) is shared by every test. If one test changes it, the next test sees the change. That is how you get tests that pass when run together and fail when run alone ([lesson 8](/en/pytest/test-design/#tests-must-be-independent)). Use a wide scope for things that are not changed, or reset them with a function-scoped fixture layered on top.
+</Callout>
+
+</Step>
+
+<Step>
+
+## A fixture that comes with Pytest: tmp_path
+
+`tmp_path` gives an empty temporary folder, different for every test. It suits code that writes files (ran: `exercises/03_fixtures`):
+
+```python
+def test_save_and_load_with_tmp_path(filled_cart, tmp_path):
+    path = tmp_path / "cart.json"
+    filled_cart.save(path)
+    assert path.exists()
+    again = Cart.load(path)
+    assert again.total() == filled_cart.total()
+```
+
+The test does not delete the file and cannot collide with another test. Other built-in fixtures you will use often are `monkeypatch`, `capsys` and `caplog` ([lesson 6](/en/pytest/isolation/#monkeypatch-replace-for-now-restored-when-the-test-ends)), and `request` (information about the running test).
+
+</Step>
+
+<Step>
+
+## autouse, factories and params
+
+**autouse** runs for every test in its scope without being requested. It suits things that must always happen (reset state, set the time). In the exercise it records the name of the running test:
+
+```python
+@pytest.fixture(autouse=True)
+def count_tests(request):
+    COUNT.append(request.node.name)
+```
+
+A **factory fixture** returns a function, for when a test needs several objects or wants to decide the contents:
+
+```python
+@pytest.fixture
+def make_cart():
+    def make(**items):
+        cart = Cart()
+        for sku, price in items.items():
+            cart.add(sku, price=price)
+        return cart
+    return make
+
+def test_factory_fixture(make_cart):
+    assert make_cart(apple=10).total() == 10
+    assert make_cart(apple=10, pear=20).total() == 30
+```
+
+A **fixture with params** makes every test that uses it run once per value:
+
+```python
+@pytest.fixture(params=["SAVE10", "SAVE20"])
+def coupon(request):
+    return request.param
+```
+
+So `test_a_parametrized_fixture_runs_the_test_once_per_param` runs twice. That is why `test_fixtures.py` has 11 test functions but reports **12 passed** (ran: `exercises/03_fixtures/test_fixtures.py`). [Lesson 4](/en/pytest/parametrize/#one-test-many-values) teaches a more direct way for ordinary tests.
+
+<Callout type="try" title="Try it in this repo">
+Run `uv run pytest exercises/03_fixtures --setup-show` and read the order. Change `scope="module"` of `connection` to `"function"` and see why `test_the_events_show_scope` fails and what `EVENTS` looks like then.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- Which scope should a fixture that connects to a database have, if every test changes data in a table? How will you keep tests from disturbing each other?
+- Does the teardown after `yield` run if the test fails? What if the setup before `yield` raises?
+- Why does a fixture in `conftest.py` need no import, while an ordinary helper function does?
+
+</Step>
+
+<Step>
+
+## Sources for this lesson
+
+| Statement | Source |
+|---|---|
+| a fixture asking for a fixture, each test gets new things, conftest, tmp_path, factory, autouse, params (12 passed from 11 functions), overriding by conftest and by the test file (14 passed for the whole folder) | ran: `exercises/03_fixtures`, `verify.py` |
+| the order of setup and teardown, the scope letters `M` and `F` in `--setup-show` | ran: `exercises/03_fixtures`, `verify.py` |
+| the `EVENTS` list that proves module scope against function scope | ran: `exercises/03_fixtures` |
+| teardown runs even when the test fails | ran: `demos/03_teardown` |
+| the table of five scopes, the advice about wide scope and mutable objects | author |
+
+</Step>

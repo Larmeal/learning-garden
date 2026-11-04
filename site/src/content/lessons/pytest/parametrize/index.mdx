@@ -1,0 +1,179 @@
+---
+title: Parametrize
+summary: เมื่อ test ตัวเดียวต้องลองหลายค่า ให้เขียน test หนึ่งตัวแล้วส่งตารางค่าเข้าไป บทนี้สอน parametrize ชื่อ test ที่ได้ (ids) การซ้อนหลายตัว pytest.param และวิธีเลือกรันเฉพาะบางแถว
+order: 4
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [assertions]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Test เดียว หลายค่า
+
+การลดราคา 10% ของ 100 ควรได้ 90 แล้ว 0%, 100% และ 20% ของ 250 ล่ะ ถ้าเขียนทีละ test จะได้ฟังก์ชันที่ต่างกันแค่ตัวเลข `@pytest.mark.parametrize` ให้เขียนตัว test หนึ่งตัวและส่งตารางค่าเข้าไป
+
+```python
+@pytest.mark.parametrize(
+    "total, percent, expected",
+    [
+        (100, 0, 100),
+        (100, 10, 90),
+        (100, 100, 0),
+        (250, 20, 200),
+    ],
+)
+def test_apply_discount(total, percent, expected):
+    assert apply_discount(total, percent) == pytest.approx(expected)
+```
+
+อาร์กิวเมนต์แรกคือชื่อ parameter คั่นด้วยจุลภาค อาร์กิวเมนต์ที่สองคือรายการของแถว หนึ่งแถวคือหนึ่ง test ที่เป็นอิสระ ในแบบฝึกฟังก์ชันนี้ถูกเก็บเป็น 4 test (รัน: `exercises/04_parametrize`)
+
+```text
+test_apply_discount[100-0-100]
+test_apply_discount[100-10-90]
+test_apply_discount[100-100-0]
+test_apply_discount[250-20-200]
+```
+
+</Step>
+
+<Step>
+
+## หนึ่งแถวล้ม แถวอื่นยังรัน
+
+เพราะทุกแถวเป็น test แยกกัน แถวที่ผิดไม่บังแถวอื่น `demos/04_one_row_fails` มีแถวที่ตั้งใจผิดหนึ่งแถว (50% ของ 100 ไม่ใช่ 40) ผลคือ `1 failed, 2 passed` และชื่อที่ล้มบอกแถวให้เลย (รัน: `demos/04_one_row_fails`)
+
+```text
+FAILED demos/04_one_row_fails/test_rows.py::test_rows[100-50-40]
+E       assert 50.0 == 40 ± 4.0e-05
+```
+
+ถ้าใช้ `for` วน assert ใน test เดียว แถวแรกที่ผิดจะหยุดทั้ง test และแถวหลังไม่ถูกลอง ทำให้เห็นปัญหาทีละอย่าง
+
+</Step>
+
+<Step>
+
+## Ids: ตั้งชื่อให้อ่านรู้เรื่อง
+
+Pytest สร้าง id จากค่า เช่น `[100-10-90]` ใช้ได้เมื่อค่าอ่านง่าย ถ้าไม่ใช่ ให้ตั้งชื่อเองด้วย `pytest.param(..., id="...")` (รัน: `exercises/04_parametrize`)
+
+```python
+@pytest.mark.parametrize(
+    "total, fee",
+    [
+        pytest.param(499.99, 50.0, id="just-below-the-line"),
+        pytest.param(500, 0.0, id="exactly-on-the-line"),
+        pytest.param(0, 50.0, id="empty"),
+    ],
+)
+def test_shipping_fee(total, fee):
+    assert shipping_fee(total) == fee
+```
+
+เมื่อ test ล้ม ชื่อ `test_shipping_fee[exactly-on-the-line]` บอกกรณีที่ผิดโดยไม่ต้องเปิดโค้ด และใช้ id ร่วมกับ `-k` ได้ เช่น `pytest -k exactly` ([บท 7](/pytest/project/#เลือกรัน-path-node-id-และ--k)) รัน `pytest --collect-only -q` เพื่อดู id ทั้งหมดก่อนรัน
+
+</Step>
+
+<Step>
+
+## กรณีล้มเหลวก็เป็นแถว
+
+ตารางไม่ต้องมีแต่กรณีที่สำเร็จ ค่าที่ต้องถูกปฏิเสธก็ใส่ได้ โดยให้ตัว test ใช้ `pytest.raises` ([บท 2](/pytest/assertions/#เช็กว่าโค้ดโยน-exception-ด้วย-raises))
+
+```python
+@pytest.mark.parametrize("percent", [-1, 101, 1000])
+def test_apply_discount_rejects_bad_percent(percent):
+    with pytest.raises(ValueError, match="between 0 and 100"):
+        apply_discount(100, percent)
+```
+
+แยกเป็น test คนละตัวกับกรณีที่สำเร็จ เพราะเป็นพฤติกรรมคนละแบบ (ผู้เขียน) ตารางเดียวที่ปน "คืนค่า" กับ "โยน exception" จะทำให้ตัว test ต้องมี if
+
+</Step>
+
+<Step>
+
+## ซ้อนหลายตัว: ได้ทุกคู่
+
+วาง `parametrize` สองตัวบน test เดียว จะได้ผลคูณ (cartesian product)
+
+```python
+@pytest.mark.parametrize("percent", [0, 50])
+@pytest.mark.parametrize("total", [100, 200, 300])
+def test_stacked_parametrize_makes_every_combination(total, percent):
+    assert apply_discount(total, percent) <= total
+```
+
+3 คูณ 2 ได้ 6 test และ id เรียง `total` ก่อน (ตัวที่อยู่ใกล้ฟังก์ชันที่สุดมาก่อน) (รัน: `exercises/04_parametrize`)
+
+```text
+[100-0]  [100-50]  [200-0]  [200-50]  [300-0]  [300-50]
+```
+
+ระวังจำนวนที่โตเร็ว: สามตัว ตัวละ 10 ค่าคือ 1,000 test ใช้ซ้อนเมื่ออยากได้ทุกคู่จริง ถ้าต้องการคู่เฉพาะ ใช้ตารางแถวเดียวที่ระบุคู่ตรงๆ
+
+</Step>
+
+<Step>
+
+## ใส่ Mark ให้บางแถวด้วย pytest.param
+
+`pytest.param` ใส่ `marks=` ได้ เช่น ทำเครื่องหมายว่าแถวนี้ "ยังไม่รองรับ" โดยไม่ลบทิ้ง ([บท 5](/pytest/markers/#xfail-รู้ว่าล้ม-แต่ยังรันอยู่) ว่าด้วย `xfail`)
+
+```python
+pytest.param("NOPE", None,
+             marks=pytest.mark.xfail(raises=KeyError, reason="unknown code is not handled yet"))
+```
+
+แถวนี้ขึ้นเป็น `XFAIL` ส่วนอีกสองแถวผ่านตามปกติ (รัน: `exercises/04_parametrize` ได้ 21 passed และ 1 xfailed)
+
+</Step>
+
+<Step>
+
+## เลือกรันเฉพาะแถว และเมื่อไรไม่ควรใช้
+
+เพราะ id เป็นส่วนของชื่อ test จึงเลือกด้วย `-k` ได้ แบบฝึก `-k coupon` เลือกเฉพาะ test ที่ชื่อมีคำว่า coupon ได้ 3 passed และข้ามอีก 19 (รัน: `verify.py`)
+
+เมื่อไรไม่ควรใช้ `parametrize`
+
+- ตัว test เริ่มมี `if` ตามค่าของ parameter แสดงว่าเป็นพฤติกรรมสองแบบ ให้แยก test
+- ค่าทุกแถวต้องอธิบายด้วยคอมเมนต์ยาว ตารางอาจซ่อนเจตนา ลองตั้ง id ที่เล่าเรื่อง
+- ต้องการให้ **fixture** ทั้งชุดเปลี่ยนตามค่า (เช่น ใช้ database สองชนิด) ใช้ fixture ที่มี `params` ([บท 3](/pytest/fixtures/#autouse-factory-และ-params)) แทน
+
+<Callout type="try" title="ลองทำใน repo นี้">
+เพิ่มแถว `(250, 100, 0)` ในตาราง `test_apply_discount` แล้วรัน `uv run pytest exercises/04_parametrize --collect-only -q` ดูว่า id ใหม่คืออะไรและจำนวน test เพิ่มเป็นเท่าไร แล้วลองใส่แถวที่ผิดหนึ่งแถวและอ่านผลล้ม
+</Callout>
+
+</Step>
+
+<Step>
+
+## เช็กตัวเอง
+
+- ถ้าใช้ `for row in rows: assert ...` ใน test เดียว แทน parametrize ผลต่างกันอย่างไรเมื่อแถวที่สองผิด
+- `parametrize` สองตัวที่มี 4 และ 5 ค่า ได้กี่ test
+- แถวไหนในตาราง shipping_fee ที่เป็น boundary และทำไมจึงควรมี
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| 4 test จากตาราง, id ที่ได้, ids ตั้งเองด้วย `pytest.param`, stacking ได้ 6 และลำดับ id, แถวที่มี mark xfail (21 passed, 1 xfailed) | รัน: `exercises/04_parametrize` |
+| แถวที่ผิดล้มโดดเดี่ยว (`1 failed, 2 passed`) | รัน: `demos/04_one_row_fails` |
+| `-k coupon` ได้ 3 passed, 19 deselected | รัน: `verify.py` |
+| ข้อแนะนำว่าเมื่อไรไม่ควรใช้ parametrize, การแยกกรณีสำเร็จกับกรณีโยน exception | ผู้เขียน |
+
+</Step>

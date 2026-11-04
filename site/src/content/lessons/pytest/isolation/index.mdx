@@ -1,0 +1,204 @@
+---
+title: แยก Test ออกจากโลกภายนอก
+summary: test ที่เชื่อถือได้ต้องให้ผลเหมือนเดิมทุกเครื่อง บทนี้สอน monkeypatch, unittest.mock และกฎ patch ที่ที่ชื่อถูกใช้ การส่ง fake เข้าไปแทน mock การทดสอบโค้ดที่ผูกกับเวลา และการอ่านสิ่งที่โค้ด print หรือ log ด้วย capsys กับ caplog
+order: 6
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [fixtures]
+updated: 2026-11-04
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Test ที่พึ่งโลกภายนอกจะเชื่อไม่ได้
+
+`rates.convert(100, "USD")` แปลงเงินบาทเป็นดอลลาร์ โดยถามอัตราแลกเปลี่ยนผ่านเครือข่าย ถ้า test เรียกของจริง ผลจะขึ้นกับอินเทอร์เน็ต เซิร์ฟเวอร์ปลายทาง และอัตราของวันนี้ test จะช้า ล้มแบบสุ่ม และให้ตัวเลขไม่เหมือนเดิม
+
+ในแบบฝึก `shop/net.py` โยน `ConnectionError` เสมอ เพื่อให้ test ที่ลืมแทนของจริงล้มดังๆ แทนที่จะเรียกออกไปจริง (รัน: `exercises/06_isolation`)
+
+```python
+def test_without_a_replacement_the_network_call_fails():
+    with pytest.raises(ConnectionError, match="no network"):
+        rates.convert(100, "USD")
+```
+
+บทนี้สอนแทนสามอย่างที่เปลี่ยนผลแบบควบคุมไม่ได้: **เครือข่าย**, **สภาพแวดล้อม (environment variable)**, และ **เวลา** รวมถึงการอ่านสิ่งที่โค้ดส่งออกทาง print และ log
+
+</Step>
+
+<Step>
+
+## Monkeypatch: แทนชั่วคราว คืนให้เองหลังจบ
+
+`monkeypatch` เป็น fixture ที่ Pytest ให้มา ทุกอย่างที่แก้ผ่านมันถูกคืนค่าเดิมเมื่อ test จบ ไม่ต้องเก็บกวาดเอง
+
+```python
+def test_monkeypatch_replaces_the_function_used_by_convert(monkeypatch):
+    monkeypatch.setattr(rates, "fetch_rate", lambda currency: 0.03)
+    assert rates.convert(100, "USD") == 3.0
+
+def test_monkeypatch_setenv_sets_the_default_currency(monkeypatch):
+    monkeypatch.setenv("SHOP_CURRENCY", "USD")
+    monkeypatch.setattr(rates, "fetch_rate", lambda currency: 0.5)
+    assert rates.convert(100) == 50.0
+```
+
+test ถัดไปไม่เห็นการแก้ แบบฝึกยืนยันว่า `SHOP_CURRENCY` ไม่อยู่ใน environment หลัง test ก่อนหน้าจบ (รัน: `exercises/06_isolation`) เมธอดที่ใช้บ่อย: `setattr`, `setenv`, `delenv`, `setitem`, `chdir`
+
+</Step>
+
+<Step>
+
+## unittest.mock และกฎข้อสำคัญ: Patch ที่ที่ชื่อถูกใช้
+
+`unittest.mock` มากับ Python ใช้แทนของและบันทึกการเรียกได้ ปัญหาที่เจอบ่อยที่สุดคือ patch ผิดที่ `rates.py` เขียนว่า
+
+```python
+from shop.net import fetch_json
+```
+
+คำสั่งนี้ทำให้ `rates` มีชื่อ `fetch_json` เป็นของตัวเอง ชี้ไปที่ฟังก์ชันตัวเดียวกับใน `net` แต่เป็นคนละชื่อ ถ้า patch ที่ `net` แล้ว `rates` ยังเรียกตัวเดิม (รัน: `exercises/06_isolation`)
+
+```python
+def test_patching_the_wrong_place_does_nothing():
+    with mock.patch.object(net, "fetch_json", return_value={"rate": 0.03}):
+        with pytest.raises(ConnectionError):      # ยังเรียกของจริงอยู่
+            rates.convert(100, "USD")
+
+def test_patching_where_the_name_is_used_works():
+    with mock.patch.object(rates, "fetch_json", return_value={"rate": 0.03}) as fake:
+        assert rates.convert(100, "USD") == 3.0
+    fake.assert_called_once()
+    (url,), _ = fake.call_args
+    assert url.endswith("to=USD")
+```
+
+กฎ: patch ที่โมดูลที่ **ใช้** ชื่อนั้น ไม่ใช่โมดูลที่นิยามมัน และ `fake.call_args` ให้ดูว่าถูกเรียกด้วยอะไร ซึ่งเป็นหลักฐานว่าโค้ดเราถามอัตราของสกุลที่ถูกต้อง
+
+</Step>
+
+<Step>
+
+## Fake ที่ส่งเข้าไปเอง มักง่ายกว่า Patch
+
+`checkout(cart, gateway, order_id)` รับ gateway เป็น parameter test จึงส่งของปลอมเข้าไปได้เลย ไม่ต้อง patch อะไร
+
+```python
+class FakeGateway:
+    def __init__(self, accept: bool):
+        self.accept = accept
+        self.charges = []
+
+    def charge(self, amount, order_id):
+        self.charges.append((amount, order_id))
+        return self.accept
+
+def test_a_declined_payment_keeps_the_cart():
+    cart = Cart()
+    cart.add("apple", price=100)
+    with pytest.raises(PaymentDeclined):
+        checkout(cart, FakeGateway(accept=False), "A-2")
+    assert cart.qty("apple") == 1
+```
+
+`FakeGateway` มี logic จริงเล็กน้อย (บันทึกการเรียก ตอบตามที่ตั้ง) ส่วน `mock.Mock()` เป็นวัตถุที่ยอมรับทุกการเรียกแล้วจำไว้
+
+```python
+gateway = mock.Mock()
+gateway.charge.return_value = True
+checkout(cart, gateway, "A-3")
+gateway.charge.assert_called_once_with(100, "A-3")
+```
+
+ทั้งสองแบบผ่านในแบบฝึก (รัน: `exercises/06_isolation`) เลือกแบบไหน: ถ้าต้องการเช็ก **ผลลัพธ์** ของโค้ดของเรา fake อ่านง่ายกว่า ถ้าอยากเช็กแค่ว่ามีการเรียกด้วย argument ที่ถูก mock สั้นกว่า (ผู้เขียน) การออกแบบให้รับ dependency เป็น parameter ทำให้ทดสอบง่ายโดยไม่ต้อง patch
+
+</Step>
+
+<Step>
+
+## เวลา
+
+`is_sale_day(today=None)` ใช้วันที่ที่ส่งเข้าไป ถ้าไม่ส่งจึงใช้วันนี้ test เลยไม่ต้องยุ่งกับนาฬิกา (รัน: `exercises/06_isolation`)
+
+```python
+def test_an_argument_beats_patching_the_clock():
+    assert is_sale_day(dt.date(2026, 11, 11))
+    assert is_sale_day(dt.date(2026, 11, 13))      # วันศุกร์ที่ 13
+    assert not is_sale_day(dt.date(2026, 11, 12))
+```
+
+ส่วน `greeting_now()` ฝังนาฬิกาไว้ในตัว test ต้องแทน `datetime` ด้วยคลาสที่คืนเวลาที่กำหนด
+
+```python
+class FakeNow(dt.datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return cls(2026, 11, 11, 8, 0)
+
+monkeypatch.setattr("shop.sale.dt.datetime", FakeNow)
+assert greeting_now() == "good morning"
+```
+
+ทำได้ แต่ยุ่งกว่ามาก และเตือนว่าโค้ดควรรับเวลาเป็น parameter ตั้งแต่ต้น เวลาเป็นหนึ่งในต้นเหตุหลักของ test ที่ล้มแบบสุ่ม (ผู้เขียน)
+
+</Step>
+
+<Step>
+
+## อ่านสิ่งที่โค้ดพิมพ์และ Log
+
+ฟังก์ชันที่ไม่คืนค่าแต่ print หรือ log ทดสอบได้ด้วย `capsys` และ `caplog` (รัน: `exercises/06_isolation`)
+
+```python
+def test_capsys_reads_what_was_printed(capsys):
+    cart = Cart()
+    cart.add("apple", price=10, qty=2)
+    print_receipt(cart)
+    out = capsys.readouterr().out
+    assert out.splitlines() == ["apple x2", "TOTAL 20.00"]
+
+def test_caplog_reads_what_was_logged(caplog):
+    cart = Cart()
+    cart.add("tv", price=2000)
+    with caplog.at_level(logging.WARNING, logger="shop.receipt"):
+        print_receipt(cart)
+    assert [r.levelname for r in caplog.records] == ["WARNING"]
+    assert "large order" in caplog.text
+```
+
+<Callout type="warn" title="อย่า mock จนไม่เหลืออะไรให้ทดสอบ">
+ถ้า test แทนทุกอย่างรอบฟังก์ชัน แล้วเช็กแค่ว่า mock ถูกเรียก test นั้นพิสูจน์แค่ว่าโค้ดเรียกตามที่เขียน ไม่ได้พิสูจน์ว่าระบบทำงานถูก แทนเฉพาะ **ขอบ** ของระบบ (เครือข่าย เวลา ดิสก์ ผู้ให้บริการภายนอก) และปล่อยโค้ดของเราเองทำงานจริง (ผู้เขียน)
+</Callout>
+
+<Callout type="try" title="ลองทำใน repo นี้">
+ใน `test_patching_where_the_name_is_used_works` เปลี่ยน `rates` เป็น `net` ใน `mock.patch.object` แล้วรัน ดูว่าล้มด้วยอะไร จากนั้นเปลี่ยนกลับ
+</Callout>
+
+</Step>
+
+<Step>
+
+## เช็กตัวเอง
+
+- ทำไม `mock.patch.object(net, "fetch_json", ...)` ไม่ช่วยเมื่อ `rates` ใช้ `from shop.net import fetch_json`
+- อะไรทำให้ `is_sale_day(today)` ทดสอบง่ายกว่า `greeting_now()`
+- fake กับ mock ต่างกันอย่างไร และคุณเลือกอะไรสำหรับ test ที่เช็กว่า "ปฏิเสธการจ่ายแล้วตะกร้ายังอยู่"
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| test ที่ลืมแทนเครือข่ายล้มด้วย ConnectionError, monkeypatch, setenv, การคืนค่า, patch ผิดที่ไม่มีผล, patch ถูกที่, `call_args` | รัน: `exercises/06_isolation` |
+| FakeGateway และ mock.Mock ผ่านทั้งสองแบบ, อาร์กิวเมนต์เวลา, การแทน datetime, capsys, caplog | รัน: `exercises/06_isolation` |
+| ข้อแนะนำเรื่องเลือก fake หรือ mock, ออกแบบให้รับเวลาเป็น parameter, การ mock เฉพาะขอบของระบบ | ผู้เขียน |
+
+</Step>
