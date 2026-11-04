@@ -1,0 +1,45 @@
+---
+// Language menu: the button shows the current language, the list shows every language by its own name.
+// It is used in the site header and in the step-by-step player bar (which replaces the header), so `scope`
+// keeps the flag ids unique when both are in the page.
+import LangFlag from './LangFlag.astro';
+import { ui, LANGS, LANG_NAMES, type Lang } from '../i18n';
+import { homeHref } from '../lib/garden';
+
+interface Props {
+  lang: Lang;
+  // The same page in the other language (there are two languages today). Without it a language links to its home page.
+  altHref?: string;
+  scope?: string;
+}
+const { lang, altHref, scope = 'header' } = Astro.props;
+const t = ui[lang];
+---
+
+<details class="lang-menu">
+  <summary class="btn sm" aria-label={t.languageLabel(LANG_NAMES[lang].native)}>
+    <LangFlag lang={lang} uid={`${scope}-current`} />
+    <span>{LANG_NAMES[lang].native}</span>
+    <svg class="lang-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+  </summary>
+  <ul class="lang-list" aria-label={t.language}>
+    {
+      LANGS.map((l) => (
+        <li>
+          {l === lang ? (
+            <span class="lang-item current" aria-current="true" lang={l}>
+              <LangFlag lang={l} uid={`${scope}-item-${l}`} />
+              <span class="lang-name">{LANG_NAMES[l].native}{LANG_NAMES[l].english !== LANG_NAMES[l].native && <small>{LANG_NAMES[l].english}</small>}</span>
+              <svg class="lang-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10" /></svg>
+            </span>
+          ) : (
+            <a class="lang-item" href={altHref ?? homeHref(l)} hreflang={l} lang={l}>
+              <LangFlag lang={l} uid={`${scope}-item-${l}`} />
+              <span class="lang-name">{LANG_NAMES[l].native}{LANG_NAMES[l].english !== LANG_NAMES[l].native && <small>{LANG_NAMES[l].english}</small>}</span>
+            </a>
+          )}
+        </li>
+      ))
+    }
+  </ul>
+</details>

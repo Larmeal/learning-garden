@@ -73,12 +73,17 @@ export default function TopicMap({ lessons, phases, initial, lang = 'th' }: { le
           <span>
             {t.difficulty} <Pips level={3} lang={lang} /> {t.outOf5}
           </span>
-          <span className="tag-chip sel">{t.selected}</span>
-          <span>
-            <span className="tag-chip pre">{t.before}</span> {t.legendBefore}
+          <span className="legend-item">
+            <span className="tag-chip sel">{t.selected}</span>
+            {t.legendSelected}
           </span>
-          <span>
-            <span className="tag-chip nxt">{t.after}</span> {t.legendAfter}
+          <span className="legend-item">
+            <span className="tag-chip pre">{t.before}</span>
+            {t.legendBefore}
+          </span>
+          <span className="legend-item">
+            <span className="tag-chip nxt">{t.after}</span>
+            {t.legendAfter}
           </span>
         </div>
 
