@@ -99,6 +99,24 @@ button { font: inherit; color: inherit; }
 .brand { display: inline-flex; align-items: center; gap: 12px; font-family: var(--display); font-weight: 700; font-size: 19px; text-decoration: none; }
 .brand-mark { width: 36px; height: 36px; border-radius: 12px; background: var(--brand); display: grid; place-items: center; box-shadow: 0 3px 0 var(--brand-ledge); color: var(--on-brand); }
 .header-actions { display: flex; align-items: center; gap: 10px; }
+/* language menu: shows the current language, lists every language with its own name */
+.lang-menu { position: relative; }
+.lang-menu summary { list-style: none; gap: 8px; }
+.lang-menu summary::-webkit-details-marker { display: none; }
+.lang-menu .flag { flex: none; border-radius: 3px; box-shadow: 0 0 0 1px var(--line-strong); display: block; }
+.lang-caret { flex: none; transition: transform .15s; }
+.lang-menu[open] .lang-caret { transform: rotate(180deg); }
+.lang-list {
+  position: absolute; right: 0; top: calc(100% + 10px); z-index: 30; margin: 0; padding: 6px; list-style: none; min-width: 190px;
+  background: var(--surface); border: 2px solid var(--line-strong); border-radius: 14px; box-shadow: 0 4px 0 var(--line-strong);
+}
+.lang-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; text-decoration: none; color: var(--fg); font-size: 15px; }
+a.lang-item:hover { background: var(--surface-2); }
+a.lang-item:focus-visible { outline: 3px solid color-mix(in srgb, var(--brand) 55%, transparent); outline-offset: 1px; }
+.lang-item.current { background: var(--surface-2); font-weight: 600; }
+.lang-name { display: flex; flex-direction: column; line-height: 1.25; flex: 1; }
+.lang-name small { color: var(--muted); font-size: 12px; font-weight: 400; }
+.lang-check { flex: none; color: var(--brand); }
 .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 14px; color: var(--muted); }
 .crumbs a { text-decoration: none; }
 .crumbs a:hover { color: var(--fg); text-decoration: underline; }
@@ -133,8 +151,9 @@ main.page { padding-block: 40px 88px; }
 .btn[disabled], .btn[aria-disabled="true"] { opacity: .45; cursor: not-allowed; transform: none; box-shadow: 0 3px 0 var(--line-strong); filter: none; }
 .btn.primary[disabled] { box-shadow: 0 4px 0 var(--brand-ledge); }
 .chip {
-  all: unset; cursor: pointer; font-size: 13px; padding: 3px 12px; border-radius: 99px; border: 2px solid var(--line);
-  background: var(--surface); text-decoration: none; display: inline-block; line-height: 1.6; transition: border-color .15s;
+  /* rounded rectangle, not a pill: a long title wraps to two lines and a 99px radius turns that into an oval */
+  all: unset; cursor: pointer; font-size: 13px; padding: 4px 14px; border-radius: 14px; border: 2px solid var(--line);
+  background: var(--surface); text-decoration: none; display: inline-block; line-height: 1.55; transition: border-color .15s;
 }
 a.chip:hover, button.chip:hover { border-color: var(--brand); }
 .chip:focus-visible { outline: 3px solid color-mix(in srgb, var(--brand) 55%, transparent); outline-offset: 2px; }
@@ -228,6 +247,7 @@ a.chip:hover, button.chip:hover { border-color: var(--brand); }
 @media (min-width: 1020px) { .map { grid-template-columns: minmax(0, 1fr) 340px; } }
 .map-main { display: flex; flex-direction: column; gap: 28px; min-width: 0; }
 .legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 14px; color: var(--muted); align-items: center; }
+.legend-item { display: inline-flex; align-items: center; gap: 8px; }
 .tag-chip { font-family: var(--mono); font-size: 11px; padding: 1px 8px; border-radius: 99px; border: 2px solid var(--line); color: var(--fg); }
 .tag-chip.sel { border-color: var(--brand); color: var(--brand); }
 .tag-chip.pre { border-color: var(--k1); color: var(--k1); }
@@ -262,7 +282,10 @@ a.chip:hover, button.chip:hover { border-color: var(--brand); }
   background: var(--surface); border: 2px solid var(--line); border-radius: var(--radius); padding: 22px; display: flex; flex-direction: column; gap: 14px;
   box-shadow: 0 5px 0 var(--line);
 }
-@media (min-width: 1020px) { .panel { position: sticky; top: 90px; } }
+/* the detail block: difficulty, summary, related pages and the button each get room (the mobile rule below hides it) */
+.panel-detail { display: flex; flex-direction: column; gap: 18px; }
+.panel-detail p { margin: 0; line-height: 1.7; }
+@media (min-width: 1020px) { .panel { position: sticky; top: 90px; gap: 18px; } }
 @media (max-width: 1019px) {
   /* On small screens the panel shrinks to a bottom bar: lesson, plant and one button. Dependencies stay visible as tags on the tiles. */
   .panel { position: fixed; z-index: 15; left: 12px; right: 12px; bottom: max(12px, env(safe-area-inset-bottom, 0px)); flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; box-shadow: 0 8px 30px rgba(0, 0, 0, .25); }
@@ -278,7 +301,7 @@ a.chip:hover, button.chip:hover { border-color: var(--brand); }
 .panel .head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
 .panel h3 { font-size: 22px; }
 .panel .sub { font-family: var(--mono); font-size: 13px; color: var(--muted); }
-.panel dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 10px 14px; align-items: baseline; }
+.panel dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 14px 16px; align-items: baseline; }
 .panel dt { color: var(--muted); font-size: 14px; }
 .panel dd { margin: 0; display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
 .panel .none { color: var(--muted); font-size: 14px; }
@@ -318,7 +341,7 @@ a.chip:hover, button.chip:hover { border-color: var(--brand); }
 .lnav li[data-open] .kids > li { animation: popout .3s ease backwards; animation-delay: calc(var(--i, 0) * 60ms + 60ms); }
 @keyframes popout { from { opacity: 0; transform: translateX(-8px) scale(.97); } to { opacity: 1; transform: none; } }
 .lnav a.kid { padding: 4px 8px; font-size: 13.5px; align-items: center; }
-.lnav .pk, .pagelist .pk, .lesson-meta .pk { font-family: var(--mono); font-size: 10.5px; padding: 0 7px; border-radius: 99px; border: 1.5px solid var(--line-strong); color: var(--muted); white-space: nowrap; line-height: 1.7; flex: none; }
+.lnav .pk, .lesson-meta .pk { font-family: var(--mono); font-size: 10.5px; padding: 0 7px; border-radius: 99px; border: 1.5px solid var(--line-strong); color: var(--muted); white-space: nowrap; line-height: 1.7; flex: none; }
 .lnav .pk, .lesson-meta .pk { background: var(--surface); }
 .pk.quiz { border-color: var(--k3); color: var(--k3); }
 .pk.deep { border-color: var(--k1); color: var(--k1); }
@@ -327,16 +350,30 @@ a.chip:hover, button.chip:hover { border-color: var(--brand); }
 .lnav a.kid[data-done] .ktick { display: grid; }
 .lnav a.kid[aria-current="page"] { background: var(--brand-soft); color: var(--brand); font-weight: 600; }
 
+/* the kind pill of a sub-page, then which lesson it belongs to as a plain link: only the kind is in the pill */
+.lesson-meta .pk-group { display: inline-flex; align-items: center; gap: 8px; }
+.lesson-meta .pk-of { color: var(--muted); text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+.lesson-meta .pk-of:hover { color: var(--fg); text-decoration-color: currentColor; }
+
 /* page list: the pages of one lesson */
 .pagelist { margin-top: 18px; padding: 14px 16px; border: 2px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); max-width: 560px; width: 100%; text-align: left; }
 .pagelist h4 { font-size: 14px; font-weight: 600; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; margin-bottom: 8px; }
 .pagelist h4 span { font-family: var(--mono); font-size: 12px; color: var(--muted); font-weight: 400; }
-.pagelist ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.pagelist a { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 10px; text-decoration: none; font-size: 15px; line-height: 1.5; }
+.pagelist ol, .prose .pagelist ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.pagelist a { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 10px; text-decoration: none; font-size: 15px; line-height: 22px; }
+.pagelist ol a { color: var(--fg); } /* beats .prose a, which colors links green */
 .pagelist a:hover { background: var(--surface-2); }
 .pagelist a[aria-current="page"] { background: var(--brand-soft); font-weight: 600; }
 .pagelist .pt { flex: 1; min-width: 0; }
-.pagelist .ptick { flex: none; width: 20px; height: 20px; border-radius: 99px; border: 2px solid var(--line-strong); display: grid; place-items: center; color: var(--on-brand); }
+/* the kind of page is a quiet label with a colored dot, on the right so every title starts at the same left edge */
+.pagelist .pk { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; flex: none; font-size: 12.5px; line-height: 19px; color: var(--muted); white-space: nowrap; }
+/* whole-pixel line heights (22px title, 19px label) and a 7px dot centered in the 19px box keep the dot on the same pixel row
+   relative to the label in every row; measured on 1x and 2x screenshots it is within half a pixel of the letters */
+.pagelist .pk::before { content: ""; width: 7px; height: 7px; border-radius: 99px; background: var(--line-strong); }
+.pagelist .pk.main::before { background: var(--brand); }
+.pagelist .pk.deep::before { background: var(--k1); }
+.pagelist .pk.quiz::before { background: var(--k3); }
+.pagelist .ptick { flex: none; width: 18px; height: 18px; border-radius: 99px; border: 1.5px solid var(--line-strong); display: grid; place-items: center; color: var(--on-brand); }
 .pagelist a[data-done] .ptick { background: var(--brand); border-color: var(--brand); }
 .panel dd.pages { flex-direction: column; align-items: flex-start; }
 .chip.done { border-color: var(--brand); color: var(--brand); }
@@ -451,6 +488,10 @@ html[data-format="steps"][data-view="steps"] .step > p, html[data-format="steps"
 html[data-format="steps"][data-view="steps"] .read-only-btn { display: none; }
 html:not([data-format="steps"]) [data-toggle-view] { display: none; }
 
+/* the player bar is crowded on a phone: the language button keeps only the flag there */
+.player-bar .lang-menu { flex: none; }
+@media (max-width: 430px) { .player-bar .bar-plant { display: none; } } /* room for the theme button on a phone */
+@media (max-width: 560px) { .player-bar .lang-menu summary > span, .player-bar .lang-menu .lang-caret { display: none; } .player-bar .lang-menu summary { padding-inline: 10px; } }
 .player-bar { position: fixed; z-index: 30; top: 0; left: 0; right: 0; align-items: center; gap: 14px; padding: 12px max(18px, env(safe-area-inset-right, 0px)) 12px max(18px, env(safe-area-inset-left, 0px)); background: var(--bg); border-bottom: 2px solid var(--line); }
 .seg-track { flex: 1; display: flex; gap: 5px; max-width: 720px; margin-inline: auto; }
 .seg-track span { flex: 1; height: 10px; border-radius: 99px; background: var(--line); position: relative; overflow: hidden; }

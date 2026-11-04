@@ -22,8 +22,8 @@ export default function PageList({ pages, currentId, lang = 'th' }: { pages: Pag
         {pages.map((p) => (
           <li key={p.id}>
             <a href={p.href} aria-current={p.id === currentId ? 'page' : undefined} data-done={done[p.id] ? '' : undefined}>
-              <span className={`pk ${p.kind}`}>{t.kind[p.kind]}</span>
               <span className="pt">{p.title}</span>
+              <span className={`pk ${p.kind}`}>{t.kind[p.kind]}</span>
               <span className="ptick" aria-label={done[p.id] ? t.pages.read : undefined}>
                 {done[p.id] && (
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

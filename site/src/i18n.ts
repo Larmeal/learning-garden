@@ -3,14 +3,19 @@
 export type Lang = 'th' | 'en';
 export const LANGS: Lang[] = ['th', 'en'];
 export const DEFAULT_LANG: Lang = 'th';
+/** Each language is shown by its own name first (what a reader of that language looks for), then its name in English. */
+export const LANG_NAMES: Record<Lang, { native: string; english: string }> = {
+  th: { native: 'ไทย', english: 'Thai' },
+  en: { native: 'English', english: 'English' },
+};
 
 const th = {
   siteName: 'Learning Garden',
   tagline: 'พื้นที่ปลูกความรู้ทีละเรื่อง เรียนไปพร้อมกับที่มันเติบโต',
   footer: 'เนื้อหาเติบโตไปตามที่เรียน',
   themeToggle: 'สลับธีมสว่าง/มืด',
-  switchTo: 'English',
-  switchToLabel: 'Switch to English',
+  language: 'ภาษา',
+  languageLabel: (current: string) => `ภาษา: ${current} (กดเพื่อเปลี่ยน)`,
   home: 'หน้าแรก',
   breadcrumb: 'ตำแหน่งปัจจุบัน',
 
@@ -104,6 +109,7 @@ const th = {
     none: 'ไม่มี',
     difficulty: 'ความยาก',
     outOf5: '= 3 จาก 5',
+    legendSelected: 'บทที่กำลังดูรายละเอียด',
     legendBefore: 'ต้องรู้มาก่อน',
     legendAfter: 'ใช้ความรู้นี้ต่อ',
     selfCheck: 'เช็กตัวเอง:',
@@ -128,7 +134,7 @@ const th = {
     readingLong: 'กำลังอ่านแบบยาว',
     stepMode: 'เรียนทีละขั้น',
     toc: 'สารบัญหัวข้อ',
-    kindOf: (kind: string, main: string) => `${kind} ของบท ${main}`,
+    ofLesson: (main: string) => `ของบท ${main}`,
     topic: (order: string, phase: string) => `หัวข้อ ${order} · ช่วง ${phase}`,
     phase: (phase: string) => `ช่วง ${phase}`,
     difficulty: 'ความยาก',
@@ -153,8 +159,8 @@ const en: Ui = {
   tagline: 'A place to grow one subject at a time, learning as it grows.',
   footer: 'Content grows as you learn',
   themeToggle: 'Switch between light and dark theme',
-  switchTo: 'ไทย',
-  switchToLabel: 'เปลี่ยนเป็นภาษาไทย',
+  language: 'Language',
+  languageLabel: (current: string) => `Language: ${current} (press to change)`,
   home: 'Home',
   breadcrumb: 'Breadcrumb',
 
@@ -248,6 +254,7 @@ const en: Ui = {
     none: 'None',
     difficulty: 'Difficulty',
     outOf5: '= 3 of 5',
+    legendSelected: 'the lesson whose details are shown',
     legendBefore: 'you need to know first',
     legendAfter: 'builds on this one',
     selfCheck: 'Check yourself:',
@@ -272,7 +279,7 @@ const en: Ui = {
     readingLong: 'Reading as one page',
     stepMode: 'Step by step',
     toc: 'Table of contents',
-    kindOf: (kind, main) => `${kind} of ${main}`,
+    ofLesson: (main) => `of ${main}`,
     topic: (order, phase) => `Topic ${order} · Phase ${phase}`,
     phase: (phase) => `Phase ${phase}`,
     difficulty: 'Difficulty',

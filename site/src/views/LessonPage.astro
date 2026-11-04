@@ -4,6 +4,9 @@ import Base from '../layouts/Base.astro';
 import LessonNav from '../components/LessonNav.astro';
 import Pips from '../components/Pips';
 import Plant from '../components/Plant';
+import LangMenu from '../components/LangMenu.astro';
+import ThemeToggle from '../components/ThemeToggle.astro';
+import MdLink from '../components/MdLink.astro';
 import GrowthBadge from '../components/GrowthBadge';
 import LessonArt from '../components/LessonArt';
 import Outro from '../components/Outro';
@@ -57,6 +60,8 @@ const isSteps = lesson.data.format === 'steps';
         <div class="seg-track" data-track role="progressbar" aria-label={t.lesson.progress}></div>
         <span class="bar-plant" data-bar-plant aria-hidden="true"><Plant stage="sprout" size={34} sway /></span>
         <button class="btn sm" type="button" data-toggle-view>{t.lesson.readLong}</button>
+        <LangMenu lang={lang} altHref={altHref} scope="player" />
+        <ThemeToggle label={t.themeToggle} />
       </div>
     )
   }
@@ -101,7 +106,12 @@ const isSteps = lesson.data.format === 'steps';
             <h1>{lesson.data.title}</h1>
             <p class="summary">{lesson.data.summary}</p>
             <div class="lesson-meta">
-              {isSub && <span class={`pk ${kind}`}>{t.lesson.kindOf(t.kind[kind], main.data.title)}</span>}
+              {isSub && (
+                <span class="pk-group">
+                  <span class={`pk ${kind}`}>{t.kind[kind]}</span>
+                  <a class="pk-of" href={lessonHref(main.id, lang)}>{t.lesson.ofLesson(main.data.title)}</a>
+                </span>
+              )}
               <span>{t.lesson.topic(pad(main.data.order), main.data.phase!)}</span>
               <span>{t.lesson.difficulty} <Pips level={main.data.level!} lang={lang} /></span>
               <GrowthBadge client:load pages={pageIds} content={main.data.stage} lang={lang} />
@@ -130,7 +140,12 @@ const isSteps = lesson.data.format === 'steps';
                     <h1>{lesson.data.title}</h1>
                     <p class="summary">{lesson.data.summary}</p>
                     <div class="lesson-meta">
-                      {isSub && <span class={`pk ${kind}`}>{t.lesson.kindOf(t.kind[kind], main.data.title)}</span>}
+                      {isSub && (
+                <span class="pk-group">
+                  <span class={`pk ${kind}`}>{t.kind[kind]}</span>
+                  <a class="pk-of" href={lessonHref(main.id, lang)}>{t.lesson.ofLesson(main.data.title)}</a>
+                </span>
+              )}
                       <span>{t.lesson.phase(main.data.phase!)}</span>
                       <span>{t.lesson.difficulty} <Pips level={main.data.level!} lang={lang} /></span>
                       <span data-step-count></span>
@@ -151,7 +166,7 @@ const isSteps = lesson.data.format === 'steps';
               )
             }
 
-            <Content />
+            <Content components={{ a: MdLink }} />
 
             {
               isSteps && (
@@ -341,7 +356,20 @@ const isSteps = lesson.data.format === 'steps';
           if (v === 'steps') show(i, false);
         }),
       );
-      show(0, false);
+      // A link such as /data-quality/profiling/#some-heading opens the card that holds that heading.
+      function cardOfHash() {
+        let id = '';
+        try { id = decodeURIComponent(location.hash.slice(1)); } catch { return -1; }
+        const card = id ? document.getElementById(id)?.closest<HTMLElement>('[data-step]') : null;
+        return card ? steps.indexOf(card) : -1;
+      }
+      const fromHash = cardOfHash();
+      show(Math.max(0, fromHash), false);
+      if (fromHash > 0) document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView({ block: 'start' });
+      window.addEventListener('hashchange', () => {
+        const k = cardOfHash();
+        if (k >= 0) show(k, false);
+      });
     }
   </script>
 </Base>
