@@ -1,0 +1,115 @@
+---
+title: Lazy evaluation แบบเจาะลึก
+summary: นับ job ของทุกคำสั่งด้วย job group, action ซ้ำบน DataFrame เดิมกับ DataFrame ใหม่ต่างกันอย่างไร, show() บนข้อมูล 1 ล้านล้านแถวใช้ 1 task, cache ที่ยังว่าง, error ที่โผล่คนละจังหวะ และ ANSI mode ที่ถูกล็อกตอนนิยาม DataFrame
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import JobCounterLab from '../../../../components/labs/spark/JobCounterLab';
+
+ทุกตัวเลขมาจาก `exercises/02_lazy_evaluation.py` ซึ่งนับ **job** ด้วย job group (`setJobGroup` แล้วถาม `statusTracker`) job คือสิ่งที่ action เริ่ม จึงเป็นวิธีวัดตรงๆ ว่าคำสั่งไหน "รันจริง" และคำสั่งไหน "จดแผน" ตัวเลขรันบน Spark 4.2.0 เปิด AQE ตามค่าเริ่มต้น
+
+<Step>
+
+## นับ Job ทีละคำสั่ง
+
+<JobCounterLab client:visible />
+
+ผลที่ควรจำ
+
+| คำสั่ง | job |
+|---|---|
+| `spark.range(...)`, `filter`, `select`, `withColumn`, `where` | **0** |
+| `df.explain()` | **0** |
+| `cache()` | **0** (และ Storage ยังว่าง) |
+| `count()` (action) | อย่างน้อย 1 |
+| `groupBy(...).count().collect()` ครั้งแรก | **2** |
+
+ทำไม `groupBy` เป็นสอง job: เปิด AQE แล้ว Spark ตัดแผนที่ shuffle เป็นช่วง รัน stage ที่เขียน shuffle ให้เสร็จก่อนเป็น job แรก แล้วค่อยตัดสินใจรัน stage ผลลัพธ์เป็น job ที่สอง (บทที่ 6) ถ้าปิด AQE จะเป็น job เดียว (วัดจริงทั้งสองแบบ)
+
+</Step>
+
+<Step>
+
+## Action ซ้ำคือคำนวณซ้ำ จริงแค่ไหน
+
+บทหลักบอกว่าเรียก action ซ้ำจะคำนวณซ้ำ ซึ่งถูกในหลักการ แต่ตัวเลขที่วัดได้ละเอียดกว่านั้น กับ query `groupBy` ที่มี shuffle
+
+| การเรียก | job |
+|---|---|
+| `agg.collect()` ครั้งแรก | 2 |
+| `agg.collect()` ซ้ำบน DataFrame **ตัวเดิม** | **1** |
+| สร้าง DataFrame ใหม่ด้วยโค้ดเดียวกันแล้ว `collect()` | 2 |
+
+เรียกซ้ำบน object ตัวเดิม เหลือ 1 job เพราะไฟล์ shuffle ที่รอบแรกเขียนไว้ยังอยู่ Spark จึงข้าม stage ฝั่ง map (ใน Spark UI จะเห็นเป็น "skipped stage") แต่ stage ผลลัพธ์ต้องรันใหม่ ส่วน DataFrame ที่สร้างใหม่ ไม่ได้ใช้ไฟล์เดิม จึงทำงานตั้งแต่ต้น
+
+สองข้อควรระวัง
+
+- นี่เป็นการ reuse ผลของ **shuffle** ไม่ใช่ cache ถ้าไม่มี shuffle ในแผน (query แบบ narrow ล้วน) ทุก action อ่านและคำนวณใหม่หมด ไม่มีอะไรให้ข้าม (ตรวจแล้ว: `count()` สองครั้งบน DataFrame แบบ narrow ทั้งสองครั้งรัน)
+- ไฟล์ shuffle ถูกเก็บไว้ชั่วคราว Spark ลบเมื่อ DataFrame ถูกเก็บกวาดหรือ session จบ จึงไม่ใช่สิ่งที่ควรพึ่งแทน `cache()`
+
+</Step>
+
+<Step>
+
+## Action ไม่ได้อ่านทุกอย่างเสมอไป
+
+`show()` และ `limit` ต้องการแค่ไม่กี่แถว Spark จึงหยุดเมื่อได้ครบ ทดลองกับ `spark.range(0, 10**12, 1, 200)` (1 ล้านล้านแถวใน 200 partition) แล้วเรียก `show(5)`
+
+- ได้ **1 job** ที่มี **1 task** จาก 200 partition
+- ใช้เวลา **ราว 0.1 วินาที**
+
+ถ้า Spark อ่านทั้งหมดจะใช้เวลาหลายชั่วโมง มันเริ่มจาก partition แรก ได้ 5 แถวแล้วหยุด (ถ้า partition แรกมีแถวไม่พอจึงขยับไปอ่านเพิ่ม) นี่คือเหตุผลที่ `show()` และ `take(n)` เร็วกว่า `count()` ที่ต้องแตะทุกแถวเสมอ และเป็นวิธีดูตัวอย่างข้อมูลที่ปลอดภัยกับตารางใหญ่
+
+</Step>
+
+<Step>
+
+## `cache()` เองก็ Lazy
+
+`c = df.filter(...).cache()` ไม่เริ่ม job (วัด 0 job) `c.is_cached` เป็น `True` ทันที แต่ตัวติดตามพื้นที่เก็บของ Spark ยังว่าง (`getRDDStorageInfo()` ไม่มีรายการ) หลัง action แรก (`c.count()`) ถึงมีรายการหนึ่งรายการ ดูบทที่ 7 สำหรับกับดักอื่นของ cache (partition ที่ถูกเก็บ, ความคุ้มค่า)
+
+</Step>
+
+<Step>
+
+## Error โผล่ตอนไหน
+
+ผลที่ตรวจ
+
+| ความผิดพลาด | โผล่เมื่อ |
+|---|---|
+| ชื่อคอลัมน์ไม่มี (`select("no_such_column")`) | **ทันทีที่บรรทัดนั้นรัน** `AnalysisException: [UNRESOLVED_COLUMN...]` |
+| ค่าในข้อมูลผิดรูป (`cast("int")` กับ `"abc"`) | **ตอน action** `[CAST_INVALID_INPUT]` |
+
+เหตุผล: Spark วิเคราะห์ชื่อและชนิดของ column ตอนต่อ transformation (ใช้ schema ไม่ต้องแตะข้อมูล) แต่ค่าจริงในข้อมูลรู้ก็ต่อเมื่อ executor อ่านถึงแถวนั้น ผลคือ error ของข้อมูลอาจโผล่ที่ `show()` ไกลจากบรรทัดที่เป็นต้นเหตุ
+
+</Step>
+
+<Step>
+
+## ANSI Mode ถูกล็อกตอนนิยาม DataFrame
+
+กับดักที่ตรวจแล้วและควรรู้: โหมด ANSI (ที่ทำให้ `cast("abc" as int)` error) ถูกอ่านตอน **สร้าง DataFrame** ไม่ใช่ตอนรัน action
+
+```python
+spark.conf.set("spark.sql.ansi.enabled", "true")
+on = spark.createDataFrame([("abc",)], "s string").selectExpr("cast(s as int) AS i")   # นิยามตอน ANSI เปิด
+spark.conf.set("spark.sql.ansi.enabled", "false")
+off = spark.createDataFrame([("abc",)], "s string").selectExpr("cast(s as int) AS i")  # นิยามตอน ANSI ปิด
+
+on.collect()    # ยัง error: CAST_INVALID_INPUT  (ปิดทีหลังก็ไม่ช่วย)
+off.collect()   # [Row(i=None)]  ได้ NULL
+```
+
+บทหลักเขียนว่า "ถ้าปิดโหมดนี้ ผลที่ได้จะเป็น NULL" ซึ่งจริงเมื่อปิด **ก่อน** นิยาม DataFrame ถ้าปิดหลังนิยามแล้วไม่มีผล ผู้เรียนที่ลองสลับลำดับจะงง บทที่ 6 อธิบายเหตุผลลึกกว่านี้ (analyzer เลือก rule ตาม mode ตอนวิเคราะห์)
+
+<Callout type="tip" title="วิธีเช็กว่า Spark ทำอะไรจริง">
+ใช้ Spark UI แท็บ Jobs (หรือ `statusTracker` ใน Python) ดูว่าบรรทัดไหนเพิ่ม job ถ้าไม่เพิ่ม แปลว่าแค่จดแผน เจอ job ที่ไม่คาดคิด (เช่น `read.csv` ที่ใช้ `inferSchema` เริ่ม 2 job ก่อน action ใดๆ ตามบทที่ 4) ให้สงสัยตัวเลือกที่ทำให้ Spark ต้องอ่านข้อมูลล่วงหน้า
+</Callout>
+
+</Step>

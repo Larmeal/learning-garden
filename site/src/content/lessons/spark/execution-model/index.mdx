@@ -6,12 +6,12 @@ phase: B
 level: 4
 stage: sprout
 requires: [lazy-evaluation, dataframe-sql]
-updated: 2026-10-21
+updated: 2026-11-05
 ---
 
-import ShuffleDemo from '../../../components/labs/spark/ShuffleDemo';
-import SkewDemo from '../../../components/labs/spark/SkewDemo';
-import StageQuiz from '../../../components/labs/spark/StageQuiz';
+import ShuffleDemo from '../../../../components/labs/spark/ShuffleDemo';
+import SkewDemo from '../../../../components/labs/spark/SkewDemo';
+import StageQuiz from '../../../../components/labs/spark/StageQuiz';
 
 บทนี้คือจุดที่คนใช้ Spark เป็นแยกออกจากคนที่เข้าใจว่ามันทำงานอย่างไร ถ้าเข้าใจบทนี้ การอ่าน `explain()` และ Spark UI การหาสาเหตุที่ job ช้า จะเริ่มเห็นภาพ
 
@@ -32,7 +32,7 @@ import StageQuiz from '../../../components/labs/spark/StageQuiz';
 
 จำง่ายๆ ว่า action สร้าง job, shuffle ตัด job เป็น stage, partition ทำให้ stage แตกเป็น task
 
-## Narrow กับ wide
+## Narrow กับ Wide
 
 คำสั่งแบ่งเป็นสองประเภทตามว่าต้องใช้ข้อมูลจากหลาย partition ไหม
 
@@ -53,13 +53,13 @@ import StageQuiz from '../../../components/labs/spark/StageQuiz';
 - ตอน shuffle ทุก task ต้องส่งข้อมูลให้ task ปลายทางหลายตัว เส้นจึงไขว้กัน
 - stage 2 เริ่มไม่ได้จนกว่า shuffle จะเสร็จทั้งหมด
 
-## ทำไม shuffle ถึงแพง
+## ทำไม Shuffle ถึงแพง
 
 ข้อมูลที่ต้อง shuffle จะถูกเขียนลง disk ฝั่งผู้ส่ง แล้วฝั่งผู้รับต้องดึงผ่านเครือข่ายมาอ่าน ทั้งสองฝั่งต้องแปลงข้อมูลเป็นไบต์และกลับมาเป็นข้อมูล เมื่อเทียบกับ narrow ที่ทำกับข้อมูลใน memory ของตัวเองได้เลย ต้นทุนต่างกันมาก
 
 เพราะอย่างนี้ เมื่อพูดถึงการทำให้ Spark เร็ว คำถามแรกที่ควรถามคือ shuffle กี่ครั้ง และแต่ละครั้งส่งข้อมูลเท่าไร
 
-## เมื่อ shuffle ไม่สมดุล: data skew
+## เมื่อ Shuffle ไม่สมดุล: Data Skew
 
 Shuffle ส่ง key เดียวกันไปที่ task เดียวกัน ถ้า key หนึ่งมีข้อมูลมากผิดปกติ task นั้นจะทำงานนานกว่าตัวอื่นมาก และทั้ง stage ต้องรอตัวที่ช้าที่สุด
 
@@ -71,7 +71,7 @@ Shuffle ส่ง key เดียวกันไปที่ task เดีย�
 
 <StageQuiz client:visible />
 
-## ลองทำใน repo นี้
+## ลองทำใน Repo นี้
 
 สร้างไฟล์ที่ root ของโปรเจกต์ (ข้างๆ `main.py`) เช่น `shuffle_lab.py`
 
@@ -96,7 +96,7 @@ spark.stop()
 
 1. ในผลของ `explain()` มีบรรทัด `Exchange hashpartitioning(...)` นั่นคือ shuffle ลองลบ `groupBy` ออกแล้วรันใหม่ ว่าบรรทัดนี้หายไปไหม
 2. ใน Spark UI แท็บ Stages job นี้แตกเป็นกี่ stage ตรงกับที่ทายไหม
-3. จำนวน partition หลัง shuffle คือเท่าไร ค่าเริ่มต้นของ `spark.sql.shuffle.partitions` คือ 200 แต่ AQE อาจรวม partition เล็กให้ตอนรัน ลองเทียบตัวเลขในแผนกับที่เห็นใน UI
+3. จำนวน partition หลัง shuffle คือเท่าไร ค่าเริ่มต้นของ `spark.sql.shuffle.partitions` คือ 200 แต่ AQE รวม partition เล็กให้ตอนรัน บนเครื่อง 16 core ที่ใช้ทดสอบ ผลของ `groupBy` ข้อมูลเล็กมี **1 partition** เมื่อเปิด AQE และ **200** เมื่อปิด (`spark.sql.adaptive.enabled=false`) ถ้าเปิด AQE `explain()` ก่อนรันจะขึ้นต้นด้วย `AdaptiveSparkPlan isFinalPlan=false` ซึ่งบทที่ 6 อธิบายให้
 
 ## เช็กตัวเอง
 
@@ -106,5 +106,6 @@ spark.stop()
 
 ## ต่อไป
 
-- บทที่ 6 (Catalyst และ AQE): Spark ปรับแผนให้เองอย่างไร และอ่านแผนเป็น
-- บทที่ 7 (Performance tuning): เมื่อรู้ว่าติดที่ shuffle แล้ว จะลดหรือจัดการมันอย่างไร
+- [Execution model แบบเจาะลึก](/spark/execution-model/in-depth/): คำสั่งไหน shuffle (วัดทุกตัว) จำนวน stage คือ Exchange บวกหนึ่ง และตัวเลข task กับไบต์ของ shuffle
+- [บทที่ 6](/spark/catalyst-aqe/) (Catalyst และ AQE): Spark ปรับแผนให้เองอย่างไร และอ่านแผนเป็น
+- [บทที่ 7](/spark/performance-tuning/) (Performance tuning): เมื่อรู้ว่าติดที่ shuffle แล้ว จะลดหรือจัดการมันอย่างไร
