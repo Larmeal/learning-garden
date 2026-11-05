@@ -1,0 +1,251 @@
+---
+title: UDF
+summary: Python UDF คือฟังก์ชันของคุณที่ Spark ต้องส่งข้อมูลไปให้ Python process คำนวณ บทนี้ดูว่าแผนเปลี่ยนอย่างไร ข้อมูลเดินทางอย่างไร ช้ากว่า built-in เท่าไร กับดักเรื่อง NULL และชนิดข้อมูล และเลือกใช้อะไรเมื่อไร
+order: 8
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [dataframe-sql, catalyst-aqe]
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import UdfBridgeLab from '../../../../components/labs/spark/UdfBridgeLab';
+import UdfBarrierLab from '../../../../components/labs/spark/UdfBarrierLab';
+
+<Step>
+
+## UDF คืออะไร และทำไมต้องระวัง
+
+**UDF** (user-defined function) คือฟังก์ชันที่คุณเขียนเอง แล้วเรียกใช้ในคำสั่ง DataFrame เหมือนฟังก์ชันของ Spark อย่าง `upper` หรือ `sum`
+
+```python
+from pyspark.sql.functions import udf
+
+@udf("long")
+def plus1(x):
+    return x + 1
+
+df.select(plus1("id"))
+```
+
+ความต่างที่สำคัญ: `upper`, `+`, `sum` เป็น **expression ของ Catalyst** ที่ Spark รู้จักและรันใน JVM ภายใน codegen ส่งฟังก์ชันของคุณเป็นโค้ด Python ซึ่ง Spark อ่านไม่ออก จึงทำได้แค่ส่งข้อมูลไปให้ Python process รันแล้วรับผลกลับมา
+
+ผลที่ตามมาสามข้อ ซึ่งบทนี้จะพิสูจน์ด้วยการรัน
+
+1. ช้ากว่า built-in มาก เพราะต้องส่งข้อมูลข้าม process
+2. Catalyst มองเข้าไปในฟังก์ชันไม่ได้ จึงปรับแผนรอบ UDF ได้จำกัด
+3. พฤติกรรมเรื่อง `NULL` และชนิดข้อมูลต่างจาก built-in ในจุดที่ไม่คาดคิด
+
+<Callout type="warn" title="โปรเจกต์นี้ต้องมี pandas และ pyarrow">
+ถ้า environment มีแค่ `pyspark` การเขียน `@udf` จะ **ตกไปใช้เส้นทางเก่าเงียบๆ** พร้อม warning ว่า "Arrow optimization failed to enable because PyArrow or Pandas is not installed" และ `pandas_udf` จะ error `PACKAGE_NOT_INSTALLED` โปรเจกต์ `subjects/spark/code` ใส่ `pandas` และ `pyarrow` ไว้แล้ว ถ้าใช้ที่อื่นให้ติดตั้งเองด้วย `uv add pandas pyarrow`
+</Callout>
+
+</Step>
+
+<Step>
+
+## UDF ในแผน: แยกได้จากสายตา
+
+ใน `explain()` Python UDF แสดงเป็น node แยกต่างหาก ส่วน built-in ไม่เคยมี (รัน: `exercises/08_udf.py`)
+
+```
+-- @udf("long")  (ค่าเริ่มต้นใน Spark 4.2) --
+*(2) Project [pythonUDF0#4L AS plus1(id)#3L]
++- ArrowEvalPython [plus1(id#0L)#2L], [pythonUDF0#4L], 101
+   +- *(1) Range (0, 10, step=1, splits=16)
+
+-- @udf("long", useArrow=False) --
+*(2) Project [pythonUDF0#7L AS plus1b(id)#6L]
++- BatchEvalPython [plus1b(id#0L)#5L], [pythonUDF0#7L]
+   +- *(1) Range (0, 10, step=1, splits=16)
+
+-- id + 1 (built-in) --
+*(1) Project [(id#0L + 1) AS (id + 1)#17L]
++- *(1) Range (0, 10, step=1, splits=16)
+```
+
+สังเกต `*(1)` และ `*(2)` ในสองแผนบน: node ของ UDF **คั่นกลาง** whole-stage codegen ทำให้แตกเป็นสองก้อน ส่วน built-in อยู่ใน `*(1)` เดียว
+
+| ชนิด | evalType | node ในแผน |
+|---|---|---|
+| `@udf` ค่าเริ่มต้นใน 4.2 (Arrow-optimized) | 101 | `ArrowEvalPython` |
+| `@udf(useArrow=False)` | 100 | `BatchEvalPython` |
+| `@pandas_udf` (Series เป็น Series) | 200 | `ArrowEvalPython` |
+| `pandas_udf` ที่คืนค่าเดียวต่อกลุ่ม (grouped agg) | 202 | `ArrowAggregatePython` |
+| `df.mapInPandas(...)` | | `MapInPandas` |
+| `groupBy(...).applyInPandas(...)` | | `FlatMapGroupsInPandas` |
+
+สองข้อที่ควรจำ
+
+- `@udf` ธรรมดาใน Spark 4.2 เป็น Arrow-optimized โดยค่าเริ่มต้น (`spark.sql.execution.pythonUDF.arrow.enabled = true`) docstring ใน `functions/builtin.py` ยืนยัน ส่วน comment ใน `udf.py:99` ที่บอกว่า "ปิดเป็นค่าเริ่มต้น" เป็นข้อความเก่าที่ยังไม่ถูกแก้
+- `applyInPandas` และ grouped agg มี `Sort` และ `Exchange hashpartitioning(…, 200)` ในแผน นั่นคือต้อง shuffle เต็มรูปแบบ ไม่ใช่งานฝั่ง map เบาๆ
+
+<Callout type="warn" title="ค่า conf ถูกอ่านตอนสร้าง UDF">
+เปิดหรือปิด Arrow ถูกตัดสินตอน **สร้าง object UDF** ไม่ใช่ตอนรัน ตั้ง `arrow.enabled=false` ก่อนนิยามได้ evalType 100 แต่ UDF ที่นิยามไว้ตอนยังเป็น `true` ยังเป็น 101 ต่อให้ไปปิด conf ทีหลัง (วัดจริง)
+</Callout>
+
+</Step>
+
+<Step>
+
+## ข้อมูลเดินทางอย่างไร
+
+executor แต่ละ task เปิด **Python worker** (process แยก) ต่อกันด้วย socket JVM ส่ง handshake ก่อน (เวอร์ชัน Python, ไฟล์, broadcast, ฟังก์ชันที่ pickle แล้ว) แล้วจึงส่งแถว ลองดูสามเส้นทางเทียบกัน
+
+<UdfBridgeLab client:visible />
+
+สรุปจากภาพ
+
+| | แถวต่อก้อน | worker เรียกฟังก์ชัน |
+|---|---|---|
+| Python UDF (pickle) | 100 | **ทุกแถว** |
+| Python UDF แบบ Arrow | 10,000 | **ทุกแถว** (ในลูป Python) |
+| `pandas_udf` | 10,000 | **ทุก batch** (ได้ Series) |
+
+ข้อที่คนมักเข้าใจผิดคือคิดว่า UDF แบบ Arrow เป็น vectorized จริงแล้ว มันแค่ **ขนส่ง** ข้อมูลเป็น Arrow ซึ่งถูกกว่าการ pickle แต่ฟังก์ชันของคุณยังถูกเรียกทีละแถว (source: `worker.py` วนด้วย `[udf_func(*row) for row in rows]`) มีแต่ `pandas_udf` ที่ฟังก์ชันรับทั้ง Series
+
+</Step>
+
+<Step>
+
+## ช้ากว่า built-in เท่าไร
+
+วัดโดยบังคับให้ข้อมูลอยู่ใน partition เดียว (`spark.range(0, 5_000_000, 1, 1)`) เพื่อตัดค่าเริ่ม worker หลายตัวออก แล้ว `agg(sum(...))` คำนวณ `x + 1`
+
+| วิธี | เวลา | เทียบ built-in |
+|---|---|---|
+| built-in `id + 1` | 0.05 วินาที | 1 เท่า |
+| `pandas_udf` | 1.7 วินาที | ราว 35 เท่า |
+| Python UDF แบบ Arrow | 2.1 วินาที | ราว 40 เท่า |
+| Python UDF แบบ pickle | 4.4 วินาที | ราว 85 เท่า |
+
+ตัวเลขเป็นของเครื่องผู้เขียนในการรันครั้งเดียว ใช้ดู **ลำดับและอันดับของขนาด** ไม่ใช่ benchmark สิ่งที่สคริปต์ยืนยันคือลำดับ built-in เร็วกว่า pandas_udf อย่างน้อย 5 เท่า และ pandas_udf < Arrow UDF < pickle UDF
+
+ช้าเพราะสามสาเหตุ: ต้อง serialize ข้อมูลไปและกลับทุกแถว, ต้องมี Python process ต่อ task, และ (กับสองชนิดแรก) เรียกฟังก์ชัน Python ทีละแถว นอกจากนี้ node ของ UDF ตัด whole-stage codegen ที่เห็นในหัวข้อก่อนหน้า
+
+<Callout type="note" title="บน Windows มีค่าเริ่ม worker แพงกว่าที่คิด">
+Spark ใช้ daemon (`pyspark/daemon.py`) ที่ fork worker ให้เร็วบน Linux และ macOS แต่ Windows ไม่รองรับ `fork` จึงปิด daemon (`PythonWorkerFactory.scala:96-99`) ทุก task เริ่ม `python.exe -m pyspark.worker` ใหม่ จึงมีต้นทุนคงที่ต่อ task ที่เห็นได้ชัดเมื่อ partition เยอะ ถ้าทดสอบ UDF บน Windows แล้วช้าผิดปกติแม้ข้อมูลเล็ก นี่คือเหตุผลหนึ่ง และเป็นเหตุผลที่การวัดในหัวข้อนี้ใช้ partition เดียว
+</Callout>
+
+</Step>
+
+<Step>
+
+## UDF ขวางการ Optimize แค่ไหน
+
+คำพูดที่ว่า "UDF ทำให้ Catalyst ปรับแผนไม่ได้" ถูกแค่บางส่วน ลองดูทีละกรณี
+
+<UdfBarrierLab client:visible />
+
+สรุป
+
+- **Filter บนคอลัมน์อื่นลงไปอยู่ใต้ UDF ได้** ถ้า UDF เป็น deterministic นี่คือสิ่งที่คำพูดข้างบนมักพลาด
+- Filter **บนผลของ UDF** อยู่ใต้ UDF ไม่ได้ และถ้ายังเลือกคอลัมน์ผลของ UDF ออกมาด้วย UDF จะถูกคำนวณ **สองรอบ** (วัดจากแผน: `ArrowEvalPython` สองตัว) docstring ของ `udf` เตือนไว้ว่า ฟังก์ชันอาจถูกเรียกมากกว่าจำนวนที่เขียน
+- UDF ที่อยู่ **ในเงื่อนไข filter** ทำงานกับทุกแถวก่อน ไม่ใช่เฉพาะแถวที่ผ่านเงื่อนไขอื่น
+- UDF ที่ประกาศ `asNondeterministic()` ทำให้ filter ไม่ถูกย้ายลงไปใต้มัน
+- Catalyst **ไม่คิดค่าคงที่ให้ UDF**: `F.lit(1) + F.lit(2)` กลายเป็น `3` แต่ `plus1(F.lit(1))` ยังเป็น node ของ UDF
+
+อีกสามเรื่องของ rule `ExtractPythonUDFs` ที่ดึง UDF ออกมาเป็น node แยก
+
+- UDF พี่น้องและ UDF ซ้อนกันของชนิดเดียวกันถูกรวมเป็น node เดียว (`plus1(plus1(id))` กับ `plus1(v)` รวมเป็น `ArrowEvalPython` ตัวเดียว)
+- UDF คนละชนิด (pickle กับ Arrow) **ไม่ถูกรวม** ได้สอง node ซ้อนกัน คือไป-กลับ Python สองรอบ
+- ถ้า UDF ถูกห่อด้วย expression เช่น `plus1("id") + 1` ถูกดึงไปแค่ตัว UDF ส่วน `+ 1` อยู่ใน JVM
+
+</Step>
+
+<Step>
+
+## กับดักเรื่อง NULL
+
+UDF ได้รับ `None` เมื่อค่าเป็น NULL Spark ไม่ข้ามแถวให้เหมือน built-in
+
+```python
+inc = udf(lambda x: x + 1, "int")
+df_with_null.select(inc("x")).collect()
+# PythonException: ... TypeError: unsupported operand type(s) for +: 'NoneType' and 'int'
+```
+
+เกิดทั้งเส้นทาง pickle และ Arrow (วัดทั้งสองแบบ) เขียนให้รองรับ `None` เอง เช่น `None if x is None else x + 1`
+
+มีกับดักเฉพาะของ `pandas_udf`: คอลัมน์ int ที่ **มี NULL** เปลี่ยนเป็น `float64` ใน pandas (NULL กลายเป็น NaN) แต่ถ้าไม่มี NULL ในก้อนนั้นก็เป็น `int32` วัดจริง: dtype ที่ฟังก์ชันเห็นคือ `float64` กับ `int32` ตามลำดับ ฟังก์ชันเดียวกันจึงเห็นชนิดต่างกันตามว่า batch นั้นมี NULL ไหม `s + 1` จึงให้ `2.0` ไม่ใช่ `2`
+
+เอกสารของ `udf` ยังบอกว่า UDF **ไม่รองรับ short-circuit** (`when(x.isNotNull(), my_udf(x))` ไม่ปกป้อง UDF จาก NULL) ข้อนี้อ้างจาก docstring ยังไม่ได้รันพิสูจน์ จึงอย่าพึ่งการห่อ `when`
+
+</Step>
+
+<Step>
+
+## กับดักเรื่องชนิดของค่าที่คืน
+
+ถ้าฟังก์ชันคืนค่าชนิดไม่ตรงกับที่ประกาศ สองเส้นทางให้ผลต่างกัน นี่คือเหตุผลที่ source เขียนไว้ว่าผลอาจไม่เหมือนกันเมื่อเปิดหรือปิด Arrow (วัดจริงด้วย pandas 3.1.1 และ pyarrow 26)
+
+| ฟังก์ชันคืน | ประกาศ | pickle (`useArrow=False`) | Arrow |
+|---|---|---|---|
+| `1.5` | int | **NULL** | `1` (ตัดเศษเงียบๆ) |
+| `"5"` | int | NULL | `5` |
+| `"a"` | int | NULL | **PythonException** |
+| `3` | double | NULL | `3.0` |
+| `5` | string | `"5"` | `"5"` |
+| `None` | int | NULL | NULL |
+| `2**40` | int | **0** (overflow เงียบ) | PythonException |
+
+บนเส้นทาง pickle ค่าชนิดผิดกลายเป็น NULL แบบเงียบๆ จึงเป็นบั๊กที่หาเจอยาก ส่วนเส้นทาง Arrow ส่วนใหญ่ cast ให้หรือ error ให้ชัด ถ้าเปลี่ยน `useArrow` แล้วผลเปลี่ยน ให้สงสัยชนิดของค่าที่คืน
+
+pandas_udf เข้มกว่า: ถ้าคืน Series ที่ cast เข้ากับชนิดที่ประกาศไม่ได้ (เช่นคืน `"a"` แต่ประกาศ `long`) ได้ PythonException
+
+### Error จาก Python กลับมาอย่างไร
+
+ถ้าฟังก์ชัน raise เช่น `ValueError("bad value 2")` worker ส่ง traceback กลับ JVM ซึ่งโยนเป็น `PythonException` (error class `PYTHON_EXCEPTION`, SQLSTATE 38000) และ job ล้มเหลว ฝั่ง Python ได้ `pyspark.errors.PythonException` ที่ข้อความขึ้นต้นด้วย "An exception was thrown from the Python worker:" ตามด้วย traceback ที่ชี้ไฟล์และบรรทัดของคุณ ถ้า process ของ Python ตายเอง (เช่นโดน OOM kill) จะไม่มี traceback ให้ JVM เจอการเชื่อมต่อขาดแล้วขึ้นว่า "Python worker exited unexpectedly (crashed)" (ข้อหลังอ่านจาก source ยังไม่ได้บังคับให้เกิด)
+
+</Step>
+
+<Step>
+
+## เลือกใช้อะไร
+
+ลำดับที่ควรลอง
+
+1. **built-in ก่อนเสมอ** `F.when`, `F.regexp_extract`, `F.transform`, `F.expr(...)` ครอบคลุมกว่าที่คิด และ Catalyst ปรับให้ได้
+2. **`pandas_udf`** เมื่อต้องใช้ logic ที่ built-in ไม่มี และทำได้แบบ vectorized (pandas, numpy)
+3. **Python UDF แบบ Arrow** (ค่าเริ่มต้น) เมื่อ logic เป็น if/else ต่อแถว ใช้ library ที่รับค่าเดี่ยว
+4. **`useArrow=False`** ใช้เมื่อจำเป็นต้องได้พฤติกรรมเดิม เท่านั้น
+
+ถ้าต้องทำกับ "ทั้งกลุ่ม" ให้ใช้ `groupBy().applyInPandas(...)` แต่จำไว้สองข้อ: ต้อง shuffle (มี `Exchange` ในแผน) และ **ทั้งกลุ่มต้องอยู่ใน memory ของ Python worker** ถ้ามี key ที่เบ้ ก็เสี่ยงล้มที่ Python (ข้อหลังเป็นหลักการ ยังไม่ได้ทดสอบ OOM) ส่วน `mapInPandas` รับ iterator ของ pandas DataFrame ไม่ต้อง shuffle
+
+</Step>
+
+<Step>
+
+## Worker และ Memory
+
+- **Worker ถูกใช้ซ้ำ**: `spark.python.worker.reuse` = true worker ที่เสร็จแล้วกลับเข้า pool ให้ task ถัดไป ตัวแปร global หรือ cache ที่อยู่ระดับ module ใน UDF จึงอยู่ข้าม task ได้ใน process เดียวกัน (บน Windows ที่ไม่มี daemon ไม่มีการใช้ซ้ำ ที่เหลือบอกตาม source)
+- **ปรับ memory ที่ถูกต้อง** คือ `spark.executor.pyspark.memory` (ไม่ตั้งเป็นค่าเริ่มต้น หน่วย MiB) แบ่งให้ worker ตามจำนวน core และตั้งเป็นขีดจำกัดด้วย `RLIMIT_AS` แต่ docstring ของ `worker_util.py` บอกว่า Windows ไม่รองรับ และ macOS ไม่บังคับ ผลคือบนเครื่อง Windows นี้การตั้งค่านี้ไม่จำกัดอะไร
+- **`spark.python.worker.memory` ไม่ใช่ปุ่มของ UDF** (ค่าเริ่มต้น 512m) ใน source ถูกอ่านโดย RDD API เท่านั้น (`rdd.py`, สำหรับ `groupByKey`/`combineByKey`) อย่าไปปรับเมื่อ UDF ใช้ memory เกิน
+
+</Step>
+
+<Step>
+
+## ลองทำและเช็กตัวเอง
+
+```bash
+cd subjects/spark/code
+uv run python exercises/08_udf.py
+```
+
+สคริปต์ยืนยันทุกข้อในบท (ราว 1 นาที) ลองดัดแปลง
+
+1. เขียน UDF ที่คืน `float` แต่ประกาศ `int` แล้วเทียบ `useArrow=True` กับ `False`
+2. เขียน `withColumn("u", f("id"))` แล้ว filter ด้วย `u` ดูว่า `explain()` มี `ArrowEvalPython` กี่ตัว
+3. ทำ `pandas_udf` ที่ print `s.dtype` บน DataFrame ที่มี NULL กับไม่มี
+
+เช็กตัวเอง
+
+- UDF แบบ Arrow เร็วกว่า pickle เพราะอะไร และมันเป็น vectorized หรือไม่
+- ทำไม filter บางตัวลงใต้ UDF ได้ บางตัวไม่ได้
+- `pandas_udf` ที่คืนผลเป็น `2.0` แทน `2` มีสาเหตุจากอะไร
+
+</Step>

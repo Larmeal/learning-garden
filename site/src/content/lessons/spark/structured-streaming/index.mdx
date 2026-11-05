@@ -1,0 +1,234 @@
+---
+title: Structured Streaming
+summary: Streaming คือ DataFrame ที่รันเป็นรอบๆ ต่อเนื่อง บทนี้ดูว่าแต่ละรอบ (micro-batch) เขียนอะไรลง checkpoint, watermark ปิด window อย่างไร, state เก็บที่ไหน และทำไมผลถึงไม่ซ้ำเมื่อรีสตาร์ท ทุกตัวอย่างรันจริงและตรวจด้วย assert
+order: 9
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [dataframe-sql, execution-model]
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import MicroBatchLab from '../../../../components/labs/spark/MicroBatchLab';
+import WatermarkLab from '../../../../components/labs/spark/WatermarkLab';
+
+<Step>
+
+## Streaming คือ DataFrame ที่ไม่มีวันจบ
+
+ใน batch เราอ่านข้อมูลก้อนหนึ่ง คำนวณ แล้วจบ ใน Structured Streaming เรามอง input เป็นตารางที่ **แถวใหม่ถูกต่อท้ายเรื่อยๆ** แล้วเขียน query เหมือน DataFrame ปกติ Spark จะรัน query ซ้ำกับข้อมูลส่วนที่เพิ่มเข้ามาเป็นรอบๆ เรียกแต่ละรอบว่า **micro-batch**
+
+```python
+events = (spark.readStream
+          .schema("ts timestamp, user string, amt int")
+          .json("/data/in"))                              # โฟลเดอร์ที่ไฟล์ใหม่ลงมาเรื่อยๆ
+
+counts = events.groupBy("user").count()                   # transformation ปกติ
+
+query = (counts.writeStream
+         .outputMode("complete")
+         .option("checkpointLocation", "/data/ck")
+         .format("memory").queryName("counts")
+         .start())                                        # เริ่มรัน
+```
+
+ข้อควรรู้ทันที
+
+- `events.isStreaming` เป็น `True` และเรียก action อย่าง `events.count()` ไม่ได้ จะได้ `AnalysisException: Queries with streaming sources must be executed with writeStream.start()` (วัดจริง)
+- ทุกอย่างที่เรียนมาใช้ต่อได้: Catalyst เขียนแผนใหม่, `explain()` อ่านได้ (แต่มี operator ของ streaming เพิ่ม)
+- **checkpoint** คือสิ่งที่ทำให้ query หยุดแล้วกลับมารันต่อโดยไม่เสียความจำ จึงต้องระบุทุกครั้งที่ใช้งานจริง
+
+<Callout type="warn" title="บน Windows ต้องรันใน WSL">
+Hadoop เขียน checkpoint ลงเครื่อง Windows ไม่ได้ถ้าไม่มี `hadoop.dll` เครื่องนี้ได้ `UnsatisfiedLinkError: NativeIO$Windows.access0` ตอน `start()` ตัวอย่างในบทนี้จึงรันใน WSL (Ubuntu, Java 21, PySpark 4.2.0) ด้วยสคริปต์ `subjects/spark/code/run_wsl.sh` ถ้าคุณใช้ Linux หรือ macOS รันตรงได้เลย
+</Callout>
+
+</Step>
+
+<Step>
+
+## หนึ่ง Micro-batch เกิดอะไรขึ้น
+
+ลูปอยู่ใน `MicroBatchExecution` (`MicroBatchExecution.scala:612-700`, ฟังก์ชัน `executeOneBatch`) ทุกรอบทำตามลำดับ
+
+1. **`constructNextBatch`** ถาม source ว่ามีข้อมูลถึงไหน กำหนดช่วง offset ของ batch นี้ แล้ว **เขียน `offsets/N` ลง checkpoint** ก่อนทำอะไรกับข้อมูล (บรรทัด 909-1013, เขียนผ่าน `markMicroBatchStart`)
+2. **`runBatch`** แปลง query เป็นแผน physical สำหรับช่วงข้อมูลนั้นแล้วรันเป็น job ปกติ operator ที่มี state อ่านและเขียน state store
+3. ส่งผลให้ sink
+4. **`markMicroBatchEnd`** อัปเดต watermark แล้ว **เขียน `commits/N`** (บรรทัด 1406-1530)
+
+ลองดูทีละขั้น และลองสถานการณ์ที่โปรแกรมล่มก่อนเขียน `commits/N`
+
+<MicroBatchLab client:visible />
+
+หน้าตาของ checkpoint หลังรันจริง (`exercises/09_streaming.py`)
+
+```
+ck/
+  metadata                  # id ของ query
+  offsets/0 1 2 ... 6       # ช่วงข้อมูลของแต่ละ batch (เขียนก่อนรัน)
+  commits/0 1 2 ... 6       # batch ที่จบสมบูรณ์ (เขียนหลังรัน)
+  sources/0/                # ข้อมูลของ source (ของ file source คือรายการไฟล์)
+  state/0/<partition>/      # state ของ operator หมายเลข 0: ไฟล์ 1.delta 2.delta ...
+```
+
+ไฟล์ `offsets/1` เป็นข้อความสามบรรทัด
+
+```
+v1
+{"batchWatermarkMs":..., "batchTimestampMs":..., "conf":{"spark.sql.streaming.stateStore.providerClass":"...", ...}}
+{"logOffset": ...}                      # offset ของ source (ของ file source)
+```
+
+บรรทัดกลางบันทึกทั้ง watermark และ config สำคัญที่ใช้ตอนรัน batch นั้น เพื่อให้รันซ้ำได้เหมือนเดิม จำนวนไฟล์ใน `offsets/` กับ `commits/` เท่ากันเมื่อ query สงบ
+
+</Step>
+
+<Step>
+
+## ทำไมรีสตาร์ทแล้วไม่ซ้ำ
+
+คำสัญญา "exactly-once" ของ Structured Streaming ประกอบจากสามส่วน
+
+1. **source ที่เล่นซ้ำได้**: ขอข้อมูลช่วง offset เดิมได้เสมอ (ไฟล์, Kafka)
+2. **checkpoint**: จำว่า batch ไหนเริ่ม (`offsets/N`) และ batch ไหนจบ (`commits/N`)
+3. **sink ที่เขียนซ้ำได้อย่างปลอดภัย** (idempotent)
+
+สองข้อแรก Spark ดูแลให้ ข้อสุดท้ายเป็นหน้าที่ของ sink ทดลองจริงโดยจำลองการล่มด้วยการลบ `commits/1` ทิ้งแล้วเริ่ม query ใหม่ด้วย checkpoint เดิม (รัน: `exercises/09_streaming.py`)
+
+```python
+def per_batch(df, batch_id):
+    seen.append((batch_id, sorted((r.user, r["count"]) for r in df.collect())))
+
+# ก่อนล่ม:  [(0, [("a",1), ("b",1)]), (1, [("a",2), ("b",1)])]
+# ลบ commits/1 แล้วรีสตาร์ท แล้วเพิ่มข้อมูลใหม่ (user c):
+# หลังรีสตาร์ท: [(1, [("a",2), ("b",1)]), (2, [("a",2), ("b",1), ("c",1)])]
+```
+
+- batch 1 ถูกรัน **อีกครั้ง** ด้วยข้อมูลเดิมและได้ผลเท่าเดิม (`foreachBatch` ถูกเรียกด้วย `batch_id = 1` ซ้ำ)
+- state ต่อเนื่อง: ค่านับของ `a` ยังเป็น 2 ไม่ถูกรีเซ็ต
+- batch ใหม่เริ่มที่ 2
+
+ดังนั้นถ้า sink คือ `foreachBatch` ที่เขียนต่อท้ายตาราง คุณจะได้แถวซ้ำของ batch 1 ต้องใช้ `batch_id` เป็นกุญแจ: เขียนแบบ upsert หรือเก็บ `batch_id` ที่เขียนแล้วเพื่อข้าม sink แบบไฟล์ของ Spark ทำให้เองผ่าน manifest ส่วน sink ที่คุณเขียนเองต้องคิดเรื่องนี้เอง
+
+</Step>
+
+<Step>
+
+## Output Mode: ส่งอะไรให้ Sink ในแต่ละ Batch
+
+| mode | ส่งอะไร | ใช้กับ |
+|---|---|---|
+| `append` | เฉพาะแถวที่ **ไม่เปลี่ยนอีกแล้ว** | query ไม่มี aggregation หรือ aggregation ที่มี watermark |
+| `update` | เฉพาะแถวที่เปลี่ยนใน batch นี้ | aggregation |
+| `complete` | ผลทั้งตารางทุก batch | aggregation (ต้องเก็บ state ทั้งหมดตลอดไป) |
+
+`append` กับ aggregation ที่ไม่มี watermark ใช้ไม่ได้ เพราะ Spark ไม่มีทางรู้ว่ากลุ่มไหน "จบแล้ว" ผลที่ได้ (วัดจริง) คือ `AnalysisException: [STREAMING_OUTPUT_MODE.UNSUPPORTED_OPERATION] Invalid streaming output mode: append. This output mode is not supported for streaming aggregations without watermark` ส่วน `complete` และ `update` เริ่มได้ปกติ
+
+</Step>
+
+<Step>
+
+## Event Time, Window และ Watermark
+
+ข้อมูลที่มีเวลาของเหตุการณ์ (event time) มักมาไม่เรียงและมาช้า ถ้านับ "ต่อ window 5 นาที" Spark ต้องเก็บ state ของทุก window ที่ยังอาจได้ข้อมูลเพิ่ม ถ้าไม่มีกติกาปิด state จะโตไปเรื่อยๆ **watermark** คือกติกานั้น
+
+```python
+agg = (events
+       .withWatermark("ts", "10 minutes")
+       .groupBy(F.window("ts", "5 minutes")).count())
+```
+
+แปลว่า "ยอมรับข้อมูลที่ช้าได้ไม่เกิน 10 นาทีเทียบกับ event ที่ใหม่สุดที่เคยเห็น" Spark ใช้ **watermark = event time ที่ใหม่สุด ลบ 10 นาที** window ที่ปลายช่วงไม่เกิน watermark ถือว่าจบ ส่งผลออกใน `append` mode และลบออกจาก state event ที่เก่ากว่า watermark ถูกทิ้ง
+
+ลองดูสี่ไฟล์เข้ามาทีละไฟล์ โดยไฟล์สุดท้ายเป็น event ที่มาช้า
+
+<WatermarkLab client:visible />
+
+สิ่งที่ตัวเลขจริงสอน (ตาราง `recentProgress` จากการรัน)
+
+```
+batchId  numInputRows  watermark ที่ใช้
+0        2             1970-01-01T00:00:00Z
+1        0             11:53
+2        1             11:53
+3        0             11:56
+4        1             11:56
+5        0             12:10        <- window ปิดและถูกส่งออก
+6        1             12:10        <- event ที่มาช้า
+```
+
+- **watermark คำนวณตอนจบ batch และใช้ใน batch ถัดไป** ไม่ใช่ใน batch เดียวกัน ดังนั้นผลของ window จึงออกช้ากว่าที่คิดหนึ่ง batch
+- Spark รัน **batch ที่ไม่มีข้อมูลใหม่** (`numInputRows = 0`) เพื่อนำ watermark ใหม่ไปใช้ ถ้าไม่มี window จะไม่ปิดจนกว่าจะมีข้อมูลมาถึง (ควบคุมด้วย `spark.sql.streaming.noDataMicroBatches.enabled` ค่าเริ่มต้น true)
+- ใน `append` mode ผลของไฟล์ที่ 1 และ 2 ว่างเปล่า (วัดจริง) เพราะ window ยังเปิดอยู่ ต้องรอ event ที่ 12:20 ดัน watermark ไปถึง 12:10
+- event 12:01 ที่มาช้าถูกทิ้ง ผลที่ส่งออกไปแล้วไม่เปลี่ยน และ `numRowsDroppedByWatermark` ใน progress เพิ่ม
+
+<Callout type="note" title="watermark ที่ใหญ่ขึ้นแลกกับอะไร">
+watermark ยาว รับข้อมูลช้าได้มากขึ้น แต่ผลออกช้าลงและ state ใหญ่ขึ้น (ต้องเก็บ window นานขึ้น) watermark สั้น ผลออกเร็ว แต่ข้อมูลที่มาช้าจะถูกทิ้ง ต้องเลือกตามว่าข้อมูลของคุณมาช้าได้แค่ไหน
+</Callout>
+
+</Step>
+
+<Step>
+
+## State อยู่ที่ไหน
+
+operator ที่ต้องจำค่าข้าม batch (aggregation, dedup, join ฝั่ง stream) เก็บใน **state store** แผนของ query ข้างบนมี operator เฉพาะ streaming (วัดจากการ `explain()`)
+
+```
+StateStoreSave   [window#..-T600000ms], state info [... opId = 0, numPartitions = 4], Append, ...
++- StateStoreRestore [window#..-T600000ms], state info [...]
+   +- EventTimeWatermark ..., ts#0: timestamp, 10 minutes
+      +- StreamingRelation FileSource[...], [ts#0, user#1, amt#2]
+```
+
+ทุก batch: `StateStoreRestore` อ่านค่าเดิมจาก state เวอร์ชันก่อน `StateStoreSave` เขียนค่าใหม่เป็นเวอร์ชันถัดไป state ถูกแบ่งตาม partition ของ shuffle (ที่นี่ 4) และเก็บใน `state/<operator>/<partition>/`
+
+- **provider ค่าเริ่มต้น** คือ `HDFSBackedStateStoreProvider` (`spark.sql.streaming.stateStore.providerClass`) เก็บ state ทั้งหมดของ partition ใน memory ของ executor และเขียนการเปลี่ยนแปลงเป็นไฟล์ `.delta` ต่อเวอร์ชัน (บางเวอร์ชันรวมเป็น snapshot)
+- **RocksDB** เป็นทางเลือก (`RocksDBStateStoreProvider`) เก็บ state ใน RocksDB บน disk จึงรับ state ใหญ่กว่า memory ได้ วัดจริง: เปลี่ยน provider แล้ว query นับได้ปกติ และใน checkpoint เห็นไฟล์ `.sst` และ `.zip` แทน `.delta`
+- ตัวเลขดูได้ใน `lastProgress["stateOperators"]`: `numRowsTotal`, `numRowsUpdated`, `numRowsRemoved`, `numRowsDroppedByWatermark`, `memoryUsedBytes` ใช้ติดตามว่า state โตเกินไหม ในการรัน watermark ข้างบน `numRowsRemoved` = 2 ตอนที่ window ปิด
+
+</Step>
+
+<Step>
+
+## Trigger: เมื่อไรถึงรัน Batch ถัดไป
+
+| trigger | พฤติกรรม |
+|---|---|
+| ไม่ระบุ | รัน batch ถัดไปทันทีที่ batch ก่อนจบและมีข้อมูล |
+| `processingTime="1 second"` | เริ่ม batch ทุกช่วงเวลา |
+| `availableNow=True` | ประมวลผลข้อมูลที่ค้างอยู่ทั้งหมดแล้ว **หยุดเอง** |
+| `once=True` | เหมือนข้างบนแต่ใน batch เดียว (ประกาศเลิกใช้ตั้งแต่ Spark 3.4.0 ให้ใช้ `availableNow` แทน) |
+
+`availableNow` เหมาะกับงานที่รันเป็นรอบ เช่น cron ทุกชั่วโมง โดยยังได้ checkpoint ครบ วัดจริง: มี 3 ไฟล์ค้าง และ `maxFilesPerTrigger=1` ได้ batch 0, 1, 2 แล้ว query จบเอง (`isActive` เป็น False) รันใหม่ด้วย checkpoint เดิมไม่เกิด batch เลย เพราะ checkpoint จำได้ว่าไฟล์ไหนอ่านแล้ว
+
+Spark 4.2 ยังมี trigger แบบ real-time ใน source (`RealTimeTrigger`) แต่บทนี้ไม่ได้ทดสอบ
+
+</Step>
+
+<Step>
+
+## ลองทำ
+
+```bash
+cd subjects/spark/code
+uv run python exercises/09_streaming.py
+```
+
+บน Windows สคริปต์เปิด WSL ให้เอง (ต้องตั้งค่า `~/spark-lab` ตามคอมเมนต์ใน `run_wsl.sh` ก่อนหนึ่งครั้ง) ใช้เวลาราว 2 นาที ทุกตัวเลขในบทผ่าน `assert` ลองดัดแปลง
+
+1. เปลี่ยน watermark เป็น `"1 minute"` แล้วดูว่า window ปิดเมื่อไร
+2. เพิ่มไฟล์ที่ event 12:08 หลัง batch ที่ปิด window ไปแล้ว ดูว่าถูกทิ้งไหม
+3. ลบ `commits/N` ทุกตัวหลังตัวที่ 2 แล้วรีสตาร์ท ดูว่า batch ไหนถูกรันซ้ำ
+
+เช็กตัวเอง
+
+- ทำไม Spark ต้องเขียน `offsets/N` **ก่อน** รัน batch
+- รีสตาร์ทหลังล่มแล้ว sink ได้ batch เดิมสองครั้ง ต้องทำอย่างไรให้ไม่เกิดข้อมูลซ้ำ
+- ทำไม `append` กับ `groupBy().count()` ที่ไม่มี watermark ถึงใช้ไม่ได้
+
+**ที่ยังไม่ครอบคลุม**: stream-stream join, `flatMapGroupsWithState`, Kafka source/sink (ไม่ได้ทดสอบ และส่วนที่เกี่ยวกับ join/arbitrary state ของ stream ยังไม่อยู่ใน knowledge graph)
+
+</Step>

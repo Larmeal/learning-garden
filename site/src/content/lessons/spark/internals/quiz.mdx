@@ -1,0 +1,86 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 6 ข้อ เพื่อเช็กว่าเข้าใจ RDD, stage, shuffle file, memory และ codegen แค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="DAGScheduler ตัด job เป็น stage ที่ตรงไหน"
+  options={['ทุกครั้งที่เรียก transformation ใหม่', 'ตรง ShuffleDependency ส่วน narrow dependency รวมอยู่ใน stage เดียวกัน', 'ตามจำนวน executor']}
+  answer={1}
+  why="narrow dependency (map, filter) pipeline ในงานเดียวได้ ส่วน ShuffleDependency ต้องการผลจากทุก partition พ่อ จึงเป็นขอบเขต: ฝั่งพ่อเป็น ShuffleMapStage ฝั่งสุดท้ายเป็น ResultStage"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="reduceByKey สองครั้งต่อกันแล้ว collect ได้กี่ stage"
+  options={['2 stage', '3 stage (สอง ShuffleMapStage กับหนึ่ง ResultStage)', '1 stage']}
+  answer={1}
+  why="shuffle สองครั้งตัดเป็นสามช่วง วัดจริงด้วย statusTracker ได้ stage ที่มี 4, 4, 4 task ถ้าเป็นแค่ reduceByKey ครั้งเดียวจะได้ 2 stage"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="groupBy ที่มี 8 map task เขียนไฟล์ shuffle รวมกี่ไฟล์ในการวัด"
+  options={['8 ไฟล์ (ไฟล์ต่อ map task)', '24 ไฟล์ (8 map task x .data, .index และ .checksum)', '8 x จำนวน reduce partition ไฟล์']}
+  answer={1}
+  why="map task แต่ละตัวเขียน .data หนึ่งไฟล์ที่เก็บทุก reduce partition ต่อกัน พร้อม .index ที่บอก offset และ .checksum.ADLER32 จึงไม่ต้องมี M x R ไฟล์"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="heap 600 MiB ค่าเริ่มต้นของ memory.fraction 0.6 และ reserved 300 MiB unified memory ได้เท่าไร"
+  options={['360 MiB (600 x 0.6)', '180 MiB ((600 - 300) x 0.6)', '300 MiB']}
+  answer={1}
+  why="หัก reserved 300 MiB ก่อน แล้วคูณ 0.6 วัดจริงได้ 188,743,680 ไบต์ = 180 MiB ตรงสูตร ครึ่งหนึ่ง (90 MiB) เป็นพื้นที่ของ storage ตามค่าเริ่มต้นของ storageFraction"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="cache ข้อมูลด้วย MEMORY_ONLY จน storage ใช้เกินครึ่งของ unified memory แล้วรัน sort ที่ต้องการ memory มาก อะไรเกิดขึ้น"
+  options={['sort ล้มเหลวเพราะ storage ไม่คืน memory', 'execution เอาคืนโดย evict block ของ storage ที่ยืมเกินเส้น ผลวัดจริง cache เหลือ 2 จาก 4 partition', 'storage evict execution แทน']}
+  answer={1}
+  why="storage ยืมที่ว่างของ execution ได้ แต่ execution เอาคืนได้ (evict block ของ storage ที่เกินเส้น) ส่วน storage เอาคืนจาก execution ไม่ได้ จึงไม่มีการรับประกันว่า MEMORY_ONLY cache อยู่ครบ"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ใน plan ของ groupBy ทำไม Exchange ไม่มี * นำหน้า ในขณะที่ operator รอบๆ มี *(1) และ *(2)"
+  options={['เพราะ Exchange ช้ากว่า', 'เพราะ Exchange ไม่อยู่ใน whole-stage codegen แต่เป็นขอบเขตที่แบ่ง codegen เป็นสองก้อน', 'เพราะ AQE ปิดการ codegen ของมัน']}
+  answer={1}
+  why="Exchange (shuffle) เป็นขอบเขตของ stage ไม่ใช่ operator ที่ถูกรวมเป็นลูปใน generated class ตรวจจริงว่ามี *(1) กับ *(2) ใน plan แต่ไม่มี * ที่บรรทัด Exchange"
+/>
+
+</Step>

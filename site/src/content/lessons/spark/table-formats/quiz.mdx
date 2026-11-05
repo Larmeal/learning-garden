@@ -1,0 +1,74 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 5 ข้อ เพื่อเช็กว่าเข้าใจ table format แค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="ตาราง Delta ถูก UPDATE ไปหนึ่งครั้ง แล้วอ่านโฟลเดอร์ด้วย spark.read.parquet(path) ได้จำนวนแถวมากกว่าอ่านผ่าน Delta เพราะอะไร"
+  options={['Delta ลบแถวซ้ำให้ตอนอ่าน', 'UPDATE เขียนไฟล์ใหม่และ log สั่ง remove ไฟล์เก่า แต่ไฟล์เก่ายังอยู่ใน disk ซึ่ง Parquet ตรงๆ อ่านด้วย', 'spark.read.parquet อ่านไฟล์ _delta_log เป็นข้อมูลด้วย']}
+  answer={1}
+  why="Parquet immutable จึงไม่มีการแก้ไฟล์เดิม UPDATE คือ add ไฟล์ใหม่และ remove ไฟล์เก่าใน log (copy-on-write) การอ่านผ่าน Delta เล่น log และอ่านเฉพาะไฟล์ที่ยังอยู่ในตาราง ส่วน Parquet ตรงๆ อ่านทุกไฟล์ในโฟลเดอร์ ในการวัดได้ 125 เทียบ 100"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ตาราง Delta ที่ version N คือข้อไหน"
+  options={['ไฟล์ล่าสุดที่ถูกเขียน', 'ไฟล์ที่ add และยังไม่ถูก remove จากการเล่น commit 0 ถึง N', 'ไฟล์ทุกไฟล์ในโฟลเดอร์ที่ไม่ใช่ _delta_log']}
+  answer={1}
+  why="ตารางคือผลของการเล่น log ไฟล์บน disk อาจมากกว่านั้น (ไฟล์ที่ถูก remove แต่ยังไม่ VACUUM) จึงอ่านโฟลเดอร์ตรงๆ ไม่ได้"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="writer สองคน UPDATE แถวต่างกันแต่อยู่ในไฟล์เดียวกันพร้อมกัน ผลที่ได้จากการทดลองคืออะไร"
+  options={['ทั้งสองสำเร็จ และข้อมูลถูกรวมกัน', 'คนแรกที่ commit สำเร็จ คนที่สองได้ ConcurrentAppendException และไม่มีข้อมูลเสียหาย', 'ทั้งสองล้มเหลว']}
+  answer={1}
+  why="optimistic concurrency: ต่างคนต่างอ่าน version เดียวกัน คนที่สร้างไฟล์ version ถัดไปได้ก่อนชนะ อีกคนตรวจแล้วพบว่าไฟล์ที่ตัวเองอ่านถูกเปลี่ยน จึงล้มเหลวและต้อง retry เอง"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="หลัง VACUUM แล้ว ทำ time travel ไป version 0 ได้ผลอะไร"
+  options={['ได้ข้อมูลเดิม เพราะ log ยังเก็บ version 0', 'error FILE_NOT_EXIST เพราะไฟล์ข้อมูลที่ version 0 ใช้ถูกลบไปแล้ว', 'ได้ตารางว่าง']}
+  answer={1}
+  why="log ยังบอกว่า version 0 ประกอบด้วยไฟล์ไหน แต่ VACUUM ลบไฟล์ที่ไม่ถูกอ้างถึงโดย version ปัจจุบันและเก่ากว่า retention ทำให้อ่านไม่ได้ นี่คือราคาของ time travel"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เอา iceberg-spark-runtime ที่ build สำหรับ Spark 4.1 มาใช้กับ Spark 4.2.0 ได้ผลอย่างไรในการทดลอง"
+  options={['ใช้ได้ปกติ เพราะ minor version ใกล้กัน', 'IncompatibleClassChangeError เพราะ View ใน Spark 4.2 เปลี่ยนจาก interface เป็น class', 'ใช้ได้แต่ช้ากว่า']}
+  answer={1}
+  why="jar ของ table format ผูกกับ API ภายในของ Spark ที่เปลี่ยนได้ใน minor release ใน source ของ 4.2 org.apache.spark.sql.connector.catalog.View เป็น class ตรวจ release ที่ตรงกับ Spark ของคุณก่อนอัปเกรด"
+/>
+
+</Step>

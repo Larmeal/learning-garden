@@ -1,0 +1,183 @@
+---
+title: Catalyst ข้างใน
+summary: QueryExecution ทีละ member, RuleExecutor กับ batch ของ Analyzer และ Optimizer, ANSI mode ที่ถูกล็อกตอน analyze, ลูปของ AQE, การคำนวณขนาด partition ที่รวมได้ และเงื่อนไขที่ AQE ไม่ทำงาน
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+หน้านี้ตามรอยจาก source ของ Spark 4.2.0 (tag v4.2.0) ตัวเลขบรรทัดอ้างอิงถึงไฟล์ใน repo ของ Spark ส่วนผลที่ระบุว่ารัน มาจาก `exercises/06_catalyst_aqe.py` หรือการรันแยกบนเครื่อง 16 core (ANSI mode เปิดตามค่าเริ่มต้น)
+
+<Step>
+
+## `QueryExecution` ทีละ Member
+
+class `QueryExecution` (`QueryExecution.scala:67`) ถือแผนทุกแบบไว้เป็น `lazy val` ไม่มี member ชื่อ `parsedPlan` ส่วน Parsed ที่ `explain` พิมพ์คือ argument ชื่อ `logical` ที่ส่งเข้ามาตอนสร้าง
+
+| member | ทำอะไร | บรรทัด |
+|---|---|---|
+| `analyzed` | `analyzer.executeAndCheck(...)` | 192-213 |
+| `commandExecuted` | รัน `Command` node ทันที เช่นงานเขียนใน `CREATE TABLE AS SELECT` | 215-225 |
+| `withCachedData` | แทนที่ส่วนที่ `cache()` ไว้ด้วยข้อมูลใน cache | 289-307 |
+| `optimizedPlan` | `optimizer.executeAndTrack(...)` | 311-331 |
+| `sparkPlan` | `planner.plan(ReturnAnswer(plan)).next()` เอาตัวเลือกแรกเสมอ | 335-349 |
+| `executedPlan` | ใช้ `preparations` ตามลำดับ | 353-372 |
+
+ลำดับของ `preparations` สำคัญ (บรรทัด 750-782): `InsertAdaptiveSparkPlan` มาก่อนเพื่อน แล้วตามด้วย `PlanSubqueries`, `RemoveRedundantProjects`, `EnsureRequirements` (ตัวนี้เองที่แทรก `Exchange` และ `Sort`), `CollapseCodegenStages`, `ReuseExchangeAndSubquery`
+
+เพราะ `AdaptiveSparkPlanExec` เป็น leaf node ที่ซ่อนแผนเดิมไว้ข้างใน rule หลังจากนั้นใน `preparations` จึงไม่มีอะไรให้ทำ (comment ที่บรรทัด 754-756) ตัวมันเองเรียก rule พวกนี้ซ้ำภายในตอนสร้าง stage
+
+</Step>
+
+<Step>
+
+## `RuleExecutor`: Batch, `Once` และ `FixedPoint`
+
+Analyzer และ Optimizer สืบจาก `RuleExecutor` (`RuleExecutor.scala:215-325`) งานของมันคือ
+
+1. มีรายการ **batch** แต่ละ batch คือกลุ่มของ rule กับ strategy
+2. ไล่ batch ตามลำดับ ในแต่ละ batch รัน rule ทุกตัวหนึ่งรอบ
+3. ถ้า strategy เป็น `Once` (maxIterations = 1) จบ
+4. ถ้าเป็น `FixedPoint(n)` วนซ้ำจนแผนไม่เปลี่ยน (`curPlan.fastEquals(lastPlan)`, บรรทัด 312) หรือครบ n รอบ
+
+ค่าสูงสุดของ `FixedPoint` คือ `spark.sql.optimizer.maxIterations` และ `spark.sql.analyzer.maxIterations` ทั้งคู่ 100 ถ้าครบ 100 รอบแล้วแผนยังเปลี่ยนอยู่ Optimizer แค่เตือน (`errorOnExceed = false`) แต่ Analyzer ตั้ง `errorOnExceed = true` จึง error
+
+</Step>
+
+<Step>
+
+## Batch ของ Optimizer
+
+`Optimizer.defaultBatches` (`Optimizer.scala:100-291`) มี 30 batch ตารางนี้เลือกมาที่เล่าเรื่องได้
+
+| batch | strategy | อยู่ที่ |
+|---|---|---|
+| Finish Analysis | FixedPoint(1) | 177 |
+| Union | FixedPoint(100) | 192 |
+| Subquery | FixedPoint(1) | 213 |
+| Replace Operators | FixedPoint(100) | 216 |
+| Aggregate | FixedPoint(100) | 228 |
+| **Operator Optimization before Inferring Filters** | FixedPoint(100) | 165 (รายการกฎ 101-162 มี ~60 ตัว) |
+| **Infer Filters** | Once | 167 |
+| **Operator Optimization after Inferring Filters** | FixedPoint(100) | 170 |
+| Push extra predicate through join | FixedPoint(100) | 172 |
+| Early Filter and Projection Push-Down | Once | 239 (`SparkOptimizer` เติมกฎ schema pruning, V2 scan pushdown, partition pruning) |
+| Join Reorder | FixedPoint(1) | 243 (`CostBasedJoinReorder` ไม่ทำอะไรถ้าไม่เปิด CBO) |
+| Eliminate Sorts | Once | 251 |
+| Check Cartesian Products | Once | 274 |
+
+สองข้อที่น่าสนใจ
+
+- "Operator Optimization" ปรากฏสองรอบ **ด้วยชุด rule เดียวกัน** โดยมี "Infer Filters" คั่นกลาง เพราะ `InferFiltersFromConstraints` สร้าง filter ใหม่ (เช่น `IsNotNull(amount)` หรือ `c_id > 990` ที่อีกฝั่งของ join) ซึ่งต้องให้กฎ pushdown ทำงานต่ออีกรอบ
+- `SparkOptimizer` (ตัวที่ใช้จริง) เติม batch ของตัวเองรอบๆ เช่น `PartitionPruning`, `InjectRuntimeFilter`, และ **Extract Python UDFs** (`SparkOptimizer.scala:75`) ซึ่งเป็นจุดที่ Python UDF ถูกดึงออกมาเป็น node แยก (เรื่องของบทที่ 8)
+
+</Step>
+
+<Step>
+
+## Analyzer และ ANSI Mode ที่ถูกล็อกตอน Analyze
+
+Analyzer ทำงานเป็น batch เหมือนกัน batch ใหญ่คือ **Resolution** (`Analyzer.scala:539`, FixedPoint) ที่ประกอบด้วย `ResolveRelations`, `ResolveReferences`, type coercion และอื่นๆ query เล็กๆ อย่าง `SELECT ... FROM v` ใช้แค่ `ResolveRelations`, `ResolveReferences`, `AnsiTypeCoercion`, `ResolveUpCast`, `ResolveTimeZone` (trace จาก plan change log)
+
+rule ของ type coercion เลือกตาม ANSI mode: `AnsiTypeCoercion` เมื่อเปิด และ `TypeCoercion` เมื่อปิด (`Analyzer.scala:506-510`) ค่าเริ่มต้นของ `spark.sql.ansi.enabled` คือ true เว้นแต่ตัวแปรสภาพแวดล้อม `SPARK_ANSI_SQL_MODE=false`
+
+สิ่งที่คนมักพลาดคือ **ANSI mode ถูกล็อกตอน analyze ไม่ใช่ตอนรัน** (รัน)
+
+```python
+spark.conf.set("spark.sql.ansi.enabled", "true")
+df = spark.createDataFrame([("abc",)], "s string").selectExpr("cast(s as int) AS i")
+spark.conf.set("spark.sql.ansi.enabled", "false")
+df.collect()     # ยัง error: CAST_INVALID_INPUT
+```
+
+DataFrame ถูก analyze ตอนบรรทัดแรก ตอนนั้น ANSI เปิด ต่อให้ปิดทีหลังก็ไม่ช่วย ถ้าอยากเห็น `NULL` ต้องปิดก่อนสร้าง DataFrame
+
+plan text ของ cast ไม่ต่างกันระหว่างสองโหมด (ทั้งคู่เป็น `cast(s as int)`) ความต่างอยู่ที่โค้ดที่ generate: `explain("codegen")` ของ `a + 1` มี `MathUtils.addExact` เมื่อเปิด ANSI และไม่มีเมื่อปิด
+
+</Step>
+
+<Step>
+
+## ลูปของ AQE
+
+`AdaptiveSparkPlanExec` (`AdaptiveSparkPlanExec.scala:69`) คือ leaf node ที่ถือแผนเดิมไว้ ลูปหลักคือ `withFinalPlanUpdate` (บรรทัด 268-396)
+
+1. **สร้าง query stage**: ตัดแผนตรง `Exchange` เป็น `ShuffleQueryStage` และ `BroadcastQueryStage` (`createQueryStages`, บรรทัด 543)
+2. **เริ่ม materialize** stage ที่พร้อม broadcast stage ก่อน (บรรทัด 293-322) แล้วบล็อกรอ event ว่ามี stage ไหนเสร็จ (บรรทัด 328)
+3. **แทน stage ที่เสร็จ** เข้าไปใน logical plan ด้วยสถิติจริง (บรรทัด 357)
+4. **`reOptimize`** (บรรทัด 805-835): ล้าง cache ของสถิติ, รัน `AQEOptimizer`, วางแผนใหม่ด้วย planner, รัน physical rule อีกชุด
+5. **เทียบ cost** แล้วรับแผนใหม่เมื่อ cost ต่ำกว่า หรือเท่ากันแต่แผนต่างกัน (บรรทัด 367-379)
+6. วนกลับไปข้อ 1 จนไม่เหลือ stage ที่ต้องสร้าง แล้วตั้ง `_isFinalPlan = true` (บรรทัด 389)
+
+ใน 4.2 stage สุดท้ายคือ `ResultQueryStage` (บรรทัด 345, 394) ซึ่งไม่มีในเอกสารเก่า
+
+**cost คืออะไร** ค่าเริ่มต้นคือ `SimpleCostEvaluator` ซึ่งนับ **จำนวน `ShuffleExchangeLike` ในแผน** เท่านั้น (`simpleCosting.scala:42-65`) ดังนั้น AQE ยอมรับแผนใหม่ที่ shuffle น้อยลง หรือเท่าเดิมแต่ต่างกัน ไม่ได้ดูขนาดข้อมูลหรือเวลาเลย
+
+`AQEOptimizer` (logical, `AQEOptimizer.scala:39-47`) มี batch: Propagate Empty Relations, **Dynamic Join Selection** (Once), Eliminate Limits, Optimize One Row Plan ส่วน rule ระดับ physical ต่อ stage (`AdaptiveSparkPlanExec.scala:137-145`) คือ `CoalesceShufflePartitions`, `OptimizeShuffleWithLocalRead`, `OptimizeSkewInRebalancePartitions` และ rule ของ dynamic pruning กับ subquery
+
+</Step>
+
+<Step>
+
+## ทำไมถึงรวมเหลือ 1 Partition
+
+ตัวเลข "200 กลายเป็น 1" มาจากสูตรใน `ShufflePartitionsUtil.scala:60-62`
+
+```
+target = max( min( totalBytes / minNumPartitions , advisory ), minPartitionSize )
+```
+
+ใน query ของบทหลัก shuffle รวมกันแค่ 1,152 ไบต์ (48 แถว = 16 map task คูณ 3 key หลัง partial aggregate) เครื่องนี้ `defaultParallelism` = 16 (เมื่อ `parallelismFirst` เป็น true ใช้ค่านี้เป็น `minNumPartitions`, `CoalesceShufflePartitions.scala:59-69`)
+
+- `totalBytes / minNumPartitions` = 1152 / 16 = 72 ไบต์
+- `min(72 B, advisory 64 MB)` = 72 ไบต์
+- `max(72 B, minPartitionSize 1 MB)` = **1 MB**
+
+เป้า 1 MB ใหญ่กว่าข้อมูลทั้งก้อนมาก partition ที่อยู่ติดกันจึงถูกรวมเข้าหากันจนเหลือ 1 ทดลองเปลี่ยนค่า (รัน)
+
+| ตั้งค่า | partition ที่ได้ |
+|---|---|
+| ค่าเริ่มต้น | 1 |
+| `spark.sql.adaptive.enabled=false` | 200 |
+| `coalescePartitions.enabled=false` | 200 |
+| `coalescePartitions.parallelismFirst=false` | 1 |
+| advisory = 1 byte, minPartitionSize = 1 byte | 3 (มีข้อมูลแค่ 3 จาก 200 partition: key 0, 1, 2) |
+
+ตัวเลขนี้ขึ้นกับจำนวน core และปริมาณข้อมูล บนข้อมูลจริงหลาย GB เป้าจะเป็นราว 64 MB ต่อ partition ไม่ใช่ 1 partition
+
+</Step>
+
+<Step>
+
+## เมื่อไหร่ที่ AQE ไม่ห่อแผน
+
+`InsertAdaptiveSparkPlan` (`InsertAdaptiveSparkPlan.scala:44`) ห่อแผนด้วย AQE เฉพาะเมื่อข้อใดข้อหนึ่งเป็นจริง (บรรทัด 99-124)
+
+- แผนมี `Exchange` อยู่แล้ว
+- มี operator ที่ต้องการ distribution ใหม่ ซึ่งจะทำให้เกิด `Exchange`
+- มี subquery
+- `spark.sql.adaptive.forceApply` เป็น true (internal, ค่าเริ่มต้น false)
+
+และข้ามเสมอเมื่อเป็น command (บรรทัด 52-58) หรือ streaming แบบ stateful (บรรทัด 62-70)
+
+`spark.range(100).filter("id > 5")` จึงไม่มี `AdaptiveSparkPlan` ในแผนเลย (รัน)
+
+</Step>
+
+<Step>
+
+## ข้อควรระวังเพิ่มเติม
+
+1. **Join strategy ที่ AQE เปลี่ยนใช้ขนาดจริงของ shuffle output** `canBroadcastBySize` (`joins.scala:367-375`) ใช้ `spark.sql.autoBroadcastJoinThreshold` หรือถ้าตั้ง `spark.sql.adaptive.autoBroadcastJoinThreshold` (ค่าเริ่มต้นไม่ตั้ง) ก็ใช้ตัวนั้นกับสถิติ runtime
+2. **เมื่อฝั่งเล็กมี partition ว่างเกินไป** `DynamicJoinSelection` ใส่ `NO_BROADCAST_HASH` ให้ฝั่งนั้น (`DynamicJoinSelection.scala:30-44`) ตั้ง `nonEmptyPartitionRatioForBroadcastJoin=0` แล้ว query เดิมกลายเป็น `BroadcastHashJoin` (รัน)
+3. **Skew join ต้องมี shuffled join** broadcast join ไม่มี shuffle ให้แยก threshold คือ `max(skewedPartitionThresholdInBytes, median × skewedPartitionFactor)` (`OptimizeSkewedJoin.scala:65-68`) partition ที่เบ้ถูกหั่นตามช่วงของ map task และ partition อีกฝั่งถูกทำสำเนา ถ้าทั้งสองฝั่งเบ้จะกลายเป็น cartesian ของชิ้นย่อย
+4. **filter ที่อนุมานข้าม join ทำให้ขนาดฝั่งตรงข้ามเล็กลงโดยไม่คาดคิด** ในการทดลอง filter บน key ที่คำนวณจากฝั่งขวาทำให้ฝั่งซ้ายถูกกรองเหมือนกัน ถ้าต้องการให้ขนาดของฝั่งหนึ่ง "ไม่รู้" ให้ใช้ non-deterministic filter อย่าง `F.rand(42) < 0.000002` ซึ่งไม่ถูกอนุมานหรือ push
+5. **ชื่อ scan ไม่เหมือนกันระหว่างโหมด** `Scan csv` ใน `formatted` แต่ `FileScan csv` ใน tree แบบอื่น
+6. **ค่า config ที่อ่านใน Python มีหน่วยต่อท้าย** `spark.conf.get("spark.sql.adaptive.advisoryPartitionSizeInBytes")` ได้ `67108864b`
+7. **สิ่งที่ยังไม่ได้ทดสอบ**: พฤติกรรม pushdown ของ Parquet/ORC (เครื่องนี้เขียน Parquet ไม่ได้ ตัวอย่างจึงใช้ CSV), การรวม partition ของ `repartition(n)` (อ่านจาก `supportedShuffleOrigins` ไม่มี `REPARTITION_BY_NUM`), และตัวเลขความเร็วของ Tungsten/codegen/AQE
+
+</Step>

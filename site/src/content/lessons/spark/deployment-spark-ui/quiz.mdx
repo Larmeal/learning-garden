@@ -1,0 +1,74 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 5 ข้อ เพื่อเช็กว่าอ่าน Spark UI และเข้าใจการ deploy แค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="application จบไปแล้ว อยากเปิด Spark UI ดูย้อนหลัง ต้องมีอะไรไว้ก่อนหน้า"
+  options={['ไม่ต้องทำอะไร Spark UI เก็บไว้ที่ driver ตลอด', 'เปิด spark.eventLog.enabled ไว้ตอนรัน (ค่าเริ่มต้นปิด) แล้วใช้ History Server อ่าน event log', 'ต้องรันบน YARN เท่านั้น']}
+  answer={1}
+  why="Spark UI อยู่กับ driver เฉพาะตอน application ยังรัน ถ้าเปิด event log ไว้ Spark เขียนทุก event (เช่น task start/end 14 ตัวในแล็บ) ลงไฟล์ และ History Server เล่น event เหล่านั้นกลับเป็นหน้า UI เดิม"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ใน stage หนึ่ง Summary Metrics แสดง Duration ของ task ที่ Median 3 วินาที แต่ Max 90 วินาที บอกอะไร"
+  options={['executor บางตัวหายไป', 'น่าจะมี skew คือบาง task ได้ข้อมูลมากกว่าเพื่อนมาก', 'shuffle.partitions น้อยเกินไปเสมอ']}
+  answer={1}
+  why="Max ที่ห่างจาก Median มากคือสัญญาณของ skew ให้ดูต่อว่า task ที่ช้าอ่านข้อมูลเท่าไร (shuffleReadMetrics) และแก้ด้วย salting หรือ skew join ของ AQE ตามบทที่ 7"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="spark-submit --master spark://... --deploy-mode cluster app.py ที่เป็นโปรแกรม Python ผลคืออะไร"
+  options={['รันได้ driver ถูกส่งไปรันบน cluster', 'error ว่า cluster deploy mode ไม่รองรับแอป Python บน standalone cluster', 'รันเป็น client mode ให้โดยอัตโนมัติ']}
+  answer={1}
+  why="SparkSubmit ตรวจกรณี (STANDALONE, CLUSTER) กับแอป Python แล้วเรียก error ตรงๆ ถ้าต้องการ cluster mode กับ Python ต้องใช้ YARN หรือ Kubernetes"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เปิด dynamic allocation พร้อม shuffle tracking แล้ว job ที่มี shuffle จบไปแล้ว รอเกิน executorIdleTimeout แต่ executor ยังไม่ถูกคืน ทำไม"
+  options={['เป็นบั๊ก ควรถูกคืนทุกกรณี', 'executor ถือ shuffle data ของ job ที่เพิ่งจบไว้ shuffle tracking จึงไม่ปล่อยจนกว่าข้อมูลนั้นไม่ถูกใช้แล้ว (timeout เริ่มต้นไม่มีกำหนด)', 'เพราะ idle timeout ต้องเกิน 60 วินาทีเสมอ']}
+  answer={1}
+  why="ในแล็บ job ที่มี shuffle ยังเหลือ executor 2 ตัวหลังรอ 8 วินาที ส่วน job ที่ไม่มี shuffle ถูกคืนจนเหลือแต่ driver shuffleTracking.timeout ค่าเริ่มต้นเป็น Long.MaxValue"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ข้อไหนทำไม่ได้ใน Spark Connect"
+  options={['df.collect() และ df.explain()', 'df.rdd และ spark.sparkContext เพราะต้องพึ่ง JVM ที่ client ไม่มี', 'df.filter และ df.groupBy']}
+  answer={1}
+  why="Connect client สร้าง logical plan ส่งผ่าน gRPC ไป server ไม่มี JVM ฝั่ง client จึงเข้าถึง SparkContext และ RDD ไม่ได้ (PySparkAttributeError และ PySparkNotImplementedError ในการทดลอง) ส่วน transformation, collect และ explain ใช้ได้"
+/>
+
+</Step>

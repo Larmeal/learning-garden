@@ -1,0 +1,86 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 6 ข้อ เพื่อเช็กว่าอ่านแผนและเข้าใจ AQE แค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="อยากเห็น Parsed, Analyzed, Optimized และ Physical plan ครบสี่แผน ต้องเรียกอะไร"
+  options={['explain("formatted")', 'explain(True)', 'explain("cost")']}
+  answer={1}
+  why="explain(True) หรือ explain('extended') พิมพ์ครบสี่แผน ส่วน formatted พิมพ์เฉพาะ Physical plan แต่จัดรูปให้อ่านง่าย และ cost พิมพ์ Optimized plan พร้อมสถิติ"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ใน plan ของการอ่านไฟล์ CSV มี PushedFilters ที่ระบุเงื่อนไขของ filter แล้ว Filter operator ยังอยู่เหนือ scan ด้วย ข้อไหนอธิบายถูก"
+  options={['Spark push ไม่สำเร็จ Filter จึงยังอยู่', 'PushedFilters เป็นคำใบ้ให้ตัวอ่านไฟล์ Spark ยังตรวจซ้ำด้วย Filter เสมอ', 'Filter ที่เห็นเป็นของเก่า รันจริงจะหายไป']}
+  answer={1}
+  why="pushdown ไม่ได้แปลว่า Filter หาย ตัวอ่านไฟล์บางชนิดใช้เงื่อนไขข้ามข้อมูลได้ แต่ Spark เก็บ Filter ไว้ตรวจซ้ำ ดูได้จาก ReadSchema ที่ตัด column ที่ไม่ใช้ออกด้วย"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="query มี WHERE 1 = 1 AND id > 10 ทำไม 1 = 1 ถึงหายไปจาก Optimized plan"
+  options={['Parser ตัดทิ้งตั้งแต่ตอนอ่าน SQL', 'กฎ ConstantFolding คิดให้เป็น true แล้ว BooleanSimplification ตัด true AND p เหลือ p', 'ตัวอ่านไฟล์ตัดให้ตอนรัน']}
+  answer={1}
+  why="Parsed และ Analyzed plan ยังมี 1 = 1 อยู่ มันหายไปเพราะกฎสองตัวของ Optimizer ทำงานต่อกัน นี่คือภาพของ Catalyst: กฎเล็กๆ ต่อกันหลายตัว"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เรียก g.explain() ก่อนรัน เห็น isFinalPlan=false จากนั้นเรียก g.count() แล้ว g.explain() อีกครั้ง จะเห็นอะไร"
+  options={['isFinalPlan=true เพราะ count() รัน query แล้ว', 'ยังเป็น isFinalPlan=false เพราะ count() สร้าง DataFrame ใหม่ g ไม่ได้รัน', 'AdaptiveSparkPlan หายไปจาก plan']}
+  answer={1}
+  why="count() และ show() ต่อ aggregate หรือ limit ให้เป็น query ใหม่ DataFrame เดิมไม่ได้รัน ต้องใช้ collect() หรือ rdd บน object เดิมถึงจะเห็น isFinalPlan=true"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="groupBy บนข้อมูลเล็กมาก shuffle ได้ 200 partition ตามค่า spark.sql.shuffle.partitions เมื่อเปิด AQE (ค่าเริ่มต้น) แล้วดู getNumPartitions() ของผลลัพธ์ จะได้ประมาณเท่าไร"
+  options={['200 เสมอ เพราะ AQE ไม่เปลี่ยนจำนวนที่ตั้งไว้', '1 เพราะ AQE รวม partition ที่เล็กกว่าเป้าหมายเข้าด้วยกัน', '16 เพราะเท่ากับจำนวน core']}
+  answer={1}
+  why="เป้าหมายคือ max(min(total / parallelism, 64 MB), 1 MB) = 1 MB และข้อมูลทั้งก้อนเล็กกว่านั้น จึงรวมเหลือ 1 ปิด AQE จะได้ 200 ค่านี้ขึ้นกับขนาดข้อมูลและ core ไม่ใช่ค่าตายตัว"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="join ตารางใหญ่กับตารางเล็กที่ plan ตั้งต้นเป็น SortMergeJoin ผ่าน AQE แล้ว final plan ยังเป็น SortMergeJoin ข้อไหนเป็นเหตุผลที่เป็นไปได้"
+  options={['ตารางเล็กเกิน spark.sql.autoBroadcastJoinThreshold (10 MB) หรือกระจายอยู่ใน partition ที่ไม่ว่างน้อยกว่า 20%', 'AQE ทำได้แค่รวม partition เปลี่ยน join ไม่ได้', 'ต้อง cache ตารางเล็กก่อนถึงจะ broadcast ได้']}
+  answer={0}
+  why="AQE เปลี่ยน sort-merge เป็น broadcast ได้เมื่อรู้ขนาดจริงเล็กพอ แต่ถ้าเกิน threshold หรือฝั่งเล็กกระจายอยู่ใน partition ที่ไม่ว่างน้อยเกินไป (nonEmptyPartitionRatioForBroadcastJoin 0.2) ก็คง sort-merge ไว้"
+/>
+
+</Step>
