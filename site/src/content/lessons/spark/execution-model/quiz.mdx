@@ -1,0 +1,74 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 5 ข้อ เพื่อเช็กว่าเข้าใจ stage, shuffle และตัวเลขที่ Spark UI แสดงแค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="เรียก filter แล้ว select แล้ว withColumn แล้ว collect บน DataFrame ที่มี 8 partition จะมีกี่ stage และกี่ task"
+  options={['3 stage เพราะมี 3 คำสั่ง', '1 stage 8 task เพราะ narrow ต่อกันเป็น pipeline ในงานเดียว', '8 stage ตามจำนวน partition']}
+  answer={1}
+  why="narrow transformation ไม่ต้องย้ายข้อมูลข้าม partition จึงรวมเป็น stage เดียว task ต่อ partition ตรงกับที่วัดได้: 1 stage 8 task"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ตามที่วัด จำนวน stage ของคำสั่งที่มี shuffle คำนวณอย่างไร"
+  options={['จำนวนคำสั่งทั้งหมด', 'จำนวน Exchange ในแผน บวก 1', 'จำนวน partition หารด้วย 8']}
+  answer={1}
+  why="ทุก Exchange คือขอบเขตของ stage ดังนั้น groupBy (1 Exchange) ได้ 2 stage และ sort-merge join (2 Exchange) ได้ 3 stage ข้อยกเว้นคือ orderBy ที่มี stage สุ่มข้อมูลเพิ่ม"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="groupBy บนข้อมูล 8 partition (ปิด AQE) stage ฝั่ง reduce มีกี่ task และ shuffle write กับ shuffle read ต่างกันไหม"
+  options={['8 task และ shuffle read มากกว่า write', '200 task (spark.sql.shuffle.partitions) และไบต์ที่เขียนเท่ากับที่อ่านเป๊ะ', '1 task และ shuffle read เป็นศูนย์']}
+  answer={1}
+  why="stage หลัง shuffle มีจำนวน task เท่ากับ spark.sql.shuffle.partitions (200) และไบต์ที่ stage แรกเขียน (3,496 B ในการวัด) คือไบต์ที่ stage ถัดไปอ่านทั้งหมด"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="df.coalesce(4) กับ df.repartition(4) ต่างกันอย่างไรในแผน"
+  options={['ไม่ต่าง ทั้งคู่มี Exchange', 'coalesce ไม่มี Exchange (รวม partition ติดกัน) ส่วน repartition มี Exchange (shuffle)', 'coalesce ช้ากว่าเพราะ shuffle']}
+  answer={1}
+  why="coalesce ลดจำนวน partition โดยรวมก้อนข้างเคียงโดยไม่ย้ายข้อมูล จึงเป็น narrow ส่วน repartition กระจายแถวใหม่จึงต้อง shuffle ทั้งคู่ปรับจำนวน partition ได้เหมือนกัน"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="groupBy สองตัวที่ key เดียวกันแล้ว join กัน ได้ stage [4, 4, 200] คือ 3 stage ไม่ใช่ 5 เพราะอะไร"
+  options={['Spark ข้าม join', 'ทั้งสองฝั่งถูกจัด hashpartitioning ตาม key เดียวกันและจำนวน partition เท่ากันอยู่แล้ว join จึงไม่ต้อง shuffle เพิ่ม', 'AQE รวม stage ให้']}
+  answer={1}
+  why="join ต้องการให้แถว key เดียวกันอยู่ partition เดียวกัน ซึ่ง Exchange ของ groupBy จัดให้แล้ว Spark เห็นว่า partitioning ที่มีอยู่เพียงพอ จึงไม่เพิ่ม Exchange"
+/>
+
+</Step>
