@@ -1,0 +1,86 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 6 ข้อ เพื่อเช็กว่าเข้าใจ UDF แค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="ใน Spark 4.2 เขียน @udf(long) ธรรมดาโดยมี pandas และ pyarrow อยู่ แล้ว explain() จะเห็น node อะไร"
+  options={['BatchEvalPython เพราะ UDF ธรรมดาใช้ pickle', 'ArrowEvalPython เพราะ UDF ธรรมดาเป็น Arrow-optimized โดยค่าเริ่มต้น', 'ไม่มี node พิเศษ เพราะ Catalyst แปลง UDF เป็น expression']}
+  answer={1}
+  why="spark.sql.execution.pythonUDF.arrow.enabled เป็น true ตั้งแต่ Spark 4.2 จึงได้ ArrowEvalPython evalType 101 ส่วน useArrow=False ได้ BatchEvalPython evalType 100 ถ้าไม่มี pandas หรือ pyarrow จะตกไปใช้ BatchEvalPython พร้อม warning"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Python UDF แบบ Arrow เร็วกว่าแบบ pickle จริง ข้อไหนอธิบายถูกที่สุด"
+  options={['ฟังก์ชันของคุณรับทั้ง column ในครั้งเดียว (vectorized)', 'ข้อมูลถูกขนส่งเป็น Arrow batch ใหญ่ แต่ฟังก์ชันยังถูกเรียกทีละแถว', 'Arrow ทำให้ Catalyst มองเข้าไปในฟังก์ชันได้']}
+  answer={1}
+  why="เส้นทาง Arrow ถูกกว่าที่การ serialize แต่ worker ยังวน [f(*row) for row in rows] จึงเรียกฟังก์ชันทีละแถว มีแต่ pandas_udf ที่ฟังก์ชันรับทั้ง Series ต่อ batch"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="df.withColumn('u', plus1('id')).filter(col('v') > 4) โดย v เป็นคอลัมน์ธรรมดา และ plus1 เป็น UDF deterministic Filter จะอยู่ตรงไหนของแผนที่ optimize แล้ว"
+  options={['เหนือ UDF เพราะ Catalyst ไม่ย้ายอะไรผ่าน UDF', 'ใต้ UDF เพราะไม่เกี่ยวกับผลของ UDF และ UDF เป็น deterministic', 'ถูกลบทิ้ง']}
+  answer={1}
+  why="ArrowEvalPython กับ BatchEvalPython อยู่ในรายการ node ที่ filter ผ่านได้ เมื่อ expression ทุกตัว deterministic แต่ถ้า filter ใช้ผลของ UDF หรือ UDF เป็น non-deterministic จะย้ายไม่ได้"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="UDF lambda x: x + 1 ทำงานกับคอลัมน์ int ที่มีแถว NULL ผลคืออะไร"
+  options={['แถว NULL ถูกข้าม ได้ NULL ออกมาเหมือน built-in', 'UDF ได้รับ None และเกิด TypeError ที่กลับมาเป็น PythonException', 'NULL ถูกแปลงเป็น 0 ก่อนส่งเข้าฟังก์ชัน']}
+  answer={1}
+  why="Spark ไม่ข้ามแถว NULL ให้ UDF ได้ None ตรงๆ และเกิด TypeError ทั้งเส้นทาง pickle และ Arrow ต้องเขียนให้รับ None เอง"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="UDF ประกาศ returnType เป็น int แต่คืน float 1.5 ได้ผลอะไรกับ useArrow=False และ useArrow=True"
+  options={['ทั้งสองได้ 1', 'pickle ได้ NULL เงียบๆ Arrow ได้ 1', 'pickle ได้ error Arrow ได้ NULL']}
+  answer={1}
+  why="เส้นทาง pickle แปลงค่าชนิดผิดเป็น NULL แบบเงียบๆ ส่วน Arrow cast เป็น 1 ผลรันยืนยันทั้งสองเส้นทาง ถ้าผลเปลี่ยนเมื่อสลับ useArrow ให้สงสัยชนิดของค่าที่คืน"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="อยากจำกัด memory ของ Python worker ที่รัน UDF ของ DataFrame ต้องตั้งค่าไหน"
+  options={['spark.python.worker.memory เพราะชื่อบอกตรงที่สุด', 'spark.executor.pyspark.memory (และไม่บังคับบน Windows กับ macOS)', 'spark.sql.shuffle.partitions']}
+  answer={1}
+  why="spark.python.worker.memory ถูกใช้เฉพาะโดย RDD API สำหรับ aggregation spill ส่วน spark.executor.pyspark.memory ถูกแปลงเป็น RLIMIT_AS ของแต่ละ worker แต่ docstring ระบุว่า Windows ไม่รองรับและ macOS ไม่บังคับ"
+/>
+
+</Step>

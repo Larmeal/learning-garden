@@ -1,0 +1,152 @@
+---
+title: UDF แบบเจาะลึก
+summary: ลำดับ handshake ระหว่าง JVM กับ Python worker, ค่าคงที่ที่ใช้คั่นข้อมูล, ExtractPythonUDFs ทำอะไรและเมื่อไร, daemon กับการใช้ worker ซ้ำ, ทางที่ memory limit ไปถึง worker และทางที่ error กลับมา
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+หน้านี้ตามรอย source ของ Spark 4.2.0 (tag v4.2.0) ตัวเลขบรรทัดอ้างอิงถึง repo ของ Spark ส่วนที่ระบุว่ารัน มาจาก `exercises/08_udf.py` ซึ่งรันด้วย pandas 3.1.1 และ pyarrow 26.0.1
+
+<Step>
+
+## `ExtractPythonUDFs`: ดึง UDF ออกจากแผน
+
+Python UDF เริ่มต้นเป็นแค่ expression ที่ซ่อนอยู่ใน `Project`, `Filter` หรือ `Aggregate` ต้องมี rule ดึงออกมาเป็น operator ที่รันแยกได้ นั่นคือ `ExtractPythonUDFs` (`ExtractPythonUDFs.scala`)
+
+- **รันเมื่อไร**: เป็น batch "Extract Python UDFs" (`Once`) ใน `SparkOptimizer` (`SparkOptimizer.scala:75-91`) ลำดับกฎในนั้นคือ `ExtractPythonUDFFromJoinCondition`, `CheckCartesianProducts`, `ExtractPythonUDFFromAggregate`, `ExtractGroupingPythonUDFFromAggregate`, `ExtractPythonUDFs`, `ExtractPythonUDTFs` แล้วตามด้วย `ColumnPruning`, `LimitPushDown`, `PushPredicateThroughNonJoin` และอื่นๆ อีกรอบ เพราะ comment บรรทัด 85-86 บอกว่า node eval-python อาจอยู่ระหว่าง Project/Filter กับ scan ทำให้ column pruning และ filter pushdown พัง จึงต้องรันกฎเหล่านั้นซ้ำ
+- **ทำอะไร** (บรรทัด 267-378): ไล่จากล่างขึ้นบน ข้ามอันที่เป็น `BatchEvalPython`/`ArrowEvalPython` อยู่แล้ว ตั้งชื่อ column ผลลัพธ์ว่า `pythonUDF0`, `pythonUDF1` (บรรทัด 322-324 ตรงกับที่เห็นใน explain) แทน expression เดิมด้วยการอ้างถึง column นั้น และเติม `Project` ครอบถ้า output ส่วนเกินต้องตัด
+- **รวม UDF**: UDF พี่น้องและ UDF ซ้อนกันที่เป็น eval type เดียวกันเข้า node เดียว ("parallel chaining", บรรทัด 209-231) ยกเว้นแบบ ITER ของ pandas/Arrow ที่ไม่ถูกรวม (บรรทัด 224, 243-245) ถ้ามี eval type ต่างกันมาถึง node เดียวกันจะ throw (บรรทัด 326-331) วัดจริง: `select(plus1(plus1("id")), plus1("v"))` ได้ `ArrowEvalPython` ตัวเดียว ส่วนผสม `useArrow=False` กับ `True` ได้สอง node ซ้อนกัน
+- **เลือก node ตาม eval type** (บรรทัด 333-347): `SQL_BATCHED_UDF` ไป `BatchEvalPython`; `SQL_SCALAR_PANDAS_UDF`, `PANDAS_ITER`, `SQL_ARROW_BATCHED_UDF`, `SQL_SCALAR_ARROW_UDF`, `ARROW_ITER` ไป `ArrowEvalPython`
+- **ข้อจำกัด** (comment ที่บรรทัด 152-161): ดึงเฉพาะ UDF ที่ input เป็น UDF ตัวเดียวหรือ expression ที่ JVM ประเมินได้ ถ้า input มาจากหลาย operator ลูกใช้ไม่ได้
+- **ตัวเลข eval type**: `SQL_BATCHED_UDF` = 100, `SQL_ARROW_BATCHED_UDF` = 101, `SQL_SCALAR_PANDAS_UDF` = 200, `SQL_GROUPED_AGG_PANDAS_UDF` = 202 (`PythonRunner.scala:52-57`)
+
+ทำไม filter ลงใต้ UDF ได้: `canPushThrough` ใน `Optimizer.scala` (บรรทัด 2285-2300) ระบุ `BatchEvalPython` (2297) และ `ArrowEvalPython` (2298) เป็น node ที่ filter ผ่านได้ โดยมีเงื่อนไขว่า `u.expressions.forall(_.deterministic)` (บรรทัด 2278-2279) นี่คือสาเหตุที่ UDF แบบ non-deterministic ขวาง filter ได้
+
+</Step>
+
+<Step>
+
+## Handshake: JVM คุยกับ Worker อย่างไร
+
+ต่อ task หนึ่งตัว `PythonRunner.compute` (`PythonRunner.scala:275-369`) ขอ worker ด้วย `env.createPythonWorker` (บรรทัด 329-330) เปิด thread เขียนข้อมูล (บรรทัด 337) และตั้งตัวแปรสภาพแวดล้อม `SPARK_REUSE_WORKER`, `PYSPARK_EXECUTOR_MEMORY_MB`, `PYTHON_UDF_BATCH_SIZE` จากนั้น `Writer.open` (บรรทัด 418-543) เขียนตามลำดับนี้
+
+| ลำดับ | ส่งอะไร | บรรทัด |
+|---|---|---|
+| 1 | index ของ partition | 426 |
+| 2 | เวอร์ชัน Python | 428 |
+| 3 | ข้อมูล TaskContext (JSON) | 509-514 |
+| 4 | ไฟล์ของ Spark / includes | 516 |
+| 5 | broadcast variables | 517 |
+| 6 | `evalType` | 519 |
+| 7 | `runnerConf` | 520 |
+| 8 | `evalConf` | 521 |
+| 9 | `writeCommand` คือฟังก์ชันที่ pickle แล้ว (`PythonUDFRunner.scala:183-207`) | 522 |
+| 10 | flush แล้วจึงส่งข้อมูล และจบด้วย `END_OF_STREAM` | 524, 545-548 |
+
+ฝั่ง worker `main` ใน `worker.py` (บรรทัด 3562-3647) อ่านตามลำดับเดียวกัน: `split_index`, `check_python_version`, memory limit, JSON ของ task context, `setup_spark_files`, `setup_broadcasts`, `eval_type`, `RunnerConf`, `EvalConf` แล้ว `read_udfs` (บรรทัด 3602) ที่ unpickle ฟังก์ชัน จากนั้น `process()` (บรรทัด 3608-3615) ทำ `deserializer.load_stream` → `func` → `serializer.dump_stream` เมื่อจบส่ง timing, ตัวนับ spill, `END_OF_DATA_SECTION` และ accumulator แล้วรอรับ `END_OF_STREAM`
+
+ค่าที่ใช้คั่นข้อมูลเหมือนกันทั้งสองฝั่ง (`PythonRunner.scala:1080-1088`, `serializers.py:80-86`)
+
+| ค่า | ความหมาย |
+|---|---|
+| -1 | END_OF_DATA_SECTION |
+| -2 | PYTHON_EXCEPTION_THROWN |
+| -3 | TIMING_DATA |
+| -4 | END_OF_STREAM |
+| -5 | NULL |
+| -6 | START_ARROW_STREAM |
+
+ฟังก์ชันถูก pickle ด้วย cloudpickle บน driver (`udf.py:50-70`) และส่งไปกับ `writeCommand` ทุก task ขนาดของ command เมื่อ closure ใหญ่ ยังไม่ได้วัด
+
+</Step>
+
+<Step>
+
+## เส้นทางข้อมูลของ Pickle และ Arrow
+
+**pickle (evalType 100)**
+- JVM: `BatchEvalPythonExec.getInputIterator` (บรรทัด 121-160) แปลงแต่ละ `InternalRow` เป็น Java object array แล้ว `.grouped(batchSize).map(pickle.dumps)` ด้วย Pyrolite `Pickler` batch size คือ `spark.sql.execution.python.udf.maxRecordsPerBatch` ค่าเริ่มต้น **100** (`SQLConf.scala:4700-4708`)
+- Python: `BatchedSerializer(CPickleSerializer(), batch_size)` (`worker.py:2489-2491`) และ `wrap_udf` (บรรทัด 371-378) ผลถูก pickle กลับเป็น batch และ JVM `unpickle.loads` แล้ว `fromJava` ทีละผล (`BatchEvalPythonExec.scala:103-112`) ถ้าไม่ตรงชนิดที่ประกาศ ผลคือ NULL (ข้อนี้เป็นข้อสรุปจากผลรัน ไม่ได้อ่าน `EvaluatePython.makeFromJava` เพื่อยืนยัน)
+
+**Arrow (evalType 101, 200 ...)**
+- JVM: `ArrowEvalPythonExec.scala:185-219` ใช้ runner แบบ `BatchedPythonArrowInput` เขียนแถวเป็น Arrow batch ใน `PythonArrowInput.scala:114-157` ขนาดจาก `spark.sql.execution.arrow.maxRecordsPerBatch` ค่าเริ่มต้น **10,000** (`SQLConf.scala:4580-4588`, ค่า `0` หรือต่ำกว่าคือไม่จำกัด) และมีเพดานเป็นไบต์ (`maxBytesPerBatch`, internal) ผลที่กลับมาถูกตรวจกับชนิดที่ประกาศ (บรรทัด 211-216, error `arrowDataTypeMismatchError`)
+- Python: eval type 101 ใช้ `ArrowStreamSerializer(write_start_stream=True)` (`worker.py:2460-2466`) แปลง column เป็น list วนทีละแถว แล้วแปลงผลกลับด้วย `pa.array(..., type=...)` (บรรทัด 3049-3088, ลูปที่บรรทัด 3040-3043) ส่วนชนิด pandas ใช้ `ArrowStreamPandasUDFSerializer` (บรรทัด 2467-2488)
+
+**อ่านชนิดจาก type hint**: `udf.py:127-135` เรียก `infer_eval_type_for_udf` เมื่อไม่ระบุ `useArrow` ฟังก์ชันที่มี type hint อย่าง `pd.Series` อาจกลายเป็น pandas UDF ได้ (docstring ระบุ "versionchanged 4.1.0") ข้อนี้ยังไม่ได้รัน
+
+<Callout type="note" title="Comment และ docstring ที่ล้าสมัยใน source">
+`udf.py:99` ยังเขียนว่า Arrow optimization "disabled by default" และ `builtin.py:30616` เขียนว่า UDF "ไม่รองรับ keyword argument ฝั่งผู้เรียก" ทั้งที่ `udf.py:428-437` (`__call__` รับ `**kwargs`) และ `worker.py:1064-1075` รองรับ ส่วนข้อหลังยังไม่ได้รันยืนยันว่าเรียกด้วย keyword ได้ใน 4.2.0
+</Callout>
+
+</Step>
+
+<Step>
+
+## Daemon และการใช้ Worker ซ้ำ
+
+- `spark.python.worker.reuse` ค่าเริ่มต้น true และ `spark.python.use.daemon` ค่าเริ่มต้น true (`Python.scala:24-37`) แต่ `PythonWorkerFactory.scala:96-99` คำนวณ `useDaemon = !Utils.isWindows && useDaemonEnabled` ("ข้ามบน Windows เพราะ fork ไม่ได้")
+- บน Linux/macOS: daemon (`pyspark/daemon.py`) fork worker ต่อ task ใน child วนอยู่ที่ `while True: code = worker(...)` จบงานปกติแล้วกลับไปรอรับ task ใหม่ เฉพาะเมื่อ `reuse` เปิด (`daemon.py:165`, `259-274`: ถ้า `not reuse or code` ก็ break) แล้ว `gc.collect()`
+- ฝั่ง JVM: worker ที่เสร็จเข้า idle pool (`releaseWorker`, `PythonWorkerFactory.scala:512-526`) task ต่อไปหยิบไปใช้ใน `create` (บรรทัด 132-156) จะปล่อยคืนได้ก็ต่อเมื่อ worker ตอบ `END_OF_STREAM` (`PythonRunner.scala:671-684`) ถ้า worker เขียน `END_OF_DATA_SECTION` แทน (`worker.py:3644-3647`) จะไม่ถูกใช้ซ้ำ
+- บน Windows worker ที่ไม่ใช่ daemon ถูกหยุดใน `releaseWorker` (บรรทัด 527-534) จึงไม่มีอะไรถูกใช้ซ้ำ หลักฐานจากการรัน: ระหว่าง job เห็น process `python.exe -m pyspark.worker` ลูกของ JVM และไม่เห็น `pyspark.daemon` ส่วนพฤติกรรมของ daemon บน Linux/macOS ยังไม่ได้ทดสอบที่นี่
+
+ผลต่อโค้ดของคุณ: ถ้า UDF เก็บ state ระดับ module (global, cache) state นั้นอยู่ข้าม task ได้เมื่อมีการใช้ worker ซ้ำ ซึ่งแปลว่าผลของ UDF ไม่ควรพึ่ง state ที่แชร์แบบนั้น
+
+</Step>
+
+<Step>
+
+## Memory ของ Python ไปถึง Worker อย่างไร
+
+`spark.executor.pyspark.memory` (`Python.scala:54-57`, `createOptional` หน่วย MiB) ไหลเป็น
+
+`ResourceProfile.scala:433-434` → task local property → `PythonRunner.scala:271-273` หารด้วยจำนวน core ของ executor ("แต่ละ worker ได้ส่วนเท่ากัน") → ตั้ง `PYSPARK_EXECUTOR_MEMORY_MB` (บรรทัด 307-311) → `worker.py:3571-3572` `setup_memory_limits` → `worker_util.py:95-127` ตั้ง `resource.RLIMIT_AS`
+
+docstring ที่บรรทัด 100 ของ `worker_util.py` บอกว่า Windows ไม่รองรับการจำกัด และ macOS ไม่บังคับจริง ส่วนบน YARN/Kubernetes ค่านี้ถูกบวกเข้า container request (จาก `configuration.md`) ถ้าไม่ตั้ง Spark ไม่จำกัด memory ของ Python และมันต้องอยู่ใน overhead memory
+
+`spark.python.worker.memory` (512m) ค้นใน source แล้วพบว่าถูกอ่านที่เดียวคือ `python/pyspark/core/rdd.py:3972` (`_memory_limit`, ใช้โดย `groupByKey` กับ `combineByKey`) การค้นนี้ไม่รวมโฟลเดอร์ connect และ pandas-on-spark แยกต่างหาก
+
+`pandas_udf` ถือ Arrow batch ทั้งก้อน (10,000 แถวเป็นค่าเริ่มต้น) เป็น pandas ใน memory (ตามจาก `PythonArrowInput.scala:119-122`) ส่วนฟังก์ชันแบบกลุ่มถือทั้งกลุ่ม ซึ่งเป็นหลักการทั่วไปของ Spark ยังไม่ได้ทดสอบ OOM
+
+</Step>
+
+<Step>
+
+## Error กลับมาอย่างไร
+
+1. worker จับ exception (`worker.py:3629-3631`: `except BaseException → handle_worker_exception(e, outfile); sys.exit(-1)`) `handle_worker_exception` (`util.py:505-545`) เขียน `PYTHON_EXCEPTION_THROWN` (-2) แล้วข้อความ traceback (บรรทัด 537-538) ซ่อนหรือย่อ traceback ได้ด้วย `SPARK_HIDE_TRACEBACK` / `SPARK_SIMPLIFIED_TRACEBACK` (บรรทัด 524-535 ตั้งโดย `PythonRunner.scala:299-304`)
+2. JVM เห็น -2 (`PythonArrowOutput.scala:142-143`, `PythonUDFRunner.scala:131-132`) เรียก `handlePythonException` (`PythonRunner.scala:661-669`) สร้าง `PythonException` ที่มี error class `PYTHON_EXCEPTION` (`error-conditions.json:6123-6128`, SQLSTATE 38000)
+3. executor log Java stack เต็มและ job ล้มด้วย `Task N in stage 0.0 failed 1 times; aborting job` (ใน local mode retry 1 ครั้ง บน cluster จริงลองใหม่ได้หลายรอบ)
+4. driver ฝั่ง Python ได้ `pyspark.errors.exceptions.captured.PythonException` ที่ `getCondition()` = `PYTHON_EXCEPTION` และ `getSqlState()` = `38000` และ `str(e)` ขึ้นต้นด้วย `An exception was thrown from the Python worker:` ตามด้วย traceback ซึ่งชี้ไฟล์ของคุณ (ตรวจใน exercise: `08_udf.py` อยู่ใน traceback)
+
+กรณี pandas UDF ที่คืนรูปร่างผิด (ความยาวไม่ตรง หรือคืนค่าเดี่ยว) ก็รายงานเป็น `PythonException` เช่นกัน (ตรวจที่ `worker.py:384-405`) ส่วนกรณี Python ตายเองไม่มี -2: JVM เจอ EOF แล้ว throw `SparkException("Python worker exited unexpectedly (crashed)...")` (`PythonRunner.scala:686-712`)
+
+</Step>
+
+<Step>
+
+## ข้อควรระวังเรื่อง Determinism และผลกำหนดซ้ำ
+
+- UDF ทุกตัวเป็น deterministic โดยค่าเริ่มต้น `asNondeterministic()` เปลี่ยนเป็น non-deterministic (`udf.py:550-560`) ตรวจแล้ว: `plus1.deterministic` เป็น True, `rnd.asNondeterministic().deterministic` เป็น False
+- docstring (`builtin.py:30603-30606`) เตือนว่าการเรียกอาจถูกกำจัดซ้ำหรือถูกเรียกมากกว่าจำนวนที่ปรากฏในคำสั่ง รวมกับกรณี filter บนผลของ UDF ที่เห็น `ArrowEvalPython` สองตัว จึงไม่ควรใส่ side effect (นับ, เขียน, เรียก API) ใน UDF แล้วหวังว่า "หนึ่งครั้งต่อแถว" ข้อที่ไม่คาดคิดคือสำหรับ UDF deterministic Spark ก็ยังไม่ขจัดการเรียกซ้ำในกรณีนั้น (ดูจากแผน ไม่ได้นับจำนวนครั้งที่เรียกจริง)
+- Arrow และ pickle มี type coercion ต่างกัน ตามที่ comment ที่ `udf.py:94-99` เขียนไว้ และมีชุดทดสอบอยู่ที่ `python/pyspark/sql/tests/udf_type_tests` (ยังไม่ได้อ่าน) ตารางในบทหลักรันกับ ANSI mode เปิดตามค่าเริ่มต้น ชุดทดสอบเดียวกันกรณี `1.5` เป็น `int` ให้ผลเหมือนกันเมื่อปิด ANSI แถวอื่นยังไม่ได้ทดสอบ
+
+</Step>
+
+<Step>
+
+## สิ่งที่ยังไม่ได้พิสูจน์
+
+- ผลของ batch size ต่อความเร็วต่อแถวของ `pandas_udf` (ต้องวัดแบบ partition เดียว)
+- ค่าใช้จ่ายของ worker ต่อ task บน Linux/macOS ที่มี daemon (บน Windows ที่เห็นคือเริ่ม process ใหม่ทุก task)
+- ขนาดของ command ที่ pickle เมื่อ closure ใหญ่
+- Python ตายเอง (segfault, OOM kill) ที่ไม่มี traceback
+- pushdown ผ่าน UDF ไปถึงแหล่งข้อมูลไฟล์ (Parquet เขียนไม่ได้บนเครื่องนี้)
+- ว่าการห่อ `when(x.isNotNull(), udf(x))` ไม่ปกป้อง UDF (เป็นข้อความใน docstring)
+- Spark บน Windows: บางครั้งการสร้าง DataFrame ด้วย `createDataFrame` แถวเดียวที่ถูกแบ่งเป็น 16 partition แล้วรัน UDF ได้ error "Python worker exited unexpectedly" จากการเชื่อมต่อ socket ถูกตัด ผู้เขียนพบตอนเตรียม exercise และหลีกเลี่ยงด้วย `coalesce(1)` ยังไม่ได้สืบหาสาเหตุ จึงไม่ถือเป็นพฤติกรรมของ Spark เอง
+
+</Step>

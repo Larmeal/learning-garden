@@ -1,0 +1,235 @@
+---
+title: Performance tuning แบบเจาะลึก
+summary: ลำดับการเลือก join ใน JoinSelection, เงื่อนไขของ shuffled hash join, OptimizeSkewedJoin ว่าแยกฝั่งไหนได้, CacheManager กับ partition ที่ถูกล็อก, กลไก spill ใน source, การเลือก shuffle writer, locality และตาราง config
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+หน้านี้อ้าง source ของ Spark 4.2.0 (tag v4.2.0) ส่วนที่รันมาจาก `exercises/07_performance_tuning.py` ส่วนที่ระบุว่า "ยังไม่ได้ทดสอบ" คือยังไม่มีหลักฐานจากการรัน อย่าถือเป็นข้อเท็จจริง
+
+<Step>
+
+## `JoinSelection`: ลำดับการเลือก
+
+`object JoinSelection` อยู่ที่ `SparkStrategies.scala:181` ลำดับสำหรับ equi-join
+
+**เมื่อมี hint** (บรรทัด 321-329)
+
+1. `BroadcastHashJoin` ถ้ามี hint broadcast และฝั่งนั้น build ได้
+2. `SortMergeJoin` ถ้ามี hint merge
+3. `ShuffledHashJoin` ถ้ามี hint shuffle_hash
+4. `CartesianProduct` ถ้ามี hint shuffle_replicate_nl
+5. ไม่เข้าข้อไหน (hint ใช้ไม่ได้) ก็ทำเหมือนไม่มี hint
+
+**เมื่อไม่มี hint** (`createJoinWithoutHint`, บรรทัด 305-319)
+
+1. `BroadcastHashJoin` ถ้าฝั่งใดฝั่งหนึ่งเล็กพอและ build ได้
+2. `ShuffledHashJoin` ถ้าเข้าเงื่อนไข (ดูหัวข้อถัดไป)
+3. `SortMergeJoin` ถ้า key เรียงลำดับได้
+4. `CartesianProduct` เฉพาะ inner-like join
+5. สุดท้ายคือ `BroadcastNestedLoopJoin` (build ฝั่งที่เล็กกว่า)
+
+ข้อกำหนดของแต่ละวิธี: broadcast และ shuffle hash ต้องการ key ที่ `hashJoinSupported` (บรรทัด 240, `joins.scala:406`) sort-merge ต้องการ key ที่ `RowOrdering.isOrderable` (บรรทัด 286-293) ส่วน null-aware anti join (`NOT IN` ที่มีคอลัมน์เดียว) ทำได้แบบ broadcast เท่านั้น (บรรทัด 331-334)
+
+**join แบบไม่มีเงื่อนไข equality** (บรรทัด 336-420): hint → `BroadcastNestedLoopJoin`; ถ้าไม่มี hint ฝั่งเล็กก็ BNLJ; ไม่เล็กและเป็น inner-like ก็ `CartesianProduct`; ที่เหลือคือ BNLJ อยู่ดี ซึ่ง source เองเขียนไว้ว่าอาจช้ามากหรือ OOM วัดจริง: `big.k < small.k` ได้ `BroadcastNestedLoopJoin` ตอน threshold ปกติ, `CartesianProduct` ตอน -1, และ left outer แบบเดียวกันที่ -1 ยังเป็น `BroadcastNestedLoopJoin` (เพราะ cartesian ใช้ได้เฉพาะ inner)
+
+**ฝั่งไหน broadcast ได้ตาม join type** (`joins.scala:377-390`)
+
+| ฝั่ง | join type ที่ build ได้ |
+|---|---|
+| ซ้าย | InnerLike, RightOuter |
+| ขวา | InnerLike, LeftOuter, LeftSingle, LeftSemi, LeftAnti, ExistenceJoin |
+| (ไม่มี) | FullOuter |
+
+</Step>
+
+<Step>
+
+## ทำไมไม่เคยได้ Shuffled Hash Join โดยไม่ตั้งใจ
+
+เงื่อนไขของ shuffled hash join แบบไม่มี hint (`joins.scala:318-359`, helper 538-560) คือครบทั้งหมดของ
+
+- `spark.sql.join.preferSortMergeJoin` เป็น false ตัวนี้เป็น **internal** และค่าเริ่มต้นเป็น **true**
+- ฝั่งเล็กมี `sizeInBytes < autoBroadcastJoinThreshold * จำนวน shuffle partition`
+- ฝั่งเล็กคูณ `spark.sql.shuffledHashJoinFactor` (3) แล้วยังไม่เกินฝั่งใหญ่
+- join type ผ่าน `canBuildShuffledHashJoinLeft/Right`
+
+ผลคือโดยค่าเริ่มต้น Spark ไม่เลือก shuffled hash join เอง ถ้าต้องการต้องใส่ hint `shuffle_hash` เอง วัดจริง: threshold 100 กับ `preferSortMergeJoin=false` ได้ `ShuffledHashJoin ... BuildRight` พร้อม Exchange 2 ตัวและไม่มี Sort แต่ค่าเริ่มต้น (`preferSortMergeJoin=true`) ที่ threshold เดียวกันได้ `SortMergeJoin` ถ้าตั้ง threshold เป็น -1 เงื่อนไขขนาดจะเป็นลบเสมอ shuffled hash join แบบไม่มี hint จึงเป็นไปไม่ได้
+
+</Step>
+
+<Step>
+
+## Hint: ชื่อ ลำดับ และของที่ใช้ไม่ได้
+
+hint มีชื่อเรียกหลายแบบ (`hints.scala`)
+
+| hint | ชื่อที่ใช้ได้ |
+|---|---|
+| broadcast | `BROADCAST`, `BROADCASTJOIN`, `MAPJOIN` |
+| merge | `SHUFFLE_MERGE`, `MERGE`, `MERGEJOIN` |
+| shuffle hash | `SHUFFLE_HASH` |
+| cartesian | `SHUFFLE_REPLICATE_NL` |
+
+ลำดับความสำคัญเมื่อใส่หลาย hint คือ BROADCAST > SHUFFLE_MERGE > SHUFFLE_HASH > SHUFFLE_REPLICATE_NL (comment ที่ `hints.scala:117-123`) วัดจริง: ใส่ BROADCAST ที่ฝั่งหนึ่งและ MERGE อีกฝั่ง ได้ `BroadcastHashJoin` และใส่ BROADCAST ทั้งสองฝั่ง Spark broadcast ฝั่งที่เล็กกว่า ใน PySpark เรียกด้วย `df.hint("broadcast")` หรือ `F.broadcast(df)` ใน SQL เขียน `/*+ BROADCAST(t) */`
+
+ชื่อ hint ที่ไม่รู้จัก (`hint("nonsense")`) **ไม่ error** แผนออกมาเป็นปกติ (อาจมี log warning ซึ่งยังไม่ได้ตรวจข้อความ)
+
+hint `shuffle_hash` บน left join ใส่ที่ฝั่งไหนก็ได้ผลเป็น `ShuffledHashJoin LeftOuter` โดย build ฝั่งที่ใส่ hint (วัดทั้ง BuildRight และ BuildLeft)
+
+</Step>
+
+<Step>
+
+## ลำดับการวางแผนของ Broadcast
+
+ตารางที่ broadcast ถูกอ่านมา driver ผ่าน `BroadcastExchangeExec` (`BroadcastExchangeExec.scala:186`: `child.executeCollectIterator()`) สร้างเป็น relation แล้วจึงส่งต่อ metric ที่เห็นใน SQL UI คือ data size, time to collect, time to build, time to broadcast (บรรทัด 129-133)
+
+เพดาน: `spark.sql.broadcastTimeout` = 300 วินาที (`SQLConf.scala:1971`) และ `spark.sql.maxBroadcastTableSize` = 8 GiB ตั้งแต่ 4.1.0 (บรรทัด 1976)
+
+`canBroadcastBySize` (`joins.scala:367-375`) ตรวจว่า `0 <= sizeInBytes <= threshold` ถ้าเป็นสถิติ runtime ของ AQE จะใช้ `spark.sql.adaptive.autoBroadcastJoinThreshold` ก่อนถ้าตั้งไว้ มิฉะนั้นใช้ตัวปกติ และ `LogicalQueryStageStrategy` (บรรทัด 38-85) ป้องกันไม่ให้ broadcast stage ที่สร้างแล้วถูกกลับเป็น shuffle
+
+</Step>
+
+<Step>
+
+## `OptimizeSkewedJoin` ละเอียด
+
+ไฟล์ `OptimizeSkewedJoin.scala`
+
+- **เส้น skew** = `max(skewedPartitionThresholdInBytes, median × skewedPartitionFactor)` (บรรทัด 65-68) partition ถือว่าเบ้เมื่อใหญ่กว่าเส้นนี้ (บรรทัด 146, 148) median คำนวณจากขนาดผลลัพธ์ของ map task ต่อ reduce partition (บรรทัด 124-125)
+- **ขนาดชิ้นที่แยก** = `max(advisoryPartitionSize, ขนาดเฉลี่ยของ partition ที่ไม่เบ้)` (บรรทัด 75-83)
+- **แยกฝั่งไหนได้** (บรรทัด 85-92): ซ้ายสำหรับ Inner, Cross, LeftSemi, LeftAnti, LeftOuter และขวาสำหรับ Inner, Cross, RightOuter ถ้าเป็น **FullOuter แยกไม่ได้ทั้งสองฝั่ง** จึงไม่มี skew handling
+- **ใช้กับ** `SortMergeJoin` และ `ShuffledHashJoin` เท่านั้น (บรรทัด 225-240) โดย child ทั้งสองต้องเป็น `ShuffleQueryStage` ที่มี origin `ENSURE_REQUIREMENTS` (บรรทัด 286-293) ฝั่ง stream ของ `BroadcastHashJoin` แยกได้เฉพาะเมื่อปิด local shuffle reader (บรรทัด 242-253)
+- **ถ้าการแยกจะทำให้เกิด shuffle เพิ่ม** กฎถูกยกเลิก เว้นแต่ `spark.sql.adaptive.forceOptimizeSkewedJoin` เป็น true (ค่าเริ่มต้น false, บรรทัด 262-283)
+- ไม่มี case ของ aggregate ในกฎ จึงไม่แยก key ที่เบ้ของ `groupBy` (อ่านจาก match case ของกฎ)
+
+วัดจริง (2 ล้านแถว, 90% ที่ `k = 1`, payload `rand()`, threshold broadcast -1, `shuffle.partitions=10`): ค่าเริ่มต้นไม่เกิด skew handling, ลด threshold และ advisory เหลือ 1 MB ได้ `SortMergeJoin(skew=true)` ฝั่งซ้าย `AQEShuffleRead coalesced and skewed` metric ของ node ได้ skewed partitions 1, splits 16, partitions 17 และ join stage รัน 17 task จาก 10 partition เดิม การ `rand()` เป็น payload จำเป็น เพราะคอลัมน์ที่ซ้ำกันบีบอัดได้เกือบหมด ขนาดไฟล์ shuffle จะเล็กจนไม่เกินเส้น
+
+</Step>
+
+<Step>
+
+## `CacheManager` ข้างใน
+
+- `Dataset.cache()` เรียก `persist()` แล้ว `CacheManager.cacheQuery` (`Dataset.scala:1631-1640`) ซึ่งลงทะเบียน `CachedData(normalizedPlan, InMemoryRelation)` และกลับทันที (`CacheManager.scala:133-176`) ข้อมูลถูกสร้างเมื่อ `cachedColumnBuffers` ถูกเข้าถึงครั้งแรก (`InMemoryRelation.scala:288-293`, `buildBuffers` บรรทัด 343)
+- คีย์คือ **normalized plan** (comment ที่ `CacheManager.scala:133`) DataFrame ที่สร้างใหม่แต่แผนเหมือนกันจึงเจอ cache
+- เรียก `persist` ซ้ำบนข้อมูลที่ cache แล้ว Spark log ว่า "Asked to cache already cached data" และไม่เปลี่ยนระดับ (บรรทัด 147)
+- ตอนสร้าง cache ของแผนที่มี shuffle `CacheManager.getOrCloneSessionWithConfigsOff` ปิด `spark.sql.adaptive.applyFinalStageShuffleOptimizations` เว้นแต่ `spark.sql.optimizer.canChangeCachedPlanOutputPartitioning` เป็น true (internal, ค่าเริ่มต้น false, `CacheManager.scala:638-648`) นี่คือเหตุผลที่ partition ที่ cache ไว้ยังเป็น 200 ไม่ถูกรวม
+- ค่าเริ่มต้นของระดับเก็บ: `spark.sql.defaultCacheStorageLevel` = `MEMORY_AND_DISK` (ตั้งแต่ 4.0.0, `SQLConf.scala:2312`) ส่วน `df.persist()` ใน PySpark ค่าเริ่มต้นคือ `MEMORY_AND_DISK_DESER` (`classic/dataframe.py:540-542`)
+
+<Callout type="warn" title="ชื่อ StorageLevel ใน Scala กับ PySpark ไม่ตรงกัน">
+`MEMORY_ONLY` ใน Scala เก็บแบบ deserialized แต่ใน PySpark (`storagelevel.py:88-96`) `MEMORY_ONLY` และ `MEMORY_AND_DISK` เป็นแบบ serialized ส่วนแบบ deserialized ใช้ชื่อ `MEMORY_AND_DISK_DESER` ดู `df.storageLevel` ว่าได้อะไรจริง ผลที่วัดคือ `Memory Serialized 1x`, `Disk Memory Serialized 1x`, `Disk Memory Deserialized 1x`, `Disk Serialized 1x` และ `Disk Memory Serialized 2x`
+</Callout>
+
+ก่อน `cache()` ที่ยังไม่เรียก `df.storageLevel` พิมพ์ `Serialized 1x Replicated` ซึ่งหมายถึงยังไม่ได้ cache (NONE) หลัง `cache()` ทันทีและก่อน action แรก `explain()` เห็น `InMemoryTableScan` แล้ว แต่ `getRDDStorageInfo` ยังว่าง `CACHE LAZY TABLE t` ใน SQL ไม่สร้างอะไรเลย ส่วน `CACHE TABLE t` สร้างทันที
+
+</Step>
+
+<Step>
+
+## กลไก Spill ใน Source
+
+สามชั้นของกลไก
+
+1. **`Spillable.maybeSpill`** (`Spillable.scala:86-111`): ทุก 32 element ถ้า memory ของ collection ถึง threshold มันขอเพิ่มจาก pool สูงสุดเท่าตัว ถ้าได้ไม่พอก็ spill และยัง spill เมื่อถึง threshold จำนวนแถวหรือขนาดที่บังคับ ใช้โดย `ExternalSorter` (`ExternalSorter.scala:102`, `maybeSpillCollection` บรรทัด 234-247)
+2. **`TaskMemoryManager.acquireExecutionMemory`** (`TaskMemoryManager.java:159-215`): ถ้า pool ให้ไม่ได้ จะสั่ง `spill()` กับ consumer อื่น เลือก consumer ที่เล็กที่สุดที่มี memory พอก่อน ถ้าไม่มีก็ตัวใหญ่สุด และตัวที่ขอเองเป็นตัวสุดท้าย (`trySpillAndAcquire`, บรรทัด 249-262)
+3. **`UnsafeExternalSorter.spill`** (`UnsafeExternalSorter.java:226-268`) ที่ SQL ใช้ใน `SortExec` และ buffer ของ `SortMergeJoin` เพิ่มตัวนับ `memoryBytesSpilled` และ `diskBytesSpilled` (บรรทัด 265-266) ส่วน shuffle writer แบบ serialized ใช้ `ShuffleExternalSorter.spill` (`ShuffleExternalSorter.java:301-313`)
+
+comment ใน `UnsafeExternalSorter.java:257-259` บอกว่าตัวเลข memory ที่ spill "ประมาณผลคูณของขนาด page" และรวม pointer array จึงมากกว่า disk ได้ ตัวนับไปแสดงที่ Stage page (`StagePage.scala:190-198`) และ metric `spill size` ของ `SortExec` (บรรทัด 61-63), `HashAggregateExec` (บรรทัด 71-72), `SortMergeJoinExec` (บรรทัด 50) และ `WindowExec` (บรรทัด 94)
+
+`spark.shuffle.spill.numElementsForceSpillThreshold` และ `spark.sql.sortMergeJoinExec.buffer.spill.threshold` เป็น internal ไม่ควรถือเป็นปุ่มปรับของผู้ใช้ สูตรแบ่ง memory ให้แต่ละ task และการ evict ข้อมูล cache เมื่อ memory ตึง เป็นเรื่องของ `UnifiedMemoryManager` (บทที่ Internals)
+
+</Step>
+
+<Step>
+
+## เลือก Shuffle Writer
+
+`SortShuffleManager.registerShuffle` (`SortShuffleManager.scala:90-109`) เลือกตามลำดับ
+
+1. **`BypassMergeSortShuffleHandle`** ถ้า `shouldBypassMergeSort`: ไม่มี map-side combine และ `numPartitions <= spark.shuffle.sort.bypassMergeThreshold` (200) (`SortShuffleWriter.scala:118-126`) เขียนไฟล์ต่อ partition แล้วต่อกัน ใช้ file handle และ buffer มากขึ้น
+2. **`SerializedShuffleHandle`** ถ้า `canUseSerializedShuffle` (บรรทัด 227-246): serializer รองรับการย้ายข้อมูลที่ serialize แล้ว, ไม่มี map-side combine และ partition ไม่เกิน 16,777,216 `UnsafeRowSerializer` ของ SQL รองรับ (`UnsafeRowSerializer.scala:48`)
+3. **ที่เหลือ** `SortShuffleWriter` ทั่วไป (ข้อมูลแบบ deserialized, `ExternalSorter`)
+
+SQL aggregation ทำ partial aggregate เป็น operator `HashAggregate` แยกต่างหาก ไม่ใช้ `mapSideCombine` ของ RDD (วัดได้ `mapSideCombine` เป็น False) shuffle ของ SQL จึงเข้าข้อ 1 และ 2 ได้ วัดจริงจาก handle ของ Exchange: 8 และ 200 partition ได้ Bypass, 201 ได้ Serialized
+
+</Step>
+
+<Step>
+
+## Data Locality (อ่านจาก Source เท่านั้น)
+
+ระดับของ task เรียงจากดีไปแย่: `PROCESS_LOCAL`, `NODE_LOCAL`, `NO_PREF`, `RACK_LOCAL`, `ANY` (`TaskLocality.scala:25`) scheduler ใช้ **delay scheduling** คือรอ slot ที่ดีตามระดับที่อนุญาต แล้วค่อยยอมลดระดับเมื่อรอครบ (`TaskSetManager.getAllowedLocalityLevel` บรรทัด 621-682) เวลารออ่านจาก `spark.locality.wait.process/.node/.rack` ซึ่งแต่ละตัวใช้ `spark.locality.wait` เป็นค่าสำรอง ค่าเริ่มต้น **3 วินาที** (`getLocalityWait` บรรทัด 1339-1354) ระดับที่ไม่มีเวลารอ (NO_PREF, ANY) คืน 0
+
+ทั้งหมดนี้ไม่ได้รันบนเครื่องนี้ เพราะ local mode มี executor เดียวและไม่มี HDFS จึงไม่ยืนยันพฤติกรรมบน cluster จริง
+
+</Step>
+
+<Step>
+
+## `count(distinct)` ในแผน
+
+วัดจากแผน (100,000 แถว, AQE เปิด)
+
+- `countDistinct("a")` ตัวเดียว: `HashAggregate(keys=[a])` → `Exchange hashpartitioning(a, 200)` → `HashAggregate` → partial count → `Exchange SinglePartition` → final count รวม Exchange สองตัว
+- `countDistinct("a"), countDistinct("b")` สองตัว: Catalyst เขียนใหม่ด้วย `Expand [[a, null, 1], [null, b, 2]]` และ column `gid` แล้ว aggregate บน `(a, b, gid)` จึงนับด้วย `FILTER (WHERE gid = ...)` จำนวนแถวหลัง `Expand` เท่ากับจำนวน distinct aggregate คูณแถวเข้า ถ้ามี `groupBy("g")` ด้วย key ของ shuffle ก็รวม `g` เข้าไป (`Exchange hashpartitioning(g, a, b, gid, 200)`)
+- `approx_count_distinct("a")`: partial aggregate → `Exchange SinglePartition` → final ไม่มี Exchange ของ key ที่ distinct และไม่มี `Expand` (ค่า `rsd` 0.05 ปรากฏใน plan)
+
+เวลาของสามรูปแบบนี้ และความคลาดเคลื่อนของ `approx_count_distinct` ยังไม่ได้วัด
+
+</Step>
+
+<Step>
+
+## ตาราง Config ที่ใช้บ่อยในบทนี้
+
+| config | ค่าเริ่มต้น | ที่มา |
+|---|---|---|
+| `spark.sql.shuffle.partitions` | 200 | `SQLConf.scala:1000` |
+| `spark.sql.adaptive.enabled` | true | `SQLConf.scala:1050` |
+| `spark.sql.adaptive.coalescePartitions.enabled` | true | `SQLConf.scala:1102` |
+| `spark.sql.adaptive.coalescePartitions.parallelismFirst` | true | `SQLConf.scala:1111` |
+| `spark.sql.adaptive.coalescePartitions.minPartitionSize` | 1 MB | `SQLConf.scala:1125` |
+| `spark.sql.adaptive.coalescePartitions.initialPartitionNum` | ไม่ตั้ง (เท่ากับ shuffle.partitions) | `SQLConf.scala:1147` |
+| `spark.sql.adaptive.advisoryPartitionSizeInBytes` | 64 MB | `SQLConf.scala:1094` |
+| `spark.sql.adaptive.skewJoin.enabled` | true | `SQLConf.scala:1231` |
+| `spark.sql.adaptive.skewJoin.skewedPartitionFactor` | 5.0 | `SQLConf.scala:1240` |
+| `spark.sql.adaptive.skewJoin.skewedPartitionThresholdInBytes` | 256 MB | `SQLConf.scala:1250` |
+| `spark.sql.adaptive.forceOptimizeSkewedJoin` | false | `SQLConf.scala:1321` |
+| `spark.sql.adaptive.localShuffleReader.enabled` | true | `SQLConf.scala:1222` |
+| `spark.sql.adaptive.autoBroadcastJoinThreshold` | ไม่ตั้ง (ใช้ตัวปกติ) | `SQLConf.scala:1281` |
+| `spark.sql.autoBroadcastJoinThreshold` | 10 MB | `SQLConf.scala:949` |
+| `spark.sql.shuffledHashJoinFactor` | 3 | `SQLConf.scala:956` |
+| `spark.sql.broadcastTimeout` | 300 วินาที | `SQLConf.scala:1971` |
+| `spark.sql.maxBroadcastTableSize` | 8 GiB | `SQLConf.scala:1976` |
+| `spark.sql.defaultCacheStorageLevel` | MEMORY_AND_DISK | `SQLConf.scala:2312` |
+| `spark.sql.files.maxPartitionBytes` | 128 MB | `SQLConf.scala:2706` |
+| `spark.memory.fraction` | 0.6 | `config/package.scala:495` |
+| `spark.memory.storageFraction` | 0.5 | `config/package.scala:485` |
+| `spark.shuffle.sort.bypassMergeThreshold` | 200 | `config/package.scala:1750` |
+| `spark.locality.wait` | 3 วินาที | `config/package.scala:812` |
+| `spark.driver.maxResultSize` | 1 GB | `config/package.scala:1649` |
+
+ค่าที่อ่านใน Python มีหน่วยต่อท้าย เช่น `10485760b`
+
+</Step>
+
+<Step>
+
+## สิ่งที่ยังไม่ได้พิสูจน์
+
+- ความเร็วที่ได้จริงจาก salting, skew join, หรือ cache กับ pipeline ที่หนัก
+- OOM เมื่อ broadcast ตารางที่ใหญ่เกิน (มีแค่ comment ใน source ที่ `SparkStrategies.scala:156-158`)
+- ความต่างของความเร็วระหว่าง bypass กับ serialized shuffle writer
+- การแบ่ง memory ต่อ task และการ evict cache เมื่อ memory ตึง
+- locality บน cluster, ผลของ `spark.sql.files.maxPartitionBytes` (เครื่องนี้เขียน Parquet ไม่ได้ จึงไม่มีตัวอย่างการแบ่ง partition ตอนอ่านไฟล์)
+- เหตุที่ `spark.range(n).groupBy("id")` ไม่มี Exchange (สังเกตได้ แต่ยังไม่ได้อ่าน `RangeExec.outputPartitioning`) ใช้คีย์ที่คำนวณอย่าง `id % 7` ในตัวอย่างเพื่อให้เห็น Exchange
+- พฤติกรรมของ DataFrame object เก่าหลัง `unpersist()` (การรันสองรอบให้ผลไม่ตรงกัน)
+
+</Step>

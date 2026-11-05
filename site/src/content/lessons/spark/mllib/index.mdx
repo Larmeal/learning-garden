@@ -1,0 +1,192 @@
+---
+title: MLlib
+summary: MLlib ที่ใช้ DataFrame คือชุด Estimator, Transformer และ Pipeline บทนี้ดูว่า fit กับ transform ต่างกันอย่างไร (fit รัน job, transform ไม่รัน) ข้อมูลเดินผ่าน pipeline อย่างไร ปรับ parameter ด้วย CrossValidator มีค่าใช้จ่ายเท่าไร และบันทึกโมเดล
+order: 12
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [dataframe-sql]
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import MlPipelineLab from '../../../../components/labs/spark/MlPipelineLab';
+
+<Step>
+
+## MLlib คืออะไร และมีสองชุด
+
+MLlib คือไลบรารี machine learning ของ Spark ที่เทรนโมเดลกับข้อมูลที่ใหญ่เกินเครื่องเดียว โดยใช้ executor หลายตัวช่วยกัน มีสองชุด API
+
+| แพ็กเกจ | ฐาน | สถานะ |
+|---|---|---|
+| `pyspark.ml` | DataFrame | **ตัวหลัก** ใช้ในบทนี้ |
+| `pyspark.mllib` | RDD | **maintenance mode** ตั้งแต่ Spark 2.0 (ตาม `docs/ml-guide.md`: แก้บั๊กแต่ไม่เพิ่มฟีเจอร์ใหม่) |
+
+เรียนเฉพาะ `pyspark.ml` ซึ่งทุกอย่างอ่านและเขียนด้วย DataFrame ที่เรียนมาแล้ว บทนี้ต้องมี `numpy` (`pyspark.ml` ใช้ใน Python) ซึ่งติดมากับ pandas ในโปรเจกต์นี้ ตัวอย่างรันด้วย `exercises/12_mllib.py` บน WSL เพราะตอนบันทึกโมเดลต้องเขียนไฟล์ (บทที่ 9)
+
+บทนี้ใช้ข้อมูลสังเคราะห์ 2,000 แถว: `x1`, `x2` เป็นตัวเลข `c` เป็น category (a, b, c) และ `label` เป็น 0 หรือ 1 ที่สร้างจากสูตรบวก noise ให้เรารู้ล่วงหน้าว่า `x1` ควรดันไปทาง 1 และ `x2` ควรดันออก
+
+</Step>
+
+<Step>
+
+## สามชิ้นส่วนที่ต้องแยกให้ออก
+
+| ชิ้น | ทำอะไร | ตัวอย่าง |
+|---|---|---|
+| **Transformer** | `transform(df)` รับ DataFrame คืน DataFrame ที่มี column เพิ่ม | `VectorAssembler`, โมเดลที่เทรนแล้ว |
+| **Estimator** | `fit(df)` เรียนรู้จากข้อมูล แล้วคืน **Model** ซึ่งเป็น Transformer | `StringIndexer`, `LogisticRegression` |
+| **Pipeline** | ต่อ stage เป็นลำดับ เป็น Estimator ที่ `fit` แล้วได้ `PipelineModel` | `Pipeline(stages=[...])` |
+
+ชื่อใน `model.stages` หลัง `fit` บอกว่าอะไรเป็นอะไร (วัดจริง)
+
+```python
+pipe = Pipeline(stages=[StringIndexer(...), OneHotEncoder(...), VectorAssembler(...), LogisticRegression(...)])
+model = pipe.fit(train)
+[type(s).__name__ for s in model.stages]
+# ['StringIndexerModel', 'OneHotEncoderModel', 'VectorAssembler', 'LogisticRegressionModel']
+```
+
+Estimator ทั้งสามเปลี่ยนเป็น Model ส่วน `VectorAssembler` ไม่มีอะไรต้องเรียน จึงยังเป็นตัวเดิม ดูทีละขั้น
+
+<MlPipelineLab client:visible />
+
+</Step>
+
+<Step>
+
+## `fit` รัน Job, `transform` ไม่รัน
+
+ความสับสนที่ใหญ่ที่สุดของคนที่เพิ่งเรียน (และตรงกับเรื่อง lazy evaluation ในบทที่ 2) นับ job ด้วย `statusTracker` ระหว่างที่เรียก (รัน)
+
+| คำสั่ง | job ที่เกิด |
+|---|---|
+| `VectorAssembler.transform(train)` | **0** |
+| `pipeline.fit(train)` | **14** |
+| `model.transform(test)` | **0** |
+| `BinaryClassificationEvaluator().evaluate(pred)` | เกิดตอนนี้ (นี่คือ action) |
+
+- `transform` แค่ต่อแผน ไม่แตะข้อมูล แผนที่ได้เป็น `Project` ซ้อนกัน แต่ละชั้นเรียก UDF ฝั่ง JVM (`UDF(features)`, `UDF(rawPrediction)`) ซึ่งเป็น UDF ที่ Spark เขียนเองใน Scala ไม่ใช่ Python UDF ของบทที่ 8
+- `fit` เป็น action เพราะต้องดูข้อมูลจริง เช่นนับ category และวนปรับน้ำหนักหลายรอบ `LogisticRegression` เป็นส่วนที่เกิดหลาย job มากที่สุด
+
+ผลคือเวลาที่ใช้ไปอยู่ที่ `fit` ส่วน `transform` บนข้อมูลใหม่เป็นเรื่องเบาและขนานได้เหมือน narrow transformation
+
+</Step>
+
+<Step>
+
+## Param: ตั้งค่าอย่างมีชนิด
+
+แต่ละ Estimator และ Transformer มี **Param** คือค่าที่ตั้งได้พร้อมชนิดและค่าเริ่มต้น ดูได้ด้วย `explainParam` (รัน)
+
+```python
+lr = LogisticRegression(maxIter=20, regParam=0.01)
+lr.explainParam("regParam")        # regularization parameter (>= 0). (default: 0.0, current: 0.01)
+lr.getOrDefault("maxIter")         # 20  (ค่าเริ่มต้นของคลาสคือ 100)
+lr.isSet("tol")                    # False  ยังไม่ได้ตั้ง ใช้ค่าเริ่มต้น
+lr.copy({lr.regParam: 0.5})        # สำเนาที่เปลี่ยน param ตัวเดียว ตัวเดิมไม่เปลี่ยน
+```
+
+ค่าเริ่มต้นของ `LogisticRegression` ที่ควรรู้: `maxIter` = 100, `regParam` = 0.0, `elasticNetParam` = 0.0, `threshold` = 0.5, `tol` = 1e-6, `fitIntercept` = True, `standardization` = True (ปรับสเกล feature ให้ก่อนโดยอัตโนมัติ) `copy` ที่รับ param map เป็นพื้นฐานของ `CrossValidator` ที่ลองค่าหลายชุดโดยไม่แก้ object เดิม
+
+</Step>
+
+<Step>
+
+## ผลของโมเดลและการวัด
+
+หลัง `fit` บน train (80%) แล้ว `transform` บน test (20%) (ใช้ `randomSplit([0.8, 0.2], seed=7)`)
+
+- **AUC บน test = 0.981** (`BinaryClassificationEvaluator`, `areaUnderROC`)
+- **coefficients** = `[2.71, -1.87, 1.50, -0.14]` และ intercept 0.118 ตัวแรก (`x1`) เป็นบวกและตัวที่สอง (`x2`) เป็นลบ ตรงกับสูตรที่ใช้สร้างข้อมูล ส่วนสองตัวหลังเป็นของ category `a` และ `b` (ตัว `c` ถูกตัดทิ้งเป็น baseline)
+- ผลลัพธ์แต่ละแถวมีสามคอลัมน์: `rawPrediction` (คะแนนดิบ), `probability` (ความน่าจะเป็นของแต่ละ class) และ `prediction` (class ที่เลือก ใช้ threshold 0.5)
+
+**แยก train กับ test ก่อน fit เสมอ** ถ้า `StringIndexer` หรือ scaler fit บนข้อมูลทั้งหมดแล้วค่อยแยก ข้อมูล test รั่วเข้าไปในโมเดล ทำให้ AUC ดูดีเกินจริง การใส่ทุกขั้นเตรียมข้อมูลไว้ใน Pipeline แล้ว `fit` เฉพาะ train จึงปลอดภัยกว่าทำทีละขั้นเอง
+
+</Step>
+
+<Step>
+
+## CrossValidator: ปรับ Parameter ตามต้นทุน
+
+หาค่า `regParam` กับ `maxIter` ที่ดีที่สุดด้วยการลองทุกคู่และวัดด้วย cross validation
+
+```python
+grid = (ParamGridBuilder()
+        .addGrid(lr.regParam, [0.0, 0.1, 1.0])
+        .addGrid(lr.maxIter, [5, 20]).build())        # 3 x 2 = 6 ชุด
+cv = CrossValidator(estimator=pipe, estimatorParamMaps=grid,
+                    evaluator=BinaryClassificationEvaluator(), numFolds=3, parallelism=2)
+cv_model = cv.fit(train)
+```
+
+วัดจริง: `avgMetrics` ได้ 6 ค่า (AUC เฉลี่ยต่อชุด: 0.979, 0.980, 0.979, 0.979, 0.975, 0.975) และ **`cv.fit` เกิด 333 job** เทียบกับ `pipe.fit` ปกติ 14 job เพราะต้อง fit pipeline ทั้งอัน 6 ชุด คูณ 3 fold = 18 ครั้ง บวกการ fit ใหม่ด้วยชุดที่ดีที่สุดอีกครั้งบนข้อมูลทั้งหมด
+
+ข้อสรุปเชิงปฏิบัติ: ต้นทุนของ tuning โตเป็นผลคูณ (ขนาด grid x จำนวน fold) กริดสามตัวแปรตัวละห้าค่าคือ 125 ชุด คูณ 3 fold = 375 การ fit ลดด้วยการใช้ข้อมูลตัวอย่างก่อน แคช train (บทที่ 7 เตือนว่า cache มีราคา แต่ที่นี่ใช้ข้อมูลเดิมซ้ำเป็นร้อยรอบจึงคุ้ม) หรือเพิ่ม `parallelism` (ในแล็บใช้ 2)
+
+</Step>
+
+<Step>
+
+## บันทึกและโหลดโมเดล
+
+```python
+model.write().overwrite().save("/models/m")
+reloaded = PipelineModel.load("/models/m")
+```
+
+โครงสร้างที่ได้ (รัน)
+
+```
+m/
+  metadata/                          # ชนิดของ pipeline, uid, param
+  stages/
+    0_StringIndexer_<uid>/
+    1_OneHotEncoder_<uid>/
+    2_VectorAssembler_<uid>/
+    3_LogisticRegression_<uid>/
+```
+
+โหลดกลับแล้ว `transform` ได้ AUC เท่าเดิม (0.981 ต่างกันน้อยกว่า 1e-9) ชื่อโฟลเดอร์มีลำดับ stage ชนิด และ uid ทำให้ตรวจดูได้ว่าข้างในมีอะไร การเขียนโมเดลลงไฟล์ผ่าน Hadoop จึงต้องไม่รันบน Windows ที่ไม่มี `hadoop.dll`
+
+</Step>
+
+<Step>
+
+## กับดักที่เจอ
+
+- **ข้อมูล null หยุด `VectorAssembler`** ค่าเริ่มต้น `handleInvalid = "error"` (ตรวจแล้ว) แถวที่มี null ทำให้ job ล้มด้วย `FAILED_EXECUTE_UDF ... Encountered null while assembling a row` ใส่ `handleInvalid="skip"` เพื่อทิ้งแถวนั้น (ตรวจแล้ว: แถวที่มี null หายไป) หรือ `"keep"` เพื่อเก็บเป็น NaN แต่ต้องรู้ว่าอัลกอริทึมต่อจากนั้นรับ NaN ได้ไหม
+- **`OneHotEncoder` ตัด category สุดท้าย** ด้วย `dropLast` (ค่าเริ่มต้น) `c` จึงออกมาเป็นเวกเตอร์ศูนย์ทั้งหมด เพื่อไม่ให้ feature พึ่งพากันเองแบบสมบูรณ์ ไม่ใช่ข้อมูลหาย
+- **ลำดับของ `StringIndexer`** ค่าเริ่มต้นเรียงตามความถี่จากมากไปน้อย (`frequencyDesc` ตัวที่พบบ่อยสุดได้ 0 ถ้าความถี่เท่ากันเรียงตามตัวอักษร ตาม `StringIndexer.scala:64-70`) ผลในข้อมูลนี้คือ a, b, c ถ้าข้อมูลของคุณมีความถี่ต่างกัน ลำดับ (และ index) จะต่างกัน และต่างกันระหว่างข้อมูลฝึกกับข้อมูลชุดอื่นได้ ถ้าไม่ใช้ model ตัวเดิมกับทั้งสองชุด
+- **ตัวเลือกอัลกอริทึมมีจำกัด** MLlib ครอบคลุม classification, regression, clustering, recommendation (ALS) และ feature engineering ไม่ได้ออกแบบมาแทนไลบรารี deep learning (ข้อนี้เป็นความเห็นผู้เขียน ไม่ได้ทดสอบ)
+
+เมื่อข้อมูลไม่ใหญ่เกินเครื่องเดียว เครื่องมืออย่าง scikit-learn มักสะดวกกว่า เลือก MLlib เมื่อข้อมูลหรือจำนวนครั้งที่ต้อง fit ใหญ่เกินเครื่องเดียว หรือเมื่อ pipeline ทั้งอันต้องอยู่ใน Spark อยู่แล้ว (ข้อนี้เป็นการตัดสินใจเชิงปฏิบัติ ไม่ใช่ผลทดสอบ)
+
+</Step>
+
+<Step>
+
+## ลองทำและเช็กตัวเอง
+
+```bash
+cd subjects/spark/code
+uv run python exercises/12_mllib.py
+```
+
+ใช้เวลาราว 2 ถึง 3 นาที (cross validation เกือบทั้งหมด) ลองดัดแปลง
+
+1. เพิ่ม `StandardScaler` ต่อจาก `VectorAssembler` แล้วดูว่า `model.stages` เปลี่ยนอย่างไร
+2. เปลี่ยน `handleInvalid` ของ `VectorAssembler` เป็น `"keep"` กับแถวที่มี null แล้วดูผล
+3. นับ job ของ `cv.fit` เมื่อลด `numFolds` เหลือ 2
+
+เช็กตัวเอง
+
+- ทำไม `pipeline.fit` ถึงเกิด job แต่ `model.transform` ไม่เกิด
+- `LogisticRegression` เป็น Estimator หรือ Transformer แล้วผลของ `fit` เป็นอะไร
+- ทำไมต้อง fit Pipeline บน train เท่านั้น
+- ขนาด grid 4 ค่า x 5 ค่า กับ 3 fold ต้อง fit กี่ครั้ง (ไม่รวมการ fit ใหม่ตอนท้าย)
+
+</Step>
