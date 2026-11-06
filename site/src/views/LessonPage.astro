@@ -12,6 +12,9 @@ import LessonArt from '../components/LessonArt';
 import Outro from '../components/Outro';
 import ProgressToggle from '../components/ProgressToggle';
 import PageList from '../components/PageList';
+import DevEditToggle from '../components/DevEditToggle.astro';
+import DevEditor from '../components/DevEditor.astro';
+import { resolve } from 'node:path';
 import { ui, type Lang } from '../i18n';
 import { groupsOf, hasLang, hasPage, homeHref, lessonHref, pageInfo, pageKey, parentSlug, slugOf, subjectHref, subjectOf, subjectText, pad, type Lesson } from '../lib/garden';
 
@@ -48,9 +51,14 @@ const kind = isSub ? lesson.data.kind : 'main';
 const { Content, headings } = await render(lesson);
 const outline = headings.filter((h) => h.depth === 2);
 const isSteps = lesson.data.format === 'steps';
+// Only while running `astro dev`: a link that opens this page's source file in VS Code. A built site has no such link.
+const editHref = import.meta.env.DEV && lesson.filePath ? `vscode://file/${resolve(process.cwd(), lesson.filePath).replace(/\\/g, '/')}` : undefined;
 ---
 
 <Base lang={lang} altHref={altHref} title={isSub ? `${main.data.title}: ${lesson.data.title}` : lesson.data.title} description={lesson.data.summary} accent={subject.data.accent} accentDark={subject.data.accentDark} format={lesson.data.format}>
+  <Fragment slot="header-extra">
+    {isSteps && <button class="btn sm primary read-only-btn" type="button" data-toggle-view>{t.lesson.stepMode}</button>}
+  </Fragment>
   {
     isSteps && (
       <div class="player-bar">
@@ -66,6 +74,8 @@ const isSteps = lesson.data.format === 'steps';
     )
   }
 
+  {editHref && <div class="dev-dock"><DevEditToggle /></div>}
+
   <main class="page">
     <div class="container wide">
       <nav class="crumbs" aria-label={t.breadcrumb}>
@@ -77,26 +87,10 @@ const isSteps = lesson.data.format === 'steps';
 
       <div class={`lesson-layout${outline.length > 1 ? ' with-toc' : ''}`} style="margin-top:24px">
         <aside class="lesson-aside">
-          {
-            isSteps && (
-              <div class="mode-card">
-                <span>{t.lesson.readingLong}</span>
-                <button class="btn primary sm read-only-btn" type="button" data-toggle-view>{t.lesson.stepMode}</button>
-              </div>
-            )
-          }
           <LessonNav groups={groups} phases={text.phases} currentId={lesson.id} lang={lang} />
         </aside>
 
         <article>
-          {
-            isSteps && (
-              <div class="mode-card mode-card-top">
-                <span>{t.lesson.readingLong}</span>
-                <button class="btn primary sm read-only-btn" type="button" data-toggle-view>{t.lesson.stepMode}</button>
-              </div>
-            )
-          }
           <details class="lesson-toc-mobile" style="margin-bottom:24px">
             <summary>{t.lesson.toc}</summary>
             <div style="margin-top:12px"><LessonNav groups={groups} phases={text.phases} currentId={lesson.id} lang={lang} /></div>
@@ -130,6 +124,8 @@ const isSteps = lesson.data.format === 'steps';
             }
             {pages.length > 1 && <PageList client:load pages={pages} currentId={pageId} lang={lang} />}
           </header>
+
+          {editHref && <DevEditor lang={lang} file={lesson.filePath!} vscode={editHref} />}
 
           <div class="prose" data-steps-root data-lesson-id={pageId} data-t-start={t.lesson.start} data-t-finish={t.lesson.finish} data-t-onward={t.lesson.onward} data-t-step-word={t.lesson.stepWord}>
             {
@@ -275,7 +271,7 @@ const isSteps = lesson.data.format === 'steps';
       const last = steps.length - 1;
       const track = document.querySelector<HTMLElement>('[data-track]')!;
       const foot = document.querySelector<HTMLElement>('[data-pfoot]')!;
-      const nextBtn = document.querySelector<HTMLButtonElement>('[data-next]')!;
+      const nextBtn = document.querySelector<HTMLButtonElement>('button[data-next]')!;
       const backBtn = document.querySelector<HTMLButtonElement>('[data-back]')!;
       const skipBtn = document.querySelector<HTMLButtonElement>('[data-skip]')!;
       const lessonId = stage.dataset.lessonId!;

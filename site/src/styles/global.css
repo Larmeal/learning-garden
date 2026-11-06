@@ -99,6 +99,15 @@ button { font: inherit; color: inherit; }
 .brand { display: inline-flex; align-items: center; gap: 12px; font-family: var(--display); font-weight: 700; font-size: 19px; text-decoration: none; }
 .brand-mark { width: 36px; height: 36px; border-radius: 12px; background: var(--brand); display: grid; place-items: center; box-shadow: 0 3px 0 var(--brand-ledge); color: var(--on-brand); }
 .header-actions { display: flex; align-items: center; gap: 10px; }
+.header-actions .btn { white-space: nowrap; }
+/* A lesson page adds a "step by step" button to the header. On a phone there is no room for it next to the name, so only the logo stays. */
+@media (max-width: 560px) { .site-header .container:has([data-toggle-view]) .brand { font-size: 0; gap: 0; } }
+@media (max-width: 420px) {
+  .site-header .container:has([data-toggle-view]) { gap: 8px; }
+  .site-header .container:has([data-toggle-view]) .header-actions { gap: 6px; }
+  .site-header .container:has([data-toggle-view]) .header-actions .btn { padding-inline: 10px; }
+}
+@media (max-width: 340px) { .site-header .container:has([data-toggle-view]) { flex-wrap: wrap; padding-block: 8px; } }
 /* language menu: shows the current language, lists every language with its own name */
 .lang-menu { position: relative; }
 .lang-menu summary { list-style: none; gap: 8px; }
@@ -431,7 +440,7 @@ a.chip:hover, button.chip:hover { border-color: var(--brand); }
 .callout-note .callout-ic { background: color-mix(in srgb, var(--k3) 18%, var(--surface)); color: var(--k3); }
 
 /* question card */
-.qcard { display: flex; flex-direction: column; gap: 16px; max-width: 40em; }
+.qcard { display: flex; flex-direction: column; gap: 16px; max-width: 40em; overflow-wrap: anywhere; }
 .q-text { font-family: var(--display); font-weight: 600; font-size: clamp(20px, 3.4vw, 26px); line-height: 1.4; }
 .q-code { margin: 0; padding: 14px 16px; border-radius: var(--radius-sm); background: var(--surface-2); font-family: var(--mono); font-size: 14px; line-height: 1.65; overflow-x: auto; white-space: pre; }
 .q-opts { display: flex; flex-direction: column; gap: 12px; }
@@ -505,6 +514,30 @@ html:not([data-format="steps"]) [data-toggle-view] { display: none; }
 .intro-card, .outro-card { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; }
 .intro-card h1 { font-size: clamp(32px, 6vw, 48px); }
 .intro-card .summary, .outro-card p { color: var(--muted); font-size: 19px; }
+/* dev only: opens the source file of the page in VS Code (see editHref in LessonPage.astro) */
+/* dev only: View | Edit switch, and the MDX source shown instead of the page while Edit is on */
+.dev-seg { flex: none; }
+/* the View | Edit switch floats at the bottom left; in Edit mode the same switch sits in the bottom bar of the editor */
+.dev-dock { position: fixed; left: 14px; bottom: 14px; z-index: 50; }
+html[data-format="steps"][data-view="steps"] .dev-dock { bottom: 98px; }
+html[data-edit] .dev-dock { display: none; }
+.dev-seg button[data-blocked="1"] { opacity: .45; cursor: not-allowed; }
+/* Edit keeps the page as it is (header, lesson list, title) and puts the MDX source where the lesson text was, in the same column */
+.dev-editor { display: none; margin-block: 8px 0; }
+html[data-edit] .dev-editor { display: block; }
+html[data-edit] .prose, html[data-edit] .lesson-foot, html[data-edit] .toc, html[data-edit] [data-toggle-view] { display: none !important; }
+.dev-editor-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; font-size: 13px; overflow-wrap: anywhere; }
+.dev-editor-head a { color: var(--muted); }
+.dev-editor-hint { margin: 6px 0 12px; color: var(--muted); font-size: 13px; line-height: 1.5; max-width: none; }
+.dev-editor textarea { display: block; width: 100%; box-sizing: border-box; resize: none; overflow: hidden; border: 2px solid var(--line); border-radius: 12px; padding: 16px; background: var(--surface); color: var(--fg); font: 13.5px/1.65 var(--mono); tab-size: 2; white-space: pre-wrap; overflow-wrap: anywhere; outline: none; }
+.dev-editor textarea:focus { border-color: var(--brand); }
+.dev-editor-foot { position: sticky; bottom: 0; z-index: 20; margin-top: 12px; padding: 10px 0 calc(10px + env(safe-area-inset-bottom, 0px)); background: var(--bg); border-top: 2px solid var(--line); }
+.dev-editor-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dev-editor-bar .spacer { flex: 1; }
+.dev-editor-status { display: block; margin-bottom: 8px; font-size: 13.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.dev-editor-status:empty { display: none; }
+.dev-editor-status[data-kind="ok"] { color: var(--brand); }
+.dev-editor-status[data-kind="error"] { color: var(--wrong, #c0392b); }
 .art-wrap { line-height: 0; }
 .art-scene { display: block; max-width: 100%; height: auto; border-radius: 26px; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
 .outro-card .actions + .actions { margin-top: -2px; }
@@ -658,12 +691,6 @@ html:not([data-format="steps"]) [data-toggle-view] { display: none; }
 .cta-note { font-size: 14px; color: var(--muted); max-width: 22em; line-height: 1.5; }
 
 /* reading mode: a clear way back to the step-by-step player */
-.mode-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; margin-bottom: 18px; border: 2px solid var(--line); border-radius: var(--radius-sm); background: var(--brand-soft); font-size: 14px; }
-.lesson-aside .mode-card { flex-direction: column; align-items: stretch; text-align: center; }
-.lesson-aside .mode-card .btn { width: 100%; }
-.mode-card-top { margin-bottom: 20px; }
-@media (min-width: 960px) { .mode-card-top { display: none; } }
-html[data-format="steps"][data-view="steps"] .mode-card { display: none; }
 
 /* labs: great-expectations */
 .gx-split { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; padding: 16px; border: 2px solid var(--line); border-radius: var(--radius); background: var(--surface); }
@@ -678,7 +705,7 @@ html[data-format="steps"][data-view="steps"] .mode-card { display: none; }
 .gx-round-h { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-bottom: 6px; }
 .gx-round-h span { margin-left: 8px; color: var(--accent); }
 .gx-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.gx-chip { font-family: var(--mono); font-size: 12px; padding: 2px 10px; border-radius: 99px; border: 2px solid var(--line-strong); background: var(--surface); }
+.gx-chip { overflow-wrap: anywhere; font-family: var(--mono); font-size: 12px; padding: 2px 10px; border-radius: 99px; border: 2px solid var(--line-strong); background: var(--surface); }
 .gx-chip b { color: var(--accent); }
 .gx-chip[data-kind="table"] { border-color: var(--k1); }
 .gx-chip[data-kind="cond"] { border-color: var(--k2); }
