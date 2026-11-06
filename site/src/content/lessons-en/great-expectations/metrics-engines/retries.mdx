@@ -1,0 +1,88 @@
+---
+title: How many times GX retries a failing metric
+summary: Write a metric that always fails and count how many times the function is called. See that neighboring rules still get normal results, and why this causes a success=False result that does not come from the data.
+order: 3
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import FlowFrames from '../../../../components/labs/great-expectations/FlowFrames';
+
+<Step>
+
+## The experiment
+
+The main lesson read from the source that `ValidationGraph` retries a metric up to 3 times. Part 4 of the script `26_registry_domains.py` tests this with a metric that always fails (GX 1.24.1, pandas).
+
+```python
+CALLS = [0]
+
+class ColumnAlwaysFails(ColumnAggregateMetricProvider):
+    metric_name = "column.always_fails"
+
+    @column_aggregate_value(engine=PandasExecutionEngine)
+    def _pandas(cls, column, **kwargs):
+        CALLS[0] += 1
+        raise RuntimeError("this metric never works")
+
+class ExpectColumnAlwaysFails(ColumnAggregateExpectation):
+    metric_dependencies = ("column.always_fails",)
+    args_keys = ("column",)
+    def _validate(self, metrics, runtime_configuration=None, execution_engine=None):
+        return {"success": True, "result": {"observed_value": metrics["column.always_fails"]}}
+```
+
+The suite has two rules: `ExpectColumnAlwaysFails(column="x")` and `ExpectColumnMaxToBeBetween(column="x", 0..10)`, on the data `x=[1, 2, 3]`.
+
+```text
+calls to the failing metric function: 3
+column_always_fails          success=False raised=True
+column_max_to_be_between     success=True  raised=False
+```
+
+</Step>
+
+<Step>
+
+## The sequence of events
+
+<FlowFrames
+  client:visible
+  lang="en"
+  title="One failing metric in the graph"
+  width={760}
+  height={260}
+  boxes={[
+    { id: 'g', label: 'Metric graph', sub: '2 expectations', x: 10, y: 20 },
+    { id: 'bad', label: 'column.always_fails', sub: 'always fails', x: 300, y: 20, w: 190 },
+    { id: 'good', label: 'column.max', sub: 'normal', x: 300, y: 150 },
+    { id: 'e1', label: 'Result of the failing rule', sub: 'success=False + exception_info', x: 560, y: 20, w: 190 },
+    { id: 'e2', label: 'Result of the normal rule', sub: 'success=True', x: 560, y: 150, w: 190 },
+  ]}
+  arrows={[ { from: 'g', to: 'bad' }, { from: 'g', to: 'good' }, { from: 'bad', to: 'e1' }, { from: 'good', to: 'e2' } ]}
+  frames={[
+    { title: 'Merged into a graph', text: 'The two expectations ask for different metrics. They do not depend on each other.', on: ['g'], arrows: [] },
+    { title: 'The normal metric computes fine', text: 'column.max is computed in the first round.', on: ['g', 'good'], arrows: [1] },
+    { title: 'The failing metric is retried', text: 'The function is called 3 times (counted by the counter in the script), then GX cancels this metric.', on: ['g', 'bad'], arrows: [0], tag: 'CALLS = 3' },
+    { title: 'The effect on the rules', text: 'The rule that depends on the failing metric gets success=False with exception_info. The other rule is not affected. No exception comes out of vd.run().', on: ['bad', 'e1', 'good', 'e2'], arrows: [2, 3] },
+  ]}
+/>
+
+</Step>
+
+<Step>
+
+## How to use this
+
+- If you see `success=False` and an `exception_info` that came from a metric computation, do not go and search the data yet. Read the exception message first (the sequence of questions in lesson 4).
+- A metric function that is slow or that calls the outside (for example, a call to a service) can be called up to 3 times when it fails. Design it to have no side effects.
+- The number 3 matches `MAX_METRIC_COMPUTATION_RETRIES`, read from the source `validation_graph.py`. I did not test whether there is a delay between the attempts.
+
+<Callout type="warn" title="Not tested">
+I tested only an aggregate metric on pandas. A metric that fails on SQL or Spark (for example, the database drops the connection halfway) may be retried differently. I did not test that.
+</Callout>
+
+</Step>

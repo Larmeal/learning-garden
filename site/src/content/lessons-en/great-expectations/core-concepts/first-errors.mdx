@@ -1,0 +1,45 @@
+---
+title: The first errors you will meet
+summary: Seven error messages that a beginner is likely to meet before anything else. Each has a cause you can reproduce, and a fix
+order: 3
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## The table of error messages
+
+Every row comes from `17_object_chain.py` (GX 1.24.1, pandas, ephemeral context). The messages are shortened.
+
+| What you do | exception | message | fix |
+|---|---|---|---|
+| Pass a suite that was never added into a `ValidationDefinition` and run it | `ValidationDefinitionRelatedResourcesFreshnessError` | `ExpectationSuite 'never_added' must be added to the DataContext before it can be updated. Please call context.suites.add(...)` | `suite = context.suites.add(suite)` before you create the validation definition |
+| Call `run()` without `batch_parameters` on a DataFrame asset | `BuildBatchRequestError` | `options must contain exactly 1 key, 'dataframe'` | `run(batch_parameters={"dataframe": df})` |
+| Pass a wrong key, such as `{"df": df}` | `BuildBatchRequestError` | The same message as the row above | Use the key named `dataframe` |
+| Add a suite with a name that already exists | `DataContextError` | `Cannot add ExpectationSuite with name s_ok because it already exists.` | Use a new name, or `get` the existing one and use it |
+| Add a data source with a name that already exists | `DataContextError` | `Can not write the fluent datasource dup because a datasource of that name already exists` | Same as the row above |
+| Misspell an argument name when creating an expectation (`colum="id"`) | `ValidationError` (pydantic) | `column field required` and `colum extra fields not permitted` | Fix the spelling. The error appears at creation time, you do not have to wait for the run |
+| `context.suites.get("nope")` | `DataContextError` | `ExpectationSuite with name nope was not found.` | See the names that exist with `[s.name for s in context.suites.all()]` |
+
+</Step>
+
+<Step>
+
+## Learn to read the messages
+
+The message in the first row contains its own fix (`Please call context.suites.add(...)`). The second and third rows give the same message even though the causes differ (forgetting to pass it, and passing a wrong key). The message says there must be exactly one key, `dataframe`. That is the rule for a DataFrame asset. Other kinds of asset (files, SQL tables) use different parameters, which lesson 6 looks at.
+
+The pydantic error comes out as two lines for one typo, because GX sees two problems: the required `column` is missing, and the unknown `colum` is extra. When you see this pair, look for a spelling that is close.
+
+Errors where the data has a problem are not in this table. A missing column or a value that breaks a rule is not an error. GX reports it as `success=False` in the result and does not raise (the page "What kinds of bad data GX can catch" in lesson 0).
+
+<Callout type="note" title="Scope of the table">
+The messages for other kinds of asset and for a file context may differ from these. This table was tested only on what is stated in the line above it.
+</Callout>
+
+</Step>

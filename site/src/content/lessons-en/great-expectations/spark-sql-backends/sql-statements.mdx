@@ -1,0 +1,85 @@
+---
+title: The SQL that a daily batch becomes
+summary: We capture the statements that GX sends to SQLite when it runs a daily batch. There are three statements, not two. The first one is the search for batches, which must sweep the whole date column.
+order: 1
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import FlowFrames from '../../../../components/labs/great-expectations/FlowFrames';
+
+<Step>
+
+## Capture the statements as SQLite sees them
+
+The table `sales` has four rows. The column `d` holds the date as text. The suite has one rule: `amount` is not null. We run the batch of 2024-01-02. The script `30_sql_where_support.py` wraps `SqlAlchemyExecutionEngine.execute_query` and compiles each statement with the dialect of the engine itself. What you see is the SQL that SQLite really received (GX 1.24.1).
+
+```sql
+-- 1. Find the batches that exist
+SELECT distinct(CAST(CAST(STRFTIME('%Y', d) AS INTEGER) AS VARCHAR) || CAST(CAST(STRFTIME('%m', d) AS INTEGER) AS VARCHAR)
+                || CAST(CAST(STRFTIME('%d', d) AS INTEGER) AS VARCHAR)) AS concat_distinct_values,
+       CAST(CAST(STRFTIME('%Y', d) AS INTEGER) AS INTEGER) AS year,
+       CAST(CAST(STRFTIME('%m', d) AS INTEGER) AS INTEGER) AS month,
+       CAST(CAST(STRFTIME('%d', d) AS INTEGER) AS INTEGER) AS day
+FROM sales
+
+-- 2. Count the rows of the batch
+SELECT count(*) AS "table.row_count"
+FROM (SELECT * FROM sales WHERE CAST(STRFTIME('%Y', d) AS INTEGER) = 2024
+        AND CAST(STRFTIME('%m', d) AS INTEGER) = 1 AND CAST(STRFTIME('%d', d) AS INTEGER) = 2) AS anon_1
+
+-- 3. Count the nulls of amount in the batch
+SELECT sum(CASE WHEN (amount IS NULL) THEN 1 ELSE 0 END) AS "column_values.nonnull.unexpected_count"
+FROM (SELECT * FROM sales WHERE ... the same condition ...) AS anon_1
+```
+
+The result is `success: False`, because day 2 has one row where `amount` is null.
+
+</Step>
+
+<Step>
+
+## What the three statements do
+
+<FlowFrames
+  client:visible
+  lang="en"
+  title="The three statements of one daily batch run"
+  width={760}
+  height={260}
+  boxes={[
+    { id: 'run', label: 'vd.run(year, month, day)', sub: 'ask for the batch of day 2', x: 10, y: 20, w: 190 },
+    { id: 'q1', label: 'Statement 1', sub: 'distinct dates, whole table', x: 270, y: 20 },
+    { id: 'q2', label: 'Statement 2', sub: 'row_count of the batch', x: 270, y: 100 },
+    { id: 'q3', label: 'Statement 3', sub: 'sum(CASE WHEN null)', x: 270, y: 180 },
+    { id: 'res', label: 'Result', sub: 'success = False', x: 560, y: 100 },
+  ]}
+  arrows={[ { from: 'run', to: 'q1' }, { from: 'q1', to: 'q2' }, { from: 'q2', to: 'q3' }, { from: 'q3', to: 'res' } ]}
+  frames={[
+    { title: 'Ask for the batch of day 2', text: 'Send the parameters year, month, day as integers', on: ['run'], arrows: [] },
+    { title: 'Statement 1: find all the batches that exist', text: 'SELECT distinct on the date expression. It must read the date column of every row in the table. It is not tied to the batch you asked for, because GX must know the list of batches before it chooses one', on: ['run', 'q1'], arrows: [0], tag: 'no WHERE' },
+    { title: 'Statement 2: count the rows of the batch', text: 'A WHERE is added for the date you asked for. This is the table.row_count that every column-level expectation needs (lesson 8)', on: ['q1', 'q2'], arrows: [1] },
+    { title: 'Statement 3: compute the metric of the rule', text: 'sum(CASE WHEN amount IS NULL ...) inside the scope of the same batch. The database filters with WHERE before it counts', on: ['q2', 'q3'], arrows: [2] },
+    { title: 'Get the result', text: 'The numbers from the three statements make up success=False together with the count of nulls', on: ['q3', 'res'], arrows: [3], tag: '30_sql_where_support.py' },
+  ]}
+/>
+
+</Step>
+
+<Step>
+
+## What to notice
+
+1. Statement 1 has no WHERE. To find the batches, GX must sweep the whole column `d`. On a small table you do not feel it. On a table of hundreds of millions of rows this is a cost on its own, separate from checking the real batch. Whether the next run repeats it was not tried.
+2. Statements 2 and 3 have a WHERE. The database filters first, so the data of other days is not counted in the result.
+3. The date expression differs by dialect. On SQLite it is `CAST(STRFTIME('%Y', d) AS INTEGER)`. Other databases use their own function (not tried with other databases). An expression that wraps the column `d` generally makes an index on this column unusable. This is an inference from the shape of the SQL; the execution plan was not measured.
+4. The main lesson once showed SQL in the form `EXTRACT(year FROM d)`. That is the neutral form that SQLAlchemy compiles when no dialect is given. The one that SQLite received is the `STRFTIME` above.
+
+<Callout type="warn" title="Not tried">
+We did not try any database other than SQLite. We did not look at the execution plan (EXPLAIN), and we did not measure the time of statement 1 as the table grows. So the conclusion about cost is about the shape of the statements, not a measured number.
+</Callout>
+
+</Step>

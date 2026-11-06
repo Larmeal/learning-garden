@@ -1,0 +1,92 @@
+---
+title: Check your understanding
+summary: Answer 6 questions to check how well you understand UDFs
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="In Spark 4.2 you write a plain @udf(long), with pandas and pyarrow installed. Which node do you see in explain()?"
+  options={['BatchEvalPython, because a plain UDF uses pickle', 'ArrowEvalPython, because a plain UDF is Arrow-optimized by default', 'No special node, because Catalyst turns a UDF into an expression']}
+  answer={1}
+  why="spark.sql.execution.pythonUDF.arrow.enabled is true since Spark 4.2, so you get ArrowEvalPython with evalType 101. useArrow=False gives BatchEvalPython with evalType 100. If pandas or pyarrow is missing, it falls back to BatchEvalPython with a warning."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A Python UDF with Arrow really is faster than the pickle kind. Which explanation is the most correct?"
+  options={['Your function receives a whole column at once (vectorized)', 'The data is transported as big Arrow batches, but the function is still called one row at a time', 'Arrow lets Catalyst look inside the function']}
+  answer={1}
+  why="The Arrow path is cheaper in serialization, but the worker still loops over [f(*row) for row in rows], so the function is called one row at a time. Only pandas_udf gives the function a whole Series per batch."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="df.withColumn('u', plus1('id')).filter(col('v') > 4), where v is an ordinary column and plus1 is a deterministic UDF. Where is the Filter in the optimized plan?"
+  options={['Above the UDF, because Catalyst does not move anything through a UDF', 'Below the UDF, because it does not depend on the UDF result and the UDF is deterministic', 'It is removed']}
+  answer={1}
+  why="ArrowEvalPython and BatchEvalPython are in the list of nodes that a filter can pass through, when every expression is deterministic. But if the filter uses the result of the UDF, or the UDF is non-deterministic, it cannot be moved."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The UDF lambda x: x + 1 runs on an int column that has NULL rows. What is the result?"
+  options={['The NULL rows are skipped and NULL comes out, like a built-in', 'The UDF receives None and a TypeError happens, which comes back as a PythonException', 'NULL is turned into 0 before it is sent to the function']}
+  answer={1}
+  why="Spark does not skip NULL rows for a UDF. It gets None directly and a TypeError happens on both the pickle and the Arrow path. You must write the function to accept None yourself."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A UDF declares returnType int but returns the float 1.5. What do you get with useArrow=False and useArrow=True?"
+  options={['Both give 1', 'pickle gives NULL silently, Arrow gives 1', 'pickle gives an error, Arrow gives NULL']}
+  answer={1}
+  why="The pickle path turns a value of the wrong type into NULL silently, while Arrow casts it to 1. A run confirmed both paths. If the result changes when you switch useArrow, suspect the type of the returned value."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You want to limit the memory of the Python worker that runs the UDF of a DataFrame. Which setting do you use?"
+  options={['spark.python.worker.memory, because the name says it most directly', 'spark.executor.pyspark.memory (and it is not enforced on Windows and macOS)', 'spark.sql.shuffle.partitions']}
+  answer={1}
+  why="spark.python.worker.memory is used only by the RDD API, for aggregation spill. spark.executor.pyspark.memory is turned into RLIMIT_AS for each worker, but the docstring says Windows does not support it and macOS does not enforce it."
+/>
+
+</Step>

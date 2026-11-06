@@ -1,0 +1,107 @@
+---
+title: Write your own action, and an action that fails
+summary: Build a ValidationAction that writes a status file, see what it receives, and try an action that raises to find out whether the validation result that was already stored survives
+order: 2
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import FlowFrames from '../../../../components/labs/great-expectations/FlowFrames';
+
+<Step>
+
+## An action that writes a status file
+
+The main lesson showed the outline of a `ValidationAction`. Here it is run for real (`27_actions_notify.py` part 3, GX 1.24.1).
+
+```python
+class WriteStatus(ValidationAction):
+    type: str = "write_status"
+    name: str = "write_status"
+    path: str = ""
+
+    def run(self, checkpoint_result, action_context=None):
+        Path(self.path).write_text("ok" if checkpoint_result.success else "failed")
+        return {"written": self.path}
+
+cp = gx.Checkpoint(name="cp_custom", validation_definitions=[vd],
+                   actions=[WriteStatus(path=str(out))])
+cp.run(batch_parameters={"dataframe": df})
+```
+
+The printed result:
+
+```text
+file content: failed | saw: {'context_type': 'ActionContext', 'success': False}
+```
+
+- The data made the suite fail, so the file contains `failed`.
+- `run` receives the full `CheckpointResult` (you can read `.success` and reach `run_results`, as on the "Read a CheckpointResult" page of lesson 7) and an `ActionContext`.
+- The fields of an action (here `path`) are declared as pydantic fields and passed when you create it.
+- The `type` field is the name of the action's type when a checkpoint is saved to a file. (The class is put into a registry by its `type` value when it is defined, according to a comment in `MetaValidationAction` in the source.)
+
+Part 5 of the script tests the trap that custom expectations fall into (lesson 12), this time with actions. Process A creates a checkpoint that contains `WriteStatus` in a file context. Then process B, which did not import this class, loads the context.
+
+```text
+B: ValidationActionRegistryRetrievalError | Invalid action configuration; no action of type write_status found.
+```
+
+This differs from a custom expectation, where the suite loads quietly empty. For an action, `get_context()` raises at once and names the type it could not find, so the problem shows up sooner. Both cases have the same root cause: the class must be imported before it is in the registry.
+
+</Step>
+
+<Step>
+
+## An action that raises
+
+`Boom.run` raises `RuntimeError("webhook is down")` on purpose. The script runs a checkpoint that has `Boom` as its only action.
+
+```text
+run raised: RuntimeError | webhook is down
+results stored anyway: 1
+```
+
+<FlowFrames
+  client:visible
+  lang="en"
+  title="When an action fails, does the validation result survive?"
+  width={760}
+  height={240}
+  boxes={[
+    { id: 'val', label: 'Validate data', sub: 'validation', x: 10, y: 80 },
+    { id: 'store', label: 'Save to store', sub: 'saved before actions', x: 220, y: 80, kind: 'store' },
+    { id: 'act', label: 'Action: Boom', sub: 'raise RuntimeError', x: 430, y: 80 },
+    { id: 'out', label: 'cp.run() raises', sub: 'result not returned', x: 610, y: 80 },
+  ]}
+  arrows={[ { from: 'val', to: 'store' }, { from: 'store', to: 'act' }, { from: 'act', to: 'out' } ]}
+  frames={[
+    { title: 'Validate data', text: 'The validation finishes', on: ['val'], arrows: [] },
+    { title: 'Save the result', text: 'The result is written to the results store before any action starts', on: ['val', 'store'], arrows: [0] },
+    { title: 'The action raises', text: 'Boom.run raises RuntimeError', on: ['store', 'act'], arrows: [1] },
+    { title: 'The checkpoint raises', text: 'cp.run() raises to the caller, but the result that was already stored is still there (1 item counted)', on: ['act', 'out'], arrows: [2], tag: '27_actions_notify.py part 4' },
+  ]}
+/>
+
+So a Slack outage does not make the validation result disappear. But it does make `cp.run()` raise, and the actions after it do not run (tested in `06_actions_docs.py`). A pipeline that has no `try/except` around it will fail the whole job because of an optional notification.
+
+## A safe pattern
+
+```python
+def run(self, checkpoint_result, action_context=None):
+    try:
+        post_to_my_service(checkpoint_result)
+    except Exception as e:
+        logging.warning("notification failed: %s", e)
+    return {}
+```
+
+This pattern is a suggestion based on the behavior that was tested (an action that raises drags the checkpoint down). The code itself was not run.
+
+<Callout type="note" title="Side effect of swallowing the error">
+An action that swallows the error will not tell anyone that the notification failed. Always write a log. Otherwise the team will think nothing happened, when in fact the message never arrived.
+</Callout>
+
+</Step>

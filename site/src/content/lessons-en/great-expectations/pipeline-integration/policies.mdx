@@ -1,0 +1,97 @@
+---
+title: Stop, quarantine, or warn and continue
+summary: Write three real policies and run them on three kinds of data. Use severity to separate serious rules from warning rules, and see which data is published, quarantined or stopped.
+order: 1
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import CaseExplorer from '../../../../components/labs/great-expectations/CaseExplorer';
+
+<Step>
+
+## A suite with two levels
+
+The main lesson proposed three policies. This page writes them for real (`29_pipeline_policies.py` part 1, GX 1.24.1). The suite for the orders table has two rules.
+
+```python
+gxe.ExpectColumnValuesToNotBeNull(column="order_id")          # default severity: critical
+gxe.ExpectColumnValuesToBeBetween(column="amount", min_value=0, max_value=1000,
+                                  mostly=0.99, severity="warning")
+```
+
+And three kinds of data:
+
+| Data | What it is | Highest level of the failed ones |
+|---|---|---|
+| good | `order_id=[1, 2]`, `amount=[10, 20]` | none (`None`) |
+| warning only | `amount` has 5000 (over 1000) | `warning` |
+| critical | `order_id` has a null | `critical` |
+
+The highest level is read from `suite_result.get_max_severity_failure()` for each validation in `run_results` (it returns `None` if everything passed, and it has `.value` as the string `"warning"` or `"critical"`).
+
+</Step>
+
+<Step>
+
+## Three policies
+
+```python
+def apply(policy, name, result, state):
+    sev = severity_of(result)
+    if result.success:
+        state["published"].append(name)
+    elif policy == "stop":
+        state["stopped"].append(name)
+    elif policy == "quarantine":
+        state["quarantine"].append(name)
+    elif policy == "warn then continue":
+        if sev == "critical":
+            state["stopped"].append(name)
+        else:
+            state["published"].append(name)
+            state["alerts"].append(name)
+```
+
+Choose a policy to see where each kind of data ends up. All results come from real runs.
+
+<CaseExplorer
+  client:visible
+  lang="en"
+  title="Three kinds of data and three policies"
+  okWord="publish"
+  badWord="not published"
+  cases={[
+    { label: 'Stop', input: 'If anything fails, stop everything', rows: [
+      { name: 'good', ok: true },
+      { name: 'warning only', ok: false, detail: 'stopped' },
+      { name: 'critical', ok: false, detail: 'stopped' } ], note: 'The safest, but a rule at the warning level also stops the pipeline.' },
+    { label: 'Quarantine', input: 'Data that fails goes to a holding area, users see the previous run', rows: [
+      { name: 'good', ok: true },
+      { name: 'warning only', ok: false, detail: 'in quarantine' },
+      { name: 'critical', ok: false, detail: 'in quarantine' } ], note: 'You keep the data for further checks, and users never see the bad data.' },
+    { label: 'Warn and continue', input: 'warning passes with an alert, critical stops', rows: [
+      { name: 'good', ok: true },
+      { name: 'warning only', ok: true, detail: 'published and alerted' },
+      { name: 'critical', ok: false, detail: 'stopped' } ], note: 'Split by seriousness. You must set severity on every rule so it matches its meaning.' },
+  ]}
+/>
+
+</Step>
+
+<Step>
+
+## How to choose
+
+- If you do not set `severity`, every rule is `critical`. So the policy "warn and continue" stops in every failing case, which has the same result as "stop".
+- `mostly=0.99` lets the `amount` rule be wrong in at most 1% of rows. The test data has 2 rows, so the one row over the limit is 50%, and the rule fails.
+- The "quarantine" policy in the script is just a list in the program. In real work you need a real holding area and a way for users to see the previous run. This part was not tested.
+
+<Callout type="warn" title="Choose the policy at the start">
+The policy depends on which is more expensive: the damage from bad data, or the damage from late data. This is a decision for the team and the data owner. GX gives you the tools to read the result and separate the levels. It does not choose for you.
+</Callout>
+
+</Step>

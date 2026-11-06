@@ -1,0 +1,92 @@
+---
+title: Kubernetes
+summary: Kubernetes has no Spark Master or ResourceManager. Everything is a pod, and the driver asks for executor pods itself through the API server. See how pods are born, how many are asked for at a time, how the ownerReference makes the executors disappear when the driver is deleted, and what differs from YARN (read from the source, not run on Kubernetes)
+order: 13
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import ClusterLaunchLab from '../../../../components/labs/spark/ClusterLaunchLab';
+import K8sBatchLab from '../../../../components/labs/spark/K8sBatchLab';
+
+<Callout type="warn" title="This page was not run on Kubernetes">
+The machine where this lesson was written has no Kubernetes cluster. Every point on this page was read from the Spark 4.2.0 source (`resource-managers/kubernetes/`) and the Spark documentation, and nothing was run. PySpark ships the `spark-kubernetes` jar in its package, so you can use it when you have a cluster.
+</Callout>
+
+<Step>
+
+## There is no Spark cluster manager
+
+Kubernetes has no role like a Master or a ResourceManager that Spark has to talk to. What Spark talks to is the **API server** of Kubernetes, to create and watch pods. Choosing which node a pod goes to is the job of `kube-scheduler`, and Spark is not involved in that.
+
+| Part involved | Does |
+|---|---|
+| `spark-submit` | Builds the driver pod from the config (several feature steps), creates the pod and a ConfigMap, then watches the pod status (`KubernetesClientApplication`) |
+| API server | The only place where everyone reads and writes the pod status |
+| driver pod | A pod that runs `spark-submit` again inside itself, in client mode (from `entrypoint.sh`, the command `driver`) |
+| `ExecutorPodsAllocator` (in the driver) | Compares the number of executors wanted with the pods that exist, and creates more executor pods itself |
+| executor pod | A JVM that registers with the driver and then receives tasks |
+
+The important difference from YARN is that **the driver itself orders the executors to be created**. There is no AM in between. See the sequence (switch to the scenario where the driver pod is deleted).
+
+<ClusterLaunchLab cm="k8s" client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## How many executor pods the driver asks for at a time
+
+The driver does not create them all at once. `ExecutorPodsAllocator` works in rounds. Each round creates no more than `spark.kubernetes.allocation.batch.size` pods (default 20), then waits `spark.kubernetes.allocation.batch.delay` (1 second) before the next round. Try changing the number wanted.
+
+<K8sBatchLab client:visible lang="en" />
+
+What to know:
+
+- If you ask for many executors (hundreds), creating the requests takes several seconds before Kubernetes even starts placing the first pod. You can adjust `batch.size` if the cluster can take it.
+- `spark.kubernetes.allocation.maxPendingPods` (unlimited by default) limits the number of pods that are stuck in Pending at the same time. It stops one app from flooding the scheduler with requests.
+- Spark does not fix a pod that is stuck in Pending for too long. If the nodes are not enough, the pod waits for the cluster autoscaler or until a node is free. `spark.kubernetes.allocation.executor.timeout` (600 seconds) deletes only the pods that Kubernetes has not yet shown in the Pending state.
+
+</Step>
+
+<Step>
+
+## Why the executors disappear when the driver pod is deleted
+
+The executor pod that `BasicExecutorFeatureStep` builds has an **ownerReference that points to the driver pod** (set as the controller). When the driver pod is deleted or gone, the garbage collector of Kubernetes deletes the objects whose owner is gone. The result is that no cluster manager has to chase the remaining executors. In Kubernetes, "shutting down the app" means deleting the driver pod.
+
+The ConfigMap of the Spark conf and the other resources that the driver needs are tied to the driver pod with an ownerReference in the same way (`KubernetesClientApplication.run`).
+
+An executor that dies on its own along the way is different. The driver watches the pod status through a watch (`ExecutorPodsWatchSnapshotSource`) and, as a backup, through polling (`ExecutorPodsPollingSnapshotSource`). When it learns that a pod is gone, it asks for a new pod to replace it, until `spark.executor.maxNumFailures` is reached and the app fails.
+
+</Step>
+
+<Step>
+
+## Compare with YARN and Standalone
+
+| | standalone | YARN | Kubernetes |
+|---|---|---|---|
+| Who divides the resources | Spark's Master | ResourceManager | kube-scheduler |
+| Who asks for executors for the app | `StandaloneAppClient` in the driver | ApplicationMaster | `ExecutorPodsAllocator` in the driver |
+| Unit that runs | process started by a Worker | container | pod |
+| Driver can be in the cluster | No, for Python | Yes (cluster mode, in the AM) | Yes (the driver pod) |
+| Shut down the app by | the driver ends | the driver or AM ends | deleting the driver pod (the executors go with it) |
+
+Kubernetes needs some extra settings that the other cluster managers do not have. For example, the image that contains Spark (`spark.kubernetes.container.image`), the namespace, a service account that has the right to create pods, and the resources of the pod (`spark.kubernetes.executor.request.cores` is different from `spark.executor.cores`, which is the number of tasks that run at the same time).
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- On Kubernetes, who tells the system to create the executor pods, and through whom?
+- Why do the executor pods disappear when the driver pod is deleted, without anyone telling them to?
+- If you ask for 100 executors with the default values, how many rounds does it take, and how many seconds until all the requests are created?
+- If an executor pod is stuck in Pending, where should you look (Spark or Kubernetes)?
+
+</Step>

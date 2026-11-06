@@ -1,0 +1,79 @@
+---
+title: Check your understanding
+summary: Answer 5 questions to check how well you understand Estimator, Transformer and Pipeline
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="What does LogisticRegression().fit(df) return, and is the returned object an Estimator or a Transformer?"
+  options={['Another LogisticRegression, which is an Estimator', 'A LogisticRegressionModel, which is a Transformer that you can use with transform', 'A DataFrame with a prediction']}
+  answer={1}
+  why="Estimator.fit always returns a Model, and a Model is a Transformer. The learning happens at fit, and transform uses what was learned to add new columns."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="In the measurement, pipeline.fit(train) created 14 jobs. How many jobs does model.transform(test) create, and why?"
+  options={['The same 14 jobs, because it goes through every stage again', '0 jobs, because transform only extends the plan, and jobs are created when there is an action such as evaluate', 'Always 1 job']}
+  answer={1}
+  why="transform is lazy, like a DataFrame transformation. fit is an action because it must read real data to learn. Counting with statusTracker gave 0 after transform."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="What type is the VectorAssembler in a fitted pipeline (model.stages)?"
+  options={['VectorAssemblerModel, like the other Estimators', 'The same VectorAssembler as before, because it is a Transformer and has nothing to learn from the data', 'It disappears from stages']}
+  answer={1}
+  why="Pipeline.fit replaces each Estimator with a fitted Model, but Transformers stay as they are. The measured result is [StringIndexerModel, OneHotEncoderModel, VectorAssembler, LogisticRegressionModel]."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A CrossValidator with a grid of 6 sets and numFolds=3 fits the pipeline about how many times (not counting the refit with the best set)?"
+  options={['6 times', '18 times (6 x 3)', '3 times']}
+  answer={1}
+  why="Every set of parameter values must be fit and measured in each fold, so the cost is a product. In the lab, cv.fit created 333 jobs, compared with 14 jobs for pipe.fit."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Why must you fit the Pipeline on train only, and not on all the data before splitting?"
+  options={['Because Spark cannot fit big data', 'Because learning from the test data (for example counting categories or scaling) leaks into the model, and the AUC looks better than it really is', 'Because test has no label']}
+  answer={1}
+  why="Every step that fits learns from the data, including StringIndexer and scalers. If they also see test, measuring on test is no longer a test on data the model has never seen."
+/>
+
+</Step>

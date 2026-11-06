@@ -1,0 +1,84 @@
+---
+title: File name regex and files that should not get in
+summary: A regex without anchors can match backup files as batches and make get_batch fail. Tested with a folder that has odd files mixed in, an empty folder, and CSV read options
+order: 2
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Variants from '../../../../components/labs/great-expectations/Variants';
+
+<Step>
+
+## A folder that is not clean
+
+A real pipeline often has other files in the same folder as the data. Part 2 of script `24_batch_details.py` builds a folder with seven files.
+
+```text
+backup_data_2024-03-01.csv
+data_2023-12-31.csv
+data_2024-01-31.csv
+data_2024-02-01.csv
+data_2024-02-10.csv
+data_2024-03-01.csv.bak
+notes.txt
+```
+
+There are four real data files (`data_...csv` that end in `.csv`). The other three are backup files and other files. The script uses the same regex as the main lesson.
+
+</Step>
+
+<Step>
+
+## A regex without anchors
+
+Switch tabs to compare two regexes.
+
+<Variants
+  lang="en"
+  client:visible
+  title="The same regex, different only in ^ and $"
+  variants={[
+    {
+      label: 'No anchors',
+      code: `regex=r"data_(?P<year>\\d{4})-(?P<month>\\d{2})-(?P<day>\\d{2})\\.csv"\n\nby_day.get_batch_identifiers_list()\nby_day.get_batch()   # no parameters`,
+      output: `batches seen:\n  data_2023-12-31.csv  2023 12 31\n  data_2024-01-31.csv  2024 01 31\n  data_2024-02-01.csv  2024 02 01\n  data_2024-02-10.csv  2024 02 10\n  data_2024-03-01.csv  2024 03 01   <- this file is not in the folder\n\nget_batch() -> FileNotFoundError:\n  ...\\data_2024-03-01.csv`,
+      reading: 'The backup file, whose name contains data_2024-03-01.csv inside it, is matched as the batch of the date 2024-03-01. But the path GX uses to open it is data_2024-03-01.csv, which does not exist, so asking for the latest batch fails with FileNotFoundError',
+      bad: true,
+    },
+    {
+      label: 'Anchored with ^ and $',
+      code: `regex=r"^data_(?P<year>\\d{4})-(?P<month>\\d{2})-(?P<day>\\d{2})\\.csv$"\n\nanchored.get_batch_identifiers_list()\nanchored.get_batch()`,
+      output: `anchored regex sees:\n  2023-12-31, 2024-01-31, 2024-02-01, 2024-02-10\n\nget_batch() -> ...\\data_2024-02-10.csv`,
+      reading: 'It sees only the four data files. The backup file and the .bak file are skipped, and the latest batch is the file of 2024-02-10, which really exists',
+    },
+  ]}
+/>
+
+What we see: the regex is not used as "the whole name must match". It looks for a part that matches the pattern, even in the middle of a file name. Without anchors, a file that should not get in can become a batch. (In the test, the extra file that was matched was the single one that collided on the date 2024-03-01. We did not separate whether it was `backup_data_...csv` or `...csv.bak`.) Always put `^` at the start and `$` at the end.
+
+</Step>
+
+<Step>
+
+## An empty folder, no file matching the regex, and reading CSV
+
+| Situation | Result (parts 3 and 4 of the script) |
+|---|---|
+| The folder has no files at all, then `add_csv_asset(...)` | `TestConnectionError`: `No file at base_directory path ... matched glob_directive "**/*" for DataAsset ...`. It fails when the asset is created |
+| The folder has files, but none match the regex | `get_batch_identifiers_list()` gives `[]` and `get_batch()` gives `NoAvailableBatchesError: No available batches found.` |
+| A CSV file separated by `;`, read with no settings | You get one column named `a;b` |
+| Set `add_csv_asset("x", sep=";")` | You get the columns `a`, `b` as they really are |
+
+The last two rows show that the parameters of the asset are passed on to the pandas reader (`sep` is a parameter of `pandas.read_csv`). Other options of `read_csv` were not tested.
+
+Note: creating the asset fails when the folder is empty. So a pipeline that creates the asset before the day's file arrives will fail at setup, not at check time. If you create and run in the same script, check that the file exists first.
+
+<Callout type="warn" title="Not tested">
+We did not test files in sub-folders (the glob `**/*` seems to search every level), a file that is still being written while it is read, or files on S3 or GCS.
+</Callout>
+
+</Step>

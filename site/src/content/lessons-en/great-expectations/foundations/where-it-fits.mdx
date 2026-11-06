@@ -1,0 +1,84 @@
+---
+title: Where GX sits in a pipeline
+summary: See where GX reads data from, where it writes results, who decides whether the pipeline continues or stops, and where to put the checks
+order: 2
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import FlowFrames from '../../../../components/labs/great-expectations/FlowFrames';
+
+<Step>
+
+## GX does three things
+
+1. Reads one batch of data (a DataFrame, a table, a file)
+2. Computes facts about that data and compares them with the rules
+3. Sends the result back with a report
+
+There is no fourth step that fixes the data, moves the data, or stops the pipeline for you. The script `16_defect_catalog.py` compared the DataFrame before and after validation in all nine cases and got the same values every time. And when the data fails, `Checkpoint.run` returns a `CheckpointResult` with `success=False`. It does not raise (`03_traps.py`). The pipeline has to read the result and decide for itself.
+
+</Step>
+
+<Step>
+
+## The flow of data and the flow of verdicts
+
+Press play to see which lines are data and which are validation results.
+
+<FlowFrames
+  lang="en"
+  client:visible
+  title="One round of data from source to user"
+  width={760}
+  height={250}
+  boxes={[
+    { id: 'src', label: 'Source', sub: 'file / API / DB', x: 10, y: 20, kind: 'data' },
+    { id: 'etl', label: 'Load / transform', sub: 'team code', x: 210, y: 20, kind: 'code' },
+    { id: 'gx', label: 'GX', sub: 'validation', x: 410, y: 20, kind: 'code' },
+    { id: 'gate', label: 'Decide', sub: 'team code', x: 410, y: 150, kind: 'code' },
+    { id: 'out', label: 'Target table', sub: 'users read it', x: 600, y: 150, kind: 'data' },
+    { id: 'docs', label: 'Results + Data Docs', sub: 'GX store', x: 600, y: 20, kind: 'store' },
+  ]}
+  arrows={[
+    { from: 'src', to: 'etl' },
+    { from: 'etl', to: 'gx', label: 'send data to check' },
+    { from: 'gx', to: 'docs', label: 'store result' },
+    { from: 'gx', to: 'gate', label: 'success?' },
+    { from: 'gate', to: 'out', label: 'only if passed' },
+  ]}
+  frames={[
+    { title: 'Data comes from the source', text: 'GX is not involved yet. The data still belongs to the pipeline', on: ['src'], arrows: [] },
+    { title: 'The team code loads and transforms', text: 'The output of this step is a batch of data that we suspect may be bad. A check works best after a step that changes the shape of the data', on: ['src', 'etl'], arrows: [0] },
+    { title: 'GX reads the batch to check it', text: 'The data is read and computed on, not changed (tested on a pandas DataFrame only)', on: ['etl', 'gx'], arrows: [1], tag: '16_defect_catalog.py' },
+    { title: 'The result is stored', text: 'The result of each validation is saved to a store before any action starts. If UpdateDataDocsAction is set, the report is built from this result', on: ['gx', 'docs'], arrows: [2], tag: '06_actions_docs.py' },
+    { title: 'The team code reads success and decides', text: 'GX does not stop the pipeline for you. Some code must read result.success. If you forget to read it, bad data keeps flowing', on: ['gx', 'gate'], arrows: [3], tag: '09_pipeline_gate.py' },
+    { title: 'Only passing data reaches the target', text: 'If the check fails, the team can choose to stop, quarantine the data, or alert and continue. Lesson 10 compares the three ways', on: ['gate', 'out'], arrows: [4] },
+  ]}
+  caption="An arrow into GX is data. An arrow out to the store is the result. The arrow to 'Decide' is the success value that the team code must go and read"
+/>
+
+</Step>
+
+<Step>
+
+## Where to put the check
+
+This table is design guidance. It was not tested. The choice depends on which part of the pipeline you control.
+
+| Check point | What it can catch | Limit |
+|---|---|---|
+| After receiving raw data, before transforming | The source sent data in the wrong shape or incomplete | Cannot see errors made by our own transforms |
+| After transforming, before writing to the target | Errors from joins, dropped rows, wrong calculations | Whatever is wrong at the source is mixed with our own errors, so it is hard to find the cause |
+| Before users read (the target table) | The data users really see | The bad data has already been written. You need a way to roll back |
+
+Using a different suite for each of the first two points is one option, because the rules for raw data and for transformed data are not the same. Lesson 10 goes into how to write the code.
+
+<Callout type="note" title="GX is not a data store">
+GX stores validation results, the definitions of the rules, and reports. It does not store the data it checks. The DataFrame passed in as a parameter at run time is not saved with the batch definition (tested in `01_first_validation.py`).
+</Callout>
+
+</Step>

@@ -1,0 +1,111 @@
+---
+title: Read a CheckpointResult
+summary: Open the result of a checkpoint layer by layer. What describe() gives, what run_results gives, and a short function that pulls out the list of failed expectations
+order: 2
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import JsonTree from '../../../../components/labs/great-expectations/JsonTree';
+
+<Step>
+
+## Two ways to read the result
+
+`CheckpointResult` can be read in two ways that give different levels of information.
+
+| Way | What it returns | Use it when |
+|---|---|---|
+| `result.describe()` | A summary JSON (a string) of the whole checkpoint | You export it as a log message or an API response |
+| `result.run_results` | A dict: `ValidationResultIdentifier` to `ExpectationSuiteValidationResult` | You write code to walk through the results yourself and reach every field of a result |
+
+Results from script `25_checkpoint_shapes.py`, parts 2 and 7 (GX 1.24.1): `describe()` has 3 top-level keys, `success`, `statistics` and `validation_results`.
+
+</Step>
+
+<Step>
+
+## Open the tree of describe()
+
+The data in the box is the describe() of a checkpoint with two validations (some keys of result are cut to keep it short). Click a key name to see what it means.
+
+<JsonTree
+  client:visible
+  lang="en"
+  title="describe() of a checkpoint with 2 validations"
+  open={['statistics', 'validation_results', 'validation_results.[]']}
+  data={{
+    success: false,
+    statistics: { evaluated_validations: 2, success_percent: 50.0, successful_validations: 1, unsuccessful_validations: 1 },
+    validation_results: [
+      {
+        success: true,
+        statistics: { evaluated_expectations: 1, successful_expectations: 1, unsuccessful_expectations: 0, success_percent: 100.0 },
+        expectations: [{ expectation_type: 'expect_column_values_to_be_unique', success: true, kwargs: { column: 'id' }, result: { element_count: 3, unexpected_count: 0 } }],
+        result_url: null,
+      },
+      {
+        success: false,
+        statistics: { evaluated_expectations: 2, successful_expectations: 0, unsuccessful_expectations: 2, success_percent: 0.0 },
+        expectations: [{ expectation_type: 'expect_column_values_to_be_between', success: false, kwargs: { column: 'age', min_value: 0.0, max_value: 120.0 }, result: { element_count: 3, unexpected_count: 1, partial_unexpected_list: [400.0] } }],
+        result_url: null,
+      },
+    ],
+  }}
+  notes={{
+    success: 'True when every validation passes',
+    statistics: 'Summary numbers at the checkpoint level: the number of validations evaluated, passed, failed, and the percent',
+    evaluated_validations: 'The number of validation definitions that ran in this checkpoint',
+    validation_results: 'The list of results, one per validation definition, in the order they have in the checkpoint',
+    expectations: 'The list of expectations of that validation. Each one has expectation_type, success, kwargs and result',
+    result_url: 'It is null in this experiment',
+    kwargs: 'The arguments of the expectation (batch_id is removed from the picture)',
+    result: 'The detail numbers of that item, as taught in lesson 4',
+  }}
+  caption="The shape of describe() was confirmed by the script: validation_results[i] has the keys success, statistics, expectations, result_url, and expectations[j] has expectation_type, success, kwargs, result. The values in the picture are shortened from the real result (the expectations part of the second one shows only one item)"
+/>
+
+describe() is a summary that leaves some things out (for example `meta` and the `exception_info` of each item). It is good for an overview. If you need `exception_info`, go through `run_results`.
+
+Whether describe() really leaves out `exception_info` can be checked from the keys that can be printed: `expectations[0]` has 4 keys, `expectation_type`, `success`, `kwargs`, `result`, and no `exception_info`.
+
+</Step>
+
+<Step>
+
+## Pull out the items that failed
+
+Walk through `run_results` directly.
+
+```python
+def failed_expectations(res):
+    out = []
+    for key, vres in res.run_results.items():
+        for r in vres.results:
+            if not r.success:
+                out.append((
+                    key.expectation_suite_identifier.name,
+                    r.expectation_config.type,
+                    r.expectation_config.kwargs.get("column"),
+                    r.result.get("unexpected_count"),
+                ))
+    return out
+```
+
+The result on the checkpoint above:
+
+```text
+('suite_age', 'expect_column_values_to_not_be_null', 'age', 1)
+('suite_age', 'expect_column_values_to_be_between', 'age', 1)
+```
+
+The item `suite_ids` passed, so it is not listed. This function does not separate a failure caused by the data from a failure caused by an exception. If you need to separate them, use the sequence of questions from [lesson 4](/en/great-expectations/reading-results/), the page "Read a failed result in a systematic way".
+
+<Callout type="note" title="You can name a run">
+`cp.run(..., run_id=RunIdentifier(run_name="nightly-2024-02-01"))` names the run, and it was measured that this name appears in every entry of `run_results` (`RunIdentifier` is imported from `great_expectations.core.run_identifier`). `Checkpoint.run` takes only three parameters: `batch_parameters`, `expectation_parameters`, `run_id`.
+</Callout>
+
+</Step>

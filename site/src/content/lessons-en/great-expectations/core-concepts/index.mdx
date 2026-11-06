@@ -1,0 +1,94 @@
+---
+title: Core concepts
+summary: More than ten GX pieces, who refers to whom, what is stored and what is passed at run time. You will use this picture all the way through the path
+order: 1
+phase: A
+level: 2
+stage: sprout
+format: steps
+requires: [foundations]
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import ObjectMap from '../../../../components/labs/great-expectations/ObjectMap';
+
+<Step>
+
+## The four steps of the workflow
+
+The official docs divide the use of GX into four steps.
+
+1. Set up the environment: create a Data Context
+2. Connect to data: tell GX where the data is and which part to pick up
+3. Write expectations: what the data should look like
+4. Run validation: check the data and read the result
+
+Each step has its own objects. This lesson goes through them one by one. Every lesson after this goes deeper into one of these pieces.
+
+</Step>
+
+<Step>
+
+## The map of everything
+
+<ObjectMap lang="en" client:visible />
+
+Read the picture from left to right. The left side is "where the data is". The middle is "what the data should look like". The right side is "what to do after the check". The piece that joins the first two sides is the Validation Definition.
+
+</Step>
+
+<Step>
+
+## What each piece is
+
+| Piece | What it is | How to create it |
+|---|---|---|
+| Data Context | The object that holds the config, the results and the metadata of the whole workflow | `gx.get_context()` |
+| Data Source | Represents one place where data is kept, with the way to connect to it | `context.data_sources.add_pandas(...)` |
+| Data Asset | A group of records in a data source (a table, a file, a DataFrame) | `source.add_dataframe_asset(...)` |
+| Batch Definition | How to split the asset and pick up records to check | `asset.add_batch_definition_whole_dataframe(...)` |
+| Batch | The records that were actually picked up at run time | `batch_definition.get_batch(...)` |
+| Expectation | One testable assertion | `gxe.ExpectColumnValuesToNotBeNull(column="id")` |
+| Expectation Suite | A set of expectations | `context.suites.add(gx.ExpectationSuite(name=...))` |
+| Validation Definition | Pairs a batch definition with a suite | `gx.ValidationDefinition(name=..., data=..., suite=...)` |
+| Checkpoint | Runs several validation definitions with shared parameters, then triggers actions | `gx.Checkpoint(name=..., validation_definitions=[...])` |
+| Action | An automatic step after the check (send an alert, update the report) | `gx.checkpoint.UpdateDataDocsAction(name=...)` |
+| Data Docs | HTML pages of the suite and the results | Built by `UpdateDataDocsAction` |
+
+</Step>
+
+<Step>
+
+## What is stored and what is passed at run time
+
+Most of the objects above are added to the context and kept in its store. What is not stored is what you pass when you start a run: the DataFrame (`batch_parameters={"dataframe": df}`), the parameters that choose a batch, and the `expectation_parameters` values.
+
+The reason for this split: the definition of a check ("check the table `users` with this suite") stays fixed and can be kept in git, but the data to check changes every run.
+
+<Callout type="note" title="A Batch Definition is a recipe, not data">
+After you create the context, data source, asset, batch definition and suite, nothing has been computed on the data yet (measured: the execution engine was called 0 times). GX starts to touch the data only when you actually run.
+</Callout>
+
+</Step>
+
+<Step>
+
+## The order that works
+
+The order of assembly: context, then data source, asset, batch definition, then suite, then validation definition, then checkpoint. Objects that refer to each other (a validation definition refers to a suite and a batch definition) do so through the name and id in the store. So the object being referred to must be added to the context first, or you cannot run (lessons 5 and 7 explain in detail).
+
+If you can draw this map on paper without looking, the next lessons will be easier to follow.
+
+</Step>
+
+<Step>
+
+## Sub-pages of this lesson
+
+1. Building it one line at a time: the state of the context and the ids after every line, and when GX starts to touch the data
+2. References by name and id: the json of a validation definition and what happens with duplicate names
+3. The first errors you will meet: seven error messages you can reproduce, with their fixes
+
+</Step>

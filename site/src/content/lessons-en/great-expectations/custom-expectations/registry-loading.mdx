@@ -1,0 +1,136 @@
+---
+title: Lifecycle, registry and loading
+summary: Where the type name of an expectation comes from, how the registry works, and why a saved suite can load empty when another process did not import your class
+order: 4
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## The type name comes from the class name, and you cannot set it yourself
+
+When the class is defined, `MetaExpectation.__new__` (in `expectations/expectation.py`) does this:
+
+```python
+newclass.expectation_type = camel_to_snake(clsname)
+register_expectation(newclass)
+```
+
+Tested in `13_custom_registry.py` by creating classes with several names.
+
+| class name | `expectation_type` |
+|---|---|
+| `ExpectColumnValuesToBeEven` | `expect_column_values_to_be_even` |
+| `ExpectUSZipCodeToBeValid` | `expect_us_zip_code_to_be_valid` |
+| `ExpectColumnValuesToBeUTF8` | `expect_column_values_to_be_utf8` |
+| `ExpectIDsToBeUnique` | `expect_i_ds_to_be_unique` |
+
+The last row is worth noticing. An abbreviation that ends in a lowercase letter, such as `IDs`, is split into `i_ds`. If you name a class like this, the type name stored in the suite will look odd forever.
+
+We tried setting `expectation_type = "my_chosen_name"` in the class. It has no effect. The name still comes from the class (`expect_something_else` in the experiment), and `"my_chosen_name"` is not in the registry. The docstring of `MetaExpectation` says it will use the value you set if there is one, but the code always overwrites it. The result is the same on GX 1.9.3 and 1.24.1.
+
+The consequence is that renaming a class is the same as renaming the type. A suite that stored the old name will not find the class (see the next steps). Choose a good name from the start, and do not change it later without changing the suites too.
+
+</Step>
+
+<Step>
+
+## The registry is a plain dict, and a duplicate name overwrites
+
+`expectations/registry.py` has a module-level variable `_registered_expectations`, which is a dict from type name to class. `register_expectation` does one of three things, depending on the case.
+
+- A new name: it puts the class in the dict.
+- The same name with the same class: it writes an info-level log `Multiple declarations` and stops.
+- The same name but a different class: it writes a warning-level log `Overwriting declaration of expectation ...` and replaces the old one.
+
+The last case was tested: we defined our own class named `ExpectColumnValuesToNotBeNull` in `__main__` even though GX already has a class with that name. `registry.get_expectation_impl("expect_column_values_to_not_be_null")` then returned our class instead. There was only a warning in the log (plus several warnings about renderers). There was no error.
+
+<Callout type="warn" title="A name clash with GX and nobody tells you">
+Every suite in that process that uses this type will run your class instead of the one from GX, without anyone noticing. Before you choose a name, search the registry with `registry.list_registered_expectation_implementations()` to see whether the name already exists.
+</Callout>
+
+</Step>
+
+<Step>
+
+## In the same process, an unknown type fails loudly
+
+Try adding an expectation that nobody wrote to a suite.
+
+```python
+gx.ExpectationSuite(name="s").add_expectation_configurations(
+    [ExpectationConfiguration(type="expect_something_nobody_wrote", kwargs={"column": "x"})]
+)
+```
+
+You get `InvalidExpectationConfigurationError: Could not add expectation; provided configuration is not valid: expect_something_nobody_wrote not found`. The cause is that `ExpectationSuite._build_expectation` calls `to_domain_obj()`, which calls `get_expectation_impl(type)` in the registry and raises `ExpectationNotFoundError`, which is wrapped into the error above.
+
+This is safe, because you see the error at once. The problem is in another path that uses the same mechanism.
+
+</Step>
+
+<Step>
+
+## When a suite is loaded from a file, the error is swallowed
+
+A suite in a file context is stored as JSON that refers only to the type name. There is no code and no module name. This is the real content of the suite in the experiment (`gx/expectations/even.json`).
+
+```json
+[
+  {
+    "id": "df2210d5-9b56-4dbd-9edf-adfaa8e23445",
+    "kwargs": { "column": "n" },
+    "meta": {},
+    "severity": "critical",
+    "type": "expect_column_values_to_be_even"
+  }
+]
+```
+
+When loading, `ExpectationSuite.__init__` (in `core/expectation_suite.py`) loops and builds an expectation from each entry.
+
+```python
+for exp in expectations or []:
+    try:
+        self.expectations.append(self._process_expectation(exp))
+    except gx_exceptions.InvalidExpectationConfigurationError as e:
+        logger.exception(f"Could not add expectation; provided configuration is not valid: {e.message}")
+```
+
+If the class is not found, it catches the error, writes an ERROR-level log, and moves on to the next entry. That entry disappears from the suite. Nothing is passed on to your code. This is the mechanism of the biggest trap in this lesson.
+
+</Step>
+
+<Step>
+
+## What you see from two processes
+
+`13_custom_registry.py` starts a first process that saves a suite with one expectation, then starts a second process that loads it and runs it on data that is all odd numbers (`[1, 3, 5]`, which should fail).
+
+| second process | expectations in the JSON | loaded | result |
+|---|---|---|---|
+| does not import your module | 1 | 0 | `success=True`, `evaluated_expectations=0` |
+| imports the module before `get_context()` | 1 | 1 | `success=False`, `evaluated_expectations=1` |
+
+In the first case, the log has the line `ERROR great_expectations.core.expectation_suite: Could not add expectation; provided configuration is not valid: ... expect_column_values_to_be_even not found`. In the experiment we saw three lines for one load (we did not check why they repeat). If your process does not keep the ERROR-level logs of GX where you can see them, there is no trace at all. The result `success=True` looks like good data, when in fact not one check was run.
+
+Lesson 10 (pipeline) talks about checking for this result from the gate side. This page looks at the cause.
+
+</Step>
+
+<Step>
+
+## Three ways to guard, from the cause to the effect
+
+1. Import before loading: put all custom expectations in one package (for example `my_project.expectations`) and import it at the start of every program that touches GX, before calling `gx.get_context()`. In the experiment, importing before loading gave 1 expectation, as it should. The easy places to forget are processes that are not the main program, such as a scheduler worker or a notebook kernel that is started separately.
+2. Check the count after loading: compare the count in the JSON with the number that loaded. `14_custom_testing.py` does this as a checker that can run in CI. The result on a suite with one custom expectation and one built-in one is `suite mixed: 2 on disk, 1 loaded -> MISSING CLASSES`.
+3. Check the result at the gate: read `result.statistics["evaluated_expectations"]` and reject a result that is 0 or less than the number it should have. This only catches the problem at real run time.
+
+Number 1 guards at the cause. Numbers 2 and 3 are there for when someone forgets. Using all three is best, because each one catches a mistake at a different time.
+
+</Step>

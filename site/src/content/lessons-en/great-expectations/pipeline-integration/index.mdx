@@ -1,0 +1,173 @@
+---
+title: Use it in a real pipeline
+summary: Where to put GX in a pipeline, how to write a quality gate that separates bad data from a broken expectation, and the traps of a daily job.
+order: 10
+phase: C
+level: 4
+stage: sprout
+format: steps
+requires: [actions-data-docs, reading-results, datasources-batches]
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import PipelineGate from '../../../../components/labs/great-expectations/PipelineGate';
+
+<Step>
+
+## Where to put it
+
+GX has no fixed position. The position decides what the check can protect you from.
+
+| Position | What it checks | When it fails, you should |
+|---|---|---|
+| Before loading into staging | The file from upstream (is it empty, are all columns there) | Reject the file and tell the owner of the source |
+| After the transformation | The result of our own transformation (duplicate keys, out-of-range values) | Stop and look for the bug in the job |
+| Before publishing to users | The table that a dashboard or a model will read | Do not publish, keep the previous run |
+
+Bad data that you catch before it flows on is easier to fix than bad data you catch after a report was already wrong. But every extra check point adds time and cost (lesson 8). Start with the point where the damage is worst.
+
+</Step>
+
+<Step>
+
+## A checkpoint is not a gate
+
+From lesson 7: `checkpoint.run()` always returns a result. It does not raise when the data fails. If a pipeline writes only
+
+```python
+checkpoint.run(batch_parameters=...)
+publish()
+```
+
+the bad data is published too. You need code that reads the result and decides.
+
+<PipelineGate client:visible lang="en" />
+
+Switch "empty table" between the two code versions. The simple gate (`if not result.success`) lets the empty table through to publish if the suite has no row-count expectation. The result is clean, but there is no data.
+
+</Step>
+
+<Step>
+
+## A quality gate that separates the causes
+
+A runnable example in `09_pipeline_gate.py`:
+
+```python
+def raised_exception(info) -> bool:
+    if not info:
+        return False
+    if "raised_exception" in info:
+        return bool(info["raised_exception"])
+    return True            # a metric that could not be computed comes as a dict of metric ids
+
+def classify(checkpoint_result):
+    bad_data, broken = [], []
+    for suite_result in checkpoint_result.run_results.values():
+        for r in suite_result.results:
+            if r.success:
+                continue
+            (broken if raised_exception(r.exception_info) else bad_data).append(r.expectation_config.type)
+    return bad_data, broken
+
+def gate(checkpoint, batch_parameters):
+    result = checkpoint.run(batch_parameters=batch_parameters)
+    # an empty suite (for example, a custom expectation that failed to load) "passes" without evaluating anything
+    if any(r.statistics["evaluated_expectations"] == 0 for r in result.run_results.values()):
+        raise QualityGateError("no expectations were evaluated")
+    if result.success:
+        return result
+    bad_data, broken = classify(result)
+    if broken:
+        raise QualityGateError(f"expectations could not be evaluated: {broken}")
+    raise QualityGateError(f"data failed: {bad_data}")
+```
+
+Run on five cases, with real results:
+
+| Data | Result of the gate |
+|---|---|
+| Good | publish |
+| A suite with no expectations at all | STOP: no expectations were evaluated |
+| `order_id` has null and `amount` = 99999 | STOP: data failed (not null, between) |
+| Empty table (the suite has a row count) | STOP: data failed (row count) |
+| The column `amount` was renamed | STOP: expectations could not be evaluated (between) |
+
+The last case matters: the data is not "bad", but the schema changed. The person who gets the alert should be the owner of the pipeline, not the owner of the data. Separating these two groups in the alert message sends the right problem to the right person.
+
+The first case comes from lesson 12 and is the quietest trap on this path. If a suite has a custom expectation and the process that loads the suite did not import that class, GX loads the suite as empty, and `run()` returns `success=True` with `evaluated_expectations = 0`, with no error at all (measured in `10_missing_import.py`). Checking `evaluated_expectations` in the gate is the last guard against this.
+
+</Step>
+
+<Step>
+
+## Choose a policy for failure
+
+| Policy | What it does | Fits |
+|---|---|---|
+| Stop | raise before publishing | data where a mistake does real damage (finance) |
+| Quarantine | move the data to a holding area and keep the previous run for users | tables that users read all the time |
+| Warn and continue | send an alert but publish | problems that are acceptable for a short time |
+
+You can tie this to severity: an expectation with `severity="warning"` that fails gives a warning, and a `critical` one that fails stops the run. The helper is `suite_result.get_max_severity_failure()`, which returns the highest level among the failed ones.
+
+</Step>
+
+<Step>
+
+## Daily jobs: pass all the parameters
+
+From lesson 6, a `get_batch()` that gets no parameters quietly returns the latest batch. In a daily pipeline, force the parameters:
+
+```python
+from datetime import date
+
+def params_for(day: date) -> dict:
+    return {"year": day.year, "month": day.month, "day": day.day}   # integers, in 1.24.1
+
+result = gate(checkpoint, params_for(run_date))
+```
+
+And let `run_date` come from a scheduler that sets it explicitly (not a "today" computed in the code), so that a backfill and a re-run give the same result. A GX re-run computes everything again and stores the result of the new run in addition. It does not overwrite the old runs.
+
+<Callout type="note" title="Orchestrators">
+GX is a normal Python library. You can call it directly from a task in Airflow, Dagster, Prefect or cron. The examples on this path were not tested with any particular orchestrator. The principles to keep are the same: create the context inside the task itself (a file context that points to the `gx/` folder in the project), pass the batch parameters explicitly, and make the task fail when the gate fails.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Test a suite like you test code
+
+A suite is the code of the pipeline, so it should have tests.
+
+- Keep small sample data that should pass and that should fail (empty table, null, out-of-range value, missing column). Test with an ephemeral context in CI that the gate decides correctly. `09_pipeline_gate.py` is the model.
+- Review changes to a suite in a pull request (a file context stores a suite as JSON in the folder `gx/expectations/`).
+- Set `mostly` and the value ranges from watching real data over many runs, not just one, and review them when the business changes.
+
+## Try it in this repo
+
+1. Open `09_pipeline_gate.py`, remove `ExpectTableRowCountToBeBetween`, and see what "empty table" turns into.
+2. Add an expectation with `severity="warning"`, and change `gate` so it stops only when a `critical` one fails.
+3. Pass `batch_parameters` as an empty dict to a daily batch definition and see which batch you get.
+
+## Check yourself
+
+- Why is a `checkpoint.run()` directly followed by `publish()` dangerous?
+- What does a gate that checks only `result.success` miss? (Think of the empty table and the broken expectation.)
+- Why should a backfill get the date parameters from the scheduler?
+
+</Step>
+
+<Step>
+
+## Sub-pages of this lesson
+
+1. Stop, quarantine, or warn and continue: write the three policies and run them on three kinds of data.
+2. Daily jobs: pass the date explicitly and make runs repeatable: a file that does not arrive, and a scheduler that forgets to pass the date.
+3. Test the gate before you use it: the minimum test cases, and the cases you should add.
+
+</Step>

@@ -1,0 +1,71 @@
+---
+title: batch.validate, a shortcut for trying rules
+summary: Try one rule, or a suite that has not been added, on a batch you already have, without creating a validation definition. See what kind of result you get and that it is not stored
+order: 3
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Variants from '../../../../components/labs/great-expectations/Variants';
+
+<Step>
+
+## When you want to try a rule quickly
+
+The normal path is context, data source, asset, batch definition, suite, validation definition, and then `run()`. When you are exploring data or writing a new rule, that is too heavy. A batch from `get_batch()` has a method `validate(...)` that checks a rule directly.
+
+```python
+batch = batch_definition.get_batch()
+batch.validate(gxe.ExpectColumnValuesToBeBetween(column="a", min_value=0, max_value=2))
+```
+
+</Step>
+
+<Step>
+
+## Two forms that were tested
+
+The data is the CSV file `a;b / 1;2 / 3;4` (parts 4 and 5 of `24_batch_details.py`, GX 1.24.1). Switch tabs.
+
+<Variants
+  lang="en"
+  client:visible
+  title="What batch.validate accepts"
+  variants={[
+    {
+      label: 'A single expectation',
+      code: `res = batch.validate(\n    gxe.ExpectColumnValuesToBeBetween(\n        column="a", min_value=0, max_value=2))`,
+      output: `type: ExpectationValidationResult\nsuccess: False\nunexpected_count: 1`,
+      reading: 'You get the result of one rule (ExpectationValidationResult). The value a=3 is above 2, so it fails. unexpected_count is 1',
+    },
+    {
+      label: 'A suite not added to the context',
+      code: `suite = gx.ExpectationSuite(name="adhoc")\nsuite.add_expectation(\n    gxe.ExpectColumnValuesToNotBeNull(column="b"))\nres = batch.validate(suite)`,
+      output: `type: ExpectationSuiteValidationResult\nsuccess: True\nresults store before/after: 0 0\nsuite.id: None`,
+      reading: 'It runs even though the suite is not in the context, and the result is not saved to the results store (the number of results stays at 0)',
+    },
+  ]}
+/>
+
+</Step>
+
+<Step>
+
+## When to use it and when not to
+
+| What you want | Use |
+|---|---|
+| Try a new rule on real data and see the result right away | `batch.validate(expectation)` |
+| Try a whole suite that is still a draft | `batch.validate(suite)` |
+| Check every day in a pipeline and keep the results | `ValidationDefinition` or `Checkpoint` (results are stored, actions are available) |
+
+The reason not to use `batch.validate` in a pipeline is that the result is not stored (tested with a suite) and there are no actions, such as alerts or updating Data Docs.
+
+<Callout type="warn" title="Not tested">
+We tested only with a batch from a CSV file in pandas. We did not try a SQL batch, and we did not check whether `batch.validate(expectation)` with a single expectation stores its result (we tested storing only with a suite).
+</Callout>
+
+</Step>

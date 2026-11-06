@@ -1,0 +1,124 @@
+---
+title: Expectations and suites
+summary: How many kinds of expectation there are, how they differ, how mostly works, and how a suite behaves like a set
+order: 3
+phase: A
+level: 2
+stage: sprout
+format: steps
+requires: [first-validation]
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import MostlyLab from '../../../../components/labs/great-expectations/MostlyLab';
+
+<Step>
+
+## There are six families of expectations
+
+The expectations that GX ships are in the folder `expectations/core/`. They are split into families by the kind of question they ask. The family decides what GX has to compute ([lesson 8](/en/great-expectations/metrics-engines/)).
+
+| Family | What it asks | Examples | Count in 1.9.3* |
+|---|---|---|---|
+| column map | Asks every row of a column, then counts the share that is wrong | `ExpectColumnValuesToNotBeNull`, `ExpectColumnValuesToBeBetween`, `ExpectColumnValuesToMatchRegex` | 26 |
+| column aggregate | Asks for one summary value of a column | `ExpectColumnMaxToBeBetween`, `ExpectColumnMeanToBeBetween` | 15 |
+| table (batch) | Asks about the whole table | `ExpectTableRowCountToEqual`, `ExpectTableColumnsToMatchSet` | 13 |
+| column pair map | Compares two columns row by row | `ExpectColumnPairValuesAToBeGreaterThanB` | 3 |
+| multicolumn map | Asks about several columns at once, row by row | `ExpectCompoundColumnsToBeUnique` | 3 |
+| query | Asks about the result of a SQL query you write yourself | `ExpectQueryResultsToMatchComparison` | 1 |
+
+\* Counted by reading the 1.9.3 source (read from the source). The numbers in 1.24.1 may differ a little. The official list is the Expectations Gallery on greatexpectations.io.
+
+The question to ask yourself before you choose: is the error you fear a problem with "some rows" (column map), with "the overall picture of a column" (aggregate), or with "the whole table" (table)?
+
+</Step>
+
+<Step>
+
+## Column map and aggregate decide differently
+
+- A column map expectation counts which rows are wrong. The result gives `unexpected_count`, `unexpected_percent` and sample bad values, so it can use `mostly`.
+- An aggregate expectation gets one value, such as `column.max`, and compares it with a range. The result gives `observed_value`.
+
+Example: `ExpectColumnMaxToBeBetween(column="age", min_value=0, max_value=120)` on `age = [10, None, 30, 400]` gives `observed_value = 400.0` and fails. It does not tell you which row is wrong. If you need the row, use `ExpectColumnValuesToBeBetween`.
+
+</Step>
+
+<Step>
+
+## mostly: how much may be wrong
+
+Real data is never 100 percent clean. A column map expectation takes `mostly` (a value from 0 to 1), the minimum share of rows that must be correct. The formula from the source is:
+
+`(rows considered - rows wrong) / rows considered ≥ mostly`
+
+Rows that are null are not counted in the rows considered (for most expectations in this family). Measured: `age = [10, None, 30, 400]` with `ExpectColumnValuesToBeBetween(0..120)` considers 3 rows and 1 is wrong, so the share is 0.667. It passes with `mostly=0.66` and fails with `mostly=0.67`.
+
+<MostlyLab client:visible lang="en" />
+
+<Callout type="warn" title="mostly does not hide nulls for you">
+Because nulls are not counted, an expectation about a range still passes when `age` is null in almost the whole column. You need a separate `ExpectColumnValuesToNotBeNull` (it can have its own `mostly`).
+</Callout>
+
+</Step>
+
+<Step>
+
+## A suite behaves like a set
+
+`ExpectationSuite` keeps expectations that are "not duplicates". If you add an expectation that is identical in every way, GX skips it quietly and raises no error.
+
+```python
+suite.add_expectation(gxe.ExpectColumnValuesToNotBeNull(column="id"))
+suite.add_expectation(gxe.ExpectColumnValuesToNotBeNull(column="id"))
+len(suite.expectations)   # 1
+```
+
+If the suite has already been added to the context, `add_expectation` saves to the store right away. You do not call save yourself.
+
+A parameter whose value is not known when you write the suite goes in as a suite parameter, and you pass the value when you run.
+
+```python
+suite.add_expectation(gxe.ExpectTableRowCountToEqual(value={"$PARAMETER": "expected_rows"}))
+vd.run(batch_parameters={"dataframe": df}, expectation_parameters={"expected_rows": 3})
+```
+
+(Measured in `04_batches.py`: passing 3 passes, passing 5 fails.)
+
+</Step>
+
+<Step>
+
+## Where to get expectations from
+
+| Source | Good for | Watch out for |
+|---|---|---|
+| Ask the data owner | Business rules (status has only five values, price is never negative) | You get the most correct rules, but it takes time |
+| Look at the real data | Value ranges, the normal share of nulls | If today's data is already broken, you write rules from broken data |
+| Historical statistics | Row count per day | You must allow for seasons and holidays |
+
+Start with the rules that do the most damage when they are broken (a key must not repeat, the row count must not be zero). You do not need to cover every column in the first round.
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- You want to know "how many rows have an age above 120". Which family of expectation should you use?
+- With `mostly=0.9` and 10 rows of data (no nulls), how many rows may be wrong and still pass?
+- You add the same expectation twice. What is `len(suite.expectations)`?
+
+</Step>
+
+<Step>
+
+## Sub-pages of this lesson
+
+1. Expectation families seen in real results: run 13 expectations, compare the results, with a flowchart for choosing a family
+2. Nulls and the order of results: each family treats nulls differently, and results do not follow the order of the suite
+3. Editing a suite that is already in the context: what counts as a duplicate, how to edit, delete and save
+
+</Step>

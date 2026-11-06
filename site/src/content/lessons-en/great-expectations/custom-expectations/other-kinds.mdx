@@ -1,0 +1,214 @@
+---
+title: Other kinds of expectation
+summary: Aggregate, pair, multicolumn and UnexpectedRowsExpectation, each with a runnable example, and what you must declare in addition compared with a column map
+order: 3
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Compare what you have to write
+
+Every example on this page runs in `12_custom_kinds.py` with an orders table of four rows.
+
+| id | price | discount | amount | card | paypal |
+|---|---|---|---|---|---|
+| 1 | 100 | 20 | 50 | c1 | (empty) |
+| 2 | 80 | 50 | 12000 | (empty) | p1 |
+| 3 | 60 | 10 | 700 | c3 | p3 |
+| 4 | 40 | 5 | 90 | (empty) | (empty) |
+
+| kind | helper on the metric side | the expectation side must have | `_validate` |
+|---|---|---|---|
+| column aggregate | use an existing metric, or write one with `column_aggregate_value` / `column_aggregate_partial` | `metric_dependencies`, `success_keys`, fields for the parameters | write it yourself |
+| column pair map | `column_pair_condition_partial` | `map_metric`, the field `ignore_row_if` and put it in `success_keys` | inherited |
+| multicolumn map | `multicolumn_condition_partial` | `map_metric` | inherited |
+| column map | `column_condition_partial` | `map_metric` | inherited |
+
+The map group inherits `_validate` from the parent class, so you write only the condition per row. The aggregate group needs its own `_validate`, because GX does not know what you want to compare the summary value with.
+
+</Step>
+
+<Step>
+
+## An aggregate built from existing metrics
+
+The rule: "the largest value minus the smallest value of `amount` must not be more than `max_width`". You do not need a new metric, because `column.min` and `column.max` are available on every engine.
+
+```python
+class ExpectColumnRangeToBeNarrow(ColumnAggregateExpectation):
+    max_width: float
+
+    metric_dependencies: ClassVar[tuple] = ("column.min", "column.max")
+    success_keys: ClassVar[tuple] = ("max_width",)
+    args_keys: ClassVar[tuple] = ("column", "max_width")
+
+    def _validate(self, metrics, runtime_configuration=None, execution_engine=None):
+        width = metrics["column.max"] - metrics["column.min"]
+        return {"success": bool(width <= self.max_width), "result": {"observed_value": width}}
+```
+
+`BatchExpectation.get_validation_dependencies` loops over `metric_dependencies` and asks for those metrics. The tested result (largest value 12000, smallest value 50, range 11950):
+
+| checked on | max_width | result |
+|---|---|---|
+| pandas | 50 | `success=False`, `observed_value=11950.0` |
+| pandas | 20000 | `success=True` |
+| SQLite | 20000 | `success=True` (no SQL code was written at all) |
+
+What you get for free is support for every engine that `column.min` and `column.max` support, because the expectation never touches the data itself.
+
+</Step>
+
+<Step>
+
+## An aggregate that needs its own metric
+
+The rule: "the share of `amount` above 500 must not be more than `max_share`". There is no ready-made metric. You have to write one, per engine, like a map rule.
+
+```python
+class ColumnShareAbove(ColumnAggregateMetricProvider):
+    metric_name = "column.share_above"
+    value_keys = ("threshold",)
+
+    @column_aggregate_value(engine=PandasExecutionEngine)
+    def _pandas(cls, column, threshold, **kwargs):
+        return float((column > threshold).mean())
+
+    @column_aggregate_partial(engine=SqlAlchemyExecutionEngine)
+    def _sqlalchemy(cls, column, threshold, **kwargs):
+        return sa.func.avg(sa.case((column > threshold, 1.0), else_=0.0))
+```
+
+The two helpers differ, as lesson 8 explained. `column_aggregate_value` returns a value that is computed at once (pandas). `column_aggregate_partial` returns a SQL expression that GX keeps and combines with the other metrics of the same column into one SELECT.
+
+The expectation side is like the previous example, but with two parameters.
+
+```python
+class ExpectColumnShareAboveToBeAtMost(ColumnAggregateExpectation):
+    threshold: float
+    max_share: float
+
+    metric_dependencies: ClassVar[tuple] = ("column.share_above",)
+    success_keys: ClassVar[tuple] = ("threshold", "max_share")
+    args_keys: ClassVar[tuple] = ("column", "threshold", "max_share")
+
+    def _validate(self, metrics, runtime_configuration=None, execution_engine=None):
+        share = metrics["column.share_above"]
+        return {"success": bool(share <= self.max_share), "result": {"observed_value": share}}
+```
+
+`threshold` is in the `value_keys` of the metric, so it must also be in the `success_keys` of the expectation, the same as the `divisor` case on the column map page. The tested results (two of the four `amount` values are above 500, which are 12000 and 700):
+
+| checked on | max_share | result |
+|---|---|---|
+| pandas | 0.5 | `success=True`, `observed_value=0.5` |
+| pandas | 0.25 | `success=False` |
+| SQLite | 0.25 | `success=False`, `observed_value=0.5` |
+
+</Step>
+
+<Step>
+
+## Pair: the values of two columns in the same row
+
+The rule: "the discount must not be more than half of the price". The condition takes two columns.
+
+```python
+class ColumnPairAIsAtMostHalfOfB(ColumnPairMapMetricProvider):
+    condition_metric_name = "column_pair_values.a_at_most_half_of_b"
+    condition_domain_keys = ("batch_id", "table", "column_A", "column_B",
+                             "row_condition", "condition_parser", "ignore_row_if")
+
+    @column_pair_condition_partial(engine=PandasExecutionEngine)
+    def _pandas(cls, column_A, column_B, **kwargs):
+        return column_A <= 0.5 * column_B
+
+    @column_pair_condition_partial(engine=SqlAlchemyExecutionEngine)
+    def _sqlalchemy(cls, column_A, column_B, **kwargs):
+        return column_A <= 0.5 * column_B
+
+
+class ExpectColumnPairValuesAToBeAtMostHalfOfB(ColumnPairMapExpectation):
+    ignore_row_if: Literal["both_values_are_missing", "either_value_is_missing", "neither"] = "both_values_are_missing"
+
+    map_metric: ClassVar[str] = "column_pair_values.a_at_most_half_of_b"
+    success_keys: ClassVar[tuple] = ("column_A", "column_B", "ignore_row_if", "mostly")
+    args_keys: ClassVar[tuple] = ("column_A", "column_B")
+```
+
+The result is the same on pandas and SQLite: `success=False`, `unexpected_count=1`, and the bad value is the pair `(50.0, 80.0)` (the row with id 2: a discount of 50 on a price of 80). The bad values of this group are pairs, not single values.
+
+<Callout type="warn" title="Forget to declare ignore_row_if and the result is empty">
+If the expectation class has no `ignore_row_if` field (and it is not in `success_keys`) while the metric declares it in `condition_domain_keys`, GX passes the value `None` to the metric. The tested result: `success=False`, `result={}` and one `exception_info` entry with the message `Unrecognized value of ignore_row_if ("None")`. No exception reaches your code.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Multicolumn: the values of several columns in the same row
+
+The rule: "in each row, the columns `card` and `paypal` must have exactly one of the two filled".
+
+```python
+class MulticolumnExactlyOneFilled(MulticolumnMapMetricProvider):
+    condition_metric_name = "multicolumn_values.exactly_one_filled"
+    condition_domain_keys = ("batch_id", "table", "column_list",
+                             "row_condition", "condition_parser", "ignore_row_if")
+
+    @multicolumn_condition_partial(engine=PandasExecutionEngine)
+    def _pandas(cls, column_list, **kwargs):
+        return column_list.notnull().sum(axis=1) == 1
+
+
+class ExpectSelectColumnsToHaveExactlyOneFilled(MulticolumnMapExpectation):
+    map_metric: ClassVar[str] = "multicolumn_values.exactly_one_filled"
+    args_keys: ClassVar[tuple] = ("column_list",)
+```
+
+This class is written for pandas only (SQL was not tested). The condition receives a DataFrame of the columns you selected. You can use the `ignore_row_if` option of the parent class as it is. The default is `all_values_are_missing`. The difference between the two values is very clear on the row with id 4, where both fields are empty.
+
+| `ignore_row_if` | unexpected | missing_count | bad values |
+|---|---|---|---|
+| `all_values_are_missing` (default) | 1 | 1 | `{'card': 'c3', 'paypal': 'p3'}` |
+| `never` | 2 | 0 | `{'card': 'c3', 'paypal': 'p3'}` and `{'card': nan, 'paypal': nan}` |
+
+The default skips a row that is entirely empty. If your rule is "at least one and at most one field must be filled", you must set `never`. Otherwise a row where nothing is filled slips through.
+
+</Step>
+
+<Step>
+
+## Query: when the rule is already SQL
+
+`UnexpectedRowsExpectation` takes a SQL query that returns the bad rows. It passes when no rows come back. You do not need to write a class.
+
+```python
+UnexpectedRowsExpectation(unexpected_rows_query="SELECT * FROM {batch} WHERE discount * 2 > price")
+```
+
+On SQLite you get `success=False` and `observed_value=1`. At `result_format="COMPLETE"`, `details.unexpected_rows` holds the whole rows. The source in `unexpected_rows_expectation.py` checks that the query contains `{batch}`. If it does not, it prints a warning that the query may search data outside the batch you set. It cannot be used on pandas: `No provider found for unexpected_rows_query.table using PandasExecutionEngine`.
+
+If you want to write your own class that uses SQL, the source also provides `QueryExpectation`. It checks in `validate_configuration` that there is a `query` and that the query uses `{batch}` and placeholders. Writing this class was not tested in this lesson.
+
+</Step>
+
+<Step>
+
+## Which one to choose
+
+| ask yourself | if yes |
+|---|---|
+| Do I want to know which rows are bad and what percentage? | a map kind (column, pair or multicolumn) |
+| Do I need `mostly`? | a map kind only. Aggregate has no `mostly` |
+| Is the rule a summary number compared with a limit? | aggregate |
+| Does GX already have a metric that gives that summary value? | an aggregate that uses the existing metric (the example `ExpectColumnRangeToBeNarrow`), with no per-engine code to write |
+| Can the rule be written as SQL, and is the data in a database? | `UnexpectedRowsExpectation` |
+
+</Step>

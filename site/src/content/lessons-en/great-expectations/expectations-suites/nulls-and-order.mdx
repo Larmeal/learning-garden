@@ -1,0 +1,111 @@
+---
+title: Nulls and the order of results
+summary: Each family treats nulls differently, results do not follow the order written in the suite, and these two things cause the most misreading of results
+order: 2
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import CaseExplorer from '../../../../components/labs/great-expectations/CaseExplorer';
+import FlowFrames from '../../../../components/labs/great-expectations/FlowFrames';
+
+<Step>
+
+## Nulls in the age column
+
+The script `19_catalog_nulls.py` uses `age = [10, None, 30, 40, 400]` (one null row) and a `plan` column with one null row. The result of each expectation (GX 1.24.1):
+
+| Expectation | Result | `element_count` | `missing_count` | `unexpected_count` / `observed_value` |
+|---|---|---|---|---|
+| `ExpectColumnValuesToNotBeNull(age)` | fail | 5 | this key is absent | unexpected 1 (the null row) |
+| `ExpectColumnValuesToBeNull(age)` | fail | 5 | this key is absent | unexpected 4 (rows that are not null) |
+| `ExpectColumnValuesToBeBetween(age, 0..120)` | fail | 5 | 1 | unexpected 1 (the value 400) |
+| `ExpectColumnValuesToBeInSet(plan, [free, pro])` | fail | 5 | 1 | unexpected 1 (`gold`) |
+| `ExpectColumnValuesToBeUnique(id)` | pass | 5 | 0 | unexpected 0 |
+| `ExpectColumnValuesToMatchRegex(plan)` | pass | 5 | 1 | unexpected 0 |
+| `ExpectColumnMaxToBeBetween(age, 0..120)` | fail | | | observed 400.0 |
+| `ExpectColumnMeanToBeBetween(age, 0..120)` | pass | | | observed 120.0 |
+
+What we see in the table:
+
+1. Expectations that test a range, a set of values or a pattern do not count null as wrong, but they report `missing_count` separately.
+2. The pair `NotBeNull` and `BeNull` treat null as their own target, so there is no `missing_count` in the result, and `BeNull` counts rows that are not null as wrong.
+3. Aggregates (`max`, `mean`) are computed from values that are not null: the reported mean is 120.0, which equals (10 + 30 + 40 + 400) ÷ 4. If you divided by 5 you would get 96.0.
+
+</Step>
+
+<Step>
+
+## The result if the number of nulls changes
+
+Click a case to see how these two rules answer. The first case comes from script `19`. The second comes from `03_traps.py` (the whole column is null).
+
+<CaseExplorer
+  client:visible
+  lang="en"
+  title="Two rules and nulls"
+  okWord="passed"
+  badWord="failed"
+  cases={[
+    { label: 'age has one null row', input: 'age: 10, null, 30, 40, 400', rows: [
+      { name: 'ExpectColumnValuesToBeBetween(0..120)', ok: false, detail: '1 wrong (the value 400), null is not counted' },
+      { name: 'ExpectColumnValuesToNotBeNull', ok: false, detail: '1 wrong (the null row)' },
+    ], note: 'The two rules answer differently because they ask different questions' },
+    { label: 'The whole column is null', input: 'age: null, null, null', rows: [
+      { name: 'ExpectColumnValuesToBeBetween(0..120)', ok: true, detail: 'There are no rows to consider, so it passes (tested in lesson 4 and 03_traps.py)' },
+      { name: 'ExpectColumnValuesToNotBeNull', ok: false, detail: 'All three rows are wrong' },
+    ], note: 'The range rule passes quietly. You need NotBeNull next to it to see the problem' },
+  ]}
+/>
+
+</Step>
+
+<Step>
+
+## The order of results is not the order of the suite
+
+When we read the results as a list, we tend to assume that `result.results[i]` matches `suite.expectations[i]`. Script `19` prints the two orders side by side.
+
+```text
+suite order : not_be_null(age), be_null(age), between(age), in_set(plan), unique(id),
+              regex(plan), max(age), mean(age), distinct(plan), pair, compound, row_count, column_count
+result order: not_be_null(age), be_null(age), between(age), max(age), mean(age),
+              in_set(plan), regex(plan), distinct(plan), unique(id), pair, compound, row_count, column_count
+```
+
+`max(age)` and `mean(age)` moved up next to the other `age` rules, and `in_set`, `regex` and `distinct` of `plan` went together too.
+
+The cause is in the source of `Validator.process_expectations_for_validation` (read from the source). It groups expectations by the value of the argument named `column` before it evaluates them (the method name says "sort by column"). The order of the groups is the order in which each column first appears. Inside a group the original order is kept. Expectations that have no `column` argument (table rules, column pair rules) are put together as one more group that follows the same rule: ordered by first appearance.
+
+<FlowFrames
+  client:visible
+  lang="en"
+  title="GX groups by column before it evaluates"
+  width={760}
+  height={230}
+  boxes={[
+    { id: 'in', label: 'Order in the suite', sub: 'age, plan, id, age, plan, age', x: 10, y: 20, w: 220 },
+    { id: 'g1', label: 'Group age', sub: 'items 1, 4, 6', x: 330, y: 0, w: 150, h: 50 },
+    { id: 'g2', label: 'Group plan', sub: 'items 2, 5', x: 330, y: 70, w: 150, h: 50 },
+    { id: 'g3', label: 'Group id', sub: 'item 3', x: 330, y: 140, w: 150, h: 50 },
+    { id: 'out', label: 'Order of results', sub: 'age, age, age, plan, plan, id', x: 540, y: 60, w: 210 },
+  ]}
+  arrows={[
+    { from: 'in', to: 'g1' }, { from: 'in', to: 'g2' }, { from: 'in', to: 'g3' },
+    { from: 'g1', to: 'out' }, { from: 'g2', to: 'out' }, { from: 'g3', to: 'out' },
+  ]}
+  frames={[
+    { title: 'The order as written', text: 'A made-up example: the suite has six items, in the column order age, plan, id, age, plan, age', on: ['in'], arrows: [] },
+    { title: 'Group by column name', text: 'Groups follow the order in which each column first appears: age, plan, id. Inside a group the original order is kept', on: ['in', 'g1', 'g2', 'g3'], arrows: [0, 1, 2], tag: 'validator.py: process_expectations_for_validation' },
+    { title: 'Results follow the groups', text: 'The results come out as all three age items, then two plan items, then id (this picture is drawn from the code of the method. The real example that was run is the result of script 19 above)', on: ['g1', 'g2', 'g3', 'out'], arrows: [3, 4, 5] },
+  ]}
+/>
+
+<Callout type="warn" title="Match results to rules through the config">
+If you write code that zips `suite.expectations` with `result.results` by position, the results get the wrong labels when the suite switches between columns. Match them with `r.expectation_config.type` and `kwargs`, as `16_defect_catalog.py` and `19_catalog_nulls.py` do. In [lesson 0](/en/great-expectations/foundations/) there is one more case where the order changes: an expectation that raised an exception is moved to the front.
+</Callout>
+
+</Step>

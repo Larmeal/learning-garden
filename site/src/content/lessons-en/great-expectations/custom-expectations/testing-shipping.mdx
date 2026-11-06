@@ -1,0 +1,146 @@
+---
+title: Test and ship
+summary: A table of test cases that catches behavior that differs between engines, run_diagnostics, a CI checker for classes that go missing, and what to repeat when you upgrade GX
+order: 5
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## The same condition, a different result on each engine
+
+In `14_custom_testing.py` we ran `ExpectColumnValuesToBeEven` (the condition `column % 2 == 0`, written for both pandas and SQLAlchemy) on five kinds of data and compared the two sides.
+
+| data | pandas | SQLite |
+|---|---|---|
+| `[2, 4, 6]` | pass | pass |
+| `[2, 4, 6, 7, 11]` | fail, 2 bad | fail, 2 bad |
+| empty table | pass (`unexpected=0`) | pass (`unexpected=None`) |
+| all null | pass | pass |
+| text `"a"`, `"bb"`, `"c"` | error: `not all arguments converted during string formatting` | pass (`unexpected=0`) |
+
+The first three rows are as expected. The last two teach something you need to know.
+
+On SQLite, an empty table gives `unexpected_count` as `None`, not `0`, but the final result still passes, because `_validate` treats `None` as "nothing to judge". If your code reads `unexpected_count` and does something with it (for example divides by it or compares it), it must handle the `None` case.
+
+The text column shows that the `%` condition does not mean the same thing everywhere. In Python, `"a" % 2` is string formatting, so a `TypeError` happens and the expectation fails with an empty `result`. In SQLite, `'a' % 2` gives `0` (SQLite reads the number at the start of the text, and if there is none it is 0; tested: `'7x' % 2` gives `1`), which is an even number, so it passes with no warning.
+
+<Callout type="warn" title="Data of the wrong type can pass quietly">
+If a column that should be numbers turns into text (a CSV file read wrongly, a field with mixed types), this `%` expectation passes on SQL. Put `ExpectColumnValuesToBeOfType` or `ExpectColumnValuesToBeInTypeList` in the same suite, so that the wrong type fails by itself.
+</Callout>
+
+</Step>
+
+<Step>
+
+## A minimum set of test data
+
+From the table above, these are the cases worth writing every time you write a new map expectation.
+
+| case | what to check |
+|---|---|
+| all data normal | `success=True` and `unexpected_count=0` |
+| some rows bad | the number of bad rows and the bad values match what you counted yourself |
+| some rows bad with `mostly` at the boundary | `mostly` equals the exact share of correct rows; pass or fail follows the formula `(considered - unexpected) / considered >= mostly` |
+| empty table | does it pass vacuously, as you intended? |
+| all null | the same as above, and `missing_count` is right |
+| null mixed with values | are the values seen in the condition float? (see the column map page) |
+| wrong type | what each engine does: fail, pass, or give a strange answer |
+
+Test each case on every engine the class supports. If you test only on pandas, you will not see that the text case passes quietly on SQLite.
+
+</Step>
+
+<Step>
+
+## Tools that GX provides: `examples` and `run_diagnostics`
+
+An expectation class has an attribute `examples` for putting in test cases, and then you call `run_diagnostics()`.
+
+```python
+class ExpectColumnValuesToBeEven(ColumnMapExpectation):
+    map_metric = "column_values.are_even"
+    args_keys = ("column",)
+
+    examples = [{
+        "data": {"n": [2, 4, 7]},
+        "tests": [
+            {"title": "one odd value", "exact_match_out": False, "include_in_gallery": True,
+             "in": {"column": "n"}, "out": {"success": False}},
+            {"title": "mostly lets it pass", "exact_match_out": False, "include_in_gallery": True,
+             "in": {"column": "n", "mostly": 0.6}, "out": {"success": True}},
+        ],
+    }]
+```
+
+The tested result is that GX ran these two cases on pandas and on sqlite (four tests in total, all passed) without us writing any code to create a database. `backend_test_result_counts` gave `[('pandas', 2, 0), ('sqlite', 2, 0)]`.
+
+`print_diagnostic_checklist()` prints a "maturity" list for the class. In the experiment it ticked the item "has core logic and passes tests on at least one execution engine" and the item "has both prescriptive and diagnostic renderers", but it did not tick the items that were missing, such as `library_metadata`, a docstring that starts with "Expect", and `validate_configuration`. The items that are not ticked are the criteria for submitting to the public GX gallery. If you use the class inside your team, you do not have to complete them all.
+
+Something to know when you use it: `run_diagnostics()` also tries to connect to other backends (mysql, bigquery, snowflake and others) and prints several lines saying it could not connect. This is not a fault in your class.
+
+</Step>
+
+<Step>
+
+## A checker in CI: has a class gone missing from a suite?
+
+The biggest trap of this lesson (see the "Lifecycle" page) can be caught with a short script that runs in a new process, which imports only what the real program imports.
+
+```python
+import json, pathlib, sys
+import great_expectations as gx
+
+context = gx.get_context(mode="file", project_root_dir=sys.argv[1])
+for path in sorted((pathlib.Path(sys.argv[1]) / "gx" / "expectations").glob("*.json")):
+    on_disk = len(json.loads(path.read_text())["expectations"])
+    loaded = len(context.suites.get(path.stem).expectations)
+    print(f"suite {path.stem}: {on_disk} on disk, {loaded} loaded ->", "ok" if on_disk == loaded else "MISSING CLASSES")
+```
+
+The result on a suite with one custom expectation and one `ExpectColumnValuesToNotBeNull`, in a process that did not import the custom module: `suite mixed: 2 on disk, 1 loaded -> MISSING CLASSES`. Make the script exit with a non-zero exit code when it finds `MISSING CLASSES`, and CI will fail before the real pipeline runs.
+
+It is important that this script imports the same things as the real program. If you put `import my_project.expectations` in the checker script itself, it will always pass and will check nothing.
+
+</Step>
+
+<Step>
+
+## When you upgrade GX
+
+A custom expectation uses several internals of GX. These are the things that the classes in this lesson import.
+
+- `ColumnMapExpectation`, `ColumnAggregateExpectation`, `ColumnPairMapExpectation`, `MulticolumnMapExpectation` from `great_expectations.expectations.expectation`
+- `ColumnMapMetricProvider`, `ColumnAggregateMetricProvider` from `great_expectations.expectations.metrics`
+- `column_condition_partial`, `column_aggregate_value`, `column_aggregate_partial` from the same place
+- `ColumnPairMapMetricProvider`, `MulticolumnMapMetricProvider`, `column_pair_condition_partial`, `multicolumn_condition_partial` from `great_expectations.expectations.metrics.map_metric_provider`
+- the `ExecutionEngine` of each backend from `great_expectations.execution_engine`
+
+If a name moves or disappears, you see it at once as an `ImportError` at import time, which is a good signal. The things that change quietly (the behavior of null, the shape of the result) have to be caught by the test set from the earlier pages.
+
+What was really tested: the scripts `07`, `11`, `12` and `13` run on both GX 1.9.3 and 1.24.1 with the same code. The differences found were the type of the numbers in the pair and multicolumn results (`np.int64` and `int`), and the error message of `filter_column_isnull = False`. This is how to run on the other version without touching `.venv`.
+
+```bash
+uv run --isolated --no-project --python 3.12 \
+  --with "great-expectations==1.9.3" --with "sqlalchemy>=2" python 12_custom_kinds.py
+```
+
+Two versions are too little data to conclude that the next version will be the same, but this command can be reused every time you are about to upgrade. Run the test set on the new version before you change the pin in `pyproject.toml`.
+
+<Callout type="tip" title="Checklist before you ship">
+1. The class name is spelled correctly and does not clash with one from GX (search the registry).
+2. There is a condition for every engine the pipeline really uses, and it has been run on the real backend.
+3. Five kinds of data have been tested, including an empty table, all null, and the wrong type.
+4. The parameters that the metric reads are in the `success_keys` of the expectation.
+5. The custom module is imported at the start of every program that loads a suite.
+6. CI has a checker for the number of expectations in a new process.
+7. The gate of the pipeline rejects `evaluated_expectations == 0`.
+8. The GX version is pinned, and there is a step to run the test set before an upgrade.
+</Callout>
+
+</Step>

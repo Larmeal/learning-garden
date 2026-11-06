@@ -1,0 +1,79 @@
+---
+title: "Passing with no data: who passes?"
+summary: An empty table and a column that is empty all the way down. We tried eight rules to see which kinds of rule pass quietly, which fail, and which rule to write next to them
+order: 2
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import CaseExplorer from '../../../../components/labs/great-expectations/CaseExplorer';
+
+<Step>
+
+## Why can it pass?
+
+A column map expectation decides by the bad rows. If there are no rows to look at, there are no bad rows, so it passes by definition (in logic this is called vacuously true). The main page showed a table with three rules. This page extends it to eight rules and two kinds of data, tested in `21_formats_empty.py` part 4 (GX 1.24.1, pandas).
+
+- Empty table: column `v` of type float with 0 rows.
+- Empty column: column `v` with 3 rows that are all null.
+
+</Step>
+
+<Step>
+
+## The results of the eight rules
+
+<CaseExplorer
+  client:visible
+  lang="en"
+  title="The same rules, data with no values to check"
+  okWord="pass"
+  badWord="fail"
+  cases={[
+    { label: 'empty table (0 rows)', input: 'v: (no rows)', rows: [
+      { name: 'ExpectColumnValuesToNotBeNull', ok: true, detail: 'no rows to be bad' },
+      { name: 'ExpectColumnValuesToBeBetween', ok: true },
+      { name: 'ExpectColumnValuesToBeInSet', ok: true },
+      { name: 'ExpectColumnValuesToBeUnique', ok: true },
+      { name: 'ExpectColumnMaxToBeBetween', ok: false, detail: 'observed_value is None' },
+      { name: 'ExpectColumnMeanToBeBetween', ok: false, detail: 'observed_value is None' },
+      { name: 'ExpectTableRowCountToBeBetween(min=1)', ok: false, detail: 'observed_value = 0' },
+      { name: 'ExpectTableColumnCountToEqual(1)', ok: true, detail: 'the table still has one column' },
+    ], note: 'The rules that look at rows all pass. The rules that need a single value or a row count fail. Five of the eight pass even though the table is empty' },
+    { label: 'all-null column (3 rows)', input: 'v: null, null, null', rows: [
+      { name: 'ExpectColumnValuesToNotBeNull', ok: false, detail: 'all three rows are bad' },
+      { name: 'ExpectColumnValuesToBeBetween', ok: true, detail: 'null is not counted' },
+      { name: 'ExpectColumnValuesToBeInSet', ok: true },
+      { name: 'ExpectColumnValuesToBeUnique', ok: true },
+      { name: 'ExpectColumnMaxToBeBetween', ok: false, detail: 'observed_value is None' },
+      { name: 'ExpectColumnMeanToBeBetween', ok: false, detail: 'observed_value is None' },
+      { name: 'ExpectTableRowCountToBeBetween(min=1)', ok: true, detail: 'the table has 3 rows' },
+      { name: 'ExpectTableColumnCountToEqual(1)', ok: true },
+    ], note: 'Three rules that judge by value (range, set, unique) pass even though there are no values at all. Only NotBeNull notices' },
+  ]}
+/>
+
+Reading the result: the failures on the aggregate rules do not come from an exception (there is no `raised_exception`). GX gets `observed_value=None` and compares it with the range, which does not pass. So the result says "fail" without saying why. You have to open `observed_value` yourself to see that it is `None`.
+
+</Step>
+
+<Step>
+
+## Rules to write as a pair
+
+| to guard against | rule to use |
+|---|---|
+| a file or table that arrives empty | `ExpectTableRowCountToBeBetween(min_value=1)` |
+| a column that is empty all the way down | `ExpectColumnValuesToNotBeNull(column=..., mostly=...)` together with a range rule |
+| a mean or max that cannot be computed | look at `observed_value` in the result of the failed expectation |
+
+The `mostly` of `NotBeNull` sets the share of null that you accept. For example `mostly=0.95` allows at most 5% of the rows to be null (the same formula as `mostly` on other rules; the value 0.95 was not tested directly here).
+
+<Callout type="warn" title="Everything passing does not prove there is data">
+A suite that has only column map rules can pass completely on an empty table. The number `result.statistics["evaluated_expectations"]` counts the expectations that were evaluated, not the rows, so it can be greater than 0 even when the table is empty. A row count rule is what catches this case.
+</Callout>
+
+</Step>

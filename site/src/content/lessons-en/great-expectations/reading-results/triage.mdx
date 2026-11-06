@@ -1,0 +1,118 @@
+---
+title: Read a failed result in a systematic way
+summary: success=False does not have only one meaning. A sequence of questions that separates the causes, a function that was tested, and a trap when you use the same expectation in several suites
+order: 3
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Decision from '../../../../components/labs/great-expectations/Decision';
+
+<Step>
+
+## One result, four meanings
+
+When you read the result of a suite, there are four cases to tell apart, because each one needs a different response.
+
+| case | caused by | what to do |
+|---|---|---|
+| the data has a problem | a value in the data breaks a rule (`success=False`) | find the bad rows, decide whether to stop or quarantine the data |
+| the expectation is broken | the rule cannot be used, for example a column is missing (`success=False` with `exception_info`) | fix the rule, or find out whether the data structure changed |
+| the suite is empty | there are no rules to evaluate at all (`success=True`, `evaluated_expectations=0`) | treat it as a failure and find out why the rules are gone |
+| a quiet pass on an empty table | every rule is a column map rule (`success=True`) | add a row count rule, see the page "Passing with no data: who passes?" |
+
+The last two make `success` `True` even though nothing was really checked. So looking only at the `success` value is not enough.
+
+</Step>
+
+<Step>
+
+## The order of the questions
+
+The order matters. First check that there are rules to evaluate, then check for exceptions, and only then read whether the data is wrong.
+
+<Decision
+  client:visible
+  lang="en"
+  title="What does this validation result tell you?"
+  start="q1"
+  nodes={[
+    { id: 'q1', q: 'Is statistics.evaluated_expectations greater than 0?', options: [
+      { label: 'It is 0', to: 'a-empty' },
+      { label: 'Greater than 0', to: 'q2' } ] },
+    { id: 'q2', q: 'Does any expectation have an exception_info with raised_exception set to True?', options: [
+      { label: 'Yes', to: 'a-broken' },
+      { label: 'No', to: 'q3' } ] },
+    { id: 'q3', q: 'What is result.success?', options: [
+      { label: 'False', to: 'a-data' },
+      { label: 'True', to: 'q4' } ] },
+    { id: 'q4', q: 'Does the suite have a row count rule, or another rule that fails when there is no data?', options: [
+      { label: 'Yes', to: 'a-ok' },
+      { label: 'No, only column map rules', to: 'a-vacuous' } ] },
+    { id: 'a-empty', answer: 'The suite is empty', text: 'success is True even though nothing was checked. This often happens when the suite is loaded in a process that did not import the custom expectation (lesson 12). Treat it as a failure' },
+    { id: 'a-broken', answer: 'The expectation is broken', text: 'The problem is in the rule or the data structure, not in the data values. Look at the exception_info of that expectation' },
+    { id: 'a-data', answer: 'The data has a problem', text: 'Read unexpected_count and partial_unexpected_list of the failed expectation, then decide whether to stop or quarantine the data' },
+    { id: 'a-ok', answer: 'A real pass, within the scope of the rules that were written', text: 'Pass means it does not contradict the rules that were written. It does not mean the data is right in every way (lesson 0: wrong but looks right)' },
+    { id: 'a-vacuous', answer: 'Pass, but you do not yet know whether there is data', text: 'Add a row count rule, because an empty table passes every column map rule' },
+  ]}
+  caption="The same sequence of questions as the triage function below"
+/>
+
+</Step>
+
+<Step>
+
+## A function that was tested
+
+```python
+def triage(result) -> str:
+    if result.statistics["evaluated_expectations"] == 0:
+        return "empty suite"
+    broken = [
+        x for x in result.results
+        if any(isinstance(v, dict) and v.get("raised_exception")
+               for v in (x.exception_info or {}).values())
+    ]
+    if broken:
+        return f"broken expectation ({len(broken)})"
+    if not result.success:
+        return "data problem"
+    return "ok"
+```
+
+The results from `21_formats_empty.py` part 5 (GX 1.24.1):
+
+| case | result of `triage` |
+|---|---|
+| good data, the `age` rule, not empty | `ok` |
+| the value 20 is over the rule `max=15` | `data problem` |
+| the rule refers to a column `nope` that does not exist | `broken expectation (1)` |
+| a suite with no expectations at all | `empty suite` |
+
+The code has to walk through the values of `exception_info` and filter with `isinstance(v, dict)`, because its shape comes in two forms. An expectation that broke gets a dict whose keys are the metrics that failed (seen on the page "What kinds of bad data GX can catch" in lesson 0). An expectation that did not break gets a flat dict `raised_exception: False, exception_traceback: None, exception_message: None`, whose values are a boolean and `None`, not dicts.
+
+<Callout type="note" title="Scope">
+Tested on pandas and an ephemeral context. This function is an example of grouping the outcomes. It is not a GX API.
+</Callout>
+
+</Step>
+
+<Step>
+
+## One expectation cannot be used in two suites
+
+After an expectation has been added to a suite, you cannot add it to another suite directly (part 6 of the script).
+
+```text
+RuntimeError: Cannot add Expectation because it already belongs to an ExpectationSuite.
+              If you want to update an existing Expectation, please call Expectation.save().
+              If you are copying this Expectation to a new ExpectationSuite, please copy it first ...
+after copy + id=None: second suite has 1 expectation(s)
+```
+
+The way that was tested: `copied = shared.copy()`, then set `copied.id = None` before `add_expectation`. The second suite then has this expectation (1 in total). An easier way is to create a new object with the same parameters every time. The script `21` uses a factory function like this.
+
+</Step>

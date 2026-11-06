@@ -1,0 +1,83 @@
+---
+title: Validation definition or checkpoint, which one to use
+summary: "Compare running directly with running through a checkpoint on what can be measured: the stored results, checkpoint_id in meta, result_format and actions. Also see where result_format is set now"
+order: 3
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Variants from '../../../../components/labs/great-expectations/Variants';
+
+<Step>
+
+## What is the same, and what differs
+
+Both ways check the data and store the result in the results store in the same way. Script `25_checkpoint_shapes.py`, parts 5 and 6, measures the differences you can see (GX 1.24.1).
+
+| Topic | `vd.run(...)` | `checkpoint.run(...)` |
+|---|---|---|
+| Results stored in the store | 1 entry per run | 1 entry per validation (2 validations give 2) |
+| `meta["checkpoint_id"]` of the result | `None` | has a value |
+| What it returns | `ExpectationSuiteValidationResult` | `CheckpointResult` (has `run_results`) |
+| Where `result_format` is set | A parameter of `run()` | A field of `Checkpoint(...)` (not a parameter of `run()`) |
+| Parameters of `run()` (from `inspect.signature`) | `checkpoint_id`, `batch_parameters`, `expectation_parameters`, `result_format`, `run_id` | `batch_parameters`, `expectation_parameters`, `run_id` |
+| actions | none | can be set in `Checkpoint(actions=[...])` ([lesson 9](/en/great-expectations/actions-data-docs/)) |
+
+</Step>
+
+<Step>
+
+## result_format moved
+
+Switch between the tabs to see where the `result_format` that you used to pass to `vd.run` goes when you use a checkpoint.
+
+<Variants
+  client:visible
+  lang="en"
+  title="result_format when you run directly, and when you use a checkpoint"
+  variants={[
+    {
+      label: 'vd.run',
+      code: `vd.run(\n    batch_parameters={"dataframe": df},\n    result_format="COMPLETE")`,
+      output: `# lesson 4 (21_formats_empty.py)\nkeys in the result of a column map: adds unexpected_list,\nunexpected_index_list, unexpected_index_query`,
+      reading: 'result_format is a parameter of run()',
+    },
+    {
+      label: 'checkpoint',
+      code: `cp = gx.Checkpoint(\n    name="cp_COMPLETE",\n    validation_definitions=[vd],\n    result_format="COMPLETE")\ncp.run(batch_parameters={"dataframe": df})`,
+      output: `Checkpoint.run parameters: ['batch_parameters', 'expectation_parameters', 'run_id']\nCheckpoint(result_format='BOOLEAN_ONLY') -> keys in the first result: 0\nCheckpoint(result_format='COMPLETE')     -> keys in the first result: 9`,
+      reading: 'result_format is set when you create the Checkpoint, and it applies to every validation in that checkpoint. You cannot pass it to cp.run() directly (TypeError)',
+    },
+    {
+      label: 'pass it to cp.run',
+      code: `cp.run(batch_parameters={"dataframe": df},\n       result_format="BOOLEAN_ONLY")`,
+      output: `TypeError: Checkpoint.run() got an unexpected keyword argument 'result_format'`,
+      reading: 'It does not work. You must set it on the Checkpoint itself',
+      bad: true,
+    },
+  ]}
+/>
+
+The numbers 0 and 9 are the number of keys in the `result` of the first item of the suite `vd_age`, with `BOOLEAN_ONLY` and `COMPLETE` respectively. This matches what [lesson 4](/en/great-expectations/reading-results/) saw: BOOLEAN_ONLY makes `result` empty.
+
+</Step>
+
+<Step>
+
+## How to choose
+
+| Situation | Choose |
+|---|---|
+| Trying rules, writing an experiment script, checking once | `vd.run(...)` or `batch.validate(...)` ([lesson 6](/en/great-expectations/datasources-batches/)) |
+| A regular check in a pipeline | `Checkpoint`, because it joins several checks into one run (the same `run_id`) and can attach actions |
+| You want to know which checkpoint a result came from | `Checkpoint` (it has `checkpoint_id` in meta) |
+| You want a different `result_format` for each check | Create separate checkpoints for the level you need |
+
+<Callout type="note" title="A summary that was not tested">
+This table summarizes the differences that were measured in the first section. The other practical pros and cons (for example, how easy it is to review a checkpoint in git) come from the file structure seen in [lesson 5](/en/great-expectations/context-stores/) and were not measured.
+</Callout>
+
+</Step>

@@ -1,0 +1,98 @@
+---
+title: Four practice problems
+summary: Try to write each one yourself before you open the answer. Each problem has a task, the result you should get, and an answer that was run. It trains reading results more than memorising names
+order: 3
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## How to practice
+
+Use the file `01_first_validation.py` as a base, or write new code in your own file. Every answer was run for real in `18_result_anatomy.py`, part 4, with GX 1.24.1. Try first, then open the answer.
+
+</Step>
+
+<Step>
+
+## Problem 1: make every item pass
+
+Start from the DataFrame of this lesson (`age` has a null and 400). Change only the data, without touching the suite, so that all four items pass.
+
+The result you should get: `result.success` is `True` and `success_percent` is `100.0`.
+
+<details>
+<summary>Answer</summary>
+
+```python
+df = pd.DataFrame({"id": [1, 2, 3, 4], "age": [10, 20, 30, 40], "name": ["a", "b", "c", "d"]})
+```
+
+Fill `age` completely, keep it within 0 to 120, and have exactly four rows. You get `ex1 all pass: True 100.0`.
+
+</details>
+
+</Step>
+
+<Step>
+
+## Problem 2: find the repeated id values
+
+The data is `id = [1, 2, 2, 4]`. Write an expectation that fails because of the repeated id. Then read from `result` how many rows repeat and which value.
+
+<details>
+<summary>Answer</summary>
+
+```python
+gxe.ExpectColumnValuesToBeUnique(column="id")
+```
+
+Result: `success=False`, `unexpected_count=2`, `partial_unexpected_list=[2, 2]`. The value 2 appears twice because both rows are counted as wrong. It does not count only the "extra rows" (the count is 2, not 1).
+
+</details>
+
+</Step>
+
+<Step>
+
+## Problem 3: a column that should exist but does not
+
+The table has the columns `id`, `age`, `name`, but the user wants it to have `email` too. Write an expectation that catches this. Then find where `result` gives the name of the missing column.
+
+<details>
+<summary>Answer</summary>
+
+```python
+gxe.ExpectTableColumnsToMatchSet(column_set=["id", "age", "name", "email"], exact_match=True)
+```
+
+Result: `success=False`, `observed_value` is `['age', 'id', 'name']` (sorted alphabetically), and `details` is `{'mismatched': {'missing': ['email']}}`. The missing name is in `result["details"]["mismatched"]["missing"]`.
+
+</details>
+
+</Step>
+
+<Step>
+
+## Problem 4: allow one in four to be wrong
+
+The data is `age = [10, 20, 30, 400]`. Set up `ExpectColumnValuesToBeBetween(0, 120)` so that it passes while 400 is still in the data.
+
+<details>
+<summary>Answer</summary>
+
+```python
+gxe.ExpectColumnValuesToBeBetween(column="age", min_value=0, max_value=120, mostly=0.75)
+```
+
+Result: `success=True`, `unexpected_percent=25.0`. One in four is wrong. The share of correct rows is 3 in 4, which is 0.75, exactly equal to `mostly`, so it passes (the condition is "not lower than"). If you set `mostly=0.8` you get `success=False` (also run in `18`).
+
+
+</details>
+
+</Step>

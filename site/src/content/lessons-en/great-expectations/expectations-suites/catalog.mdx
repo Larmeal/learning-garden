@@ -1,0 +1,93 @@
+---
+title: Expectation families seen in real results
+summary: Run thirteen expectations from five families on one table, see what each family's result looks like, then use a flowchart to pick the family that fits the rule you are about to write
+order: 1
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Decision from '../../../../components/labs/great-expectations/Decision';
+
+<Step>
+
+## The table and the thirteen rules
+
+The script `19_catalog_nulls.py` builds a table of 5 rows with the columns `id`, `age` (one null row and the value 400), `plan` (one null row), `start`, `end`, `a`, `b`. It then runs thirteen expectations in one suite (GX 1.24.1). The results are grouped by family. The query family (`UnexpectedRowsExpectation`) is not run in this script. For an example that was run, see [lesson 12](/en/great-expectations/custom-expectations/).
+
+| Family | Examples that were run | Keys in `result` |
+|---|---|---|
+| column map | `ExpectColumnValuesToBeBetween`, `ExpectColumnValuesToBeInSet`, `ExpectColumnValuesToBeUnique`, `ExpectColumnValuesToMatchRegex` | `element_count`, `missing_count`, `unexpected_count`, `unexpected_percent`, `partial_unexpected_list` and the keys about index |
+| column map that tests null itself | `ExpectColumnValuesToNotBeNull`, `ExpectColumnValuesToBeNull` | Same as above, but without `missing_count` |
+| column aggregate | `ExpectColumnMaxToBeBetween`, `ExpectColumnMeanToBeBetween` | `observed_value` only |
+| column aggregate (a set of values) | `ExpectColumnDistinctValuesToBeInSet` | `observed_value`, `unexpected_count`, `partial_unexpected_list` |
+| column pair map | `ExpectColumnPairValuesAToBeGreaterThanB` | The same set of keys as column map |
+| multicolumn map | `ExpectCompoundColumnsToBeUnique` | The same set of keys as column map |
+| table (batch) | `ExpectTableRowCountToEqual`, `ExpectTableColumnCountToEqual` | `observed_value` only |
+
+The three map families (column, pair, multicolumn) give results that look the same, because all of them count the rows that are wrong. Aggregate and table get a single value.
+
+Two things were not what we expected.
+
+- `ExpectColumnDistinctValuesToBeInSet` gives `observed_value` as `None`, both when it passes and when it fails. If you want to know which values are there, look at its `partial_unexpected_list`. (An extra test with data that has nulls and data that has none gave the same result.)
+- `ExpectColumnMeanToBeBetween(0, 120)` with `age = [10, None, 30, 40, 400]` gives a mean of exactly 120.0 and passes. The range includes both ends, and the mean is computed from the 4 values that are not null (500 ÷ 4).
+
+</Step>
+
+<Step>
+
+## Choose the family from the question you want to ask
+
+Answer one question at a time. This flowchart turns the table above into a sequence of questions.
+
+<Decision
+  client:visible
+  lang="en"
+  title="Which family does my rule belong to?"
+  start="q1"
+  nodes={[
+    { id: 'q1', q: 'What does this rule decide from?', options: [
+      { label: 'The value in each row', to: 'q2' },
+      { label: 'One summary number', to: 'q3' },
+      { label: 'The result of a SQL query I write myself', to: 'a-query' } ] },
+    { id: 'q2', q: 'How many columns are used per row?', options: [
+      { label: 'One column', to: 'a-map' },
+      { label: 'Two columns compared with each other', to: 'a-pair' },
+      { label: 'Several columns together', to: 'a-multi' } ] },
+    { id: 'q3', q: 'What does the summary number belong to?', options: [
+      { label: 'One column (max, mean, the set of distinct values)', to: 'a-agg' },
+      { label: 'The whole table (row count, number or names of columns)', to: 'a-table' } ] },
+    { id: 'a-map', answer: 'column map', text: 'The result gives the count and sample rows that are wrong. You can use mostly. Example: ExpectColumnValuesToBeBetween' },
+    { id: 'a-pair', answer: 'column pair map', text: 'Example: ExpectColumnPairValuesAToBeGreaterThanB. The result looks like column map' },
+    { id: 'a-multi', answer: 'multicolumn map', text: 'Example: ExpectCompoundColumnsToBeUnique. The result looks like column map' },
+    { id: 'a-agg', answer: 'column aggregate', text: 'Gives one value (observed_value). It does not tell you which row is wrong, and it does not use mostly' },
+    { id: 'a-table', answer: 'table (batch)', text: 'Example: ExpectTableRowCountToEqual. Gives one observed_value for the whole table' },
+    { id: 'a-query', answer: 'query / unexpected rows', text: 'Use UnexpectedRowsExpectation, which takes SQL. It passes only when the query returns no rows. Lesson 12 has an example that was run' },
+  ]}
+  caption="This flowchart picks a family, not the exact expectation inside the family. For the full list, see the Expectations Gallery on the GX website"
+/>
+
+</Step>
+
+<Step>
+
+## Count per family
+
+The number of expectations per family was counted by reading the 1.9.3 source (read from the source). It was not counted again on 1.24.1.
+
+| Family | Count in 1.9.3 |
+|---|---|
+| column map | 26 |
+| column aggregate | 15 |
+| table (batch) | 13 |
+| column pair map | 3 |
+| multicolumn map | 3 |
+| query | 1 |
+
+<Callout type="note" title="The official list">
+The Expectations Gallery on the GX website is the latest list and has an example for each expectation. The list here covers only the expectations that were tried and run.
+</Callout>
+
+</Step>

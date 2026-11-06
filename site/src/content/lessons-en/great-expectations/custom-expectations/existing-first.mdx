@@ -1,0 +1,147 @@
+---
+title: Try what exists first
+summary: GX has 59 expectations with parameters that change their behavior. See what can be solved with mostly, row_condition and severity, and how to search before you write your own
+order: 1
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+
+<Step>
+
+## Writing your own has a continuing cost
+
+A custom expectation works well, but you take on three burdens with it.
+
+- You have to write and test the condition separately for every engine you really use. If you forget one engine, the expectation fails on that engine.
+- Every process that loads a suite must import your class first. Otherwise the suite loads empty (see the "Lifecycle" page).
+- You maintain this code yourself when you upgrade GX. It uses internals such as `ColumnMapMetricProvider` and `column_condition_partial`.
+
+The third burden is not too heavy. The scripts `07`, `11`, `12` and `13` of this lesson run on both GX 1.9.3 and 1.24.1 with the same code. The classes that were defined work the same way. The only differences seen are the type of the numbers in the result (`np.int64` in 1.9.3 compared with `int` in 1.24.1, in the results of pair and multicolumn) and the error message of the `filter_column_isnull = False` case. This is the result from the two versions that were tested. It is not a guarantee that other versions will be the same, and this lesson did not test how Data Docs shows an expectation you wrote yourself.
+
+</Step>
+
+<Step>
+
+## Adjust what exists with parameters
+
+A sample table of six rows (`15_adapt_builtin.py`).
+
+```python
+orders = pd.DataFrame({
+    "country": ["th", "th", "th", "jp", "jp", "sg"],
+    "zip":     ["10110", "10110", "1011", "100-0001", "100-0001", "018956"],
+    "amount":  [120.0, 80.0, 5000.0, 60.0, 70.0, 90.0],
+})
+```
+
+### mostly: allow a share of the rows to be bad
+
+```python
+gxe.ExpectColumnValuesToBeBetween(column="amount", min_value=0, max_value=1000, mostly=0.8)
+```
+
+| mostly | result |
+|---|---|
+| 1 (default) | `success=False`, 1 of 6 is bad (the value `5000.0`) |
+| 0.8 | `success=True` (5 of 6 are correct, which is 0.833) |
+
+### row_condition: check only the rows that match a condition
+
+The zip code must have 5 digits only for rows where `country` is `th`. Other countries can have different formats.
+
+```python
+from great_expectations.expectations.row_conditions import Column
+
+gxe.ExpectColumnValuesToMatchRegex(
+    column="zip", regex=r"^\d{5}$", row_condition=Column("country") == "th"
+)
+```
+
+| row_condition | rows checked | bad |
+|---|---|---|
+| not set | 6 | 4 (`'1011'`, `'100-0001'` twice, `'018956'`) |
+| `Column("country") == "th"` | 3 | 1 (`'1011'`) |
+
+### severity: say how serious a failure is
+
+```python
+gxe.ExpectColumnValuesToBeBetween(column="amount", min_value=0, max_value=1000, severity="warning")
+```
+
+The validation result has `get_max_severity_failure()`, which returns the most serious level among the expectations that failed (in the example that mixes `warning` and `critical` it gave `FailureSeverity.CRITICAL`). The values you can use are `critical`, `warning` and `info`, and the default is `critical`.
+
+<Callout type="note" title="The syntax of row_condition has changed">
+In GX 1.24.1, `row_condition` takes an object such as `Column("country") == "th"`. The source `expectations/row_conditions.py` has both `AndCondition` and `OrCondition`, but it limits them: an AND cannot contain an OR, and an OR cannot contain another OR. This version of the source still has the field `condition_parser` and the converter for the old string-style row_condition (`_transform_legacy_row_condition`), but this lesson did not test the string style. So try examples from older documentation on the version you have installed before you use them.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Search before you write
+
+When you `import great_expectations.expectations`, GX registers all the expectations it provides. There are 59 in 1.24.1. You can search them by name right away.
+
+```python
+from great_expectations.expectations import registry
+
+names = registry.list_registered_expectation_implementations()
+[n for n in names if "pair" in n]
+```
+
+| search word | what it finds |
+|---|---|
+| `pair` | `column_pair_values_a_to_be_greater_than_b`, `column_pair_values_to_be_equal`, `column_pair_values_to_be_in_set` |
+| `multicolumn` | `multicolumn_sum_to_equal`, `multicolumn_values_to_be_equal` |
+| `regex` | `column_values_to_match_regex`, `..._regex_list`, `column_values_to_not_match_regex`, `..._regex_list` |
+| `unique` | `column_values_to_be_unique`, `compound_columns_to_be_unique`, `select_column_values_to_be_unique_within_record` and two more |
+
+In the list of 59 there are several that people often think they have to write themselves, such as `column_values_to_not_be_outliers`, `column_values_to_be_json_parseable`, `column_values_to_match_strftime_format`, `table_row_count_to_equal_other_table` and `query_results_to_match_comparison`. Search with a word that matches your rule, then open the documentation or the source of what you find to see its parameters.
+
+</Step>
+
+<Step>
+
+## Rules that look like you must write them, but something close exists
+
+| rule | try this first |
+|---|---|
+| zip code, phone number, product code (a fixed format) | `ExpectColumnValuesToMatchRegex` |
+| the value must be in a given list | `ExpectColumnValuesToBeInSet` |
+| columns A and B must have the same value in every row | `ExpectColumnPairValuesToBeEqual` |
+| A must be greater than B | `ExpectColumnPairValuesAToBeGreaterThanB` (has `or_equal`) |
+| the sum of several columns must equal a value | `ExpectMulticolumnSumToEqual` |
+| a pair of columns must not repeat | `ExpectCompoundColumnsToBeUnique` |
+| max, mean or median must be in a range | `ExpectColumnMaxToBeBetween`, `...MeanToBeBetween`, `...MedianToBeBetween` |
+| the row count must equal another table, or a query result must match a comparison value | `ExpectTableRowCountToEqualOtherTable`, `ExpectQueryResultsToMatchComparison` |
+| a rule that can be written as SQL and must have no bad rows at all | `UnexpectedRowsExpectation` (no class of your own needed) |
+
+The last one is an option you need to know, because it is the middle path between what exists and a class you write yourself.
+
+```python
+query = "SELECT * FROM {batch} WHERE discount * 2 > price"
+gxe.UnexpectedRowsExpectation(unexpected_rows_query=query)
+```
+
+The tested result on SQLite (`12_custom_kinds.py`): `success=False`, `observed_value=1`, which means one row that breaks the rule was found. The limit is that it runs only on a backend that accepts SQL (the source has providers for SQLAlchemy and Spark; Spark was not tested). On pandas you get `success=False` with the message `No provider found for unexpected_rows_query.table using PandasExecutionEngine`.
+
+</Step>
+
+<Step>
+
+## The order to try
+
+1. Is there an expectation that matches exactly? (Search the registry with a few keywords.)
+2. Adjust it with `mostly`, `row_condition`, `severity`.
+3. The rule can be written as SQL, and the data is in a SQL database (or Spark): use `UnexpectedRowsExpectation`.
+4. Write your own class. Choose the parent class from the table on the first page of this lesson.
+
+<Callout type="tip" title="Steps 3 and 4 differ in what you get back">
+`UnexpectedRowsExpectation` gives `observed_value` as the number of bad rows, and if you set `result_format` to `COMPLETE` you also get the whole rows in `details.unexpected_rows` (tested on SQLite). But it has no `mostly`, no `unexpected_percent` and no row indexes like a column map does. The source sets its `success_keys` to only `unexpected_rows_query`.
+</Callout>
+
+</Step>

@@ -1,0 +1,192 @@
+---
+title: MLlib
+summary: "The DataFrame-based MLlib is a set of Estimators, Transformers and Pipelines. This chapter shows how fit differs from transform (fit runs jobs, transform does not), how data moves through a pipeline, what tuning parameters with CrossValidator costs, and how to save a model"
+order: 12
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [dataframe-sql]
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import MlPipelineLab from '../../../../components/labs/spark/MlPipelineLab';
+
+<Step>
+
+## What MLlib is, and its two sets
+
+MLlib is the machine learning library of Spark. It trains models on data that is too big for one machine, using many executors together. It has two sets of APIs:
+
+| package | based on | status |
+|---|---|---|
+| `pyspark.ml` | DataFrame | **the main one**, used in this chapter |
+| `pyspark.mllib` | RDD | **maintenance mode** since Spark 2.0 (according to `docs/ml-guide.md`: bugs are fixed but no new features are added) |
+
+We study only `pyspark.ml`, where everything is read and written with the DataFrames you already know. This chapter needs `numpy` (`pyspark.ml` uses it in Python), which comes with pandas in this project. The examples run with `exercises/12_mllib.py` in WSL, because saving a model writes files ([chapter 9](/en/spark/structured-streaming/)).
+
+This chapter uses synthetic data of 2,000 rows: `x1` and `x2` are numbers, `c` is a category (a, b, c), and `label` is 0 or 1, made from a formula plus noise, so we know in advance that `x1` should push toward 1 and `x2` should push away.
+
+</Step>
+
+<Step>
+
+## Three pieces you must tell apart
+
+| piece | what it does | example |
+|---|---|---|
+| **Transformer** | `transform(df)` takes a DataFrame and returns a DataFrame with extra columns | `VectorAssembler`, a trained model |
+| **Estimator** | `fit(df)` learns from the data, and returns a **Model**, which is a Transformer | `StringIndexer`, `LogisticRegression` |
+| **Pipeline** | chains stages in order. It is an Estimator, and `fit` gives a `PipelineModel` | `Pipeline(stages=[...])` |
+
+The names in `model.stages` after `fit` show which is which (measured):
+
+```python
+pipe = Pipeline(stages=[StringIndexer(...), OneHotEncoder(...), VectorAssembler(...), LogisticRegression(...)])
+model = pipe.fit(train)
+[type(s).__name__ for s in model.stages]
+# ['StringIndexerModel', 'OneHotEncoderModel', 'VectorAssembler', 'LogisticRegressionModel']
+```
+
+The three Estimators became Models. `VectorAssembler` has nothing to learn, so it stays the same object. Go through it step by step.
+
+<MlPipelineLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## `fit` runs jobs, `transform` does not
+
+This is the biggest confusion for people who are new (and it connects to lazy evaluation in [chapter 2](/en/spark/lazy-evaluation/)). We counted jobs with `statusTracker` while calling each one (measured):
+
+| command | jobs created |
+|---|---|
+| `VectorAssembler.transform(train)` | **0** |
+| `pipeline.fit(train)` | **14** |
+| `model.transform(test)` | **0** |
+| `BinaryClassificationEvaluator().evaluate(pred)` | created now (this is an action) |
+
+- `transform` only extends the plan and does not touch the data. The resulting plan is nested `Project` nodes, and each layer calls a JVM-side UDF (`UDF(features)`, `UDF(rawPrediction)`). These are UDFs that Spark wrote itself in Scala, not the Python UDFs of [chapter 8](/en/spark/udf/).
+- `fit` is an action because it must look at real data, for example to count categories and to loop many times to adjust the weights. `LogisticRegression` is the part that creates the most jobs.
+
+So the time goes into `fit`, and `transform` on new data is light and parallel, like a narrow transformation.
+
+</Step>
+
+<Step>
+
+## Param: typed settings
+
+Each Estimator and Transformer has **Params**, which are settings with a type and a default value. You can see them with `explainParam` (measured):
+
+```python
+lr = LogisticRegression(maxIter=20, regParam=0.01)
+lr.explainParam("regParam")        # regularization parameter (>= 0). (default: 0.0, current: 0.01)
+lr.getOrDefault("maxIter")         # 20  (the default of the class is 100)
+lr.isSet("tol")                    # False  not set, the default is used
+lr.copy({lr.regParam: 0.5})        # a copy with one param changed, the original is not changed
+```
+
+The defaults of `LogisticRegression` that are worth knowing: `maxIter` = 100, `regParam` = 0.0, `elasticNetParam` = 0.0, `threshold` = 0.5, `tol` = 1e-6, `fitIntercept` = True, `standardization` = True (it scales the features for you automatically). `copy` with a param map is the basis of `CrossValidator`, which tries many sets of values without changing the original object.
+
+</Step>
+
+<Step>
+
+## The result of the model and how it is measured
+
+After `fit` on train (80%), we `transform` on test (20%) (using `randomSplit([0.8, 0.2], seed=7)`).
+
+- **AUC on test = 0.981** (`BinaryClassificationEvaluator`, `areaUnderROC`)
+- **coefficients** = `[2.71, -1.87, 1.50, -0.14]` and intercept 0.118. The first (`x1`) is positive and the second (`x2`) is negative, which matches the formula used to make the data. The last two belong to the categories `a` and `b` (`c` is dropped as the baseline).
+- Each output row has three columns: `rawPrediction` (the raw score), `probability` (the probability of each class) and `prediction` (the chosen class, using threshold 0.5).
+
+**Always split train and test before fit.** If `StringIndexer` or a scaler is fit on all the data and the split comes after, the test data leaks into the model and makes the AUC look better than it really is. Putting every preparation step in a Pipeline and fitting only on train is safer than doing the steps by hand.
+
+</Step>
+
+<Step>
+
+## CrossValidator: tuning parameters and what it costs
+
+Find the best `regParam` and `maxIter` by trying every pair and measuring with cross validation.
+
+```python
+grid = (ParamGridBuilder()
+        .addGrid(lr.regParam, [0.0, 0.1, 1.0])
+        .addGrid(lr.maxIter, [5, 20]).build())        # 3 x 2 = 6 sets
+cv = CrossValidator(estimator=pipe, estimatorParamMaps=grid,
+                    evaluator=BinaryClassificationEvaluator(), numFolds=3, parallelism=2)
+cv_model = cv.fit(train)
+```
+
+Measured: `avgMetrics` has 6 values (the average AUC per set: 0.979, 0.980, 0.979, 0.979, 0.975, 0.975), and **`cv.fit` created 333 jobs**, compared with 14 jobs for a normal `pipe.fit`. The reason is that it must fit the whole pipeline for 6 sets times 3 folds = 18 times, plus one more fit with the best set on all the data.
+
+The practical conclusion: the cost of tuning grows as a product (grid size x number of folds). A grid of three variables with five values each is 125 sets, times 3 folds = 375 fits. You can reduce it by using sample data first, by caching train ([chapter 7](/en/spark/performance-tuning/) warns that cache has a price, but here the same data is used hundreds of times, so it pays off), or by raising `parallelism` (the lab uses 2).
+
+</Step>
+
+<Step>
+
+## Saving and loading a model
+
+```python
+model.write().overwrite().save("/models/m")
+reloaded = PipelineModel.load("/models/m")
+```
+
+The structure you get (measured):
+
+```
+m/
+  metadata/                          # the type of the pipeline, uid, params
+  stages/
+    0_StringIndexer_<uid>/
+    1_OneHotEncoder_<uid>/
+    2_VectorAssembler_<uid>/
+    3_LogisticRegression_<uid>/
+```
+
+After loading it back, `transform` gives the same AUC (0.981, with a difference of less than 1e-9). The folder names carry the stage order, type and uid, so you can inspect what is inside. Writing a model to files through Hadoop does not work on Windows without `hadoop.dll`.
+
+</Step>
+
+<Step>
+
+## Traps we met
+
+- **Null data stops `VectorAssembler`.** The default is `handleInvalid = "error"` (checked). A row with a null makes the job fail with `FAILED_EXECUTE_UDF ... Encountered null while assembling a row`. Set `handleInvalid="skip"` to drop that row (checked: the row with the null disappeared), or `"keep"` to keep it as NaN, but you must know whether the algorithm after it accepts NaN.
+- **`OneHotEncoder` drops the last category** with `dropLast` (the default). So `c` comes out as an all-zero vector, so that the features are not perfectly dependent on each other. It is not lost data.
+- **The order of `StringIndexer`.** The default order is by frequency, highest first (`frequencyDesc`: the most common value gets 0, and if the frequencies are equal it sorts alphabetically, according to `StringIndexer.scala:64-70`). The result on this data is a, b, c. If your data has different frequencies, the order (and the index) will differ, and it can differ between the training data and another data set, unless you use the same model for both.
+- **The choice of algorithms is limited.** MLlib covers classification, regression, clustering, recommendation (ALS) and feature engineering. It is not designed to replace deep learning libraries (this is the author's opinion, not tested).
+
+When the data is not too big for one machine, a tool such as scikit-learn is usually more convenient. Choose MLlib when the data or the number of fits is too big for one machine, or when the whole pipeline must already live in Spark (this is a practical judgment, not a test result).
+
+</Step>
+
+<Step>
+
+## Try it and check yourself
+
+```bash
+cd subjects/spark/code
+uv run python exercises/12_mllib.py
+```
+
+It takes about 2 to 3 minutes (almost all of it is cross validation). Try changing it:
+
+1. Add a `StandardScaler` after `VectorAssembler` and see how `model.stages` changes.
+2. Change `handleInvalid` of `VectorAssembler` to `"keep"` with a row that has a null and see the result.
+3. Count the jobs of `cv.fit` when you reduce `numFolds` to 2.
+
+Check yourself:
+
+- Why does `pipeline.fit` create jobs but `model.transform` does not?
+- Is `LogisticRegression` an Estimator or a Transformer, and what is the result of its `fit`?
+- Why must you fit the Pipeline on train only?
+- With a grid of 4 values x 5 values and 3 folds, how many fits are needed (not counting the last refit)?
+
+</Step>

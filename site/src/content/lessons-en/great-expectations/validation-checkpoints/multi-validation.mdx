@@ -1,0 +1,114 @@
+---
+title: Several validations in one checkpoint
+summary: For a checkpoint with two validation definitions, how the overall result is decided, whether the second one still runs when the first fails, and why one set of parameters must fit every one of them
+order: 1
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import FlowFrames from '../../../../components/labs/great-expectations/FlowFrames';
+import CaseExplorer from '../../../../components/labs/great-expectations/CaseExplorer';
+
+<Step>
+
+## Two validations, one checkpoint
+
+Script `25_checkpoint_shapes.py` builds two validation definitions and puts them in one checkpoint (GX 1.24.1, pandas).
+
+| validation definition | suite | data that is checked |
+|---|---|---|
+| `vd_ids` | `id` must be unique | DataFrame `id=[1,2,3]` |
+| `vd_age` | `age` is not null and is within 0 to 120 | `age=[10, None, 400]` |
+
+```python
+cp = context.checkpoints.add(gx.Checkpoint(name="cp", validation_definitions=[vd_ids, vd_age]))
+result = cp.run(batch_parameters={"dataframe": frame})
+```
+
+The printed result:
+
+```text
+type: CheckpointResult | success: False
+run_results entries: 2
+  suite=suite_ids  success=True   evaluated=1
+  suite=suite_age  success=False  evaluated=2
+distinct run ids across validations: 1
+results stored by this run: 2
+```
+
+- The `success` of the checkpoint is `False` because the second one fails. The overall result is: it passes only if every one passes.
+- `run_results` has one entry per validation definition.
+- Both get the same `run_id` (distinct = 1). This tells you they are in the same run.
+- Two results are stored in the store, one per validation.
+
+</Step>
+
+<Step>
+
+## A failing one does not stop the rest
+
+<CaseExplorer
+  client:visible
+  lang="en"
+  title="The first validation fails, the second still runs"
+  okWord="passed"
+  badWord="failed"
+  cases={[
+    { label: 'First fails, second passes', input: 'vd_bad: id is unique, on the data [1, 1, 2]\nvd_ok: the row count equals 3', rows: [
+      { name: 'suite_bad (the first validation)', ok: false, detail: 'The value 1 repeats' },
+      { name: 'suite_ok (the second validation)', ok: true, detail: 'Still runs, and has its own result' } ], note: 'success of the checkpoint = False, but run_results has both' },
+    { label: 'Both pass', input: 'vd_ids and vd_age on correct data', rows: [
+      { name: 'suite_ids', ok: true }, { name: 'suite_age', ok: true } ], note: 'Not run separately: by the definition of the overall result, the result is success=True' },
+  ]}
+  caption="The first case comes from part 3 of the script (suite_bad is False and suite_ok is True). The second case follows from the definition and was not run separately"
+/>
+
+This answers the question at the end of the main lesson directly: the second validation still runs, and `result.success` is `False` because the overall result needs every one to pass.
+
+</Step>
+
+<Step>
+
+## One set of parameters reaches every validation
+
+The `batch_parameters` that you pass to `cp.run(...)` are passed on to every validation definition. Suppose one validation uses a DataFrame asset (it needs the key `dataframe`) and another uses a whole SQL table (it needs no key). One set of parameters cannot fit both. Part 4 of the script tests this.
+
+```text
+raised: InvalidBatchRequestError | batch parameters should only contain keys from the following set: set()
+        but your specified keys contain {'dataframe'} which is not valid.
+```
+
+The message says the SQL batch accepts zero keys, but it received `dataframe`. As a result `cp.run(...)` raises for the whole run. It does not return the result of the one that already passed. Whether the first of the pair was run before that was not checked.
+
+<FlowFrames
+  client:visible
+  lang="en"
+  title="One set of parameters, to every validation"
+  width={760}
+  height={260}
+  boxes={[
+    { id: 'p', label: 'batch_parameters', sub: '{ dataframe: df }', x: 10, y: 100 },
+    { id: 'v1', label: 'vd_ids', sub: 'DataFrame asset', x: 300, y: 20 },
+    { id: 'v2', label: 'vd_sql', sub: 'whole SQL table', x: 300, y: 180 },
+    { id: 'ok', label: 'Accepts key dataframe', sub: 'works', x: 580, y: 20 },
+    { id: 'no', label: 'InvalidBatchRequestError', sub: 'accepted keys = {}', x: 560, y: 180, w: 190 },
+  ]}
+  arrows={[ { from: 'p', to: 'v1' }, { from: 'p', to: 'v2' }, { from: 'v1', to: 'ok' }, { from: 'v2', to: 'no' } ]}
+  frames={[
+    { title: 'Send one set of parameters', text: 'checkpoint.run takes batch_parameters once', on: ['p'], arrows: [] },
+    { title: 'Handed to every validation definition', text: 'The parameters are not split per validation', on: ['p', 'v1', 'v2'], arrows: [0, 1] },
+    { title: 'The compatible one works', text: 'A DataFrame asset needs the key dataframe', on: ['v1', 'ok'], arrows: [2] },
+    { title: 'The incompatible one makes the whole run raise', text: 'The batch of a SQL table accepts no key at all. The result is InvalidBatchRequestError coming out of cp.run', on: ['v2', 'no'], arrows: [3], tag: '25_checkpoint_shapes.py part 4' },
+  ]}
+/>
+
+The safe approach is to group validation definitions in a checkpoint by the kind of batch definition (the ones that use the same set of keys), and to have a separate checkpoint for each group.
+
+<Callout type="warn" title="Not tested">
+We did not test the case where two validations use the same set of keys with different meanings (for example, one is a daily file and the other is a monthly file). We also did not test running the validations of one checkpoint in parallel.
+</Callout>
+
+</Step>

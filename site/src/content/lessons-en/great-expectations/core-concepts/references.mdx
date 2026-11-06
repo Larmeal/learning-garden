@@ -1,0 +1,74 @@
+---
+title: References by name and id
+summary: Open the json of a validation definition to see how it remembers the suite and the batch definition, what is not stored, and what happens with a duplicate name
+order: 2
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Variants from '../../../../components/labs/great-expectations/Variants';
+
+<Step>
+
+## The json of a validation definition
+
+Objects in GX can be serialized to json. Look at a validation definition that has been run (the ids are shortened).
+
+```json
+{
+  "name": "people_vd",
+  "data":  { "id": "e12a128a-...", "name": "whole", "partitioner": null },
+  "suite": { "name": "people_suite", "id": "3bd890de-..." },
+  "id": "d7f67960-..."
+}
+```
+
+This is the real output of `17_object_chain.py` (GX 1.24.1). The validation definition does not embed the whole suite or the DataFrame. It remembers only the name and id of the suite and of the batch definition. When it runs, GX looks up the real objects from the context.
+
+The `data` side of this json (from `.json()` in memory) has only the id and the name of the batch definition. It has no asset or data source. The file that a file context writes to disk stores more: the datasource, the asset and the batch definition, each as id + name (lesson 5, the page "A tour of the gx/ folder").
+
+</Step>
+
+<Step>
+
+## Duplicate names and names that are not found
+
+Switch tabs to see the error messages of three cases.
+
+<Variants
+  lang="en"
+  client:visible
+  title="When names collide, or are not found"
+  variants={[
+    { label: 'Duplicate suite name', code: `context.suites.add(gx.ExpectationSuite(name="s_ok"))\ncontext.suites.add(gx.ExpectationSuite(name="s_ok"))`, output: `DataContextError\nCannot add ExpectationSuite with name s_ok\nbecause it already exists.`, reading: 'The name is a key in the store, so it cannot be repeated', bad: true },
+    { label: 'Duplicate data source name', code: `context.data_sources.add_pandas("dup")\ncontext.data_sources.add_pandas("dup")`, output: `DataContextError\nCan not write the fluent datasource dup because\na datasource of that name already exists\nin the data context.`, reading: 'The same rule as for a suite', bad: true },
+    { label: 'get a name that does not exist', code: `context.suites.get("nope")`, output: `DataContextError\nExpectationSuite with name nope was not found.`, reading: 'get raises when the name is missing. It does not return None', bad: true },
+  ]}
+/>
+
+</Step>
+
+<Step>
+
+## What this means for real work
+
+In an ephemeral context, a duplicate name does not come from running a script twice, because the context starts empty every time. But a file context remembers names across runs. Part 5 of script `17` tested this.
+
+```text
+first run  : suites = ['kept']
+second run : suites already there = ['kept']
+add the same name again: DataContextError | Cannot add ExpectationSuite with name kept because it already exists.
+```
+
+So a script that calls `context.suites.add(...)` directly cannot be run a second time in a file context. The same script went on to test: `context.suites.get("kept")` returns the existing suite with its id, and `context.suites.add_or_update(...)` gives no error and returns the suite with the same id. The number of suites is still 1 (we did not check whether add_or_update replaces the content of the existing suite).
+
+Keep names stable and say what the object is, because the name is what you use to look it up again, and it is what you see in Data Docs.
+
+<Callout type="warn" title="Not tested yet">
+Renaming an object that others refer to (for example, renaming a suite that a validation definition points to) has not been run. We do not know what the result would be.
+</Callout>
+
+</Step>

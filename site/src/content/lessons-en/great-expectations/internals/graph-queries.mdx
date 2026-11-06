@@ -1,0 +1,84 @@
+---
+title: Asking the knowledge graph questions
+summary: With about ten lines of Python we ask the graph of GX 1.9.3 which file is imported the most, who imports a given file, and what a class inherits from, together with what the graph cannot answer.
+order: 2
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import BarList from '../../../../components/labs/great-expectations/BarList';
+
+<Step>
+
+## What the file looks like
+
+`subjects/great-expectations/graphs/gx-current/knowledge-graph.json` is a JSON file with 6 parts: `version`, `project`, `nodes` (1,664), `edges` (5,462), `layers` (9) and `tour` (14 steps). Each node has `id`, `type` (class 796, file 544, function 320, document 4), `name`, `filePath`, `summary`, `tags` and `complexity`. Each edge has `source`, `target`, `type` and `weight`. The script `33_graph_queries.py` opens this file with a plain `json.load`.
+
+</Step>
+
+<Step>
+
+## Question one: which file is imported the most
+
+Count the `imports` edges that point to each file.
+
+<BarList
+  client:visible
+  lang="en"
+  title="The most imported files in GX 1.9.3"
+  items={[
+    { label: 'compatibility/typing_extensions.py', value: 180 },
+    { label: 'compatibility/pydantic.py', value: 117 },
+    { label: 'compatibility/__init__.py', value: 110 },
+    { label: 'execution_engine/__init__.py', value: 80 },
+    { label: 'exceptions/__init__.py', value: 74 },
+    { label: 'render/__init__.py', value: 73 },
+    { label: 'render/renderer/renderer.py', value: 71 },
+    { label: 'compatibility/sqlalchemy.py', value: 71 },
+  ]}
+  caption="The number is how many files import that file, as the graph records it (the result of part 2 of 33_graph_queries.py). Five of the top eight are in the compatibility and exceptions layers, which matches the layer Foundation and Compatibility"
+/>
+
+The most depended-on files are the support layer (library shims), not the logic of GX, and you should not read this part first.
+
+</Step>
+
+<Step>
+
+## Question two: who imports validation_definition.py
+
+```python
+target = "file:great_expectations/core/validation_definition.py"
+who = [e["source"] for e in g["edges"] if e["type"] == "imports" and e["target"] == target]
+```
+
+We get 4 files: `__init__.py` (at the root), `checkpoint/checkpoint.py`, `core/__init__.py` and `core/factory/validation_definition_factory.py`. This matches the diagram in lesson 7: the checkpoint depends on the validation definition, and the factory of the context creates it.
+
+## Question three: what does a class inherit from
+
+Follow the `inherits` edges upward from `ExpectColumnValuesToNotBeNull`.
+
+```text
+ExpectColumnValuesToNotBeNull -> ColumnMapExpectation -> BatchExpectation -> Expectation
+```
+
+This matches what lesson 12 says: `ColumnMapExpectation` inherits from `BatchExpectation`, which inherits from `Expectation`. It is also the reason that `get_validation_dependencies` in the call recording is called nested three levels deep (page "Tracing GX functions in one checkpoint run").
+
+</Step>
+
+<Step>
+
+## What the graph cannot answer
+
+Of the 5,462 edges, only 44 are `calls` edges (part 6 of the script). So the graph answers questions about structure well (who imports whom, who inherits from whom, which file is in which layer), but it cannot answer questions about the order of calls. For that you need a recording like the one on the previous page.
+
+The graph is also of version 1.9.3, not 1.24.1. Files that were added or removed in the later version (page "What changed from 1.9.3 to 1.24.1") do not match.
+
+<Callout type="note" title="The tour of the graph">
+The graph has a tour of 14 steps, from "Project Overview and Entry Point" to "Profiling, Metric Repository, Self-Check". It is a reading order that was generated during the analysis. It is useful as a list of topics, but the content of each step was not checked against a run.
+</Callout>
+
+</Step>

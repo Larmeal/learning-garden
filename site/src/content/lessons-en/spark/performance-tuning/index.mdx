@@ -1,0 +1,244 @@
+---
+title: Performance tuning
+summary: Tune Spark with evidence, not guesses. Pick the right join, manage shuffle partitions and skew, know when cache helps, and learn to see spill. Every number in this lesson comes from a real run.
+order: 7
+phase: C
+level: 5
+stage: sprout
+format: steps
+requires: [execution-model, catalyst-aqe]
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import JoinPickerLab from '../../../../components/labs/spark/JoinPickerLab';
+import SaltingLab from '../../../../components/labs/spark/SaltingLab';
+import SpillLab from '../../../../components/labs/spark/SpillLab';
+import JoinFlowLab from '../../../../components/labs/spark/JoinFlowLab';
+
+<Step>
+
+## Tuning means finding where the time goes
+
+Most performance problems in Spark are shuffle problems (see the lesson on the [Execution model](/en/spark/execution-model/)). So this lesson follows the questions you should ask when a job is slow.
+
+1. How many `Exchange` nodes are in the plan, and how much data does each one send?
+2. How many partitions are there after the shuffle, and are they the same size?
+3. Which join method is used, and was it chosen well?
+4. Is there a task that is much bigger than the others (skew), or one that writes to disk (spill)?
+
+There is one important rule: **change one thing at a time, then measure again.** The tools for measuring are `explain()` (see [Catalyst and AQE](/en/spark/catalyst-aqe/)) and the Spark UI. Every number in this lesson was run on a 16-core machine with Spark 4.2.0, through the file `exercises/07_performance_tuning.py`. The times it prints depend on the machine, so look at the trend, not the number.
+
+<Callout type="note" title="This lesson does not repeat chapter 6">
+Chapter 6 explains how AQE works. This lesson uses AQE as a tool: which setting to change to get which result, and how to see from the plan that it worked.
+</Callout>
+
+</Step>
+
+<Step>
+
+## The number of partitions after a shuffle
+
+`spark.sql.shuffle.partitions` has a default of **200**. This is a guess that does not depend on your data. Small data gets 200 tiny tasks. Big data gets partitions of many GB each.
+
+If AQE is on (the default), Spark merges small partitions while it runs. This is what was measured with `groupBy(id % 7).count()` on 2 million rows (look at the result of `rdd.getNumPartitions()`).
+
+| Setting | Partitions you get |
+|---|---|
+| AQE off | 200 |
+| AQE on (default) | **1** |
+| AQE on, but `coalescePartitions.enabled=false` | 200 |
+| AQE on and `df.repartition(200)` | **200** (not merged) |
+
+The last row matters. AQE merges only the shuffles that Spark inserted by itself (`ENSURE_REQUIREMENTS`) and a `repartition` that names a column. A `repartition(n)` where you set the number yourself counts as something you meant, so AQE does not touch it (source: `CoalesceShufflePartitions.scala:38-40`).
+
+Too many partitions really do waste time. The measurement of a groupBy on 100,000 rows (AQE off, median of 3 runs):
+
+| `shuffle.partitions` | Time |
+|---|---|
+| 2 | about 0.1 seconds |
+| 200 | about 0.35 seconds |
+| 2000 | about 1.2 seconds |
+
+The work per row is the same. The only difference is the number of tasks that must be started and collected. The numbers belong to the author's machine. Look at how the time grows with the number of partitions.
+
+<Callout type="tip" title="If AQE is on, what to adjust">
+Usually you do not need to lower the number yourself, because AQE merges for you. If you still get partitions that are too big (spill, slow tasks), raise `spark.sql.shuffle.partitions` or `spark.sql.adaptive.coalescePartitions.initialPartitionNum`, so AQE has more starting partitions to merge. The target size per partition is `spark.sql.adaptive.advisoryPartitionSizeInBytes` (64 MB).
+</Callout>
+
+</Step>
+
+<Step>
+
+## How Spark chooses a join
+
+Change the conditions one at a time. Every cell is the result of a real join that was run, then read from `explain()`: a table of 100 rows and a table of 2 million rows.
+
+Before you see what Spark chooses, look at how the two main methods differ. The circle dots are the big table and the square dots are the small table.
+
+<JoinFlowLab client:visible lang="en" />
+
+Now see which method Spark chooses for each condition.
+
+<JoinPickerLab client:visible lang="en" />
+
+Things to try and notice:
+
+- **Default** (small table on the right, inner): `BroadcastHashJoin`. The big table has no `Exchange`.
+- **Threshold off** (-1) with no hint: it changes to `SortMergeJoin`. Both sides shuffle and sort.
+- **The `broadcast` hint** beats the threshold: even with the threshold off, it still broadcasts.
+- **`full outer`**: it can never broadcast. Even with a hint, the hint is skipped silently.
+- **Small table on the left of a `left join`**: it cannot broadcast, because a left join must keep all rows of the left side, so it has to build the right side. Change it to a `right join` and it works.
+- **`shuffle_replicate_nl`**: a `CartesianProduct` with no shuffle at all, but it pairs every row with every row. It is very slow on big data and works only with an inner join.
+
+<Callout type="warn" title="A hint that cannot be used gives no error">
+Spark skips a hint that cannot be used, silently, and chooses by itself as usual. If you add `broadcast` and the plan is still `SortMergeJoin`, it does not mean the hint is broken. It may be that the join type, or that side, cannot be broadcast. Always check with `explain()`.
+</Callout>
+
+**"Size" means the estimated size, not the file size.** The comparison with `autoBroadcastJoinThreshold` uses the approximate size of that side of the plan, after column pruning, and it is `<=` (measured: a table of 100 rows is estimated at 800 bytes. Set the threshold to 800 and it still broadcasts. Set it to 799 and it does not). And if the table is filtered down to 100 rows, a Spark without the cost-based optimizer still estimates the size as unchanged (`range(2,000,000).filter("id < 100")` is estimated at 16,000,000 bytes), so it chooses sort-merge. This is where AQE helps: when the job runs and the real size is known, it changes the join to a `BroadcastHashJoin` with `AQEShuffleRead local` by itself.
+
+<Callout type="warn" title="Broadcast is not free">
+The table that is broadcast is first collected at the driver, then a hash table is built, then it is sent to every executor. If it is too big, the driver or the executors run out of memory. There are also limits: `spark.sql.broadcastTimeout` = 300 seconds and `spark.sql.maxBroadcastTableSize` = 8 GiB (in the SQL tab of the Spark UI, look at data size, time to collect, time to build, time to broadcast). Whether broadcasting a table that is too big causes an OOM was not tested here.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Data skew and salting
+
+A shuffle sends rows with the same key to the same partition. If one key has almost all the data, one task has to do almost all the work. Measured on 2 million rows where 90% have `k = 1`, after `repartition(8, "k")`:
+
+```
+partition   1      2      3      4      5      6          7      8
+rows       22,936 29,112 25,328 28,713 22,726 1,821,935  22,334 26,916
+```
+
+Idle machines cannot help, because partition 6 belongs to one task.
+
+**Way 1: let AQE handle it (joins only).** `OptimizeSkewedJoin` splits a partition that is too big into small pieces. To count as skewed, a partition must be "bigger than 256 MB **and** bigger than 5 times the median", both conditions. So with small test data it does not work by itself. Measured: with the defaults no skew join happens. The threshold had to be lowered before `SortMergeJoin(skew=true)` appeared (in the lab of chapter 6 it was lowered to 50 KB). This rule looks only at joins. It does not help a skewed `groupBy`.
+
+**Way 2: salting.** Add a random column into the key so that the big key breaks into many groups.
+
+<SaltingLab client:visible lang="en" />
+
+```python
+salted = df.withColumn("salt", F.floor(F.rand() * 64).cast("int"))
+salted.repartition(8, "k", "salt")           # the biggest partition drops to 362,896 from 1,821,935 rows
+
+dim_salted = dim.crossJoin(spark.range(64).select(F.col("id").cast("int").alias("salt")))
+salted.join(dim_salted, ["k", "salt"])        # same result as the normal join: 2,000,000 rows
+```
+
+Things to remember:
+
+- Use **more** salt values than the number of partitions. With only 8 salt values and 8 partitions, the result is still not even, because the hash of the pair `(k, salt)` can collide (measured: one partition got 700,214 rows).
+- The price you pay is that the small side must be copied once per salt value.
+- The real speed gain from salting was not measured in this lesson. What was measured is how the rows are spread.
+
+</Step>
+
+<Step>
+
+## `repartition` and `coalesce`
+
+| Command | Plan you get | Effect on partitions |
+|---|---|---|
+| `df.repartition(8)` | `Exchange RoundRobinPartitioning(8)` | 8 (shuffle) |
+| `df.repartition(8, "id")` | `Exchange hashpartitioning(id, 8)` | 8 (shuffle) |
+| `df.repartition("id")` | `Exchange hashpartitioning(id, 200)` | **200** (uses `shuffle.partitions`) |
+| `df.repartitionByRange(8, "id")` | `Exchange rangepartitioning(id ASC, 8)` | 8 (shuffle, ordered by range) |
+| `df.coalesce(4)` | `Coalesce 4`, no Exchange | 4 (no shuffle) |
+| `df.coalesce(32)` on 16 partitions | `Coalesce` | Still 16 (coalesce cannot add partitions) |
+
+`coalesce` does not shuffle, so it is cheaper, but there is a trap: `coalesce(1)` after a heavy `withColumn(...)`. The plan has `Coalesce 1` at the top and the `Project` that computes under it (from the plan: no Exchange). `repartition(1)` puts `Exchange SinglePartition` **after** the computation. So if you want the computation to stay parallel and only combine into one file at the end, use `repartition(1)`, not `coalesce(1)` (this is read from the plan. The real number of tasks was not measured).
+
+</Step>
+
+<Step>
+
+## When `cache()` helps
+
+`cache()` does not make everything faster. It keeps the result of a plan so it can be used again, so it is useful when one DataFrame is used by several actions. The main points that were measured:
+
+1. **Lazy**: after `cache()`, `explain()` shows `InMemoryTableScan` at once, but nothing is stored yet (Storage is empty). The data is built at the first action.
+2. **The key is the plan**: another DataFrame built from the same code (not the same object) can use that cache too, and a filter on top of a cached DataFrame also reads from the cache.
+3. **Storage level**: `cache()` on a DataFrame uses `MEMORY_AND_DISK` (the value of `spark.sql.defaultCacheStorageLevel`). PySpark shows it as `Disk Memory Deserialized 1x Replicated`, while `persist(StorageLevel.MEMORY_ONLY)` shows `Memory Serialized 1x`. If you call `persist` again with another level after it was persisted, the level does not change.
+4. **The cached partitions are the partitions at shuffle time**: cache the result of a `groupBy` and you get 200 partitions, even though the same query without cache is merged by AQE down to 1 (measured: `numCachedPartitions` = 200).
+
+<Callout type="warn" title="Cache has a price">
+Measured on 20 million rows: computing `sqrt` then `groupBy().sum()` without cache takes about 0.3 seconds. The first cache (building the stored data) takes about 0.7 seconds, and the aggregate from the cache takes about 0.4 seconds. It was not faster at all, because the original computation was already cheap (the numbers belong to the author's machine, measured once). Cache pays off when the work that is cached is expensive (reading from a slow source, a heavy join) and is used many times.
+</Callout>
+
+Do not forget `unpersist()` when you are done. Build a new DataFrame after `unpersist` if you want to see the effect (the behavior of the old object is not stable, so it is not guaranteed).
+
+</Step>
+
+<Step>
+
+## Spill: when memory is not enough
+
+Work that must hold data in memory, such as sort, `HashAggregate` and `SortMergeJoin`, has a limited task memory. If it is not enough, Spark writes the part it holds to disk and continues. This is called **spill**.
+
+<SpillLab client:visible lang="en" />
+
+Spill is not an error. The job can finish normally, but it is slower, because it has to write to disk and merge back. Measured: sorting 6 million rows with strings on `local[4]` with driver memory 600 MB gave `memoryBytesSpilled` of about 280 MiB and `diskBytesSpilled` of about 232 MiB (the numbers depend on the machine).
+
+Where to see it:
+
+- In the Stage page of the Spark UI: **Spill (Memory)** and **Spill (Disk)** (shown when more than 0).
+- In the SQL tab: the metric `spill size` of `Sort`, `HashAggregate`, `SortMergeJoin`.
+- The "memory" number is usually bigger than the "disk" number (280 against 232 in the measurement above), because the memory number is counted in blocks of pages and includes the pointer array, as the comment in the source of `UnsafeExternalSorter` says.
+
+The ways to reduce spill come from reasoning, not from a measurement: let each task hold less data (more partitions), add executor memory, or reduce the data before sort or aggregate. The detailed formula for how task memory is divided is in the [Internals](/en/spark/internals/) chapter (the memory part).
+
+</Step>
+
+<Step>
+
+## Hidden: the shuffle writer and the number 200
+
+There are three kinds of shuffle file writer. Spark chooses for you.
+
+1. **BypassMergeSort**: if there is no map-side combine and the partitions are no more than `spark.shuffle.sort.bypassMergeThreshold` (**200**), it writes a separate file per partition, then joins them.
+2. **Serialized (Unsafe)**: it does not match case 1, but the serializer can move the serialized data around.
+3. **Sort (general)**: everything else. It uses `ExternalSorter`.
+
+Measured from the handle of the Exchange: `shuffle.partitions` = 8 and 200 give `BypassMergeSortShuffleHandle`, while 201 gives `SerializedShuffleHandle`. The default 200 is right at the edge. The thing to know is that 201 changes the way it writes, but which one is faster depends on the work (not measured).
+
+</Step>
+
+<Step>
+
+## Warnings with evidence
+
+- **`collect()` on big data**: all the results must go into the one driver. The limit is `spark.driver.maxResultSize` (1 GB). Set it to 1 MB and `collect()` of 2 million rows raises `Total size of serialized results ... is bigger than spark.driver.maxResultSize`.
+- **A Python UDF instead of a built-in**: the plan of `select(plus1("id"))` has `BatchEvalPython` between two codegen blocks, while `select(id + 1)` is one `Project` in one codegen. A UDF breaks whole-stage codegen and sends data to the Python process (this is the topic of [chapter 8](/en/spark/udf/), which measures the speed in a systematic way).
+- **Thousands of small partitions**: the time grows with the number of tasks (see the table above).
+- **Several `countDistinct` in one aggregation**: Catalyst rewrites it with an `Expand` that multiplies the rows by the number of distinct aggregates (measured from the plan: a single `countDistinct("a")` has 2 Exchanges, while two of them have an `Expand`). If you can accept an estimate, use `approx_count_distinct`, which has only one Exchange and no `Expand` (the error that is acceptable was not tested).
+
+</Step>
+
+<Step>
+
+## Try it and check yourself
+
+```bash
+cd subjects/spark/code
+uv run python exercises/07_performance_tuning.py
+```
+
+The script runs all the examples and uses `assert` on the results (about 2 minutes, because it measures time and starts a separate JVM for spill and `maxResultSize`). Try changing it yourself:
+
+1. Build a join of a 100-row table with a 2-million-row table, and see what value of `autoBroadcastJoinThreshold` you must set before the join method changes.
+2. Make skew with your own data, and compare the rows per partition before and after salt.
+3. Call `df.cache()` and look at the Storage tab of the Spark UI before and after the first action.
+
+Check yourself:
+
+- You see `SortMergeJoin` even though one table is small. What do you check?
+- Why does `repartition(200)` still give 200 partitions when AQE is on?
+- How is spill different from an error, and where can you see it?
+
+</Step>

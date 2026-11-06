@@ -1,0 +1,55 @@
+---
+title: Tracing GX functions in one checkpoint run
+summary: We record the functions that are really called with sys.setprofile and compare them with the order read from the source. We get an order that can be checked again, and we see where the source alone does not tell you.
+order: 1
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import CallTrace from '../../../../components/labs/great-expectations/CallTrace';
+
+<Step>
+
+## How the recording works
+
+Reading the source tells you what a function can call, but not what it really called this time. The script `31_call_trace.py` uses `sys.setprofile` to set a hook on every call and return of Python functions. It keeps only the GX functions from a chosen list of 17 places, and so gets the order and the depth of the calls.
+
+```python
+sys.setprofile(profiler)
+result = cp.run(batch_parameters={"dataframe": df})
+sys.setprofile(None)
+```
+
+The suite has two rules (`id` is not null, the maximum of `age` is in a range) on data with 2 rows. The recording has 33 calls. When recursive calls at the same depth are merged, it is 19 lines (GX 1.24.1).
+
+</Step>
+
+<Step>
+
+## Play it back step by step
+
+<CallTrace client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## Compare with what was read from the source
+
+The order that this lesson has used all along (`Checkpoint.run` to `ValidationDefinition.run` to `Validator` to `ValidationGraph` to the engine to the expectation) matches what was recorded. The run also reveals four more things:
+
+1. `process_expectations_for_validation` is called before `graph_validate`. It groups the expectations by column, which explains why the order of the results does not match the suite (lesson 3).
+2. `get_validation_dependencies` is called nested three levels deep (x2, x4, x3 in the recording). The class of each expectation calls the method of its parent class in turn, following the hierarchy (`ExpectColumnValuesToNotBeNull` to `ColumnMapExpectation` to `BatchExpectation` to `Expectation`, per the inheritance graph on the page "Asking the knowledge graph questions"). These numbers count the calls of both expectations together.
+3. `resolve_metrics` is called 5 times, equal to the 5 rounds of the metric graph in lesson 8 (the fifth round is empty). The pandas `resolve_metric_bundle` is called 4 times: the rounds that have real metrics.
+4. `store_validation_results` is called before `_run_actions`. This confirms what lesson 9 says: the result is stored before the actions run.
+
+The `_validate` of the two rules is in the file of each expectation (`expect_column_values_to_not_be_null.py` and `expect_column_max_to_be_between.py`), not in the base file.
+
+<Callout type="note" title="Scope of the recording">
+This recording comes from pandas and a small suite. The path on SQL or Spark goes through other functions in the engine layer (for example `resolve_metric_bundle` of SQL), and a run with actions has more functions. `sys.setprofile` makes the run slower. Use it for study, not in real work.
+</Callout>
+
+</Step>

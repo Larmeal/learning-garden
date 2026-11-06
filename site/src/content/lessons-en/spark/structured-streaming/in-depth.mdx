@@ -1,0 +1,126 @@
+---
+title: Structured Streaming in depth
+summary: "The class layout of the micro-batch engine, the two checkpoint logs and why a commit is done with a rename, how the watermark is computed and passed on, how StateStoreSave emits results by mode, the two state providers, the trigger executors, and the configs worth knowing"
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import CheckpointCrashLab from '../../../../components/labs/spark/CheckpointCrashLab';
+import StateStoreLab from '../../../../components/labs/spark/StateStoreLab';
+
+This page continues the main page. Text tagged "source" comes from reading the files in the Spark 4.2.0 repo and from the summary in the Spark knowledge graph (`subjects/spark/graphs/`). Text tagged as run comes from `exercises/09_streaming.py`.
+
+<Step>
+
+## The class layout of the engine
+
+| class | job |
+|---|---|
+| `StreamExecution` (abstract, `StreamExecution.scala:74`) | holds the query that runs in its own thread. It builds `offsetLog` and `commitLog` from the checkpoint, holds `committedOffsets`, and offers the API `status`, `progress`, `awaitTermination`, `stop`. The real loop is handed to `runActivatedStream` |
+| `MicroBatchExecution` (`MicroBatchExecution.scala:60`) | the class that does the real work. Used for micro-batch, `Trigger.AvailableNow` and real-time |
+| `IncrementalExecution` | the `QueryExecution` of **one batch**. It takes the output mode, checkpoint location, run id, batch id, watermark, and the timestamps of the current and previous batch. It skips the analysis check again because it was already done |
+| `ProgressReporter` | keeps a queue of the latest progress objects (`spark.sql.streaming.numRecentProgressUpdates`, default **100**) and sends events to the listener bus |
+| `TriggerExecutor` and its subclasses | decide when to call the next batch (`ProcessingTimeExecutor` waits until the next time boundary, warns if a batch is slower than the interval, and runs batches back to back if the interval is 0) |
+
+The query of each batch is a normal query: `MicroBatchExecution` replaces `StreamingRelation` in the logical plan with the data of that offset range, and then calls `IncrementalExecution`, which goes through the same Catalyst steps you learned in [Catalyst and AQE](/en/spark/catalyst-aqe/). So AQE and whole-stage codegen work, except in the case where `InsertAdaptiveSparkPlan` skips stateful streaming (see [chapter 6](/en/spark/catalyst-aqe/), the section on when AQE does not wrap the plan).
+
+</Step>
+
+<Step>
+
+## The two logs and atomic writes
+
+`offsets/` and `commits/` are `HDFSMetadataLog` (`HDFSMetadataLog.scala:51`), where **batch id N is a file named N** with no extension. The way it writes makes a commit safe.
+
+- `add(batchId, metadata)` writes to a **temporary file** first and then **renames** it to `N` through `CheckpointFileManager.createAtomic`. If two writers write the same batch id, the loser gets `false` or an error. In `MicroBatchExecution`, when `commitLog.add` returns false it throws `concurrentStreamLogUpdate` (line 1515).
+- It uses a cache of the 2 latest entries, and lists the directory to find the latest batch.
+- **It does not support object stores whose listing is not fresh, such as the older S3**, because finding the latest batch depends on listing (from the class doc). On the cloud, check whether the file manager of that storage guarantees an atomic rename, or use `spark.sql.streaming.checkpointFileManagerClass`.
+
+**`OffsetSeqLog`** (`OffsetSeqLog.scala:54`) writes a one-line version, the metadata (watermark, timestamp, conf), and the offset of each source (version `v1` is a list in source order, version `v2` is a map by name). A value with no offset is written as `-`. **`CommitLog`** (`CommitLog.scala:51`) writes a version plus JSON. The version is chosen by the version of the state store checkpoint (up to v3). The class doc records the order clearly: ask for the batch offsets, write the offset log, process, write the commit log, trigger the next batch.
+
+On a restart, `populateStartOffsets` (`MicroBatchExecution.scala:743`) reads both logs. If the latest file in `offsets/` has no matching file in `commits/`, it runs that batch again with the offset range from the file. If both exist, it starts the next batch. After `constructNextBatch` writes the offsets, it also deletes old logs beyond `spark.sql.streaming.minBatchesToRetain` (default **100**) (`purge`, lines 990-1005).
+
+Pick a point where the program crashes during batch 2, and see how Spark decides on restart from the two files left in the checkpoint. Notice where a crash can give the sink duplicate data.
+
+<CheckpointCrashLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## How the watermark is computed and passed on
+
+- `EventTimeWatermarkExec` (`withWatermark`) passes rows through without changing them, but feeds the event time of every row into `eventTimeStats` and puts the delay in the metadata of the column.
+- `WatermarkTracker` holds a watermark per node and the **global** watermark, in milliseconds, starting at 0 (this matches `1970-01-01T00:00:00Z` in the progress of the first batch). After a batch ends it computes `watermark = max event time seen - delay`, and `markMicroBatchEnd` calls `updateWatermark` (`MicroBatchExecution.scala:1406-1408`). This value is written in `commits/N` as `nextBatchWatermarkMs` and appears in `offsets/N+1` as `batchWatermarkMs`.
+- If the plan has several `withWatermark` calls, the global watermark is chosen by `spark.sql.streaming.multipleWatermarkPolicy` (default `min`). This value **cannot be changed when you restart from the same checkpoint**.
+- `WatermarkPropagator` passes the value down to each operator that has state. There are two values: one to **decide that an event is late** (`getInputWatermarkForLateEvents`) and one to **delete state** (`getInputWatermarkForEviction`), because an operator near the end of the plan may see a different time than the start of the plan.
+
+What this means for what you see: batch 0 receives events from 12:00 to 12:03, and the watermark that batch 0 **uses** is 0. The value 11:53, computed after batch 0 ends, is first used in batch 1. This is the reason batches with no data must exist (`spark.sql.streaming.noDataMicroBatches.enabled`, default true). If you turn it off, a window whose time has come to close waits until new data arrives.
+
+</Step>
+
+<Step>
+
+## Operators that have state
+
+`StateStoreRestoreExec` and `StateStoreSaveExec` (`statefulOperators.scala:732-998`) wrap an aggregation per partition.
+
+1. **Restore** computes the key of each row, reads the old accumulated value from the state store (read only), and passes it together with the new rows, so the aggregate above can combine the old and the new values.
+2. **Save** writes the result to the state store and **decides what to send out** by output mode: `Complete` writes everything and sends all of the state, `Append` sends only the keys that the watermark removed, `Update` sends the changed rows and deletes the expired keys. State is committed when the iterator closes, which adds one version.
+
+`StreamingAggregationStateManager` (versions 1 and 2, where version 1 is the old one) defines the storage format, and `StateStoreRDD` (`StateStoreRDD.scala:130`) is the RDD that loads the store by the version of the batch, runs the update function, and commits it as the next version.
+
+The location of state on the machine that runs a partition is recorded with the `StateStoreCoordinator` on the driver. It keeps the address of each provider, so the scheduler can place the tasks of the next batch near the old state.
+
+Press play to watch the batches go through three steps one by one, and watch the files in `state/` grow one version at a time (switch the provider to see that the files look different).
+
+<StateStoreLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## The two state providers
+
+| | `HDFSBackedStateStoreProvider` (default) | `RocksDBStateStoreProvider` |
+|---|---|---|
+| main storage | executor memory (caches the latest version) | RocksDB on the executor's disk |
+| files in the checkpoint | a `.delta` per version, and snapshots (merged when there are at least `minDeltasForSnapshot` = 10 deltas, internal) | `.zip` snapshots, `.sst`, changelog |
+| state larger than memory | not suitable | can handle it |
+| features | no column family, no multiple values per key, no range scan | supports column family, multiple values per key, replay from a snapshot, reading change data |
+
+From the real run: after changing the provider the query counted the same results, and the checkpoint had the extensions `.sst` and `.zip` instead of `.delta`. Choose RocksDB when state is large or when you want newer operators that need the extra features. If you change the provider in the middle of the life of a query that already has a checkpoint, it cannot read the old state, so set it from the start (the last point is a caution from reasoning. Changing it in the middle was not tested).
+
+</Step>
+
+<Step>
+
+## Triggers in the code
+
+`MicroBatchExecution` chooses the executor by the type of trigger (from line 150).
+
+- `ProcessingTimeTrigger` uses `ProcessingTimeExecutor`, which calls a batch at each time boundary.
+- `OneTimeTrigger` uses `SingleBatchExecutor`, which runs one batch and ends. Deprecated since 3.4.0 (`Trigger.java:102`), use `AvailableNow` instead.
+- `AvailableNowTrigger` uses `MultiBatchExecutor`, which runs continuously until no data is waiting (in `executeOneBatch`, when there is no batch to build and the executor is a `MultiBatchExecutor`, it sets the state to `TERMINATED`, lines 690-692). This makes the query finish by itself.
+- `RealTimeTrigger` is a new mode added in the 4.2 source. It writes the offset at the end of a batch instead of the start (the comment in `markMicroBatchEnd`, lines 1412-1420). Not tested.
+
+When there is no batch that can run and the trigger is not `AvailableNow`, the loop sleeps for `pollingDelayMs` and tries again. This is why the status shows "Waiting for data to arrive".
+
+</Step>
+
+<Step>
+
+## What has not been proven
+
+- Stream-stream join, `flatMapGroupsWithState` and other operators with state (not in the knowledge graph yet and not run).
+- Kafka source and sink, the file sink that uses a manifest, and `foreachBatch` with a real external sink.
+- Changing the state store provider or the shuffle partitions of a query that already has a checkpoint.
+- The size of state and the speed of the two providers (not measured).
+- The real-time mode of Spark 4.2.
+- The behavior of S3 and other object stores with `HDFSMetadataLog` (read from the class doc only).
+
+</Step>

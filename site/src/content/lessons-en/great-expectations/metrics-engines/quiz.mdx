@@ -1,0 +1,92 @@
+---
+title: Check your understanding
+summary: Answer 6 questions to check how well you understand this lesson.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="Why can the same set of expectations run on pandas, Spark and SQL?"
+  options={['GX converts the data of every backend to pandas before it checks', 'The expectation asks for a metric by name, and the engine of each backend has an implementation of that metric', 'GX writes a separate expectation for each backend']}
+  answer={1}
+  why="The expectation declares the metrics it needs. How to compute them lives in a metric provider that is registered per engine (for example column.max has pandas, SQL and Spark). GX does not move the data into pandas."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A suite has ExpectColumnValuesToNotBeNull(column='id') and ExpectColumnValuesToBeUnique(column='id'). How many times is the metric column_values.nonnull.condition of id computed?"
+  options={['Twice, once for each expectation', 'Once, because it is the same metric and GX merges them in one graph']}
+  answer={1}
+  why="All expectations are merged into one metric graph, and metrics with the same id (the same name, column and parameters) are computed once. You can see this in the lab by choosing these two."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="On SQL, why are avg and max of the same column in one SELECT?"
+  options={['The database requires it', 'An aggregate (partial) metric has not run yet, so GX can combine the ones in the same domain into one statement', 'It is a coincidence of SQLite']}
+  answer={1}
+  why="An implementation of the kind column_aggregate_partial returns an expression with deferred execution (sa.func.max, F.max), so the engine can combine many of them into one SELECT (or one df.agg on Spark). pandas computes at once, so there is no combining."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q={"A metric whose function always fails is called how many times before GX cancels it?"}
+  options={["3 times", "1 time", "Without limit, until it succeeds"]}
+  answer={0}
+  why={"26_registry_domains.py: CALLS is 3 and the neighboring rule is not affected."}
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q={"Two expectations use the same column, and one of them adds a row_condition on SQL. What happens to the number of statements?"}
+  options={["It goes down", "It goes up, because the domains differ so they cannot be combined", "It stays the same"]}
+  answer={1}
+  why={"Measured: a suite of two rules, max + mean, gives 2 statements. A suite where one of them has a row_condition gives 4."}
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q={"Can a row_condition that uses condition_parser=\"pandas\" run on SQL?"}
+  options={["Yes, because GX converts it", "Yes, but it is slower", "No, you get success=False with exception_info"]}
+  answer={2}
+  why={"PassThroughCondition (pandas/spark syntax) is not supported for SqlAlchemyExecutionEngine. Use col(\"x\") with the great_expectations parser."}
+/>
+
+</Step>
