@@ -9,6 +9,8 @@ updated: 2026-11-05
 
 import Step from '../../../../components/Step.astro';
 import Callout from '../../../../components/Callout.astro';
+import HandshakeLab from '../../../../components/labs/spark/HandshakeLab';
+import WorkerReuseLab from '../../../../components/labs/spark/WorkerReuseLab';
 
 หน้านี้ตามรอย source ของ Spark 4.2.0 (tag v4.2.0) ตัวเลขบรรทัดอ้างอิงถึง repo ของ Spark ส่วนที่ระบุว่ารัน มาจาก `exercises/08_udf.py` ซึ่งรันด้วย pandas 3.1.1 และ pyarrow 26.0.1
 
@@ -47,6 +49,10 @@ Python UDF เริ่มต้นเป็นแค่ expression ที่ซ
 | 8 | `evalConf` | 521 |
 | 9 | `writeCommand` คือฟังก์ชันที่ pickle แล้ว (`PythonUDFRunner.scala:183-207`) | 522 |
 | 10 | flush แล้วจึงส่งข้อมูล และจบด้วย `END_OF_STREAM` | 524, 545-548 |
+
+ดูลำดับนี้เป็นแผนภาพ กดเล่นเพื่อดูข้อความทีละอัน ป้ายสีเขียวด้านขวาคือสิ่งที่ worker ทำกับค่าที่เพิ่งอ่าน และสลับสถานการณ์เพื่อดูว่า error ของฟังก์ชันกับ Python ที่ตายเองต่างกันอย่างไร (เนื้อหาเรื่อง error อยู่ในหัวข้อ Error กลับมาอย่างไร ด้านล่าง)
+
+<HandshakeLab client:visible />
 
 ฝั่ง worker `main` ใน `worker.py` (บรรทัด 3562-3647) อ่านตามลำดับเดียวกัน: `split_index`, `check_python_version`, memory limit, JSON ของ task context, `setup_spark_files`, `setup_broadcasts`, `eval_type`, `RunnerConf`, `EvalConf` แล้ว `read_udfs` (บรรทัด 3602) ที่ unpickle ฟังก์ชัน จากนั้น `process()` (บรรทัด 3608-3615) ทำ `deserializer.load_stream` → `func` → `serializer.dump_stream` เมื่อจบส่ง timing, ตัวนับ spill, `END_OF_DATA_SECTION` และ accumulator แล้วรอรับ `END_OF_STREAM`
 
@@ -93,6 +99,10 @@ Python UDF เริ่มต้นเป็นแค่ expression ที่ซ
 - บน Linux/macOS: daemon (`pyspark/daemon.py`) fork worker ต่อ task ใน child วนอยู่ที่ `while True: code = worker(...)` จบงานปกติแล้วกลับไปรอรับ task ใหม่ เฉพาะเมื่อ `reuse` เปิด (`daemon.py:165`, `259-274`: ถ้า `not reuse or code` ก็ break) แล้ว `gc.collect()`
 - ฝั่ง JVM: worker ที่เสร็จเข้า idle pool (`releaseWorker`, `PythonWorkerFactory.scala:512-526`) task ต่อไปหยิบไปใช้ใน `create` (บรรทัด 132-156) จะปล่อยคืนได้ก็ต่อเมื่อ worker ตอบ `END_OF_STREAM` (`PythonRunner.scala:671-684`) ถ้า worker เขียน `END_OF_DATA_SECTION` แทน (`worker.py:3644-3647`) จะไม่ถูกใช้ซ้ำ
 - บน Windows worker ที่ไม่ใช่ daemon ถูกหยุดใน `releaseWorker` (บรรทัด 527-534) จึงไม่มีอะไรถูกใช้ซ้ำ หลักฐานจากการรัน: ระหว่าง job เห็น process `python.exe -m pyspark.worker` ลูกของ JVM และไม่เห็น `pyspark.daemon` ส่วนพฤติกรรมของ daemon บน Linux/macOS ยังไม่ได้ทดสอบที่นี่
+
+ลองดูแปดงานบนสอง slot ในสามการตั้งค่า ตัวเลข `n=` คือ counter ระดับ module ที่ UDF เพิ่มทุกครั้งที่ task ใช้ worker นั้น ซึ่งโชว์ผลของการ reuse ให้เห็นตรงๆ
+
+<WorkerReuseLab client:visible />
 
 ผลต่อโค้ดของคุณ: ถ้า UDF เก็บ state ระดับ module (global, cache) state นั้นอยู่ข้าม task ได้เมื่อมีการใช้ worker ซ้ำ ซึ่งแปลว่าผลของ UDF ไม่ควรพึ่ง state ที่แชร์แบบนั้น
 

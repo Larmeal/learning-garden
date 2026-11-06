@@ -13,7 +13,8 @@ updated: 2026-11-05
 import Step from '../../../../components/Step.astro';
 import Callout from '../../../../components/Callout.astro';
 import PlanPipelineLab from '../../../../components/labs/spark/PlanPipelineLab';
-import AqeLab from '../../../../components/labs/spark/AqeLab';
+import AqeFlowLab from '../../../../components/labs/spark/AqeFlowLab';
+import PushdownFlowLab from '../../../../components/labs/spark/PushdownFlowLab';
 
 <Step>
 
@@ -144,6 +145,12 @@ Condition : (id#0L > 10)
 ## Optimizer เขียนแผนใหม่ทีละกฎ
 
 Optimizer ไม่ได้คิดแผนที่ดีที่สุดในครั้งเดียว มันมี **rule** เป็นร้อยตัว แต่ละตัวทำเรื่องเล็กมาก (ย้าย filter, รวม project สองชั้น, คิด `1 + 2` ให้เป็น `3`) แล้วรันซ้ำจนแผนไม่เปลี่ยน ลองกดไล่ดูทีละกฎ นี่คือ trace จริงของ query หนึ่งตัวที่ใช้ view ซ้อนกัน
+
+ก่อนดู trace จริง ลองดูภาพรวมว่ากฎของ optimizer ช่วยอะไร ภาพนี้เป็น query ที่มี join กับ filter จุดที่วิ่งขึ้นคือแถวที่ไหลผ่านแต่ละ node
+
+<PushdownFlowLab client:visible />
+
+แล้วจึงดู trace ของ query จริงทีละกฎ
 
 <PlanPipelineLab client:visible />
 
@@ -286,15 +293,15 @@ AdaptiveSparkPlan isFinalPlan=true
 
 ## AQE ทำสามอย่าง
 
-เลือกทีละสถานการณ์แล้วกดไล่ดูทีละขั้น ตัวเลขของ coalesce และ join มาจากการรันจริง ส่วนขนาด partition ใน skew ใช้ตัวอย่างสมมติ (ชื่อ config และสูตรเป็นของจริง)
+ทั้งสามอย่างทำตามลำดับเดียวกัน: stage แรกรันจบ แล้ว AQE วัดขนาดจริง แล้วเขียนแผนใหม่ แล้ว stage ถัดไปรันตามแผนใหม่ แถบสี่ช่วงด้านบนของภาพบอกว่าตอนนี้อยู่ช่วงไหน และบรรทัดแผนใต้แถบเปลี่ยนตามเหมือนที่ `explain()` แสดง เลือกสถานการณ์แล้วกดเล่น หรือลาก slider ตัวเลขของ coalesce และ join มาจากการรันจริง ส่วนขนาด partition ใน skew ใช้ตัวอย่างสมมติ (ชื่อ config และสูตรเป็นของจริง)
 
-<AqeLab client:visible />
+<AqeFlowLab client:visible />
 
 | ทำอะไร | rule | config หลัก (ค่าเริ่มต้น) |
 |---|---|---|
 | รวม partition เล็กหลัง shuffle | `CoalesceShufflePartitions` | `coalescePartitions.enabled` (true), `advisoryPartitionSizeInBytes` (64 MB), `minPartitionSize` (1 MB) |
 | เปลี่ยน join เป็น broadcast | `DynamicJoinSelection` + `OptimizeShuffleWithLocalRead` | `autoBroadcastJoinThreshold` (10 MB), `localShuffleReader.enabled` (true) |
-| แยก partition ที่เบ้ | `OptimizeSkewedJoin` | `skewJoin.enabled` (true), `skewedPartitionFactor` (5.0), `skewedPartitionThresholdInBytes` (256 MB) |
+| แยก partition ที่ skew (ใหญ่ไม่สมดุลกับตัวอื่น) | `OptimizeSkewedJoin` | `skewJoin.enabled` (true), `skewedPartitionFactor` (5.0), `skewedPartitionThresholdInBytes` (256 MB) |
 
 ทุก config ข้างบนมีคำนำหน้า `spark.sql.adaptive.` ยกเว้น `autoBroadcastJoinThreshold` ที่มีคำนำหน้า `spark.sql.`
 

@@ -9,6 +9,9 @@ updated: 2026-11-05
 
 import Step from '../../../../components/Step.astro';
 import Callout from '../../../../components/Callout.astro';
+import JoinDecisionLab from '../../../../components/labs/spark/JoinDecisionLab';
+import ShuffleWriterLab from '../../../../components/labs/spark/ShuffleWriterLab';
+import LocalityWaitLab from '../../../../components/labs/spark/LocalityWaitLab';
 
 หน้านี้อ้าง source ของ Spark 4.2.0 (tag v4.2.0) ส่วนที่รันมาจาก `exercises/07_performance_tuning.py` ส่วนที่ระบุว่า "ยังไม่ได้ทดสอบ" คือยังไม่มีหลักฐานจากการรัน อย่าถือเป็นข้อเท็จจริง
 
@@ -45,6 +48,10 @@ import Callout from '../../../../components/Callout.astro';
 | ซ้าย | InnerLike, RightOuter |
 | ขวา | InnerLike, LeftOuter, LeftSingle, LeftSemi, LeftAnti, ExistenceJoin |
 | (ไม่มี) | FullOuter |
+
+ลองเดินตามผังนี้ด้วยเงื่อนไขของคุณเอง เลือกตัวอย่างที่ติดคำว่า "วัดจริง" เพื่อดูกรณีที่ exercise รันและตรวจแผนไว้ หรือปรับ join type, hint และขนาดเองแล้วดูว่าเส้นทางเปลี่ยนที่ข้อไหน
+
+<JoinDecisionLab client:visible />
 
 </Step>
 
@@ -102,12 +109,12 @@ hint `shuffle_hash` บน left join ใส่ที่ฝั่งไหนก�
 
 ไฟล์ `OptimizeSkewedJoin.scala`
 
-- **เส้น skew** = `max(skewedPartitionThresholdInBytes, median × skewedPartitionFactor)` (บรรทัด 65-68) partition ถือว่าเบ้เมื่อใหญ่กว่าเส้นนี้ (บรรทัด 146, 148) median คำนวณจากขนาดผลลัพธ์ของ map task ต่อ reduce partition (บรรทัด 124-125)
-- **ขนาดชิ้นที่แยก** = `max(advisoryPartitionSize, ขนาดเฉลี่ยของ partition ที่ไม่เบ้)` (บรรทัด 75-83)
+- **เส้น skew** = `max(skewedPartitionThresholdInBytes, median × skewedPartitionFactor)` (บรรทัด 65-68) partition ถือว่า skew เมื่อใหญ่กว่าเส้นนี้ (บรรทัด 146, 148) median คำนวณจากขนาดผลลัพธ์ของ map task ต่อ reduce partition (บรรทัด 124-125)
+- **ขนาดชิ้นที่แยก** = `max(advisoryPartitionSize, ขนาดเฉลี่ยของ partition ที่ไม่ skew)` (บรรทัด 75-83)
 - **แยกฝั่งไหนได้** (บรรทัด 85-92): ซ้ายสำหรับ Inner, Cross, LeftSemi, LeftAnti, LeftOuter และขวาสำหรับ Inner, Cross, RightOuter ถ้าเป็น **FullOuter แยกไม่ได้ทั้งสองฝั่ง** จึงไม่มี skew handling
 - **ใช้กับ** `SortMergeJoin` และ `ShuffledHashJoin` เท่านั้น (บรรทัด 225-240) โดย child ทั้งสองต้องเป็น `ShuffleQueryStage` ที่มี origin `ENSURE_REQUIREMENTS` (บรรทัด 286-293) ฝั่ง stream ของ `BroadcastHashJoin` แยกได้เฉพาะเมื่อปิด local shuffle reader (บรรทัด 242-253)
 - **ถ้าการแยกจะทำให้เกิด shuffle เพิ่ม** กฎถูกยกเลิก เว้นแต่ `spark.sql.adaptive.forceOptimizeSkewedJoin` เป็น true (ค่าเริ่มต้น false, บรรทัด 262-283)
-- ไม่มี case ของ aggregate ในกฎ จึงไม่แยก key ที่เบ้ของ `groupBy` (อ่านจาก match case ของกฎ)
+- ไม่มี case ของ aggregate ในกฎ จึงไม่แยก key ที่ skew ของ `groupBy` (อ่านจาก match case ของกฎ)
 
 วัดจริง (2 ล้านแถว, 90% ที่ `k = 1`, payload `rand()`, threshold broadcast -1, `shuffle.partitions=10`): ค่าเริ่มต้นไม่เกิด skew handling, ลด threshold และ advisory เหลือ 1 MB ได้ `SortMergeJoin(skew=true)` ฝั่งซ้าย `AQEShuffleRead coalesced and skewed` metric ของ node ได้ skewed partitions 1, splits 16, partitions 17 และ join stage รัน 17 task จาก 10 partition เดิม การ `rand()` เป็น payload จำเป็น เพราะคอลัมน์ที่ซ้ำกันบีบอัดได้เกือบหมด ขนาดไฟล์ shuffle จะเล็กจนไม่เกินเส้น
 
@@ -157,6 +164,10 @@ comment ใน `UnsafeExternalSorter.java:257-259` บอกว่าตัว�
 2. **`SerializedShuffleHandle`** ถ้า `canUseSerializedShuffle` (บรรทัด 227-246): serializer รองรับการย้ายข้อมูลที่ serialize แล้ว, ไม่มี map-side combine และ partition ไม่เกิน 16,777,216 `UnsafeRowSerializer` ของ SQL รองรับ (`UnsafeRowSerializer.scala:48`)
 3. **ที่เหลือ** `SortShuffleWriter` ทั่วไป (ข้อมูลแบบ deserialized, `ExternalSorter`)
 
+ลองสลับชนิดของงานกับจำนวน partition ดูว่า writer เปลี่ยนที่ตัวเลขไหน และแต่ละแบบจัดแถวลงไฟล์ต่างกันอย่างไร
+
+<ShuffleWriterLab client:visible />
+
 SQL aggregation ทำ partial aggregate เป็น operator `HashAggregate` แยกต่างหาก ไม่ใช้ `mapSideCombine` ของ RDD (วัดได้ `mapSideCombine` เป็น False) shuffle ของ SQL จึงเข้าข้อ 1 และ 2 ได้ วัดจริงจาก handle ของ Exchange: 8 และ 200 partition ได้ Bypass, 201 ได้ Serialized
 
 </Step>
@@ -166,6 +177,10 @@ SQL aggregation ทำ partial aggregate เป็น operator `HashAggregate` �
 ## Data Locality (อ่านจาก Source เท่านั้น)
 
 ระดับของ task เรียงจากดีไปแย่: `PROCESS_LOCAL`, `NODE_LOCAL`, `NO_PREF`, `RACK_LOCAL`, `ANY` (`TaskLocality.scala:25`) scheduler ใช้ **delay scheduling** คือรอ slot ที่ดีตามระดับที่อนุญาต แล้วค่อยยอมลดระดับเมื่อรอครบ (`TaskSetManager.getAllowedLocalityLevel` บรรทัด 621-682) เวลารออ่านจาก `spark.locality.wait.process/.node/.rack` ซึ่งแต่ละตัวใช้ `spark.locality.wait` เป็นค่าสำรอง ค่าเริ่มต้น **3 วินาที** (`getLocalityWait` บรรทัด 1339-1354) ระดับที่ไม่มีเวลารอ (NO_PREF, ANY) คืน 0
+
+ลองสลับว่า executor ไหนว่าง แล้วดูว่า task รอนานแค่ไหนก่อนยอมลดระดับ
+
+<LocalityWaitLab client:visible />
 
 ทั้งหมดนี้ไม่ได้รันบนเครื่องนี้ เพราะ local mode มี executor เดียวและไม่มี HDFS จึงไม่ยืนยันพฤติกรรมบน cluster จริง
 
