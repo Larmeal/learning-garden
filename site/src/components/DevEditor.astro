@@ -9,9 +9,11 @@ interface Props {
   lang: Lang;
   file: string;
   vscode?: string;
+  alt?: string; // the same lesson in the other language
 }
-const { lang, file, vscode } = Astro.props;
+const { lang, file, vscode, alt } = Astro.props;
 const en = lang === 'en';
+const otherName = file.includes('lessons-en') ? (en ? 'Thai' : 'ไทย') : en ? 'English' : 'อังกฤษ';
 ---
 
 <section
@@ -26,6 +28,15 @@ const en = lang === 'en';
   data-t-render={en ? 'The page could not render, the file was put back' : 'หน้านี้ render ไม่ได้ จึงคืนไฟล์เดิมให้แล้ว'}
   data-t-leave={en ? 'You have unsaved changes.' : 'มีการแก้ที่ยังไม่ได้บันทึก'}
   data-t-restored={en ? 'Your unsaved text was restored.' : 'กู้ข้อความที่ยังไม่ได้บันทึกของคุณกลับมาแล้ว'}
+  data-t-sync-ok={en ? 'Thai and English are in step' : 'ภาษาไทยกับอังกฤษตรงกัน'}
+  data-t-sync-units={en ? 'units' : 'หน่วย'}
+  data-t-sync-en-behind={en ? 'English has not followed the Thai edit' : 'ภาษาอังกฤษยังไม่ตามที่แก้ฉบับไทย'}
+  data-t-sync-th-behind={en ? 'English was edited alone, check that Thai still agrees' : 'ภาษาอังกฤษถูกแก้ฝั่งเดียว ตรวจว่าฉบับไทยยังตรงกันไหม'}
+  data-t-sync-mismatch={en ? 'Thai and English have a different number of units, so they cannot be compared' : 'จำนวนหน่วยของไทยกับอังกฤษไม่เท่ากัน จึงเทียบกันไม่ได้'}
+  data-t-sync-edited={en ? 'edited' : 'แก้เมื่อ'}
+  data-t-sync-copied={en ? 'Copied' : 'คัดลอกแล้ว'}
+  data-t-sync-today={en ? 'today' : 'วันนี้'}
+  data-t-sync-days={en ? 'days ago' : 'วันก่อน'}
 >
   <div class="dev-editor-head">
     <strong>{file}</strong>
@@ -36,6 +47,15 @@ const en = lang === 'en';
       ? 'This is the MDX source of the lesson text, for both reading modes. Keep tags such as <Step> and <Question> whole. Press View to save and see the page. It only changes the file on this machine.'
       : 'ซอร์ส MDX ของเนื้อหาบทเรียน ใช้กับทั้งสองโหมดการอ่าน เก็บแท็กอย่าง <Step> และ <Question> ให้ครบ กด View เพื่อบันทึกและดูหน้า ไฟล์เปลี่ยนเฉพาะในเครื่องนี้'}
   </p>
+  <div class="dev-sync" data-sync hidden>
+    <p class="dev-sync-title" data-sync-title></p>
+    <ul class="dev-sync-list" data-sync-list></ul>
+    <div class="dev-sync-actions" data-sync-actions>
+      <button type="button" class="btn sm" data-sync-copy>{en ? 'Copy what to translate' : 'คัดลอกรายการที่ต้องแปล'}</button>
+      {alt && <a class="btn sm" href={alt}>{en ? `Open the ${otherName} page` : `เปิดหน้า${otherName}`}</a>}
+      <button type="button" class="btn sm" data-sync-accept>{en ? 'Mark as in step' : 'ถือว่าตรงกันแล้ว'}</button>
+    </div>
+  </div>
   <textarea spellcheck="false" aria-label={file} rows="12"></textarea>
   <div class="dev-editor-foot">
     <span class="dev-editor-status" data-edit-status aria-live="polite"></span>
@@ -71,6 +91,76 @@ const en = lang === 'en';
       statusEl.textContent = msg || '';
       statusEl.dataset.kind = kind || '';
     }
+    // ---- Thai / English twin check (the server runs tools/translation-sync.mjs) ----
+    var syncBox = ed.querySelector('[data-sync]');
+    var syncTitle = ed.querySelector('[data-sync-title]');
+    var syncList = ed.querySelector('[data-sync-list]');
+    var syncActions = ed.querySelector('[data-sync-actions]');
+    var dots = document.querySelectorAll('[data-sync-dot]');
+    var syncCopy = '';
+    function when(t) {
+      var d = new Date(t);
+      var days = Math.floor((Date.now() - d.getTime()) / 86400000);
+      var abs = d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+      return abs + ' (' + (days < 1 ? ed.dataset.tSyncToday : days + ' ' + ed.dataset.tSyncDays) + ')';
+    }
+    function showSync(s) {
+      syncCopy = '';
+      if (!s || s.error) {
+        syncBox.hidden = true;
+        dots.forEach(function (d) { d.hidden = true; });
+        return;
+      }
+      var out = !!s.mismatch || s.stale.length > 0;
+      syncBox.hidden = false;
+      syncBox.dataset.state = out ? 'out' : 'ok';
+      syncList.textContent = '';
+      syncActions.hidden = !out;
+      if (s.mismatch) {
+        syncTitle.textContent = ed.dataset.tSyncMismatch + ' (' + s.mismatch.th + ' / ' + s.mismatch.en + ')';
+        syncActions.hidden = true;
+      } else if (!s.stale.length) {
+        syncTitle.textContent = ed.dataset.tSyncOk + ' (' + s.total + ' ' + ed.dataset.tSyncUnits + ')';
+      } else {
+        var enBehind = s.stale.filter(function (u) { return u.state === 'en-behind'; });
+        var thBehind = s.stale.filter(function (u) { return u.state === 'th-behind'; });
+        syncTitle.textContent = [enBehind.length ? ed.dataset.tSyncEnBehind : '', thBehind.length ? ed.dataset.tSyncThBehind : ''].filter(Boolean).join('; ');
+        s.stale.forEach(function (u) {
+          var li = document.createElement('li');
+          var b = document.createElement('strong');
+          b.textContent = u.heading ? u.label.replace(/: .*$/, '') + ': ' + u.heading : u.label;
+          li.appendChild(b);
+          li.appendChild(document.createTextNode(' ' + ed.dataset.tSyncEdited + ' ' + when(u.since) + (u.state === 'th-behind' ? ' (EN)' : ' (TH)')));
+          syncList.appendChild(li);
+        });
+        syncCopy = s.copy;
+      }
+      dots.forEach(function (d) {
+        d.hidden = false;
+        d.dataset.state = out ? 'out' : 'ok';
+        d.title = syncTitle.textContent;
+      });
+    }
+    function refreshSync() {
+      return fetch('/__edit?sync=1&file=' + encodeURIComponent(file), { headers: H })
+        .then(parse)
+        .then(function (r) { showSync(r.j.ok ? r.j.sync : null); })
+        .catch(function () { showSync(null); });
+    }
+    ed.querySelector('[data-sync-copy]').addEventListener('click', function (e) {
+      var btn = e.currentTarget;
+      var label = btn.textContent;
+      navigator.clipboard.writeText(syncCopy).then(function () {
+        btn.textContent = ed.dataset.tSyncCopied;
+        setTimeout(function () { btn.textContent = label; }, 1500);
+      });
+    });
+    ed.querySelector('[data-sync-accept]').addEventListener('click', function () {
+      fetch('/__edit', { method: 'POST', headers: Object.assign({ 'content-type': 'application/json' }, H), body: JSON.stringify({ file: file, action: 'accept' }) })
+        .then(parse)
+        .then(function (r) { showSync(r.j.ok ? r.j.sync : null); });
+    });
+
     function blocked(on) {
       views.forEach(function (b) { b.dataset.blocked = on ? '1' : ''; });
     }
@@ -125,6 +215,7 @@ const en = lang === 'en';
         dropDraft();
         blocked(false);
         say(ed.dataset.tSaved, 'ok');
+        if (j.sync !== undefined) showSync(j.sync);
         return true;
       }
       var why = j.stage === 'compile' ? ed.dataset.tCompile : j.stage === 'frontmatter' ? ed.dataset.tFrontmatter : j.stage === 'render' ? ed.dataset.tRender : '';
@@ -213,6 +304,7 @@ const en = lang === 'en';
     window.addEventListener('beforeunload', function (e) {
       if (root.hasAttribute('data-edit') && dirty()) { e.preventDefault(); e.returnValue = ed.dataset.tLeave; }
     });
+    refreshSync();
     if (sessionStorage.getItem(KEY) === '1') enter();
   })();
 </script>

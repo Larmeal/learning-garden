@@ -2,6 +2,7 @@
 import { defineConfig } from 'astro/config';
 import { access, readFile, writeFile } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
+import { createSync } from './tools/translation-sync.mjs';
 
 import react from '@astrojs/react';
 import mdx from '@astrojs/mdx';
@@ -26,6 +27,17 @@ function devEditor() {
       root = config.root;
     },
     configureServer(/** @type {import('vite').ViteDevServer} */ server) {
+      // Thai and English twins of a lesson: which unit of which language the other has not followed (tools/translation-sync.mjs)
+      const sync = createSync(root);
+      const syncOf = (/** @type {string} */ abs) => {
+        try {
+          const key = sync.keyOfFile(abs);
+          if (!key) return null;
+          return sync.summary(sync.run({ keys: [key] })[0]);
+        } catch (e) {
+          return { error: plain(e) };
+        }
+      };
       // Run the text through the same plugins that compile the page, without writing it.
       // Call the compile step of Astro's own MDX plugin directly (the same code that builds the page), without the other
       // Vite plugins, so nothing is written and nothing else can interfere. If the plugin cannot be found the check is
@@ -146,6 +158,7 @@ function devEditor() {
             const q = new URL(req.url ?? '/', 'http://localhost').searchParams;
             const abs = pick(q.get('file'));
             if (!abs) return send(400, { ok: false, error: 'bad file' });
+            if (q.has('sync')) return send(200, { ok: true, sync: syncOf(abs) });
             return send(200, { ok: true, text: await readFile(abs, 'utf8') });
           }
 
@@ -157,8 +170,15 @@ function devEditor() {
               if (size > 2_000_000) return send(413, { ok: false, error: 'too large' });
               chunks.push(c);
             }
-            const { file, text, page } = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+            const { file, text, page, action, units } = JSON.parse(Buffer.concat(chunks).toString('utf8'));
             const abs = pick(file);
+            if (action === 'accept') {
+              // "the two languages say the same": nothing to change on the other side
+              const key = abs && sync.keyOfFile(abs);
+              if (!key) return send(400, { ok: false, error: 'no twin' });
+              sync.accept(key, Array.isArray(units) ? units.filter(Number.isInteger) : []);
+              return send(200, { ok: true, sync: syncOf(abs) });
+            }
             if (!abs || typeof text !== 'string' || typeof page !== 'string' || !page.startsWith('/') || page.startsWith('//')) return send(400, { ok: false, error: 'bad request' });
 
             const previous = await readFile(abs, 'utf8');
@@ -192,7 +212,7 @@ function devEditor() {
                 await writeFile(abs, previous, 'utf8');
                 return send(422, { ok: false, stage: 'render', error: problem });
               }
-              return send(200, { ok: true });
+              return send(200, { ok: true, sync: syncOf(abs) });
             } finally {
               // the file watcher reports our writes a little later: keep holding reloads back until those have passed
               quietUntil = Date.now() + 3000;
