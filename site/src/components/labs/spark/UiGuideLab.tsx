@@ -3,8 +3,8 @@ import { motion, useReducedMotion } from 'motion/react';
 import type { Lang } from './stepper';
 
 // Which Spark UI page answers which question. The tabs are the ones of Spark 4.2.0.
-// Numbers quoted in the hints were measured in this course: spill (chapter 7), skewed partition (chapter 7),
-// 14 tasks of the groupBy job and shuffle bytes (chapter 11). Field names are those of the REST API
+// Numbers quoted in the hints were measured in this course: spill (lesson 7), skewed partition (lesson 7),
+// 14 tasks of the groupBy job and shuffle bytes (lesson 11). Field names are those of the REST API
 // (/api/v1/applications/<id>/stages and friends) that exercises/11_deployment_ui.py reads.
 
 type Tab = 'Jobs' | 'Stages' | 'Storage' | 'Environment' | 'Executors' | 'SQL / DataFrame';
@@ -92,18 +92,18 @@ const SYMPTOMS: Record<Lang, Symptom[]> = {
       label: 'Some tasks are much slower than the others',
       tab: 'Stages',
       where: 'Click the slow stage, then look at Summary Metrics (Duration)',
-      look: 'Compare Max with Median of Duration. If Max is several times the Median, it is skew. Example in chapter 7: one partition has 1,821,935 rows, the others about 22,000 to 29,000',
+      look: 'Compare Max with Median of Duration. If Max is several times the Median, it is skew. Example in lesson 7: one partition has 1,821,935 rows, the others about 22,000 to 29,000',
       field: 'taskSummary: executorRunTime (quantiles), shuffleReadMetrics.readBytes',
-      next: 'Chapter 7: salting, or let AQE split the partition (skew join)',
+      next: 'Lesson 7: salting, or let AQE split the partition (skew join)',
     },
     {
       id: 'spill',
       label: 'The job is slow and a stage writes to disk',
       tab: 'Stages',
       where: 'Stage page: Summary Metrics and the task table',
-      look: 'The columns Spill (Memory) and Spill (Disk) appear when they are above 0. In chapter 7, sorting 6 million rows with 600 MB of memory gave about 280 MiB and 232 MiB',
+      look: 'The columns Spill (Memory) and Spill (Disk) appear when they are above 0. In lesson 7, sorting 6 million rows with 600 MB of memory gave about 280 MiB and 232 MiB',
       field: 'memoryBytesSpilled, diskBytesSpilled',
-      next: 'Chapter 7 and chapter 13: add partitions or memory',
+      next: 'Lesson 7 and lesson 13: add partitions or memory',
     },
     {
       id: 'tiny',
@@ -112,7 +112,7 @@ const SYMPTOMS: Record<Lang, Symptom[]> = {
       where: 'Jobs page: the Tasks (succeeded/total) column and the Stage that causes it',
       look: 'If a stage after a shuffle has 200 tasks that each hold only a few bytes, shuffle.partitions is too large for this data (in the lab, 14 tasks are 8 map + 6 shuffle partitions)',
       field: 'numTasks per stage, inputBytes, shuffleReadBytes',
-      next: 'Chapter 7: number of partitions after a shuffle and AQE coalesce',
+      next: 'Lesson 7: number of partitions after a shuffle and AQE coalesce',
     },
     {
       id: 'plan',
@@ -121,16 +121,16 @@ const SYMPTOMS: Record<Lang, Symptom[]> = {
       where: 'Click a query in the list, then look at the plan as a graph',
       look: 'A graph of operators with metrics per node, such as number of output rows, spill size, and the data size of BroadcastExchange. With AQE, the plan you see is the final plan after adaptation',
       field: 'REST: /sql (status and duration of each query)',
-      next: 'Chapter 6: reading the plan and AQE',
+      next: 'Lesson 6: reading the plan and AQE',
     },
     {
       id: 'cache',
       label: 'I called cache() and I am not sure it is stored',
       tab: 'Storage',
       where: 'The Storage tab: is there a cached RDD, how big, in memory or on disk',
-      look: 'Before the first action this tab is empty (cache is lazy). After the first action you see the cached partitions. If you groupBy and then cache, you see 200 partitions (chapter 7)',
+      look: 'Before the first action this tab is empty (cache is lazy). After the first action you see the cached partitions. If you groupBy and then cache, you see 200 partitions (lesson 7)',
       field: 'REST: /storage/rdd (numCachedPartitions, memoryUsed, diskUsed)',
-      next: 'Chapter 7: cache has a price',
+      next: 'Lesson 7: cache has a price',
     },
     {
       id: 'exec',
@@ -148,7 +148,7 @@ const SYMPTOMS: Record<Lang, Symptom[]> = {
       where: 'The Environment tab: Spark Properties',
       look: 'It shows the config values the application really uses after merging all sources (in the lab, spark.master and spark.executor.memory match what was set). A value that was not set is not in the list: check the default in the documentation or with spark.conf.get',
       field: 'REST: /environment (sparkProperties)',
-      next: 'Chapter 6: spark.conf.get returns the value with its unit',
+      next: 'Lesson 6: spark.conf.get returns the value with its unit',
     },
   ],
 };

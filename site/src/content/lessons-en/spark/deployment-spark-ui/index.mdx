@@ -19,15 +19,15 @@ import SubmitFlowLab from '../../../../components/labs/spark/SubmitFlowLab';
 
 ## The most important skill is reading the Spark UI
 
-Deploying is something you do once per environment, but opening the Spark UI and knowing what is wrong is something you use every day. So this chapter starts with the UI and then goes to deployment.
+Deploying is something you do once per environment, but opening the Spark UI and knowing what is wrong is something you use every day. So this lesson starts with the UI and then goes to deployment.
 
-The Spark UI is a web page that the **driver serves** (port 4040 by default, `spark.ui.port`), and it exists only while the application is running. Its data comes from events that Spark sends internally. Every page has the same data in the REST API (`/api/v1/applications/<id>/...`), which the script `exercises/11_deployment_ui.py` uses to read the numbers in this chapter.
+The Spark UI is a web page that the **driver serves** (port 4040 by default, `spark.ui.port`), and it exists only while the application is running. Its data comes from events that Spark sends internally. Every page has the same data in the REST API (`/api/v1/applications/<id>/...`), which the script `exercises/11_deployment_ui.py` uses to read the numbers in this lesson.
 
 Pick a symptom and see which page to open and what to read.
 
 <UiGuideLab client:visible lang="en" />
 
-The real numbers of the `groupBy` job used in this chapter (run on a cluster we started ourselves, 8 starting partitions, `shuffle.partitions = 6`):
+The real numbers of the `groupBy` job used in this lesson (run on a cluster we started ourselves, 8 starting partitions, `shuffle.partitions = 6`):
 
 | where to look | what you get |
 |---|---|
@@ -37,7 +37,7 @@ The real numbers of the `groupBy` job used in this chapter (run on a cluster we 
 | SQL | a query with status `COMPLETED` |
 | Environment | `spark.master` and `spark.executor.memory` match what was set |
 
-The task counts match what [chapter 5](/en/spark/execution-model/) taught: 8 partitions give 8 map tasks, and 6 shuffle partitions give the next 6 tasks.
+The task counts match what [lesson 5](/en/spark/execution-model/) taught: 8 partitions give 8 map tasks, and 6 shuffle partitions give the next 6 tasks.
 
 </Step>
 
@@ -68,9 +68,9 @@ The number 14 matches the number of tasks in the UI exactly: the whole UI is the
 
 The **cluster manager** is what allocates machines to Spark. Your program says which one to use through `--master`.
 
-| `--master` | use when | tested in this chapter |
+| `--master` | use when | tested in this lesson |
 |---|---|---|
-| `local[N]` | development on one machine (driver and executor are the same process) | used in all earlier chapters |
+| `local[N]` | development on one machine (driver and executor are the same process) | used in all earlier lessons |
 | `spark://host:7077` | the standalone cluster that comes with Spark (Master + Worker) | **run** |
 | `yarn` | a Hadoop cluster | not run (the package has the `spark-yarn` jar) |
 | `k8s://https://...` | Kubernetes | not run (the package has the `spark-kubernetes` jar) |
@@ -151,9 +151,9 @@ From the real run (a client connected to a local server opened by `SparkSession.
 
 What is lost is everything that touches the JVM directly (SparkContext, RDD). What you get is a **light client**: no JVM or Spark needed on the machine that runs the code, it can connect to a remote cluster, and a client crash does not bring down the server.
 
-On the server side (read from the source): `SparkConnectService` is a gRPC service with `ExecutePlan` (returns the result as a stream), `AnalyzePlan`, `Config`, `AddArtifacts`, `Interrupt` and `ReattachExecute`. `SparkConnectPlanner` translates protobuf into a Catalyst plan, and from there it is all the normal Catalyst you have learned ([chapter 6](/en/spark/catalyst-aqe/)). Each session has a `SessionHolder` that keeps the state on the server side, and each operation has an `ExecuteHolder` and a thread that runs it (`ExecuteThreadRunner`). `ReattachExecute` lets a client reconnect and continue receiving the result when the connection drops in the middle.
+On the server side (read from the source): `SparkConnectService` is a gRPC service with `ExecutePlan` (returns the result as a stream), `AnalyzePlan`, `Config`, `AddArtifacts`, `Interrupt` and `ReattachExecute`. `SparkConnectPlanner` translates protobuf into a Catalyst plan, and from there it is all the normal Catalyst you have learned ([lesson 6](/en/spark/catalyst-aqe/)). Each session has a `SessionHolder` that keeps the state on the server side, and each operation has an `ExecuteHolder` and a thread that runs it (`ExecuteThreadRunner`). `ReattachExecute` lets a client reconnect and continue receiving the result when the connection drops in the middle.
 
-Databricks and EMR are services that start clusters for you. The author did not test either one. The part that matters for this chapter is reading the Spark UI, which looks the same.
+Databricks and EMR are services that start clusters for you. The author did not test either one. The part that matters for this lesson is reading the Spark UI, which looks the same.
 
 </Step>
 

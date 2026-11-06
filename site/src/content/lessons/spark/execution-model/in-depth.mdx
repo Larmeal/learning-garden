@@ -9,7 +9,6 @@ updated: 2026-11-05
 
 import Step from '../../../../components/Step.astro';
 import Callout from '../../../../components/Callout.astro';
-import PipelineStagesLab from '../../../../components/labs/spark/PipelineStagesLab';
 
 ตัวเลขทั้งหมดมาจาก `exercises/05_execution_model.py` (Spark 4.2.0, 16 core, ปิด AQE เพื่อดูแผนตั้งต้นของบทนี้ บทที่ 6 อธิบาย AQE) task และไบต์อ่านจาก REST API ของ Spark UI (บทที่ 11)
 
@@ -19,21 +18,32 @@ import PipelineStagesLab from '../../../../components/labs/spark/PipelineStagesL
 
 บทหลักบอกว่า narrow ไม่ shuffle ส่วน wide shuffle นี่คือผลตรวจทุกคำสั่งด้วย `explain()` นับบรรทัด `Exchange`
 
-| คำสั่ง | Exchange ในแผน |
-|---|---|
-| `filter`, `select`, `withColumn` | ไม่มี |
-| `union` | ไม่มี |
-| `coalesce(4)` | ไม่มี (รวม partition ติดกัน) |
-| `sample` | ไม่มี |
-| `limit(5)` ขั้นสุดท้าย | ไม่มี (เป็น `CollectLimit`) |
-| `repartition(8)` | `RoundRobinPartitioning` |
-| `repartition(8, "k")` | `hashpartitioning` |
-| `groupBy("k").count()` | `hashpartitioning` |
-| `distinct`, `dropDuplicates` | `hashpartitioning` |
-| window ที่ `partitionBy("k")` | `hashpartitioning` |
-| `orderBy("v")` | `rangepartitioning` |
-| `agg(sum(...))` (ไม่มี groupBy) | `SinglePartition` |
-| `join` แบบ sort-merge | `hashpartitioning` สองตัว (ทั้งสองฝั่ง) |
+### ไม่ Shuffle
+
+หลักคิด: ผลของแต่ละแถวคำนวณได้จาก partition ที่แถวนั้นอยู่แล้ว จึงทำต่อกันใน task เดียวได้เลย ไม่ต้องย้ายแถว
+
+| คำสั่ง | Exchange ในแผน | เพราะอะไร |
+|---|---|---|
+| `filter`, `select`, `withColumn` | ไม่มี | ทำกับแต่ละแถวแยกกัน ไม่ต้องรู้ว่าแถวอื่นอยู่ที่ไหน |
+| `union` | ไม่มี | แค่เอา partition ของสองฝั่งมาต่อกัน ไม่มีแถวย้ายที่ |
+| `coalesce(4)` | ไม่มี | รวม partition ที่อยู่ติดกันเข้าด้วยกัน ไม่แจกแถวใหม่ |
+| `sample` | ไม่มี | สุ่มเลือกแถวภายใน partition ของตัวเอง |
+| `limit(5)` ขั้นสุดท้าย | ไม่มี (เป็น `CollectLimit`) | ต้องการแค่ 5 แถว เก็บกลับมาที่ driver โดยไม่ต้องจัดแถวใหม่ (วัดเฉพาะกรณีเป็นขั้นสุดท้าย) |
+
+### Shuffle (มี Exchange)
+
+หลักคิด: แถวที่ต้องไปอยู่ด้วยกัน (key เดียวกัน, ช่วงค่าเดียวกัน หรือ partition เดียว) อาจกระจายอยู่หลาย partition ต้องส่งมารวมกันก่อน
+
+| คำสั่ง | Exchange ในแผน | เพราะอะไร |
+|---|---|---|
+| `repartition(8)` | `RoundRobinPartitioning` | แจกแถวให้ partition ใหม่ 8 ตัวเท่าๆ กัน โดยไม่ดูค่าของแถว |
+| `repartition(8, "k")` | `hashpartitioning` | แถวที่ `k` เท่ากันต้องไปอยู่ partition เดียวกัน |
+| `groupBy("k").count()` | `hashpartitioning` | ต้องรวมแถวของ `k` เดียวกันมาไว้ที่เดียวก่อนนับ |
+| `distinct`, `dropDuplicates` | `hashpartitioning` | แถวที่ซ้ำกันอาจอยู่คนละ partition ต้องมารวมกันจึงจะรู้ว่าซ้ำ |
+| window ที่ `partitionBy("k")` | `hashpartitioning` | ต้องมีแถวของ `k` เดียวกันครบใน partition เดียวจึงคำนวณได้ |
+| `orderBy("v")` | `rangepartitioning` | แบ่งช่วงของค่า `v` ให้แต่ละ partition เก็บช่วงของตัวเอง เรียงในแต่ละ partition แล้วต่อกันก็ได้ลำดับรวม (ต้องสุ่มข้อมูลหาขอบเขตก่อน ดูหัวข้อถัดไป) |
+| `agg(sum(...))` (ไม่มี groupBy) | `SinglePartition` | ผลบางส่วนจากทุก partition ต้องมารวมใน partition เดียว |
+| `join` แบบ sort-merge | `hashpartitioning` สองตัว (ทั้งสองฝั่ง) | แถวของสองตารางที่ `key` เท่ากันต้องอยู่ partition เดียวกัน จึงต้องจัดทั้งสองฝั่ง |
 
 สามข้อที่น่าสังเกต
 
@@ -59,9 +69,13 @@ import PipelineStagesLab from '../../../../components/labs/spark/PipelineStagesL
 
 ข้อยกเว้นคือ `orderBy`: ได้ 3 stage ไม่ใช่ 2 เพราะ range partitioning ต้อง **สุ่มข้อมูลก่อน** เพื่อหาขอบเขตว่าจะแบ่งช่วงของค่าอย่างไรให้ partition ขนาดพอๆ กัน การสุ่มนี้เป็นอีก stage หนึ่ง ใน Spark UI จะเห็น job ของ `orderBy` มี stage เพิ่มหนึ่งตัวที่ทำงานก่อน
 
-ลองต่อคำสั่งเอง แล้วเทียบกับกฎ
+ตัวอย่างการนับเมื่อต่อหลายคำสั่ง (คำนวณจากกฎข้างบน ไม่ได้วัดเป็นโซ่)
 
-<PipelineStagesLab client:visible />
+| โซ่คำสั่ง | Exchange | stage |
+|---|---|---|
+| `filter` → `select` → `groupBy("k").count()` | 1 | 2 |
+| `filter` → `groupBy("k").count()` → `orderBy` | 2 | **4** (2 + 1 และอีก 1 stage สุ่มของ `orderBy`) |
+| `filter` → `join` → `groupBy("k").count()` → `limit(5)` | 3 (join สอง, groupBy หนึ่ง) | 4 |
 
 **กรณีที่กฎประมาณเกินจริง**: ถ้า join สองตารางที่ถูก `groupBy` ด้วย key เดียวกันและจำนวน partition เท่ากันอยู่แล้ว (ทั้งสองฝั่งถูกจัด `hashpartitioning(k, 200)` แล้ว) Spark ไม่เพิ่ม Exchange ให้ join อีก วัดจริง: `groupBy` สองตัวแล้ว join ได้ stage `[4, 4, 200]` คือ **3 stage** (ไม่ใช่ 5) เพราะ join ใช้ partitioning ที่มีอยู่ได้เลย นี่คือเหตุผลที่การเลือก key และจำนวน partition ให้ตรงกันก่อน join ช่วยลด shuffle ได้
 

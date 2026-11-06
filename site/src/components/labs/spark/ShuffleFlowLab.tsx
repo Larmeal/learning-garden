@@ -23,7 +23,7 @@ const MARKS_EN: Mark[] = [
   { at: 1.5, name: 'Split by key', title: 'A map task works out which reduce task each row must go to', text: 'It uses the hash of the key (in the picture A goes to task 1, B to task 2, C to task 3) and puts the row in the slot of that reduce task, in the memory of the map task itself. Nothing has crossed machines yet.' },
   { at: 4.5, name: 'Write file', title: 'Write to disk as one .data file per map task', text: 'All the slots are joined one after the other in a single file (shuffle_0_m_0.data), with an .index that records where the slot of each reduce task starts and ends. The first stage ends here. The result sits on the disk of the executor.' },
   { at: 6, name: 'fetch', title: 'Each reduce task fetches only its own slot from every map task', text: 'This is the shuffle: data crosses machines over the network. Each reduce task sends a fetch to every map task (number of slots fetched = map tasks x 3). The second stage cannot start until every task of the first stage has finished writing.' },
-  { at: 9.2, name: 'Combine', title: 'Each reduce task now sees every row of its own key', text: 'So it can count and get the final result straight away. If one key has many more rows than the others, that reduce task is heavier than the rest (chapters 5 and 7 cover skew).' },
+  { at: 9.2, name: 'Combine', title: 'Each reduce task now sees every row of its own key', text: 'So it can count and get the final result straight away. If one key has many more rows than the others, that reduce task is heavier than the rest (lessons 5 and 7 cover skew).' },
 ];
 const MARKS: Record<Lang, Mark[]> = { th: MARKS_TH, en: MARKS_EN };
 

@@ -49,7 +49,7 @@ const TEXT: Record<Lang, {
     merge: 'Merge into partial results',
     title: 'Driver, executor and cluster manager: who does what, in time order', groupLabel: 'Final action', endCollect: 'Ends with collect()', endWrite: 'Ends with write',
     svgLabel: 'The driver asks the cluster manager for executors, then the executors read data from storage',
-    caption: 'The order of events is read from the Spark 4.2.0 source and was checked on a standalone cluster that we started ourselves in chapter 11. It holds for every cluster manager. What differs is on the sub-pages for standalone, YARN and Kubernetes. The number of executors (3) and partitions (6) is an example.',
+    caption: 'The order of events is read from the Spark 4.2.0 source and was checked on a standalone cluster that we started ourselves in lesson 11. It holds for every cluster manager. What differs is on the sub-pages for standalone, YARN and Kubernetes. The number of executors (3) and partitions (6) is an example.',
     marks: [
       { name: 'Start', title: 'The driver starts first: it holds the code and the plan, but there are no executors yet', text: 'Your Python code runs on the driver. It builds a plan from df.groupBy(...) but has not touched any data. Someone else has to do the real computing.' },
       { name: 'Ask', title: 'The driver does not start machines itself. It asks the cluster manager', text: 'It says how many executors it wants, with how many cores and how many GB each (spark.executor.instances, spark.executor.cores, spark.executor.memory). The cluster manager knows which machines have free room.' },

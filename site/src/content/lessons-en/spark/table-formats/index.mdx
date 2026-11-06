@@ -1,6 +1,6 @@
 ---
 title: Table formats (Delta / Iceberg / Hudi)
-summary: "Plain Parquet files have no transactions, schema check or history. A table format adds a log that points to the files, which gives ACID and time travel. This chapter runs real Delta Lake on Spark 4.2.0, looks at the log commit by commit, and then compares it with Iceberg and Hudi"
+summary: "Plain Parquet files have no transactions, schema check or history. A table format adds a log that points to the files, which gives ACID and time travel. This lesson runs real Delta Lake on Spark 4.2.0, looks at the log commit by commit, and then compares it with Iceberg and Hudi"
 order: 10
 phase: D
 level: 3
@@ -37,8 +37,8 @@ spark.read.option("mergeSchema", "true").parquet(p).columns                    #
 
 A **table format** fixes all of this with one idea: keep a **log of changes** next to the data files, and define "the table right now" as the result of replaying the log. The Parquet files are still the data, but the log owns the answer to which files are in the table.
 
-<Callout type="warn" title="The examples in this chapter run in WSL and need the internet the first time">
-Hadoop cannot write files on Windows because there is no `hadoop.dll` (see [chapter 9](/en/spark/structured-streaming/)). So the examples run with `run_wsl.sh` and download the Delta jar from Maven Central into `~/.ivy2` on the first run. Linux or macOS machines can run them directly.
+<Callout type="warn" title="The examples in this lesson run in WSL and need the internet the first time">
+Hadoop cannot write files on Windows because there is no `hadoop.dll` (see [lesson 9](/en/spark/structured-streaming/)). So the examples run with `run_wsl.sh` and download the Delta jar from Maven Central into `~/.ivy2` on the first run. Linux or macOS machines can run them directly.
 </Callout>
 
 </Step>
@@ -163,7 +163,7 @@ All three have the same idea (log + data files + protocol). They differ in how t
 **Merge-on-read** is the alternative to copy-on-write: instead of rewriting a whole file every time you change a few rows, you write a small file that says which rows were deleted or changed, and merge them when reading. Writes are faster, but you pay at read time and you need compaction.
 
 <Callout type="note" title="A real finding about versions: the jar must match Spark">
-While preparing this chapter, we tried the Iceberg runtime built for Spark 4.1 (`iceberg-spark-runtime-4.1_2.13:1.12.0`) on Spark 4.2.0, and `CREATE TABLE` failed with `IncompatibleClassChangeError: class org.apache.iceberg.spark.source.SparkView can not implement org.apache.spark.sql.connector.catalog.View, because it is not an interface`. In the Spark 4.2 source, `View` is now a class (`View.java:43`) and not an interface, and Maven Central had no Iceberg runtime for Spark 4.2 on the date we checked (5 Nov 2026). On the other hand, `delta-spark_2.13:4.4.1` targets Spark 4.2.0 and works. The lesson: a table format is always tied to the minor version of Spark. Check the compatibility table before you upgrade Spark.
+While preparing this lesson, we tried the Iceberg runtime built for Spark 4.1 (`iceberg-spark-runtime-4.1_2.13:1.12.0`) on Spark 4.2.0, and `CREATE TABLE` failed with `IncompatibleClassChangeError: class org.apache.iceberg.spark.source.SparkView can not implement org.apache.spark.sql.connector.catalog.View, because it is not an interface`. In the Spark 4.2 source, `View` is now a class (`View.java:43`) and not an interface, and Maven Central had no Iceberg runtime for Spark 4.2 on the date we checked (5 Nov 2026). On the other hand, `delta-spark_2.13:4.4.1` targets Spark 4.2.0 and works. The lesson: a table format is always tied to the minor version of Spark. Check the compatibility table before you upgrade Spark.
 </Callout>
 
 </Step>
@@ -192,7 +192,7 @@ SparkSession.builder
 | `SupportsWrite`, `WriteBuilder`, `BatchWrite` | write data so that it can be committed as a whole |
 | `SupportsRowLevelOperations`, `RowLevelOperation` | `DELETE`, `UPDATE`, `MERGE`, where the source tells Spark whether it handles them as groups of files (copy-on-write) or as a delta of rows |
 
-Spark writes and optimizes the plan as before ([chapter 6](/en/spark/catalyst-aqe/)), but when it reaches the step "read this table" or "commit this write", it calls these interfaces. For example, `RowLevelOperation.Command` has three values, `DELETE`, `UPDATE` and `MERGE`, which are what Spark hands to the table to do. (The author read only the Spark interfaces and did not read the Delta code, so we do not say which parts of the interfaces Delta uses.)
+Spark writes and optimizes the plan as before ([lesson 6](/en/spark/catalyst-aqe/)), but when it reaches the step "read this table" or "commit this write", it calls these interfaces. For example, `RowLevelOperation.Command` has three values, `DELETE`, `UPDATE` and `MERGE`, which are what Spark hands to the table to do. (The author read only the Spark interfaces and did not read the Delta code, so we do not say which parts of the interfaces Delta uses.)
 
 </Step>
 
