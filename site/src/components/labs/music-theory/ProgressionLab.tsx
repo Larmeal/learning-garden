@@ -7,14 +7,48 @@ import { SCALES, build, chordName, diatonicChord, mod12, nameOf, parseNote, pcOf
 // A progression is a list of scale degrees. Pick a key and a progression, choose triads or seventh chords, and hear it.
 // The chord names are worked out from the key (the same stacking of thirds as the lesson), not looked up.
 
-const PRESETS: { name: string; degrees: number[]; note: string }[] = [
-  { name: 'I–V–vi–IV', degrees: [0, 4, 5, 3], note: 'ชุดที่ใช้มากที่สุดในเพลงป๊อป' },
-  { name: 'vi–IV–I–V', degrees: [5, 3, 0, 4], note: 'ชุดเดียวกันแต่เริ่มที่ vi ทำให้อารมณ์เศร้ากว่า' },
-  { name: 'I–vi–IV–V', degrees: [0, 5, 3, 4], note: 'แบบ 50s ที่ได้ยินในเพลงรุ่นเก่า' },
-  { name: 'ii–V–I', degrees: [1, 4, 0], note: 'การเดินคอร์ดพื้นฐานของแจ๊ส ลองเปลี่ยนเป็นคอร์ด 7' },
-  { name: 'I–IV–V–IV', degrees: [0, 3, 4, 3], note: 'โครงของร็อกแอนด์โรลและบลูส์ยุคแรก' },
-  { name: 'I–IV–I–V', degrees: [0, 3, 0, 4], note: 'ฟังจบแล้วอยากวนต่อ เพราะจบที่ V' },
+type Lang = 'th' | 'en';
+
+const PRESETS: { name: string; degrees: number[]; note: Record<Lang, string> }[] = [
+  { name: 'I–V–vi–IV', degrees: [0, 4, 5, 3], note: { th: 'ชุดที่ใช้มากที่สุดในเพลงป๊อป', en: 'The most used progression in pop songs' } },
+  { name: 'vi–IV–I–V', degrees: [5, 3, 0, 4], note: { th: 'ชุดเดียวกันแต่เริ่มที่ vi ทำให้อารมณ์เศร้ากว่า', en: 'The same chords, but starting on vi makes the mood sadder' } },
+  { name: 'I–vi–IV–V', degrees: [0, 5, 3, 4], note: { th: 'แบบ 50s ที่ได้ยินในเพลงรุ่นเก่า', en: 'The 50s style heard in old songs' } },
+  { name: 'ii–V–I', degrees: [1, 4, 0], note: { th: 'การเดินคอร์ดพื้นฐานของแจ๊ส ลองเปลี่ยนเป็นคอร์ด 7', en: 'The basic jazz progression. Try switching to seventh chords' } },
+  { name: 'I–IV–V–IV', degrees: [0, 3, 4, 3], note: { th: 'โครงของร็อกแอนด์โรลและบลูส์ยุคแรก', en: 'The basic pattern of rock and roll and early blues' } },
+  { name: 'I–IV–I–V', degrees: [0, 3, 0, 4], note: { th: 'ฟังจบแล้วอยากวนต่อ เพราะจบที่ V', en: 'It makes you want to loop, because it ends on V' } },
 ];
+
+const TEXT: Record<Lang, {
+  title: string; key: string; set: string; kind: string; triad: string; seventh: string; speed: string; stop: string; play: string;
+  perChord: string; caption: string;
+}> = {
+  th: {
+    title: 'เดินคอร์ดในคีย์ที่เลือก',
+    key: 'คีย์',
+    set: 'ชุดคอร์ด',
+    kind: 'ชนิด',
+    triad: 'ไตรแอด',
+    seventh: 'คอร์ด 7',
+    speed: 'ความเร็ว',
+    stop: 'หยุด',
+    play: 'เล่นวนซ้ำ',
+    perChord: 'คอร์ดละ 2 จังหวะ',
+    caption: 'เปลี่ยนคีย์แล้วดู: ตัวเลขโรมันไม่เปลี่ยน ชื่อคอร์ดเปลี่ยน และเสียงสัมพันธ์ระหว่างคอร์ดก็เหมือนเดิม นี่คือเหตุผลที่นักดนตรีคุยกันด้วยตัวเลข',
+  },
+  en: {
+    title: 'Play a chord progression in the chosen key',
+    key: 'Key',
+    set: 'Progression',
+    kind: 'Type',
+    triad: 'Triads',
+    seventh: '7th chords',
+    speed: 'Speed',
+    stop: 'Stop',
+    play: 'Play on repeat',
+    perChord: '2 beats per chord',
+    caption: 'Change the key and watch: the Roman numerals stay the same, the chord names change, and the relationship between the chords sounds the same. This is why musicians talk in numbers.',
+  },
+};
 
 // Close position above the bass, each note the nearest pitch above the previous one, starting near middle C.
 function voice(notes: ReturnType<typeof build>): number[] {
@@ -29,7 +63,8 @@ function voice(notes: ReturnType<typeof build>): number[] {
   return [bass, ...upper];
 }
 
-export default function ProgressionLab() {
+export default function ProgressionLab({ lang = 'th' }: { lang?: Lang }) {
+  const t = TEXT[lang];
   const [key, setKey] = useState('C');
   const [pi, setPi] = useState(0);
   const [size, setSize] = useState<3 | 4>(3);
@@ -54,10 +89,10 @@ export default function ProgressionLab() {
 
   return (
     <figure className="viz">
-      <div className="viz-title">เดินคอร์ดในคีย์ที่เลือก</div>
-      <Pills label="คีย์" value={key} onChange={setKey} options={rootOptions} />
-      <Pills<number> label="ชุดคอร์ด" value={pi} onChange={setPi} options={PRESETS.map((p, i) => ({ value: i, text: p.name }))} />
-      <Pills<3 | 4> label="ชนิด" value={size} onChange={setSize} options={[{ value: 3, text: 'ไตรแอด' }, { value: 4, text: 'คอร์ด 7' }]} />
+      <div className="viz-title">{t.title}</div>
+      <Pills label={t.key} value={key} onChange={setKey} options={rootOptions} />
+      <Pills<number> label={t.set} value={pi} onChange={setPi} options={PRESETS.map((p, i) => ({ value: i, text: p.name }))} />
+      <Pills<3 | 4> label={t.kind} value={size} onChange={setSize} options={[{ value: 3, text: t.triad }, { value: 4, text: t.seventh }]} />
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${chords.length}, minmax(0, 1fr))`, gap: 8, maxWidth: 640 }}>
         {chords.map((c, i) => (
           <div
@@ -77,12 +112,12 @@ export default function ProgressionLab() {
           </div>
         ))}
       </div>
-      <Slider label="ความเร็ว" value={bpm} min={50} max={150} unit=" bpm" onChange={setBpm} />
+      <Slider label={t.speed} value={bpm} min={50} max={150} unit=" bpm" onChange={setBpm} />
       <div className="viz-controls">
-        <button type="button" className="btn primary sm" onClick={seq.toggle}>{seq.playing ? 'หยุด' : 'เล่นวนซ้ำ'}</button>
-        <span className="gx-detail">คอร์ดละ 2 จังหวะ · {PRESETS[pi].note}</span>
+        <button type="button" className="btn primary sm" onClick={seq.toggle}>{seq.playing ? t.stop : t.play}</button>
+        <span className="gx-detail">{t.perChord} · {PRESETS[pi].note[lang]}</span>
       </div>
-      <p className="viz-caption">เปลี่ยนคีย์แล้วดู: ตัวเลขโรมันไม่เปลี่ยน ชื่อคอร์ดเปลี่ยน และเสียงสัมพันธ์ระหว่างคอร์ดก็เหมือนเดิม นี่คือเหตุผลที่นักดนตรีคุยกันด้วยตัวเลข</p>
+      <p className="viz-caption">{t.caption}</p>
     </figure>
   );
 }

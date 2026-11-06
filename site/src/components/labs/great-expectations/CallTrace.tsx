@@ -11,7 +11,26 @@ interface Row {
   depth: number;
   count: number;
 }
-const NOTES: Record<string, string> = {
+type Lang = 'th' | 'en';
+
+const TEXT: Record<
+  Lang,
+  {
+    notes: Record<string, string>;
+    validateNote: string;
+    noNote: string;
+    title: string;
+    stop: string;
+    play: string;
+    prev: string;
+    next: string;
+    captionA: string;
+    captionB: string;
+    captionC: (version: string) => string;
+  }
+> = {
+  th: {
+    notes: {
   'checkpoint/checkpoint.py:run': 'จุดเริ่ม: รับ batch_parameters แล้วไล่ validation definition ทีละตัว',
   'checkpoint/checkpoint.py:_run_validation_definitions': 'วนรัน validation definition ใน checkpoint',
   'core/validation_definition.py:run': 'เตรียมให้พร้อมรัน (เพิ่มตัวเองเข้า context ถ้ายังไม่ได้ add) แล้วเรียก validator',
@@ -26,9 +45,50 @@ const NOTES: Record<string, string> = {
   'expectations/expectation.py:metrics_validate': 'เอาค่า metric ที่ได้กลับไปให้แต่ละ expectation',
   'data_context/store/validation_results_store.py:store_validation_results': 'เก็บผลลง store ก่อนที่ action จะเริ่ม',
   'checkpoint/checkpoint.py:_run_actions': 'action ทำงานหลังสุด',
+},
+    validateNote: 'expectation ตัดสินผลจากค่า metric (ไฟล์ของแต่ละ expectation มี _validate ของตัวเอง)',
+    noNote: 'ไม่มีหมายเหตุสำหรับขั้นนี้',
+    title: 'ลำดับฟังก์ชันของ GX ใน Checkpoint.run หนึ่งครั้ง',
+    stop: 'หยุด',
+    play: 'เล่น',
+    prev: 'ก่อนหน้า',
+    next: 'ถัดไป',
+    captionA: 'บันทึกด้วย ',
+    captionB: ' เฉพาะฟังก์ชัน ',
+    captionC: (v) => ` ตำแหน่งที่คัดไว้ของ GX ${v} (ฟังก์ชันอื่นถูกกรองออก) การเยื้องคือความลึกของการเรียก ตัวเลข xN คือจำนวนครั้งที่ฟังก์ชันนั้นถูกเรียกที่ความลึกนั้น`,
+  },
+  en: {
+    notes: {
+  'checkpoint/checkpoint.py:run': 'Start: takes batch_parameters, then goes through the validation definitions one by one',
+  'checkpoint/checkpoint.py:_run_validation_definitions': 'Loops over the validation definitions in the checkpoint and runs each one',
+  'core/validation_definition.py:run': 'Gets ready to run (adds itself to the context if it was not added yet), then calls the validator',
+  'validator/v1_validator.py:validate_expectation_suite': 'A thin layer that wraps the old Validator, which does the real work',
+  'validator/validator.py:process_expectations_for_validation': 'Groups the expectations by column name before evaluating (this is why the order of the results can differ from the order in the suite)',
+  'validator/validator.py:graph_validate': 'The middle layer that puts the metrics of all expectations into one graph and lets the engine compute them',
+  'expectations/expectation.py:get_validation_dependencies': 'The expectation declares the metrics it needs (called one after another along the class hierarchy)',
+  'validator/validation_graph.py:resolve': 'Starts resolving the metric graph in rounds',
+  'validator/validation_graph.py:_resolve': 'Loops round by round until everything is done',
+  'execution_engine/execution_engine.py:resolve_metrics': 'One round = one call to the engine (counted x5 in this run)',
+  'execution_engine/pandas_execution_engine.py:resolve_metric_bundle': 'The part where the pandas engine groups and computes the metrics',
+  'expectations/expectation.py:metrics_validate': 'Hands the computed metric values back to each expectation',
+  'data_context/store/validation_results_store.py:store_validation_results': 'Stores the result in the store before the actions start',
+  'checkpoint/checkpoint.py:_run_actions': 'The actions run last',
+},
+    validateNote: 'The expectation decides the result from the metric values (the file of each expectation has its own _validate)',
+    noNote: 'No note for this step',
+    title: 'The order of GX functions in one Checkpoint.run',
+    stop: 'Pause',
+    play: 'Play',
+    prev: 'Previous',
+    next: 'Next',
+    captionA: 'Recorded with ',
+    captionB: ' for only the ',
+    captionC: (v) => ` selected functions of GX ${v} (other functions are filtered out). The indent is the depth of the call. The number xN is how many times that function was called at that depth.`,
+  },
 };
 
-export default function CallTrace() {
+export default function CallTrace({ lang = 'th' }: { lang?: Lang }) {
+  const t = TEXT[lang];
   const trace: Row[] = data.trace;
   const [i, setI] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -46,15 +106,15 @@ export default function CallTrace() {
 
   const cur = trace[i];
   const key = `${cur.file}:${cur.fn}`;
-  const note = NOTES[key] ?? (cur.fn === '_validate' ? 'expectation ตัดสินผลจากค่า metric (ไฟล์ของแต่ละ expectation มี _validate ของตัวเอง)' : '');
+  const note = t.notes[key] ?? (cur.fn === '_validate' ? t.validateNote : '');
 
   return (
     <figure className="viz">
-      <div className="viz-title">ลำดับฟังก์ชันของ GX ใน Checkpoint.run หนึ่งครั้ง</div>
+      <div className="viz-title">{t.title}</div>
       <div className="viz-controls">
-        <button type="button" className="btn primary sm" onClick={() => { if (i >= trace.length - 1) setI(0); setPlaying((p) => !p); }}>{playing ? 'หยุด' : 'เล่น'}</button>
-        <button type="button" className="btn sm" onClick={() => { setPlaying(false); setI((n) => Math.max(0, n - 1)); }}>ก่อนหน้า</button>
-        <button type="button" className="btn sm" onClick={() => { setPlaying(false); setI((n) => Math.min(trace.length - 1, n + 1)); }}>ถัดไป</button>
+        <button type="button" className="btn primary sm" onClick={() => { if (i >= trace.length - 1) setI(0); setPlaying((p) => !p); }}>{playing ? t.stop : t.play}</button>
+        <button type="button" className="btn sm" onClick={() => { setPlaying(false); setI((n) => Math.max(0, n - 1)); }}>{t.prev}</button>
+        <button type="button" className="btn sm" onClick={() => { setPlaying(false); setI((n) => Math.min(trace.length - 1, n + 1)); }}>{t.next}</button>
         <span className="gx-tag">{i + 1} / {trace.length}</span>
       </div>
 
@@ -71,12 +131,11 @@ export default function CallTrace() {
 
       <div className="viz-now" aria-live="polite">
         <strong>{cur.fn}</strong>
-        <span>{note || 'ไม่มีหมายเหตุสำหรับขั้นนี้'}</span>
+        <span>{note || t.noNote}</span>
         <code className="gx-where">{cur.file}</code>
       </div>
       <p className="viz-caption">
-        บันทึกด้วย <code>sys.setprofile</code> เฉพาะฟังก์ชัน {data.trace.length} ตำแหน่งที่คัดไว้ของ GX {data.version} (ฟังก์ชันอื่นถูกกรองออก) การเยื้องคือความลึกของการเรียก
-        ตัวเลข xN คือจำนวนครั้งที่ฟังก์ชันนั้นถูกเรียกที่ความลึกนั้น
+        {t.captionA}<code>sys.setprofile</code>{t.captionB}{data.trace.length}{t.captionC(data.version)}
       </p>
     </figure>
   );

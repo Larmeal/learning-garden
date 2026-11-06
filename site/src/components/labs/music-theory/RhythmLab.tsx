@@ -6,11 +6,13 @@ import { useSequencer } from '../../music/useSequencer';
 // One bar as a row of cells. The time signature decides how many beats there are and how a beat is counted;
 // the subdivision decides how many cells fit inside a beat. Clicking a cell toggles a note there.
 
+type Lang = 'th' | 'en';
+
 interface Meter {
   label: string;
   beats: number;
-  subs: { value: number; text: string; count: string[] }[];
-  note: string;
+  subs: { value: number; text: Record<Lang, string>; count: string[] }[];
+  note: Record<Lang, string>;
 }
 
 const METERS: Record<string, Meter> = {
@@ -18,38 +20,76 @@ const METERS: Record<string, Meter> = {
     label: '4/4',
     beats: 4,
     subs: [
-      { value: 1, text: 'โน้ตตัวดำ', count: ['1'] },
-      { value: 2, text: 'ตัวเขบ็ตหนึ่งชั้น (8th)', count: ['1', '&'] },
-      { value: 4, text: 'ตัวเขบ็ตสองชั้น (16th)', count: ['1', 'e', '&', 'a'] },
-      { value: 3, text: 'ไทรเพล็ต', count: ['1', 'la', 'li'] },
+      { value: 1, text: { th: 'โน้ตตัวดำ', en: 'Quarter notes' }, count: ['1'] },
+      { value: 2, text: { th: 'ตัวเขบ็ตหนึ่งชั้น (8th)', en: 'Eighth notes (8th)' }, count: ['1', '&'] },
+      { value: 4, text: { th: 'ตัวเขบ็ตสองชั้น (16th)', en: 'Sixteenth notes (16th)' }, count: ['1', 'e', '&', 'a'] },
+      { value: 3, text: { th: 'ไทรเพล็ต', en: 'Triplets' }, count: ['1', 'la', 'li'] },
     ],
-    note: 'สี่จังหวะต่อห้อง นับ 1 2 3 4 จังหวะแรกหนักที่สุด จังหวะสามหนักรองลงมา',
+    note: {
+      th: 'สี่จังหวะต่อห้อง นับ 1 2 3 4 จังหวะแรกหนักที่สุด จังหวะสามหนักรองลงมา',
+      en: 'Four beats per bar. Count 1 2 3 4. Beat one is the strongest, beat three is the next strongest.',
+    },
   },
   '3/4': {
     label: '3/4',
     beats: 3,
     subs: [
-      { value: 1, text: 'โน้ตตัวดำ', count: ['1'] },
-      { value: 2, text: 'ตัวเขบ็ตหนึ่งชั้น (8th)', count: ['1', '&'] },
+      { value: 1, text: { th: 'โน้ตตัวดำ', en: 'Quarter notes' }, count: ['1'] },
+      { value: 2, text: { th: 'ตัวเขบ็ตหนึ่งชั้น (8th)', en: 'Eighth notes (8th)' }, count: ['1', '&'] },
     ],
-    note: 'สามจังหวะต่อห้อง หนัก เบา เบา เหมือนวอลทซ์',
+    note: {
+      th: 'สามจังหวะต่อห้อง หนัก เบา เบา เหมือนวอลทซ์',
+      en: 'Three beats per bar: strong, weak, weak, like a waltz.',
+    },
   },
   '6/8': {
     label: '6/8',
     beats: 2,
-    subs: [{ value: 3, text: 'ตัวเขบ็ตหนึ่งชั้นสามตัวต่อจังหวะ', count: ['1', 'la', 'li'] }],
-    note: 'หกตัวเขบ็ตต่อห้อง แต่หูได้ยินสองจังหวะ จังหวะละสามตัว (นับ 1 la li 2 la li) จึงเป็นสองจังหวะแบบสามส่วน ต่างจาก 3/4 ที่เป็นสามจังหวะแบบสองส่วน',
+    subs: [{ value: 3, text: { th: 'ตัวเขบ็ตหนึ่งชั้นสามตัวต่อจังหวะ', en: 'Three eighth notes per beat' }, count: ['1', 'la', 'li'] }],
+    note: {
+      th: 'หกตัวเขบ็ตต่อห้อง แต่หูได้ยินสองจังหวะ จังหวะละสามตัว (นับ 1 la li 2 la li) จึงเป็นสองจังหวะแบบสามส่วน ต่างจาก 3/4 ที่เป็นสามจังหวะแบบสองส่วน',
+      en: 'Six eighth notes per bar, but the ear hears two beats of three notes each (count 1 la li 2 la li). So it is two beats divided in three, unlike 3/4, which is three beats divided in two.',
+    },
   },
 };
 
-const PRESETS: Record<string, { name: string; steps: (meter: string, sub: number) => boolean[] }> = {
-  all: { name: 'ทุกช่อง', steps: (m, s) => Array.from({ length: METERS[m].beats * s }, () => true) },
-  beats: { name: 'เฉพาะจังหวะลง', steps: (m, s) => Array.from({ length: METERS[m].beats * s }, (_, i) => i % s === 0) },
-  off: { name: 'เฉพาะจังหวะยก (off-beat)', steps: (m, s) => Array.from({ length: METERS[m].beats * s }, (_, i) => s > 1 && i % s === Math.floor(s / 2)) },
-  sync: { name: 'ซิงโคเพชัน', steps: (m, s) => Array.from({ length: METERS[m].beats * s }, (_, i) => (s === 2 ? [0, 3, 6].includes(i) : s === 4 ? [0, 3, 6, 10, 13].includes(i) : i % s === 0 || i % s === s - 1)) },
+const PRESETS: Record<string, { name: Record<Lang, string>; steps: (meter: string, sub: number) => boolean[] }> = {
+  all: { name: { th: 'ทุกช่อง', en: 'Every cell' }, steps: (m, s) => Array.from({ length: METERS[m].beats * s }, () => true) },
+  beats: { name: { th: 'เฉพาะจังหวะลง', en: 'Downbeats only' }, steps: (m, s) => Array.from({ length: METERS[m].beats * s }, (_, i) => i % s === 0) },
+  off: { name: { th: 'เฉพาะจังหวะยก (off-beat)', en: 'Off-beats only' }, steps: (m, s) => Array.from({ length: METERS[m].beats * s }, (_, i) => s > 1 && i % s === Math.floor(s / 2)) },
+  sync: { name: { th: 'ซิงโคเพชัน', en: 'Syncopation' }, steps: (m, s) => Array.from({ length: METERS[m].beats * s }, (_, i) => (s === 2 ? [0, 3, 6].includes(i) : s === 4 ? [0, 3, 6, 10, 13].includes(i) : i % s === 0 || i % s === s - 1)) },
 };
 
-export default function RhythmLab() {
+const TEXT: Record<Lang, {
+  title: string; meter: string; subdivide: string; presets: string; cellAria: (n: number, count: string) => string;
+  speed: string; perBeat: string; stop: string; play: string;
+}> = {
+  th: {
+    title: 'ห้องเพลงหนึ่งห้อง: กดช่องเพื่อวางโน้ต',
+    meter: 'ประเภท',
+    subdivide: 'แบ่งจังหวะ',
+    presets: 'รูปแบบสำเร็จรูป',
+    cellAria: (n, count) => `ช่องที่ ${n} นับ ${count}`,
+    speed: 'ความเร็ว',
+    perBeat: ' (ต่อจังหวะ 3 ส่วน)',
+    stop: 'หยุด',
+    play: 'เล่นวนซ้ำ',
+  },
+  en: {
+    title: 'One bar of music: click a cell to place a note',
+    meter: 'Time signature',
+    subdivide: 'Subdivision',
+    presets: 'Ready-made patterns',
+    cellAria: (n, count) => `Cell ${n}, count ${count}`,
+    speed: 'Speed',
+    perBeat: ' (per beat of 3 parts)',
+    stop: 'Stop',
+    play: 'Play on repeat',
+  },
+};
+
+export default function RhythmLab({ lang = 'th' }: { lang?: Lang }) {
+  const t = TEXT[lang];
   const [meter, setMeter] = useState('4/4');
   const [sub, setSub] = useState(2);
   const [bpm, setBpm] = useState(80);
@@ -79,12 +119,12 @@ export default function RhythmLab() {
 
   return (
     <figure className="viz">
-      <div className="viz-title">ห้องเพลงหนึ่งห้อง: กดช่องเพื่อวางโน้ต</div>
-      <Pills label="ประเภท" value={meter} onChange={(v) => set(v, sub)} options={Object.keys(METERS).map((k) => ({ value: k, text: k }))} />
-      <Pills label="แบ่งจังหวะ" value={subSpec.value} onChange={(v) => set(meter, v)} options={m.subs.map((s) => ({ value: s.value, text: s.text }))} />
-      <div className="viz-steps" role="group" aria-label="รูปแบบสำเร็จรูป">
+      <div className="viz-title">{t.title}</div>
+      <Pills label={t.meter} value={meter} onChange={(v) => set(v, sub)} options={Object.keys(METERS).map((k) => ({ value: k, text: k }))} />
+      <Pills label={t.subdivide} value={subSpec.value} onChange={(v) => set(meter, v)} options={m.subs.map((s) => ({ value: s.value, text: s.text[lang] }))} />
+      <div className="viz-steps" role="group" aria-label={t.presets}>
         {Object.entries(PRESETS).map(([k, p]) => (
-          <button key={k} type="button" aria-pressed={false} onClick={() => setCells(p.steps(meter, subSpec.value))}>{p.name}</button>
+          <button key={k} type="button" aria-pressed={false} onClick={() => setCells(p.steps(meter, subSpec.value))}>{p.name[lang]}</button>
         ))}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${total}, minmax(0, 1fr))`, gap: 4, maxWidth: 760 }}>
@@ -96,7 +136,7 @@ export default function RhythmLab() {
               key={i}
               type="button"
               aria-pressed={cells[i]}
-              aria-label={`ช่องที่ ${i + 1} นับ ${onBeat ? Math.floor(i / subSpec.value) + 1 : subSpec.count[i % subSpec.value]}`}
+              aria-label={t.cellAria(i + 1, String(onBeat ? Math.floor(i / subSpec.value) + 1 : subSpec.count[i % subSpec.value]))}
               onClick={() => setCells((c) => c.map((x, k) => (k === i ? !x : x)))}
               style={{
                 all: 'unset',
@@ -117,10 +157,10 @@ export default function RhythmLab() {
           );
         })}
       </div>
-      <Slider label="ความเร็ว" value={bpm} min={40} max={160} unit={meter === '6/8' ? ' (ต่อจังหวะ 3 ส่วน)' : ' bpm'} onChange={setBpm} />
+      <Slider label={t.speed} value={bpm} min={40} max={160} unit={meter === '6/8' ? t.perBeat : ' bpm'} onChange={setBpm} />
       <div className="viz-controls">
-        <button type="button" className="btn primary sm" onClick={seq.toggle}>{seq.playing ? 'หยุด' : 'เล่นวนซ้ำ'}</button>
-        <span className="gx-detail">{m.note}</span>
+        <button type="button" className="btn primary sm" onClick={seq.toggle}>{seq.playing ? t.stop : t.play}</button>
+        <span className="gx-detail">{m.note[lang]}</span>
       </div>
     </figure>
   );

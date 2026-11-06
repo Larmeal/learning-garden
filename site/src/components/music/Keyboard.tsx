@@ -13,6 +13,7 @@ interface Props {
   octaves?: number;
   onPick?: (midi: number) => void;
   label?: string;
+  lang?: 'th' | 'en';
 }
 
 const WHITE = [0, 2, 4, 5, 7, 9, 11];
@@ -24,7 +25,7 @@ const fill = (m?: KeyMark, black?: boolean) =>
 // The keys keep one fixed palette in both themes (white keys light, black keys dark), so only marked keys take theme colors.
 const ink = (m?: KeyMark) => (m?.kind === 'root' ? 'var(--on-accent)' : m?.kind === 'target' ? '#2A1F00' : '#12241A');
 
-export default function Keyboard({ marks = [], from = 60, octaves = 2, onPick, label = 'คีย์เปียโน' }: Props) {
+export default function Keyboard({ marks = [], from = 60, octaves = 2, onPick, label, lang = 'th' }: Props) {
   const whites: number[] = [];
   const blacks: { midi: number; x: number }[] = [];
   for (let o = 0; o < octaves; o++) {
@@ -39,7 +40,7 @@ export default function Keyboard({ marks = [], from = 60, octaves = 2, onPick, l
   const cursor = onPick ? { cursor: 'pointer' } : undefined;
 
   return (
-    <svg viewBox={`0 0 ${whites.length * KW + 2} ${KH + 4}`} role="img" aria-label={label} style={{ minWidth: whites.length * 26 }}>
+    <svg viewBox={`0 0 ${whites.length * KW + 2} ${KH + 4}`} role="img" aria-label={label ?? (lang === 'en' ? 'Piano keyboard' : 'คีย์เปียโน')} style={{ minWidth: whites.length * 26 }}>
       {whites.map((midi, i) => {
         const m = mark(midi);
         return (

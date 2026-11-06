@@ -1,9 +1,44 @@
 import { useState } from 'react';
 
+type Lang = 'th' | 'en';
+
+const TEXT: Record<Lang, {
+  title: string; aria: (n: number, b: number, g: number) => string; nulls: string; bad: string; pass: string; fail: string; vacuous: string;
+  calc: (considered: number, unexpected: number, ratio: string, pass: boolean, mostly: string) => string; cap1: string; cap2: string; cap3: string;
+}> = {
+  th: {
+    title: 'ลองปรับ mostly: ข้อมูล 10 แถว ผิดกี่แถวจึงยังผ่าน',
+    aria: (n, b, g) => `แถว null ${n} แถว ผิด ${b} แถว ถูก ${g} แถว`,
+    nulls: 'แถวที่เป็น null: ',
+    bad: 'แถวที่ผิด (ไม่นับ null): ',
+    pass: 'ผ่าน',
+    fail: 'ไม่ผ่าน',
+    vacuous: 'ไม่มีแถวให้พิจารณา (ทุกแถวเป็น null) GX ถือว่าผ่านโดยปริยาย',
+    calc: (considered, unexpected, ratio, pass, mostly) => `สัดส่วนที่ถูก = (${considered} - ${unexpected}) / ${considered} = ${ratio} ${pass ? '≥' : '<'} mostly ${mostly}`,
+    cap1: 'แถวที่เป็น null ไม่ถูกนับในตัวหาร และไม่นับว่าผิด (สำหรับ expectation แบบ column map ส่วนใหญ่ เช่น ',
+    cap2: ') ถ้าต้องการจับ null ให้ใช้ ',
+    cap3: ' อีกข้อหนึ่ง',
+  },
+  en: {
+    title: 'Try changing mostly: with 10 rows, how many bad rows can still pass?',
+    aria: (n, b, g) => `${n} null rows, ${b} bad rows, ${g} good rows`,
+    nulls: 'Null rows: ',
+    bad: 'Bad rows (nulls not counted): ',
+    pass: 'Pass',
+    fail: 'Fail',
+    vacuous: 'There are no rows to consider (every row is null). GX counts this as a pass by default.',
+    calc: (considered, unexpected, ratio, pass, mostly) => `Share of good rows = (${considered} - ${unexpected}) / ${considered} = ${ratio} ${pass ? '≥' : '<'} mostly ${mostly}`,
+    cap1: 'Null rows are not in the denominator, and they do not count as bad (for most column map expectations, such as ',
+    cap2: '). To catch nulls, add ',
+    cap3: ' as a separate expectation.',
+  },
+};
+
 const N = 10;
 
 // Mirrors _mostly_success: (considered - unexpected) / considered >= mostly, where nulls are not considered.
-export default function MostlyLab() {
+export default function MostlyLab({ lang = 'th' }: { lang?: Lang }) {
+  const t = TEXT[lang];
   const [bad, setBad] = useState(2);
   const [nulls, setNulls] = useState(2);
   const [mostly, setMostly] = useState(0.8);
@@ -23,8 +58,8 @@ export default function MostlyLab() {
 
   return (
     <figure className="viz">
-      <div className="viz-title">ลองปรับ mostly: ข้อมูล 10 แถว ผิดกี่แถวจึงยังผ่าน</div>
-      <div className="gx-cells" role="img" aria-label={`แถว null ${nn} แถว ผิด ${unexpected} แถว ถูก ${considered - unexpected} แถว`}>
+      <div className="viz-title">{t.title}</div>
+      <div className="gx-cells" role="img" aria-label={t.aria(nn, unexpected, considered - unexpected)}>
         {cells.map((c, i) => (
           <span key={i} data-c={c}>{c === 'null' ? 'null' : c === 'bad' ? '✕' : '✓'}</span>
         ))}
@@ -32,11 +67,11 @@ export default function MostlyLab() {
 
       <div className="gx-sliders">
         <label className="range">
-          <span>แถวที่เป็น null: <b className="mono">{nn}</b></span>
+          <span>{t.nulls}<b className="mono">{nn}</b></span>
           <input type="range" min={0} max={N} value={nn} onChange={(e) => setNulls(+e.target.value)} />
         </label>
         <label className="range">
-          <span>แถวที่ผิด (ไม่นับ null): <b className="mono">{unexpected}</b></span>
+          <span>{t.bad}<b className="mono">{unexpected}</b></span>
           <input type="range" min={0} max={Math.max(considered, 0)} value={unexpected} onChange={(e) => setBad(+e.target.value)} />
         </label>
         <label className="range">
@@ -46,17 +81,14 @@ export default function MostlyLab() {
       </div>
 
       <div className="viz-now">
-        <strong>{pass ? 'ผ่าน' : 'ไม่ผ่าน'}</strong>
+        <strong>{pass ? t.pass : t.fail}</strong>
         <span>
-          {vacuous
-            ? 'ไม่มีแถวให้พิจารณา (ทุกแถวเป็น null) GX ถือว่าผ่านโดยปริยาย'
-            : `สัดส่วนที่ถูก = (${considered} - ${unexpected}) / ${considered} = ${ratio.toFixed(3)} ${pass ? '≥' : '<'} mostly ${mostly.toFixed(2)}`}
+          {vacuous ? t.vacuous : t.calc(considered, unexpected, ratio.toFixed(3), pass, mostly.toFixed(2))}
         </span>
       </div>
 
       <p className="viz-caption">
-        แถวที่เป็น null ไม่ถูกนับในตัวหาร และไม่นับว่าผิด (สำหรับ expectation แบบ column map ส่วนใหญ่ เช่น <code>ExpectColumnValuesToBeBetween</code>)
-        ถ้าต้องการจับ null ให้ใช้ <code>ExpectColumnValuesToNotBeNull</code> อีกข้อหนึ่ง
+        {t.cap1}<code>ExpectColumnValuesToBeBetween</code>{t.cap2}<code>ExpectColumnValuesToNotBeNull</code>{t.cap3}
       </p>
     </figure>
   );

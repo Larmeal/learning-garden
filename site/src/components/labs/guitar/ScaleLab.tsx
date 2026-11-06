@@ -18,7 +18,66 @@ const SHORT: Record<ScaleKey, string> = {
   mixolydian: 'Mixolydian',
 };
 
-export default function ScaleLab() {
+type Lang = 'th' | 'en';
+
+const TEXT: Record<Lang, {
+  title: string;
+  keyLabel: string;
+  scaleLabel: string;
+  labelsLabel: string;
+  byName: string;
+  byDegree: string;
+  play: string;
+  prev: string;
+  next: string;
+  whole: string;
+  posTag: (pos: number, total: number, lo: number, hi: number, start: string) => string;
+  wholeTag: string;
+  bluesNote: string;
+  fbLabel: (root: string, scale: string) => string;
+  notesOf: string;
+  caption: string;
+}> = {
+  th: {
+    title: 'สเกลบนคอกีต้าร์',
+    keyLabel: 'คีย์',
+    scaleLabel: 'สเกล',
+    labelsLabel: 'ป้าย',
+    byName: 'ชื่อโน้ต',
+    byDegree: 'ตัวเลขขั้น',
+    play: 'ฟังสเกลขึ้นหนึ่งอ็อกเทฟ',
+    prev: 'ก่อนหน้า',
+    next: 'ถัดไป',
+    whole: 'ทั้งคอ',
+    posTag: (pos, total, lo, hi, start) => `ตำแหน่ง ${pos} จาก ${total} · เฟร็ต ${lo} ถึง ${hi} · เริ่มที่ ${start} สาย 6`,
+    wholeTag: 'แสดงทั้งคอ',
+    bluesNote: 'สเกลบลูส์มี 6 โน้ต จึงดูทั้งคอได้อย่างเดียว ลองเล่นบนกรอบ minor pentatonic ของคีย์เดียวกันแล้วเติมโน้ต ♭5',
+    fbLabel: (root, scale) => `${root} ${scale} บนคอกีต้าร์`,
+    notesOf: 'โน้ตของสเกล:',
+    caption: 'วงสีเข้มคือโน้ตหลัก (root) · ตำแหน่งที่แสดงอยู่ต่ำกว่าเฟร็ต 12 เสมอ ถ้าอยากได้อ็อกเทฟสูงให้เลื่อนไปอีก 12 เฟร็ต',
+  },
+  en: {
+    title: 'Scales on the guitar neck',
+    keyLabel: 'Key',
+    scaleLabel: 'Scale',
+    labelsLabel: 'Labels',
+    byName: 'Note names',
+    byDegree: 'Degree numbers',
+    play: 'Hear the scale up one octave',
+    prev: 'Previous',
+    next: 'Next',
+    whole: 'Whole neck',
+    posTag: (pos, total, lo, hi, start) => `Position ${pos} of ${total} · frets ${lo} to ${hi} · starts on ${start} on string 6`,
+    wholeTag: 'Showing the whole neck',
+    bluesNote: 'The blues scale has 6 notes, so it can only be shown on the whole neck. Play inside the minor pentatonic box of the same key and add the ♭5 note.',
+    fbLabel: (root, scale) => `${root} ${scale} on the guitar neck`,
+    notesOf: 'Notes of the scale:',
+    caption: 'The dark circle is the root note · the positions shown are always below fret 12. For the higher octave, move up another 12 frets.',
+  },
+};
+
+export default function ScaleLab({ lang = 'th' }: { lang?: Lang }) {
+  const T = TEXT[lang];
   const [root, setRoot] = useState('A');
   const [scaleKey, setScaleKey] = useState<ScaleKey>('minorPent');
   const [labels, setLabels] = useState<'name' | 'degree'>('name');
@@ -57,30 +116,30 @@ export default function ScaleLab() {
 
   return (
     <figure className="viz">
-      <div className="viz-title">สเกลบนคอกีต้าร์</div>
-      <Pills label="คีย์" value={root} onChange={(r) => { setRoot(r); setPos(0); }} options={rootOptions} />
-      <Pills<ScaleKey> label="สเกล" value={scaleKey} onChange={choose} options={CHOICES.map((k) => ({ value: k, text: SHORT[k] }))} />
+      <div className="viz-title">{T.title}</div>
+      <Pills label={T.keyLabel} value={root} onChange={(r) => { setRoot(r); setPos(0); }} options={rootOptions} />
+      <Pills<ScaleKey> label={T.scaleLabel} value={scaleKey} onChange={choose} options={CHOICES.map((k) => ({ value: k, text: SHORT[k] }))} />
       <div className="viz-controls">
-        <Pills<'name' | 'degree'> label="ป้าย" value={labels} onChange={setLabels} options={[{ value: 'name', text: 'ชื่อโน้ต' }, { value: 'degree', text: 'ตัวเลขขั้น' }]} />
-        <button type="button" className="btn sm" onClick={play}>ฟังสเกลขึ้นหนึ่งอ็อกเทฟ</button>
+        <Pills<'name' | 'degree'> label={T.labelsLabel} value={labels} onChange={setLabels} options={[{ value: 'name', text: T.byName }, { value: 'degree', text: T.byDegree }]} />
+        <button type="button" className="btn sm" onClick={play}>{T.play}</button>
       </div>
       {positions.length > 0 ? (
         <div className="viz-controls">
-          <button type="button" className="btn sm" disabled={pos === 0} onClick={() => setPos((p) => p - 1)}>ก่อนหน้า</button>
-          <button type="button" className="btn sm" disabled={pos === positions.length} onClick={() => setPos((p) => p + 1)}>ถัดไป</button>
-          <button type="button" className="btn sm" disabled={pos === 0} onClick={() => setPos(0)}>ทั้งคอ</button>
+          <button type="button" className="btn sm" disabled={pos === 0} onClick={() => setPos((p) => p - 1)}>{T.prev}</button>
+          <button type="button" className="btn sm" disabled={pos === positions.length} onClick={() => setPos((p) => p + 1)}>{T.next}</button>
+          <button type="button" className="btn sm" disabled={pos === 0} onClick={() => setPos(0)}>{T.whole}</button>
           <span className="gx-tag">
-            {chosen ? `ตำแหน่ง ${pos} จาก ${positions.length} · เฟร็ต ${chosen.lo} ถึง ${chosen.hi} · เริ่มที่ ${chosen.startNote} สาย 6` : 'แสดงทั้งคอ'}
+            {chosen ? T.posTag(pos, positions.length, chosen.lo, chosen.hi, chosen.startNote) : T.wholeTag}
           </span>
         </div>
       ) : (
-        <span className="gx-detail">สเกลบลูส์มี 6 โน้ต จึงดูทั้งคอได้อย่างเดียว ลองเล่นบนกรอบ minor pentatonic ของคีย์เดียวกันแล้วเติมโน้ต ♭5</span>
+        <span className="gx-detail">{T.bluesNote}</span>
       )}
       <div className="viz-box">
-        <Fretboard marks={marks} label={`${root} ${SHORT[scaleKey]} บนคอกีต้าร์`} />
+        <Fretboard marks={marks} label={T.fbLabel(root, SHORT[scaleKey])} lang={lang} />
       </div>
       <p className="viz-caption">
-        โน้ตของสเกล: <b>{notes.map(nameOf).join(' ')}</b> · วงสีเข้มคือโน้ตหลัก (root) · ตำแหน่งที่แสดงอยู่ต่ำกว่าเฟร็ต 12 เสมอ ถ้าอยากได้อ็อกเทฟสูงให้เลื่อนไปอีก 12 เฟร็ต
+        {T.notesOf} <b>{notes.map(nameOf).join(' ')}</b> · {T.caption}
       </p>
     </figure>
   );

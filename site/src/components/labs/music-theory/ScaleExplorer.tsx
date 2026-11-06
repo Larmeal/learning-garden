@@ -12,11 +12,46 @@ interface Props {
   start?: string;
   startRoot?: string;
   caption?: string;
+  lang?: Lang;
 }
+
+type Lang = 'th' | 'en';
+
+const TEXT: Record<Lang, {
+  title: string; root: string; scale: string; kbLabel: (root: string, label: string) => string;
+  notes: string; degrees: string; gaps: string; legend: string; play: string;
+}> = {
+  th: {
+    title: 'สร้างสเกลจากโน้ตตั้งต้น',
+    root: 'โน้ตตั้งต้น',
+    scale: 'สเกล',
+    kbLabel: (root, label) => `${root} ${label}`,
+    notes: 'โน้ต:',
+    degrees: 'ขั้น:',
+    gaps: 'ระยะห่าง:',
+    legend: '(W เต็มเสียง, H ครึ่งเสียง)',
+    play: 'ฟังสเกลขึ้นหนึ่งอ็อกเทฟ',
+  },
+  en: {
+    title: 'Build a scale from a starting note',
+    root: 'Root',
+    scale: 'Scale',
+    kbLabel: (root, label) => `${root} ${label}`,
+    notes: 'Notes:',
+    degrees: 'Degrees:',
+    gaps: 'Steps:',
+    legend: '(W whole step, H half step)',
+    play: 'Play the scale up one octave',
+  },
+};
+
+// lib/music.ts keeps one Thai word in a scale label, so the English page swaps it.
+const labelOf = (label: string, lang: Lang) => (lang === 'en' ? label.replace('(ขาขึ้น)', '(ascending)') : label);
 
 const STEP: Record<number, string> = { 1: 'H', 2: 'W', 3: 'W+H' };
 
-export default function ScaleExplorer({ scales = ['major', 'minor', 'harmonicMinor', 'melodicMinor'], start, startRoot = 'C', caption }: Props) {
+export default function ScaleExplorer({ scales = ['major', 'minor', 'harmonicMinor', 'melodicMinor'], start, startRoot = 'C', caption, lang = 'th' }: Props) {
+  const t = TEXT[lang];
   const [root, setRoot] = useState(startRoot);
   const [key, setKey] = useState(start ?? scales[0]);
   const spec = SCALES[key];
@@ -34,19 +69,19 @@ export default function ScaleExplorer({ scales = ['major', 'minor', 'harmonicMin
 
   return (
     <figure className="viz">
-      <div className="viz-title">สร้างสเกลจากโน้ตตั้งต้น</div>
-      <Pills label="โน้ตตั้งต้น" value={root} onChange={setRoot} options={rootOptions} />
-      <Pills label="สเกล" value={key} onChange={setKey} options={scales.map((k) => ({ value: k, text: SCALES[k].label }))} />
+      <div className="viz-title">{t.title}</div>
+      <Pills label={t.root} value={root} onChange={setRoot} options={rootOptions} />
+      <Pills label={t.scale} value={key} onChange={setKey} options={scales.map((k) => ({ value: k, text: labelOf(SCALES[k].label, lang) }))} />
       <div className="viz-box">
-        <Keyboard marks={marks} octaves={2} from={60} label={`${root} ${spec.label}`} />
+        <Keyboard marks={marks} octaves={2} from={60} label={t.kbLabel(root, labelOf(spec.label, lang))} lang={lang} />
       </div>
       <div className="viz-now" aria-live="polite">
-        <strong>{nameOf(r)} {spec.label}</strong>
-        <span style={{ display: 'block' }}>โน้ต: <b>{notes.map(nameOf).join(' ')}</b></span>
-        <span style={{ display: 'block' }}>ขั้น: <b>{degrees.join(' ')}</b></span>
-        <span style={{ display: 'block' }}>ระยะห่าง: <b>{steps.join(' ')}</b> (W เต็มเสียง, H ครึ่งเสียง)</span>
+        <strong>{nameOf(r)} {labelOf(spec.label, lang)}</strong>
+        <span style={{ display: 'block' }}>{t.notes} <b>{notes.map(nameOf).join(' ')}</b></span>
+        <span style={{ display: 'block' }}>{t.degrees} <b>{degrees.join(' ')}</b></span>
+        <span style={{ display: 'block' }}>{t.gaps} <b>{steps.join(' ')}</b> {t.legend}</span>
         <div className="viz-controls" style={{ marginTop: 8 }}>
-          <button type="button" className="btn sm primary" onClick={play}>ฟังสเกลขึ้นหนึ่งอ็อกเทฟ</button>
+          <button type="button" className="btn sm primary" onClick={play}>{t.play}</button>
         </div>
       </div>
       {caption && <p className="viz-caption">{caption}</p>}

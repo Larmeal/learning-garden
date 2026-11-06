@@ -3,12 +3,20 @@ import { useState } from 'react';
 // A collapsible viewer for a piece of JSON that a script printed. `notes` maps a dotted path (for example
 // "results.result.unexpected_count") or a bare key to a one-line explanation shown when the key is selected.
 
+type Lang = 'th' | 'en';
+
+const TEXT: Record<Lang, { pick: string; expand: string; noNote: string }> = {
+  th: { pick: 'กดชื่อ key เพื่อดูความหมาย', expand: 'กดลูกศรเพื่อขยายหรือยุบ', noNote: 'ไม่มีหมายเหตุสำหรับ key นี้' },
+  en: { pick: 'Click a key name to see what it means', expand: 'Click an arrow to expand or collapse', noNote: 'No note for this key' },
+};
+
 interface Props {
   title: string;
   data: unknown;
   notes?: Record<string, string>;
   open?: string[];
   caption?: string;
+  lang?: Lang;
 }
 
 function kind(v: unknown): string {
@@ -48,7 +56,8 @@ function Node({ k, v, path, depth, notes, openSet, sel, onSel }: {
   );
 }
 
-export default function JsonTree({ title, data, notes = {}, open = [], caption }: Props) {
+export default function JsonTree({ title, data, notes = {}, open = [], caption, lang = 'th' }: Props) {
+  const t = TEXT[lang];
   const [sel, setSel] = useState('');
   const bare = sel.split('.').filter((x) => x !== '[]').slice(-1)[0] ?? '';
   const note = notes[sel] ?? notes[sel.replace(/^root\./, '')] ?? notes[bare];
@@ -63,8 +72,8 @@ export default function JsonTree({ title, data, notes = {}, open = [], caption }
         </ul>
         <div className="gx-pane">
           <div className="viz-now" aria-live="polite">
-            <strong>{sel ? bare || 'root' : 'กดชื่อ key เพื่อดูความหมาย'}</strong>
-            <span>{sel ? note ?? 'ไม่มีหมายเหตุสำหรับ key นี้' : 'กดลูกศรเพื่อขยายหรือยุบ'}</span>
+            <strong>{sel ? bare || 'root' : t.pick}</strong>
+            <span>{sel ? note ?? t.noNote : t.expand}</span>
           </div>
         </div>
       </div>

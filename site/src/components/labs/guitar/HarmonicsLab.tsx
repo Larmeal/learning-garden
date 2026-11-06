@@ -16,13 +16,94 @@ const AMP = 19;
 const FRETS = [0, 3, 4, 5, 6, 7, 8, 9, 10, 12, 19, 24];
 const LOW_E = 40; // E2, the string used for the sound
 
-const NOTE_REL: Record<number, string> = {
-  1: 'โน้ตของสายเปล่า',
-  2: 'สูงกว่าสายเปล่า 1 octave',
-  3: 'สูงกว่าสายเปล่า 1 octave + perfect 5th',
-  4: 'สูงกว่าสายเปล่า 2 octaves',
-  5: 'สูงกว่าสายเปล่า 2 octaves + major 3rd (เพี้ยนเล็กน้อย)',
-  6: 'สูงกว่าสายเปล่า 2 octaves + perfect 5th',
+type Lang = 'th' | 'en';
+
+const TEXT: Record<Lang, {
+  noteRel: Record<number, string>;
+  title: string;
+  touchLabel: string;
+  open: string;
+  svgLabel: (fret: number) => string;
+  whole: string;
+  loops: (k: number) => string;
+  kept: string;
+  stopped: string;
+  finger: (pct: string) => string;
+  nowOpen: string;
+  nowKept: (fret: number, ks: string) => string;
+  nowNone: (fret: number) => string;
+  hintOpen: string;
+  heard: (k: number, note: string, rel: string) => string;
+  heardNone: string;
+  circles: string;
+  listen: string;
+  listenOpen: string;
+  stopAnim: string;
+  playAnim: string;
+  caption: string;
+}> = {
+  th: {
+    noteRel: {
+      1: 'โน้ตของสายเปล่า',
+      2: 'สูงกว่าสายเปล่า 1 octave',
+      3: 'สูงกว่าสายเปล่า 1 octave + perfect 5th',
+      4: 'สูงกว่าสายเปล่า 2 octaves',
+      5: 'สูงกว่าสายเปล่า 2 octaves + major 3rd (เพี้ยนเล็กน้อย)',
+      6: 'สูงกว่าสายเปล่า 2 octaves + perfect 5th',
+    },
+    title: 'สายสั่นเป็นกี่โค้ง และนิ้วที่แตะหยุดอะไรไป',
+    touchLabel: 'แตะเหนือเฟร็ต',
+    open: 'ไม่แตะ',
+    svgLabel: (fret) => `ภาพรูปแบบการสั่นของสายเมื่อแตะเหนือเฟร็ต ${fret}`,
+    whole: 'ทั้งเส้น',
+    loops: (k) => `${k} โค้ง`,
+    kept: 'รอด',
+    stopped: 'ถูกหยุด',
+    finger: (pct) => `นิ้วแตะ ที่ ${pct}% ของสาย`,
+    nowOpen: 'ไม่แตะ: ทุกรูปแบบสั่นได้พร้อมกัน ได้ยินเป็นโน้ตของสาย',
+    nowKept: (fret, ks) => `แตะเหนือเฟร็ต ${fret}: รอด k = ${ks}`,
+    nowNone: (fret) => `แตะเหนือเฟร็ต ${fret}: ไม่มีรูปแบบไหนรอด`,
+    hintOpen: 'ลองเลือกเฟร็ต 12 เพื่อเริ่มดู',
+    heard: (k, note, rel) => `เสียงที่ได้ยินคือ k = ${k} (โน้ต ${note}, ${rel}) เพราะรูปแบบที่ต่ำกว่าถูกนิ้วหยุดไว้`,
+    heardNone: 'ทุกรูปแบบต้องการให้จุดใต้นิ้วขยับ จึงถูกหยุดทั้งหมด เสียงที่ได้เป็นเสียงทึบสั้นๆ',
+    circles: 'วงกลมสีแดงคือจุดที่รูปแบบนั้นอยากขยับแต่ถูกนิ้วจับไว้ ยิ่งอยู่ไกลจากเส้นกลางยิ่งถูกหยุดแรง วงเขียวคือรูปแบบที่มีจุดนิ่งอยู่ใต้นิ้วพอดี',
+    listen: 'ฟังเสียง (สาย 6)',
+    listenOpen: 'ฟังสายเปล่าเทียบ',
+    stopAnim: 'หยุดภาพเคลื่อนไหว',
+    playAnim: 'เล่นภาพเคลื่อนไหว',
+    caption: 'ภาพเคลื่อนไหวช้ากว่าจริงหลายร้อยเท่า เส้นประคือรูปร่างสูงสุดของแต่ละรูปแบบ',
+  },
+  en: {
+    noteRel: {
+      1: 'the note of the open string',
+      2: '1 octave above the open string',
+      3: '1 octave + perfect 5th above the open string',
+      4: '2 octaves above the open string',
+      5: '2 octaves + major 3rd above the open string (slightly out of tune)',
+      6: '2 octaves + perfect 5th above the open string',
+    },
+    title: 'How many loops the string makes, and what the finger stops',
+    touchLabel: 'Touch above fret',
+    open: 'Open',
+    svgLabel: (fret) => `Vibration patterns of the string when touched above fret ${fret}`,
+    whole: 'whole',
+    loops: (k) => `${k} loops`,
+    kept: 'kept',
+    stopped: 'stopped',
+    finger: (pct) => `finger at ${pct}% of string`,
+    nowOpen: 'Open: all patterns can vibrate at the same time. You hear the note of the string.',
+    nowKept: (fret, ks) => `Touching above fret ${fret}: k = ${ks} kept`,
+    nowNone: (fret) => `Touching above fret ${fret}: no pattern is kept`,
+    hintOpen: 'Choose fret 12 to start',
+    heard: (k, note, rel) => `The sound you hear is k = ${k} (note ${note}, ${rel}) because the finger stops the lower patterns.`,
+    heardNone: 'Every pattern needs the point under the finger to move, so all of them are stopped. The sound is a short dull tick.',
+    circles: 'A red circle is where that pattern wants to move but the finger holds it. The farther it is from the center line, the more strongly it is stopped. A green circle is a pattern that has a still point exactly under the finger.',
+    listen: 'Listen (string 6)',
+    listenOpen: 'Listen to the open string to compare',
+    stopAnim: 'Stop the animation',
+    playAnim: 'Play the animation',
+    caption: 'The animation is hundreds of times slower than real life. The dashed lines are the largest shape of each pattern.',
+  },
 };
 const noteOf = (k: number) => SHARP_NAMES[(LOW_E + Math.round(12 * Math.log2(k))) % 12];
 
@@ -36,7 +117,8 @@ const path = (k: number, row: number, phase: number) => {
   return pts.join(' ');
 };
 
-export default function HarmonicsLab({ start = 12 }: { start?: number }) {
+export default function HarmonicsLab({ start = 12, lang = 'th' }: { start?: number; lang?: Lang }) {
+  const T = TEXT[lang];
   const [fret, setFret] = useState(start);
   const [moving, setMoving] = useState(true);
   const [time, setTime] = useState(0);
@@ -65,15 +147,15 @@ export default function HarmonicsLab({ start = 12 }: { start?: number }) {
 
   return (
     <figure className="viz">
-      <div className="viz-title">สายสั่นเป็นกี่โค้ง และนิ้วที่แตะหยุดอะไรไป</div>
+      <div className="viz-title">{T.title}</div>
       <Pills<number>
-        label="แตะเหนือเฟร็ต"
+        label={T.touchLabel}
         value={fret}
         onChange={setFret}
-        options={FRETS.map((f) => ({ value: f, text: f === 0 ? 'ไม่แตะ' : String(f) }))}
+        options={FRETS.map((f) => ({ value: f, text: f === 0 ? T.open : String(f) }))}
       />
       <div className="viz-box">
-        <svg viewBox="0 0 760 440" role="img" aria-label={`ภาพรูปแบบการสั่นของสายเมื่อแตะเหนือเฟร็ต ${fret}`}>
+        <svg viewBox="0 0 760 440" role="img" aria-label={T.svgLabel(fret)}>
           {/* the string with its frets */}
           <line x1={X0} x2={X1} y1="46" y2="46" stroke="var(--muted)" strokeWidth="2.5" />
           {Array.from({ length: 24 }, (_, i) => i + 1).map((n) => (
@@ -92,7 +174,7 @@ export default function HarmonicsLab({ start = 12 }: { start?: number }) {
             return (
               <g key={m.k}>
                 <text className="s b" x="8" y={y + 4}>{m.k === 1 ? 'k = 1' : `k = ${m.k}`}</text>
-                <text className="s" x="8" y={y + 18}>{m.k === 1 ? 'ทั้งเส้น' : `${m.k} โค้ง`}</text>
+                <text className="s" x="8" y={y + 18}>{m.k === 1 ? T.whole : T.loops(m.k)}</text>
                 <line x1={X0} x2={X1} y1={y} y2={y} stroke="var(--line)" strokeWidth="1" />
                 {/* the shape this pattern would have */}
                 <path d={path(m.k, i, 1)} fill="none" stroke="var(--line-strong)" strokeWidth="1.5" strokeDasharray="4 4" />
@@ -108,7 +190,7 @@ export default function HarmonicsLab({ start = 12 }: { start?: number }) {
                   <circle cx={x(p)} cy={y - AMP * Math.sin(m.k * Math.PI * p)} r={m.alive ? 5 : 7} fill={m.alive ? 'var(--brand)' : 'var(--wrong)'} stroke="var(--surface)" strokeWidth="2" />
                 )}
                 <text x={X1 + 12} y={y + 5} className="b" style={{ fill: m.alive ? 'var(--brand)' : 'var(--wrong)', fontSize: 15 }}>
-                  {m.alive ? 'รอด' : 'ถูกหยุด'}
+                  {m.alive ? T.kept : T.stopped}
                 </text>
               </g>
             );
@@ -119,7 +201,7 @@ export default function HarmonicsLab({ start = 12 }: { start?: number }) {
             <>
               <line x1={x(p)} x2={x(p)} y1="54" y2={TOP + 5 * ROW + 24} stroke="var(--fg)" strokeWidth="1.5" strokeDasharray="3 4" opacity="0.6" />
               <circle cx={x(p)} cy="46" r="9" fill="var(--sun)" stroke="var(--fg)" strokeWidth="2" />
-              <text x={x(p)} y="76" textAnchor="middle" className="b" style={{ fontSize: 12 }}>นิ้วแตะ ที่ {(p * 100).toFixed(1)}% ของสาย</text>
+              <text x={x(p)} y="76" textAnchor="middle" className="b" style={{ fontSize: 12 }}>{T.finger((p * 100).toFixed(1))}</text>
             </>
           )}
         </svg>
@@ -127,31 +209,30 @@ export default function HarmonicsLab({ start = 12 }: { start?: number }) {
       <div className="viz-now" aria-live="polite">
         <strong>
           {fret === 0
-            ? 'ไม่แตะ: ทุกรูปแบบสั่นได้พร้อมกัน ได้ยินเป็นโน้ตของสาย'
+            ? T.nowOpen
             : alive.length
-              ? `แตะเหนือเฟร็ต ${fret}: รอด k = ${alive.map((m) => m.k).join(', ')}`
-              : `แตะเหนือเฟร็ต ${fret}: ไม่มีรูปแบบไหนรอด`}
+              ? T.nowKept(fret, alive.map((m) => m.k).join(', '))
+              : T.nowNone(fret)}
         </strong>
         <span style={{ display: 'block' }}>
           {fret === 0
-            ? 'ลองเลือกเฟร็ต 12 เพื่อเริ่มดู'
+            ? T.hintOpen
             : lowest
-              ? `เสียงที่ได้ยินคือ k = ${lowest.k} (โน้ต ${noteOf(lowest.k)}, ${NOTE_REL[lowest.k]}) เพราะรูปแบบที่ต่ำกว่าถูกนิ้วหยุดไว้`
-              : 'ทุกรูปแบบต้องการให้จุดใต้นิ้วขยับ จึงถูกหยุดทั้งหมด เสียงที่ได้เป็นเสียงทึบสั้นๆ'}
+              ? T.heard(lowest.k, noteOf(lowest.k), T.noteRel[lowest.k])
+              : T.heardNone}
         </span>
         {fret > 0 && (
           <span style={{ display: 'block' }}>
-            วงกลมสีแดงคือจุดที่รูปแบบนั้นอยากขยับแต่ถูกนิ้วจับไว้ ยิ่งอยู่ไกลจากเส้นกลางยิ่งถูกหยุดแรง
-            วงเขียวคือรูปแบบที่มีจุดนิ่งอยู่ใต้นิ้วพอดี
+            {T.circles}
           </span>
         )}
         <div className="viz-controls" style={{ marginTop: 8 }}>
-          <button type="button" className="btn sm primary" onClick={listen}>ฟังเสียง (สาย 6)</button>
-          <button type="button" className="btn sm" onClick={() => pluck(LOW_E, 0, 1.6)}>ฟังสายเปล่าเทียบ</button>
-          <button type="button" className="btn sm" onClick={() => setMoving((v) => !v)}>{moving ? 'หยุดภาพเคลื่อนไหว' : 'เล่นภาพเคลื่อนไหว'}</button>
+          <button type="button" className="btn sm primary" onClick={listen}>{T.listen}</button>
+          <button type="button" className="btn sm" onClick={() => pluck(LOW_E, 0, 1.6)}>{T.listenOpen}</button>
+          <button type="button" className="btn sm" onClick={() => setMoving((v) => !v)}>{moving ? T.stopAnim : T.playAnim}</button>
         </div>
       </div>
-      <p className="viz-caption">ภาพเคลื่อนไหวช้ากว่าจริงหลายร้อยเท่า เส้นประคือรูปร่างสูงสุดของแต่ละรูปแบบ</p>
+      <p className="viz-caption">{T.caption}</p>
     </figure>
   );
 }

@@ -3,6 +3,13 @@ import { useState } from 'react';
 // A small question-by-question chooser. Nodes with `options` ask; nodes with `answer` end the walk. The tree is
 // written in the lesson, so every leaf is something the lesson already showed with a script.
 
+type Lang = 'th' | 'en';
+
+const TEXT: Record<Lang, { back: string; restart: string; answered: (n: number) => string }> = {
+  th: { back: 'ย้อนกลับ', restart: 'เริ่มใหม่', answered: (n) => `ตอบแล้ว ${n} ข้อ` },
+  en: { back: 'Back', restart: 'Start over', answered: (n) => `${n} answered` },
+};
+
 export interface Node {
   id: string;
   q?: string;
@@ -15,9 +22,11 @@ interface Props {
   start: string;
   nodes: Node[];
   caption?: string;
+  lang?: Lang;
 }
 
-export default function Decision({ title, start, nodes, caption }: Props) {
+export default function Decision({ title, start, nodes, caption, lang = 'th' }: Props) {
+  const t = TEXT[lang];
   const [trail, setTrail] = useState<string[]>([start]);
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const now = byId.get(trail[trail.length - 1]);
@@ -27,9 +36,9 @@ export default function Decision({ title, start, nodes, caption }: Props) {
     <figure className="viz">
       <div className="viz-title">{title}</div>
       <div className="viz-controls">
-        <button type="button" className="btn sm" disabled={trail.length < 2} onClick={() => setTrail((t) => t.slice(0, -1))}>ย้อนกลับ</button>
-        <button type="button" className="btn sm" disabled={trail.length < 2} onClick={() => setTrail([start])}>เริ่มใหม่</button>
-        <span className="gx-tag">ตอบแล้ว {trail.length - 1} ข้อ</span>
+        <button type="button" className="btn sm" disabled={trail.length < 2} onClick={() => setTrail((t) => t.slice(0, -1))}>{t.back}</button>
+        <button type="button" className="btn sm" disabled={trail.length < 2} onClick={() => setTrail([start])}>{t.restart}</button>
+        <span className="gx-tag">{t.answered(trail.length - 1)}</span>
       </div>
       {trail.slice(0, -1).length > 0 && (
         <ol className="gx-steps gx-trail">

@@ -1,6 +1,13 @@
 // Horizontal bars for a short list of measured numbers. The lesson passes the numbers (copied from a script run);
 // the component only draws them, with the value printed next to each bar.
 
+type Lang = 'th' | 'en';
+
+const TEXT: Record<Lang, { none: string }> = {
+  th: { none: 'ไม่มี' },
+  en: { none: 'none' },
+};
+
 export interface Item {
   label: string;
   value: number | null;
@@ -11,9 +18,11 @@ interface Props {
   items: Item[];
   unit?: string;
   caption?: string;
+  lang?: Lang;
 }
 
-export default function BarList({ title, items, unit = '', caption }: Props) {
+export default function BarList({ title, items, unit = '', caption, lang = 'th' }: Props) {
+  const t = TEXT[lang];
   const max = Math.max(1, ...items.map((i) => i.value ?? 0));
   return (
     <figure className="viz">
@@ -27,7 +36,7 @@ export default function BarList({ title, items, unit = '', caption }: Props) {
                 aria-hidden="true"
                 style={{ display: 'block', height: 12, borderRadius: 99, width: `${((it.value ?? 0) / max) * 100}%`, minWidth: it.value ? 4 : 0, background: 'var(--accent)' }}
               />
-              <b style={{ whiteSpace: 'nowrap' }}>{it.value === null ? 'ไม่มี' : `${it.value}${unit}`}</b>
+              <b style={{ whiteSpace: 'nowrap' }}>{it.value === null ? t.none : `${it.value}${unit}`}</b>
               {it.note && <span className="gx-detail">{it.note}</span>}
             </span>
           </li>
