@@ -80,7 +80,7 @@ const TEXT: Record<Lang, {
     plan: 'Plan of g = range.groupBy(k).count()', round1: 'Round 1 of the loop', round2: 'Round 2 of the loop: the last stage',
     resultRunning: ' (running: 1 task)', shuffleDone: ' (finished)', shuffleRunning: ' (running)',
     coalesceSub: '200 partitions → 1', nothingHere: '(nothing here yet)', stats: 'Real shuffle stats',
-    loopTitle: 'The loop in withFinalPlanUpdate', jobs: 'Jobs started', costTitle: 'cost = number of Exchange', costLine: 'old plan 1  new plan 1',
+    loopTitle: 'The loop in withFinalPlanUpdate', jobs: 'Jobs started', costTitle: 'cost = Exchange count', costLine: 'old 1  new 1',
     accepted: 'Tie: accept new plan', comparing: 'Comparing...',
     caption: '2 jobs per action, 1,152 bytes of statistics, and the result coalesced to 1 partition were measured in exercises/06_catalyst_aqe.py. The six steps, the rule names and the cost rule are read from the source (AdaptiveSparkPlanExec, simpleCosting). The number of tasks per stage is drawn small in the picture.',
   },

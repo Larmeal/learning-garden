@@ -1,6 +1,6 @@
 ---
 title: MLlib
-summary: "The DataFrame-based MLlib is a set of Estimators, Transformers and Pipelines. This chapter shows how fit differs from transform (fit runs jobs, transform does not), how data moves through a pipeline, what tuning parameters with CrossValidator costs, and how to save a model"
+summary: "The DataFrame-based MLlib is a set of Estimators, Transformers and Pipelines. This lesson shows how fit differs from transform (fit runs jobs, transform does not), how data moves through a pipeline, what tuning parameters with CrossValidator costs, and how to save a model"
 order: 12
 phase: D
 level: 3
@@ -22,12 +22,12 @@ MLlib is the machine learning library of Spark. It trains models on data that is
 
 | package | based on | status |
 |---|---|---|
-| `pyspark.ml` | DataFrame | **the main one**, used in this chapter |
+| `pyspark.ml` | DataFrame | **the main one**, used in this lesson |
 | `pyspark.mllib` | RDD | **maintenance mode** since Spark 2.0 (according to `docs/ml-guide.md`: bugs are fixed but no new features are added) |
 
-We study only `pyspark.ml`, where everything is read and written with the DataFrames you already know. This chapter needs `numpy` (`pyspark.ml` uses it in Python), which comes with pandas in this project. The examples run with `exercises/12_mllib.py` in WSL, because saving a model writes files ([chapter 9](/en/spark/structured-streaming/)).
+We study only `pyspark.ml`, where everything is read and written with the DataFrames you already know. This lesson needs `numpy` (`pyspark.ml` uses it in Python), which comes with pandas in this project. The examples run with `exercises/12_mllib.py` in WSL, because saving a model writes files ([lesson 9](/en/spark/structured-streaming/)).
 
-This chapter uses synthetic data of 2,000 rows: `x1` and `x2` are numbers, `c` is a category (a, b, c), and `label` is 0 or 1, made from a formula plus noise, so we know in advance that `x1` should push toward 1 and `x2` should push away.
+This lesson uses synthetic data of 2,000 rows: `x1` and `x2` are numbers, `c` is a category (a, b, c), and `label` is 0 or 1, made from a formula plus noise, so we know in advance that `x1` should push toward 1 and `x2` should push away.
 
 </Step>
 
@@ -60,7 +60,7 @@ The three Estimators became Models. `VectorAssembler` has nothing to learn, so i
 
 ## `fit` runs jobs, `transform` does not
 
-This is the biggest confusion for people who are new (and it connects to lazy evaluation in [chapter 2](/en/spark/lazy-evaluation/)). We counted jobs with `statusTracker` while calling each one (measured):
+This is the biggest confusion for people who are new (and it connects to lazy evaluation in [lesson 2](/en/spark/lazy-evaluation/)). We counted jobs with `statusTracker` while calling each one (measured):
 
 | command | jobs created |
 |---|---|
@@ -69,7 +69,7 @@ This is the biggest confusion for people who are new (and it connects to lazy ev
 | `model.transform(test)` | **0** |
 | `BinaryClassificationEvaluator().evaluate(pred)` | created now (this is an action) |
 
-- `transform` only extends the plan and does not touch the data. The resulting plan is nested `Project` nodes, and each layer calls a JVM-side UDF (`UDF(features)`, `UDF(rawPrediction)`). These are UDFs that Spark wrote itself in Scala, not the Python UDFs of [chapter 8](/en/spark/udf/).
+- `transform` only extends the plan and does not touch the data. The resulting plan is nested `Project` nodes, and each layer calls a JVM-side UDF (`UDF(features)`, `UDF(rawPrediction)`). These are UDFs that Spark wrote itself in Scala, not the Python UDFs of [lesson 8](/en/spark/udf/).
 - `fit` is an action because it must look at real data, for example to count categories and to loop many times to adjust the weights. `LogisticRegression` is the part that creates the most jobs.
 
 So the time goes into `fit`, and `transform` on new data is light and parallel, like a narrow transformation.
@@ -125,7 +125,7 @@ cv_model = cv.fit(train)
 
 Measured: `avgMetrics` has 6 values (the average AUC per set: 0.979, 0.980, 0.979, 0.979, 0.975, 0.975), and **`cv.fit` created 333 jobs**, compared with 14 jobs for a normal `pipe.fit`. The reason is that it must fit the whole pipeline for 6 sets times 3 folds = 18 times, plus one more fit with the best set on all the data.
 
-The practical conclusion: the cost of tuning grows as a product (grid size x number of folds). A grid of three variables with five values each is 125 sets, times 3 folds = 375 fits. You can reduce it by using sample data first, by caching train ([chapter 7](/en/spark/performance-tuning/) warns that cache has a price, but here the same data is used hundreds of times, so it pays off), or by raising `parallelism` (the lab uses 2).
+The practical conclusion: the cost of tuning grows as a product (grid size x number of folds). A grid of three variables with five values each is 125 sets, times 3 folds = 375 fits. You can reduce it by using sample data first, by caching train ([lesson 7](/en/spark/performance-tuning/) warns that cache has a price, but here the same data is used hundreds of times, so it pays off), or by raising `parallelism` (the lab uses 2).
 
 </Step>
 

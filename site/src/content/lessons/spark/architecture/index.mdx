@@ -12,7 +12,6 @@ updated: 2026-11-05
 
 import Step from '../../../../components/Step.astro';
 import Callout from '../../../../components/Callout.astro';
-import ArchitectureLab from '../../../../components/labs/spark/ArchitectureLab';
 import RolesFlowLab from '../../../../components/labs/spark/RolesFlowLab';
 
 <Step>
@@ -55,9 +54,16 @@ print(sc.master, sc.defaultParallelism, spark.version)
 
 </Callout>
 
-เพราะเหตุนี้ การเรียนแนวคิดแบบกระจายบนเครื่องเดียวจึงทำได้ task หลายตัวรันพร้อมกันจริง แต่ไม่มีเครือข่ายคั่นกลาง ใน cluster จริง ต้นทุนการส่งข้อมูลข้ามเครื่องจะสูงกว่าที่เห็นที่นี่ ลองสลับดูว่า local กับ cluster ต่างกันอย่างไร และกดแต่ละส่วนเพื่ออ่านหน้าที่
+เพราะเหตุนี้ การเรียนแนวคิดแบบกระจายบนเครื่องเดียวจึงทำได้ task หลายตัวรันพร้อมกันจริง แต่ไม่มีเครือข่ายคั่นกลาง ใน cluster จริง ต้นทุนการส่งข้อมูลข้ามเครื่องจะสูงกว่าที่เห็นที่นี่ ตารางนี้เทียบสองแบบ บทบาทยังเป็นสามอย่างเดิม ที่ต่างคือแต่ละบทบาทอยู่ที่ไหน
 
-<ArchitectureLab client:visible />
+| | `local[*]` (เครื่องคุณ) | cluster (หลายเครื่อง) |
+|---|---|---|
+| Driver | อยู่ใน process เดียวกับ executor | เป็น process ของตัวเอง ตัวเดียวต่อแอปพลิเคชัน |
+| Executor | thread ใน process ของ driver จำนวนเท่า core ของเครื่อง | process (JVM) แยกกัน หลายตัว กระจายหลายเครื่อง |
+| Cluster manager | ไม่ต้องมี | ต้องมี: standalone, YARN หรือ Kubernetes (แยกเป็นหน้าย่อยด้านล่าง) |
+| Task ที่รันพร้อมกัน | ได้ ตามจำนวน core ของเครื่อง | ได้ ตามจำนวน core รวมของ executor ทั้งหมด |
+| ข้อมูลที่ shuffle | ย้ายกันใน memory ของ process เดียว ไม่ผ่านเครือข่าย | ส่งข้ามเครื่องผ่านเครือข่าย จึงแพงกว่า |
+| ข้อมูลต้นทาง | ไฟล์ใน disk ของเครื่อง | storage ที่ทุกเครื่องเข้าถึงได้ เช่น HDFS หรือ S3 |
 
 </Step>
 

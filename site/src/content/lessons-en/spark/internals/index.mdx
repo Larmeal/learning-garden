@@ -17,9 +17,9 @@ import MemoryLab from '../../../../components/labs/spark/MemoryLab';
 
 <Step>
 
-## Who this chapter is for
+## Who this lesson is for
 
-Chapters 1 to 12 are enough to use Spark well. This chapter is for people who want to know what happens under the surface, for example when they must read the scheduler log or fix a memory problem that does not match the textbook. Every section is backed by the source of Spark 4.2.0 (through the knowledge graph that is used in `subjects/spark/graphs/`), and every number comes from `exercises/13_internals.py`.
+Lessons 1 to 12 are enough to use Spark well. This lesson is for people who want to know what happens under the surface, for example when they must read the scheduler log or fix a memory problem that does not match the textbook. Every section is backed by the source of Spark 4.2.0 (through the knowledge graph that is used in `subjects/spark/graphs/`), and every number comes from `exercises/13_internals.py`.
 
 The path of one piece of work, seen from the inside, has four layers:
 
@@ -34,7 +34,7 @@ The path of one piece of work, seen from the inside, has four layers:
 
 ## RDD and lineage
 
-The DataFrame you write is turned into a plan of operators ([chapter 6](/en/spark/catalyst-aqe/)) and in the end it always runs as an **RDD**. An RDD (`RDD.scala`) is an immutable collection split into partitions and defined by five things:
+The DataFrame you write is turned into a plan of operators ([lesson 6](/en/spark/catalyst-aqe/)) and in the end it always runs as an **RDD**. An RDD (`RDD.scala`) is an immutable collection split into partitions and defined by five things:
 
 | thing | meaning |
 |---|---|
@@ -44,7 +44,7 @@ The DataFrame you write is turned into a plan of operators ([chapter 6](/en/spar
 | partitioner (optional) | how keys are divided among partitions |
 | preferred locations (optional) | the machines where the data is, used to choose where to run a task |
 
-A transformation (`map`, `filter`, `union`) only creates a new RDD that remembers where it came from. It runs nothing (this matches laziness in [chapter 2](/en/spark/lazy-evaluation/)). An action (`collect`, `count`) calls `sc.runJob`, and only then does work start.
+A transformation (`map`, `filter`, `union`) only creates a new RDD that remembers where it came from. It runs nothing (this matches laziness in [lesson 2](/en/spark/lazy-evaluation/)). An action (`collect`, `count`) calls `sc.runJob`, and only then does work start.
 
 There are two kinds of dependency, and they decide everything about stages:
 
@@ -105,7 +105,7 @@ The last row is interesting. A join of two RDDs would be expected to have 3 stag
 The DAGScheduler decides "what to run". **TaskSchedulerImpl** decides "who runs it".
 
 - `submitTasks` creates one **`TaskSetManager`** per TaskSet and then asks the backend to offer resources.
-- `resourceOffers` orders the TaskSetManagers through a **`Pool`** that uses FIFO or FAIR (by `spark.scheduler.mode`), and hands out tasks by locality level (see [chapter 7](/en/spark/performance-tuning/)).
+- `resourceOffers` orders the TaskSetManagers through a **`Pool`** that uses FIFO or FAIR (by `spark.scheduler.mode`), and hands out tasks by locality level (see [lesson 7](/en/spark/performance-tuning/)).
 - The `TaskSetManager` keeps the history of each task: if a task fails it retries up to `maxTaskFailures` and then **cancels the whole TaskSet**, and when all tasks succeed it becomes a zombie.
 
 On the executor side (`Executor.scala`): it uses a thread pool that launches one **`TaskRunner`** per task. The order inside `TaskRunner.run` is:
@@ -115,7 +115,7 @@ On the executor side (`Executor.scala`): it uses a thread pool that launches one
 3. Deserialize the `Task` that the driver sent, and run it.
 4. Serialize the result, record the metrics, and send the status back to the driver.
 
-There is also a `Heartbeater` that sends a signal back to the driver from time to time. This lets the driver know the executor is still alive, and collects the metrics of running tasks to show in the Spark UI ([chapter 11](/en/spark/deployment-spark-ui/)).
+There is also a `Heartbeater` that sends a signal back to the driver from time to time. This lets the driver know the executor is still alive, and collects the metrics of running tasks to show in the Spark UI ([lesson 11](/en/spark/deployment-spark-ui/)).
 
 </Step>
 
@@ -123,7 +123,7 @@ There is also a `Heartbeater` that sends a signal back to the driver from time t
 
 ## Shuffle files on disk
 
-A shuffle does not send data over the network directly. It goes through files: the map side writes files and the reduce side reads them (the data is written by a writer chosen as in [chapter 7](/en/spark/performance-tuning/)). Measured on a `groupBy` with 8 map tasks (with `spark.local.dir` set to a folder we could inspect):
+A shuffle does not send data over the network directly. It goes through files: the map side writes files and the reduce side reads them (the data is written by a writer chosen as in [lesson 7](/en/spark/performance-tuning/)). Measured on a `groupBy` with 8 map tasks (with `spark.local.dir` set to a folder we could inspect):
 
 ```
 blockmgr-<uuid>/<hash>/shuffle_0_0_0.data
@@ -168,7 +168,7 @@ The rules of `UnifiedMemoryManager` (from line 58) come down to three points:
 
 The measured result (`MEMORY_ONLY`): caching data of 4 blocks made storage use **153.9 MiB, over the 90 MiB line**. Then we ran a sort of 6 million rows that needs execution memory, and storage dropped to **77.0 MiB** and the cache kept 2 of the 4 partitions. This is why `MEMORY_ONLY` does not guarantee that the cache stays complete.
 
-**At the task level**: `TaskMemoryManager` (`TaskMemoryManager.java`) manages the Tungsten-style memory of one task. It has a page table of 8192 slots, and it encodes the page number and the offset into a single 64-bit number, so a record pointer works the same for on-heap and off-heap. When the pool does not give enough memory, it tells the consumers (sorters, hash maps) to **spill**, as in [chapter 7](/en/spark/performance-tuning/).
+**At the task level**: `TaskMemoryManager` (`TaskMemoryManager.java`) manages the Tungsten-style memory of one task. It has a page table of 8192 slots, and it encodes the page number and the offset into a single 64-bit number, so a record pointer works the same for on-heap and off-heap. When the pool does not give enough memory, it tells the consumers (sorters, hash maps) to **spill**, as in [lesson 7](/en/spark/performance-tuning/).
 
 </Step>
 
@@ -176,7 +176,7 @@ The measured result (`MEMORY_ONLY`): caching data of 4 blocks made storage use *
 
 ## Whole-stage codegen: Java that Spark writes for you
 
-[Chapter 6](/en/spark/catalyst-aqe/) said that `*(1)` marks operators that are merged in codegen. Look at the real code from `explain("codegen")` of `range(1000).filter("id % 3 = 0").selectExpr("id * 2")` (cut down to the important parts):
+[Lesson 6](/en/spark/catalyst-aqe/) said that `*(1)` marks operators that are merged in codegen. Look at the real code from `explain("codegen")` of `range(1000).filter("id % 3 = 0").selectExpr("id * 2")` (cut down to the important parts):
 
 ```java
 final class GeneratedIteratorForCodegenStage1 extends BufferedRowIterator {
@@ -206,7 +206,7 @@ final class GeneratedIteratorForCodegenStage1 extends BufferedRowIterator {
 Notice three things:
 
 1. **`Range`, `Filter` and `Project` are all in one loop.** The variable `range_value_0` is passed straight to the filter and the project. No object is created per row, and there is no call to the `next()` of an iterator for each operator as in the interpreted mode (volcano).
-2. `MathUtils.multiplyExact` appears because ANSI mode is on ([chapter 6](/en/spark/catalyst-aqe/)). A multiplication that overflows raises an error instead of wrapping around.
+2. `MathUtils.multiplyExact` appears because ANSI mode is on ([lesson 6](/en/spark/catalyst-aqe/)). A multiplication that overflows raises an error instead of wrapping around.
 3. The output row is written as an `UnsafeRow` through `UnsafeRowWriter` (raw bytes, not an object).
 
 The related structure (read from the source):
@@ -222,7 +222,7 @@ The related structure (read from the source):
 **How much faster**: measured on the author's machine, `range(30 million rows).filter(...).agg(sum)` took about 0.09 seconds with whole-stage codegen on and 0.23 seconds with it off (about 2.5 times faster). This is a small example where the CPU does all the work. Real work with I/O or a shuffle will show a smaller difference. This number depends on the machine and the job, so it is not a multiplier you can use everywhere.
 
 <Callout type="note" title="Not everything is in codegen">
-Operators that are not code-generated (such as `Exchange`) and expressions that are implemented by interpretation (CodegenFallback) cut the codegen chain into two pieces. A Python UDF cuts it too, for a different reason (the data must be sent outside the JVM, see [chapter 8](/en/spark/udf/)). The different `*(n)` numbers you see in a plan are these boundaries.
+Operators that are not code-generated (such as `Exchange`) and expressions that are implemented by interpretation (CodegenFallback) cut the codegen chain into two pieces. A Python UDF cuts it too, for a different reason (the data must be sent outside the JVM, see [lesson 8](/en/spark/udf/)). The different `*(n)` numbers you see in a plan are these boundaries.
 </Callout>
 
 </Step>

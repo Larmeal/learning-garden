@@ -107,7 +107,7 @@ export default function JobCounterLab({ lang = 'th' }: { lang?: Lang }) {
             const isDone = done.includes(s.id);
             const isNext = next?.id === s.id;
             return (
-              <li key={s.id} data-done={isDone ? '' : undefined} data-next={isNext ? '' : undefined}>
+              <li key={s.id} data-done={isDone ? '' : undefined} data-up={isNext ? '' : undefined}>
                 <code>{s.code[lang]}</code>
                 {isDone && (
                   <span className="jc-jobs" data-zero={s.jobs === 0 ? '' : undefined}>

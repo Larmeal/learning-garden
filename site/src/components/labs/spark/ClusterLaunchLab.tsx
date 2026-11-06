@@ -103,7 +103,7 @@ function yarn(client: boolean, lang: Lang): Scenario {
     client
       ? { id: 'drv', x: 28, y: 64, w: 222, h: 98, tone: 'k1', at: 0.2, title: 'Driver', sub: 'SparkContext', lines: ['YarnClientSchedulerBackend'], status: [{ at: 10.0, text: p('แจก task', 'Sends tasks') }] }
       : { id: 'drv', x: 28, y: 64, w: 222, h: 98, tone: 'k1', at: 0.2, dimAt: 5.4, title: 'spark-submit', sub: 'yarn.Client', lines: [p('ส่งแล้วรอ หรือออกเลยก็ได้', 'Submits, then waits or exits')] },
-    { id: 'rm', x: 360, y: 24, w: 224, h: 112, tone: 'k3', at: 0.2, dimAt: 9.6, title: 'ResourceManager', sub: p('ถือ core/memory ทั้ง cluster', 'Holds all cluster cores/memory'), lines: [p('ตัดสินว่า container ไปที่ไหน', 'Decides where containers go')] },
+    { id: 'rm', x: 360, y: 24, w: 224, h: 112, tone: 'k3', at: 0.2, dimAt: 9.6, title: 'ResourceManager', sub: p('ถือ core/memory ทั้ง cluster', 'Holds all cores/memory'), lines: [p('ตัดสินว่า container ไปที่ไหน', 'Decides where containers go')] },
     { id: 'gb', group: true, x: 16, y: 218, w: 214, h: 214, tone: 'mute', at: 0.2, title: 'NodeManager B' },
     { id: 'ga', group: true, x: 333, y: 218, w: 214, h: 214, tone: 'mute', at: 0.2, title: 'NodeManager A' },
     { id: 'gcn', group: true, x: 650, y: 218, w: 214, h: 214, tone: 'mute', at: 0.2, title: 'NodeManager C' },

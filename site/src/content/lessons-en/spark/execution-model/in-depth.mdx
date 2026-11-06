@@ -9,9 +9,8 @@ updated: 2026-11-05
 
 import Step from '../../../../components/Step.astro';
 import Callout from '../../../../components/Callout.astro';
-import PipelineStagesLab from '../../../../components/labs/spark/PipelineStagesLab';
 
-All numbers come from `exercises/05_execution_model.py` (Spark 4.2.0, 16 cores, AQE off to see the baseline plan of this chapter; chapter 6 explains AQE). Tasks and bytes are read from the Spark UI REST API (chapter 11).
+All numbers come from `exercises/05_execution_model.py` (Spark 4.2.0, 16 cores, AQE off to see the baseline plan of this lesson; lesson 6 explains AQE). Tasks and bytes are read from the Spark UI REST API (lesson 11).
 
 <Step>
 
@@ -19,27 +18,38 @@ All numbers come from `exercises/05_execution_model.py` (Spark 4.2.0, 16 cores, 
 
 The main page says narrow operations do not shuffle and wide ones do. This is the result of checking every operation with `explain()` and counting the `Exchange` lines.
 
-| Operation | Exchange in the plan |
-|---|---|
-| `filter`, `select`, `withColumn` | none |
-| `union` | none |
-| `coalesce(4)` | none (merges neighboring partitions) |
-| `sample` | none |
-| a final `limit(5)` | none (it is a `CollectLimit`) |
-| `repartition(8)` | `RoundRobinPartitioning` |
-| `repartition(8, "k")` | `hashpartitioning` |
-| `groupBy("k").count()` | `hashpartitioning` |
-| `distinct`, `dropDuplicates` | `hashpartitioning` |
-| a window with `partitionBy("k")` | `hashpartitioning` |
-| `orderBy("v")` | `rangepartitioning` |
-| `agg(sum(...))` (no groupBy) | `SinglePartition` |
-| a sort-merge `join` | two `hashpartitioning` (one for each side) |
+### No shuffle
+
+The idea: the result of each row can be computed from the partition the row is already in, so the operations can run one after another inside a single task, with no rows moving.
+
+| Operation | Exchange in the plan | Why |
+|---|---|---|
+| `filter`, `select`, `withColumn` | none | They work on each row alone and do not need to know where other rows are |
+| `union` | none | It only puts the partitions of the two sides one after another, no row moves |
+| `coalesce(4)` | none | It merges neighboring partitions and does not hand out rows again |
+| `sample` | none | It picks rows at random inside its own partition |
+| a final `limit(5)` | none (it is a `CollectLimit`) | Only 5 rows are needed, so they are collected back to the driver with no re-arranging of rows (measured only when it is the last step) |
+
+### Shuffle (there is an Exchange)
+
+The idea: rows that must end up together (the same key, the same range of values, or the same partition) may be spread over many partitions, so they must be sent to one place first.
+
+| Operation | Exchange in the plan | Why |
+|---|---|---|
+| `repartition(8)` | `RoundRobinPartitioning` | It hands out the rows to 8 new partitions evenly, without looking at the values |
+| `repartition(8, "k")` | `hashpartitioning` | Rows with the same `k` must go to the same partition |
+| `groupBy("k").count()` | `hashpartitioning` | Rows with the same `k` must be brought to one place before they are counted |
+| `distinct`, `dropDuplicates` | `hashpartitioning` | Duplicate rows may be in different partitions, so they must meet to be found |
+| a window with `partitionBy("k")` | `hashpartitioning` | All rows with the same `k` must be in one partition to compute the window |
+| `orderBy("v")` | `rangepartitioning` | Each partition gets its own range of `v`, is sorted inside, and the partitions in order give the total order (it must sample the data first to find the boundaries, see the next section) |
+| `agg(sum(...))` (no groupBy) | `SinglePartition` | The partial results from every partition must be combined in one partition |
+| a sort-merge `join` | two `hashpartitioning` (one for each side) | Rows of the two tables with the same `key` must be in the same partition, so both sides are arranged |
 
 Three things to notice:
 
 - **`coalesce` does not shuffle but `repartition` does**, even though both change the number of partitions.
 - **An aggregate with no `groupBy`** still has an Exchange, because the partial results from every partition must be combined in a single partition (`SinglePartition`). This means that last task is a bottleneck for the whole aggregation, but the data it receives is very small (a partial result from each partition).
-- **A normal `join` has two Exchanges**, but if one side is small enough to be broadcast, there is no Exchange of the rows of either side at all. There is only a `BroadcastExchange` (checked, see chapters 6 and 7).
+- **A normal `join` has two Exchanges**, but if one side is small enough to be broadcast, there is no Exchange of the rows of either side at all. There is only a `BroadcastExchange` (checked, see lessons 6 and 7).
 
 </Step>
 
@@ -59,9 +69,13 @@ Every `Exchange` is a stage boundary, so the number of stages of one job is the 
 
 The exception is `orderBy`: it gets 3 stages, not 2, because range partitioning must **sample the data first** to find the boundaries that split the value ranges so that the partitions have about the same size. This sampling is one more stage. In the Spark UI you see the job of `orderBy` with one extra stage that runs first.
 
-Try chaining operations yourself and compare with the rule.
+Examples of counting when several operations are chained (worked out from the rule above, not measured as a chain):
 
-<PipelineStagesLab client:visible lang="en" />
+| Chain | Exchange | stages |
+|---|---|---|
+| `filter` → `select` → `groupBy("k").count()` | 1 | 2 |
+| `filter` → `groupBy("k").count()` → `orderBy` | 2 | **4** (2 + 1, and one more sampling stage for `orderBy`) |
+| `filter` → `join` → `groupBy("k").count()` → `limit(5)` | 3 (two for the join, one for the groupBy) | 4 |
 
 **A case where the rule overestimates**: if you join two tables that were each grouped with `groupBy` on the same key, and they already have the same number of partitions (both sides are already `hashpartitioning(k, 200)`), Spark does not add another Exchange for the join. Measured: two `groupBy` and then a join gave stages `[4, 4, 200]`, which is **3 stages** (not 5), because the join can reuse the partitioning it already has. This is why choosing the key and the number of partitions to match before a join can reduce shuffles.
 
@@ -80,7 +94,7 @@ Run `range(0, 2_000_000, 1, 8).groupBy(id % 7).count()` (AQE off) and read from 
 
 - The number of tasks of the first stage equals the number of partitions of the source data (8). The stage after the shuffle has `spark.sql.shuffle.partitions` tasks (200).
 - **The bytes that stage 0 writes are exactly the bytes that stage 1 reads** (3,496 bytes). The data is shrunk by a partial aggregate before it is sent: only 7 groups from 8 partitions remain, not 2 million rows. This is why a `groupBy` that can aggregate shuffles less than `distinct` or `repartition`, which send every row.
-- Most of the 200 tasks get empty or very little data (7 keys spread over at most 7 partitions). This is the reason AQE merges them in chapter 6.
+- Most of the 200 tasks get empty or very little data (7 keys spread over at most 7 partitions). This is the reason AQE merges them in lesson 6.
 
 A purely narrow job `range(8 partitions).filter().select().collect()` gives **1 stage with 8 tasks**, which matches what the main page says: you can chain any number of narrow operations and they stay in one stage.
 
@@ -97,10 +111,10 @@ A purely narrow job `range(8 partitions).filter().select().collect()` gives **1 
 | result of `groupBy(...)`, AQE on (small data) | **1** (AQE merges) |
 | `coalesce(4)` | 4 |
 
-When AQE is on, calling `explain()` before an action starts with `AdaptiveSparkPlan isFinalPlan=false`, which says the plan can still change (see chapter 6). The numbers 1 and 200 above are the source of a question that learners often ask: "why does `explain` show 200 but the UI shows fewer?" The answer is AQE.
+When AQE is on, calling `explain()` before an action starts with `AdaptiveSparkPlan isFinalPlan=false`, which says the plan can still change (see lesson 6). The numbers 1 and 200 above are the source of a question that learners often ask: "why does `explain` show 200 but the UI shows fewer?" The answer is AQE.
 
 <Callout type="tip" title="When to use these numbers">
-When you meet a slow job: open the Spark UI, count the stages, and compare with the number of Exchanges in `explain()`. If there are more stages than Exchange + 1 by more than you expect, there may be an extra job (for example the sampling of `orderBy`) or a repeated stage from a retry. Then look at the shuffle bytes of the biggest stage. That is where to reduce first (chapter 7).
+When you meet a slow job: open the Spark UI, count the stages, and compare with the number of Exchanges in `explain()`. If there are more stages than Exchange + 1 by more than you expect, there may be an extra job (for example the sampling of `orderBy`) or a repeated stage from a retry. Then look at the shuffle bytes of the biggest stage. That is where to reduce first (lesson 7).
 </Callout>
 
 </Step>
