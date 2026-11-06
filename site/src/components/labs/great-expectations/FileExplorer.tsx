@@ -3,6 +3,13 @@ import { useState } from 'react';
 // A file list with the real content of the selected file next to it. The lesson passes files that a script wrote
 // and printed, so the reader sees what is on disk without running anything.
 
+type Lang = 'th' | 'en';
+
+const TEXT: Record<Lang, { commit: string; noCommit: string; noContent: string }> = {
+  th: { commit: 'commit', noCommit: 'ไม่ commit', noContent: 'ไฟล์นี้ไม่ได้แสดงเนื้อหา' },
+  en: { commit: 'commit', noCommit: 'not committed', noContent: 'The content of this file is not shown.' },
+};
+
 export interface F {
   path: string;
   note: string;
@@ -13,9 +20,11 @@ interface Props {
   title: string;
   files: F[];
   caption?: string;
+  lang?: Lang;
 }
 
-export default function FileExplorer({ title, files, caption }: Props) {
+export default function FileExplorer({ title, files, caption, lang = 'th' }: Props) {
+  const t = TEXT[lang];
   const [k, setK] = useState(0);
   const f = files[k];
 
@@ -30,13 +39,13 @@ export default function FileExplorer({ title, files, caption }: Props) {
                 <code>{x.path}</code>
               </button>
               <span className="gx-detail">{x.note}</span>
-              {x.git !== undefined && <span className="gx-tag">{x.git ? 'commit' : 'ไม่ commit'}</span>}
+              {x.git !== undefined && <span className="gx-tag">{x.git ? t.commit : t.noCommit}</span>}
             </li>
           ))}
         </ul>
         <div className="gx-pane gx-grow">
           <span className="lab-label">{f.path}</span>
-          {f.text ? <pre className="codeline">{f.text}</pre> : <p className="gx-hint">ไฟล์นี้ไม่ได้แสดงเนื้อหา</p>}
+          {f.text ? <pre className="codeline">{f.text}</pre> : <p className="gx-hint">{t.noContent}</p>}
         </div>
       </div>
       {caption && <p className="viz-caption">{caption}</p>}

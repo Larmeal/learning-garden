@@ -18,7 +18,7 @@ const L = 22;
 const T = 34;
 const ROWS = 5;
 
-export function ChordDiagram({ name, frets, fingers, barre }: ChordShape) {
+export function ChordDiagram({ name, frets, fingers, barre, lang = 'th' }: ChordShape & { lang?: 'th' | 'en' }) {
   const pressed = frets.filter((f) => f > 0);
   const maxF = pressed.length ? Math.max(...pressed) : 1;
   const base = maxF > ROWS ? Math.min(...pressed) : 1;
@@ -29,7 +29,7 @@ export function ChordDiagram({ name, frets, fingers, barre }: ChordShape) {
   const yMid = (r: number) => T + FY * (r - 0.5);
 
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} role="img" aria-label={`คอร์ด ${name}: ${frets.map((f) => (f < 0 ? 'x' : f)).join(' ')}`} style={{ width: '100%', maxWidth: 140, height: 'auto' }}>
+    <svg viewBox={`0 0 ${w} ${h}`} role="img" aria-label={`${lang === 'en' ? 'Chord' : 'คอร์ด'} ${name}: ${frets.map((f) => (f < 0 ? 'x' : f)).join(' ')}`} style={{ width: '100%', maxWidth: 140, height: 'auto' }}>
       <text x={w / 2} y="14" textAnchor="middle" className="b" style={{ fontSize: 15 }}>{name}</text>
       {base === 1 ? (
         <line x1={x(0) - 1} x2={x(5) + 1} y1={T} y2={T} stroke="var(--fg)" strokeWidth="4" />
@@ -65,7 +65,7 @@ export function ChordDiagram({ name, frets, fingers, barre }: ChordShape) {
 }
 
 /** Several chord boxes in a row, for lessons. */
-export default function ChordSet({ title, chords, caption }: { title?: string; chords: ChordShape[]; caption?: string }) {
+export default function ChordSet({ title, chords, caption, lang = 'th' }: { title?: string; chords: ChordShape[]; caption?: string; lang?: 'th' | 'en' }) {
   return (
     <figure className="viz">
       {title && <div className="viz-title">{title}</div>}
@@ -73,7 +73,7 @@ export default function ChordSet({ title, chords, caption }: { title?: string; c
         {chords.map((c) => (
           <div key={c.name} style={{ background: 'var(--surface)', border: '2px solid var(--line)', borderRadius: 'var(--radius)', padding: 8, textAlign: 'center' }}>
             <div style={{ display: 'flex', justifyContent: 'center' }}>
-              <ChordDiagram {...c} />
+              <ChordDiagram {...c} lang={lang} />
             </div>
             {c.note && <div className="viz-caption" style={{ fontSize: 13, marginTop: 4 }}>{c.note}</div>}
           </div>

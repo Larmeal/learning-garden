@@ -4,7 +4,61 @@ import { Pills } from '../../music/Controls';
 // A flat schematic of an electric and an acoustic guitar. Pick a part to light it up and read what it does.
 // The drawing is a diagram, not a scale model: the neck is drawn 17 frets long and the body shapes are simplified.
 
+type Lang = 'th' | 'en';
 type Kind = 'electric' | 'acoustic';
+type Means = Record<'headstock' | 'tuners' | 'nut' | 'neck' | 'frets' | 'inlays' | 'strings' | 'pickups' | 'bridge' | 'controls' | 'body' | 'strap' | 'soundhole' | 'top' | 'acousticBridge' | 'pickguard', string>;
+
+const TEXT: Record<Lang, { title: string; kind: string; svgLabel: (kind: string, part: string) => string; partsLabel: string; means: Means }> = {
+  th: {
+    title: 'ส่วนประกอบของกีต้าร์ กดชื่อส่วนเพื่อดู',
+    kind: 'ชนิด',
+    svgLabel: (kind, part) => `แผนภาพกีต้าร์ ${kind}, ส่วนที่เลือก: ${part}`,
+    partsLabel: 'ส่วนประกอบ',
+    means: {
+      headstock: 'ส่วนหัว ติดลูกบิดสายและโลโก้ ปลายสายพันอยู่ที่นี่',
+      tuners: 'ลูกบิดตั้งสาย หมุนเพื่อขึงสายให้ตึงขึ้น (เสียงสูงขึ้น) หรือหย่อน (เสียงต่ำลง)',
+      nut: 'แผ่นเล็กที่รองสายตรงปลายคอ กำหนดระยะห่างสายและจุดเริ่มต้นของส่วนที่สั่นได้ (เฟร็ต 0)',
+      neck: 'คอกีต้าร์ ข้างในมี truss rod แกนโลหะที่ปรับความโค้งของคอให้ต้านแรงดึงของสาย',
+      frets: 'แผ่นไม้บนคอและลวดเฟร็ต แต่ละเฟร็ตทำให้สายสั้นลง เสียงสูงขึ้นครึ่งเสียง (semitone) ระยะเฟร็ตแคบลงเรื่อยๆ เพราะเป็นสัดส่วนคงที่',
+      inlays: 'จุดบอกตำแหน่ง ที่เฟร็ต 3 5 7 9 12 (สองจุด) 15 และ 17 ช่วยให้รู้ตำแหน่งโดยไม่ต้องนับ',
+      strings: 'หกสาย จากสาย 6 (หนาสุด เสียงต่ำสุด E) ถึงสาย 1 (บางสุด เสียงสูงสุด e) ความยาว ความตึง และความหนาตัดสินระดับเสียง',
+      pickups: 'ขดลวดแม่เหล็กใต้สาย เปลี่ยนการสั่นของสายเป็นสัญญาณไฟฟ้า ตัวใกล้คอเสียงนุ่ม ตัวใกล้ bridge เสียงคมและแหลม',
+      bridge: 'ยึดปลายสายอีกด้านและกำหนดจุดสิ้นสุดของสายที่สั่น ระยะจากนัตถึง saddle คือ scale length ปรับ saddle เพื่อตั้ง intonation',
+      controls: 'ปุ่ม volume ปรับความดัง ปุ่ม tone ตัดเสียงแหลม และมักมี selector สวิตช์เลือก pickup',
+      body: 'ตัวกีต้าร์ไฟฟ้าแบบ solid body เป็นไม้ตัน ที่ติด pickup, bridge และปุ่มควบคุม เสียงมาจาก pickup เป็นหลักมากกว่าตัวไม้',
+      strap: 'ปุ่มคล้องสายสะพาย ตัวหนึ่งที่ปลายตัว อีกตัวที่ด้านหลังหรือคอ',
+      soundhole: 'รูให้เสียงที่สั่นอยู่ในกล่องก้องออกมา ร่วมกับตัวกล่องทำหน้าที่ขยายเสียง (ไม่ต้องใช้ไฟฟ้า)',
+      top: 'กล่องก้องเสียง หน้า (top) สั่นเป็นหลักและส่งเสียง ด้านหลังและด้านข้างสะท้อนเสียง ภายในมีโครงไม้ (bracing) ค้ำหน้า',
+      acousticBridge: 'ยึดปลายสายบนหน้ากีต้าร์ส่งแรงสั่นเข้ากล่อง saddle (แท่งบางสีขาวหรือดำ) คือจุดที่สายสิ้นสุด',
+      pickguard: 'แผ่นกันรอยจากปิ๊กบนหน้ากีต้าร์ข้างใต้สายเสียงต่ำ',
+    },
+  },
+  en: {
+    title: 'The parts of a guitar: press a name to see it',
+    kind: 'Type',
+    svgLabel: (kind, part) => `Diagram of an ${kind} guitar, selected part: ${part}`,
+    partsLabel: 'Parts',
+    means: {
+      headstock: 'The head of the guitar. It holds the tuning machines and the logo. The ends of the strings are wound here.',
+      tuners: 'The knobs that tune the strings. Turn one to tighten a string (higher pitch) or loosen it (lower pitch).',
+      nut: 'A small strip that supports the strings at the end of the neck. It sets the distance between the strings and where the vibrating part starts (fret 0).',
+      neck: 'The neck of the guitar. Inside is a truss rod, a metal rod that sets the curve of the neck against the pull of the strings.',
+      frets: 'The wooden board on the neck and the fret wires. Each fret makes the string shorter and raises the pitch by a semitone. The frets get closer together along the neck because each step is the same ratio.',
+      inlays: 'Dots that mark the position, at frets 3, 5, 7, 9, 12 (two dots), 15 and 17. They help you know where you are without counting.',
+      strings: 'Six strings, from string 6 (thickest, lowest pitch, E) to string 1 (thinnest, highest pitch, e). Length, tension and thickness decide the pitch.',
+      pickups: 'Magnetic coils under the strings. They turn the vibration of the strings into an electric signal. The one near the neck sounds soft. The one near the bridge sounds sharp and bright.',
+      bridge: 'It holds the other end of the strings and sets where the vibrating part of the string ends. The distance from the nut to the saddle is the scale length. You adjust the saddle to set the intonation.',
+      controls: 'The volume knob sets how loud it is. The tone knob cuts the high frequencies. There is often also a selector switch to choose the pickup.',
+      body: 'The body of a solid body electric guitar is solid wood. It holds the pickups, the bridge and the controls. The sound comes mainly from the pickups, more than from the wood.',
+      strap: 'A button for the guitar strap. One is at the end of the body and the other at the back or on the neck.',
+      soundhole: 'A hole that lets the sound inside the sound box come out. Together with the box it amplifies the sound (no electricity needed).',
+      top: 'The sound box. The top vibrates the most and sends out the sound. The back and the sides reflect it. Inside, wooden braces support the top.',
+      acousticBridge: 'It holds the ends of the strings on the top of the guitar and passes the vibration into the box. The saddle (a thin white or black bar) is where the string ends.',
+      pickguard: 'A plate on the top of the guitar, under the low strings, that protects it from scratches by the pick.',
+    },
+  },
+};
+
 interface Part {
   id: string;
   label: string;
@@ -19,17 +73,17 @@ const STRING_Y = [112, 119.2, 126.4, 133.6, 140.8, 148];
 
 const hi = { fill: 'var(--accent)', fillOpacity: 0.28, stroke: 'var(--accent)', strokeWidth: 3 } as const;
 
-const common = (bridgeX: number): Part[] => [
+const common = (bridgeX: number, m: Means): Part[] => [
   {
     id: 'headstock',
     label: 'headstock',
-    mean: 'ส่วนหัว ติดลูกบิดสายและโลโก้ ปลายสายพันอยู่ที่นี่',
+    mean: m.headstock,
     shape: <rect x="14" y="92" width="92" height="76" rx="10" {...hi} />,
   },
   {
     id: 'tuners',
     label: 'tuning machines',
-    mean: 'ลูกบิดตั้งสาย หมุนเพื่อขึงสายให้ตึงขึ้น (เสียงสูงขึ้น) หรือหย่อน (เสียงต่ำลง)',
+    mean: m.tuners,
     shape: (
       <>
         {[30, 54, 78].flatMap((x) => [86, 174].map((y) => <circle key={`${x}-${y}`} cx={x} cy={y} r="8" {...hi} />))}
@@ -39,19 +93,19 @@ const common = (bridgeX: number): Part[] => [
   {
     id: 'nut',
     label: 'nut',
-    mean: 'แผ่นเล็กที่รองสายตรงปลายคอ กำหนดระยะห่างสายและจุดเริ่มต้นของส่วนที่สั่นได้ (เฟร็ต 0)',
+    mean: m.nut,
     shape: <rect x={NUT - 3} y="102" width="9" height="58" {...hi} />,
   },
   {
     id: 'neck',
     label: 'neck + truss rod',
-    mean: 'คอกีต้าร์ ข้างในมี truss rod แกนโลหะที่ปรับความโค้งของคอให้ต้านแรงดึงของสาย',
+    mean: m.neck,
     shape: <polygon points={`${NUT},106 ${END},98 ${END},162 ${NUT},154`} {...hi} />,
   },
   {
     id: 'frets',
     label: 'fretboard + frets',
-    mean: 'แผ่นไม้บนคอและลวดเฟร็ต แต่ละเฟร็ตทำให้สายสั้นลง เสียงสูงขึ้นครึ่งเสียง (semitone) ระยะเฟร็ตแคบลงเรื่อยๆ เพราะเป็นสัดส่วนคงที่',
+    mean: m.frets,
     shape: (
       <>
         {Array.from({ length: 17 }, (_, i) => i + 1).map((n) => (
@@ -63,7 +117,7 @@ const common = (bridgeX: number): Part[] => [
   {
     id: 'inlays',
     label: 'inlay (position marker)',
-    mean: 'จุดบอกตำแหน่ง ที่เฟร็ต 3 5 7 9 12 (สองจุด) 15 และ 17 ช่วยให้รู้ตำแหน่งโดยไม่ต้องนับ',
+    mean: m.inlays,
     shape: (
       <>
         {[3, 5, 7, 9, 15, 17].map((n) => <circle key={n} cx={(fretX(n - 1) + fretX(n)) / 2} cy={130} r="7" {...hi} />)}
@@ -75,7 +129,7 @@ const common = (bridgeX: number): Part[] => [
   {
     id: 'strings',
     label: 'strings',
-    mean: 'หกสาย จากสาย 6 (หนาสุด เสียงต่ำสุด E) ถึงสาย 1 (บางสุด เสียงสูงสุด e) ความยาว ความตึง และความหนาตัดสินระดับเสียง',
+    mean: m.strings,
     shape: (
       <>
         {STRING_Y.map((y) => <line key={y} x1={NUT} x2={bridgeX} y1={y} y2={y} stroke="var(--accent)" strokeWidth="3.5" />)}
@@ -84,12 +138,12 @@ const common = (bridgeX: number): Part[] => [
   },
 ];
 
-const electricParts = (): Part[] => [
-  ...common(662),
+const electricParts = (m: Means): Part[] => [
+  ...common(662, m),
   {
     id: 'pickups',
     label: 'pickups',
-    mean: 'ขดลวดแม่เหล็กใต้สาย เปลี่ยนการสั่นของสายเป็นสัญญาณไฟฟ้า ตัวใกล้คอเสียงนุ่ม ตัวใกล้ bridge เสียงคมและแหลม',
+    mean: m.pickups,
     shape: (
       <>
         <rect x="518" y="94" width="18" height="72" rx="3" {...hi} />
@@ -100,13 +154,13 @@ const electricParts = (): Part[] => [
   {
     id: 'bridge',
     label: 'bridge + saddles',
-    mean: 'ยึดปลายสายอีกด้านและกำหนดจุดสิ้นสุดของสายที่สั่น ระยะจากนัตถึง saddle คือ scale length ปรับ saddle เพื่อตั้ง intonation',
+    mean: m.bridge,
     shape: <rect x="650" y="100" width="22" height="60" rx="3" {...hi} />,
   },
   {
     id: 'controls',
     label: 'volume + tone knobs',
-    mean: 'ปุ่ม volume ปรับความดัง ปุ่ม tone ตัดเสียงแหลม และมักมี selector สวิตช์เลือก pickup',
+    mean: m.controls,
     shape: (
       <>
         <circle cx="628" cy="190" r="12" {...hi} />
@@ -117,29 +171,29 @@ const electricParts = (): Part[] => [
   {
     id: 'body',
     label: 'body',
-    mean: 'ตัวกีต้าร์ไฟฟ้าแบบ solid body เป็นไม้ตัน ที่ติด pickup, bridge และปุ่มควบคุม เสียงมาจาก pickup เป็นหลักมากกว่าตัวไม้',
+    mean: m.body,
     shape: <path d="M470,110 C500,60 520,40 560,42 C600,44 610,70 650,60 C700,50 740,80 740,130 C740,180 700,215 650,205 C610,195 600,220 560,218 C520,216 500,200 470,150 Z" {...hi} />,
   },
   {
     id: 'strap',
     label: 'strap button',
-    mean: 'ปุ่มคล้องสายสะพาย ตัวหนึ่งที่ปลายตัว อีกตัวที่ด้านหลังหรือคอ',
+    mean: m.strap,
     shape: <circle cx="728" cy="130" r="9" {...hi} />,
   },
 ];
 
-const acousticParts = (): Part[] => [
-  ...common(655),
+const acousticParts = (m: Means): Part[] => [
+  ...common(655, m),
   {
     id: 'soundhole',
     label: 'soundhole',
-    mean: 'รูให้เสียงที่สั่นอยู่ในกล่องก้องออกมา ร่วมกับตัวกล่องทำหน้าที่ขยายเสียง (ไม่ต้องใช้ไฟฟ้า)',
+    mean: m.soundhole,
     shape: <circle cx="548" cy="130" r="32" {...hi} />,
   },
   {
     id: 'top',
     label: 'body (top, back, sides)',
-    mean: 'กล่องก้องเสียง หน้า (top) สั่นเป็นหลักและส่งเสียง ด้านหลังและด้านข้างสะท้อนเสียง ภายในมีโครงไม้ (bracing) ค้ำหน้า',
+    mean: m.top,
     shape: (
       <>
         <ellipse cx="540" cy="130" rx="70" ry="62" {...hi} />
@@ -150,13 +204,13 @@ const acousticParts = (): Part[] => [
   {
     id: 'bridge',
     label: 'bridge + saddle',
-    mean: 'ยึดปลายสายบนหน้ากีต้าร์ส่งแรงสั่นเข้ากล่อง saddle (แท่งบางสีขาวหรือดำ) คือจุดที่สายสิ้นสุด',
+    mean: m.acousticBridge,
     shape: <rect x="642" y="98" width="26" height="64" rx="4" {...hi} />,
   },
   {
     id: 'pickguard',
     label: 'pickguard',
-    mean: 'แผ่นกันรอยจากปิ๊กบนหน้ากีต้าร์ข้างใต้สายเสียงต่ำ',
+    mean: m.pickguard,
     shape: <path d="M582,160 C590,176 612,186 634,182 C622,166 604,158 582,160 Z" {...hi} />,
   },
 ];
@@ -177,24 +231,25 @@ const BASE_BODY: Record<Kind, ReactNode> = {
   ),
 };
 
-export default function GuitarAnatomy() {
+export default function GuitarAnatomy({ lang = 'th' }: { lang?: Lang }) {
+  const t = TEXT[lang];
   const [kind, setKind] = useState<Kind>('electric');
   const [pick, setPick] = useState('frets');
-  const parts = kind === 'electric' ? electricParts() : acousticParts();
+  const parts = kind === 'electric' ? electricParts(t.means) : acousticParts(t.means);
   const chosen = parts.find((p) => p.id === pick) ?? parts[0];
   const bridgeX = kind === 'electric' ? 662 : 655;
 
   const change = (k: Kind) => {
     setKind(k);
-    if (!(k === 'electric' ? electricParts() : acousticParts()).some((p) => p.id === pick)) setPick('frets');
+    if (!(k === 'electric' ? electricParts(t.means) : acousticParts(t.means)).some((p) => p.id === pick)) setPick('frets');
   };
 
   return (
     <figure className="viz">
-      <div className="viz-title">ส่วนประกอบของกีต้าร์ กดชื่อส่วนเพื่อดู</div>
-      <Pills<Kind> label="ชนิด" value={kind} onChange={change} options={[{ value: 'electric', text: 'electric (solid body)' }, { value: 'acoustic', text: 'acoustic (flattop)' }]} />
+      <div className="viz-title">{t.title}</div>
+      <Pills<Kind> label={t.kind} value={kind} onChange={change} options={[{ value: 'electric', text: 'electric (solid body)' }, { value: 'acoustic', text: 'acoustic (flattop)' }]} />
       <div className="viz-box">
-        <svg viewBox="0 0 770 250" role="img" aria-label={`แผนภาพกีต้าร์ ${kind}, ส่วนที่เลือก: ${chosen.label}`}>
+        <svg viewBox="0 0 770 250" role="img" aria-label={t.svgLabel(kind, chosen.label)}>
           {/* headstock and neck */}
           <rect x="14" y="92" width="92" height="76" rx="10" fill="var(--surface-2)" stroke="var(--line-strong)" strokeWidth="2" />
           {[30, 54, 78].flatMap((x) => [86, 174].map((y) => <circle key={`${x}-${y}`} cx={x} cy={y} r="6" fill="var(--muted)" />))}
@@ -222,7 +277,7 @@ export default function GuitarAnatomy() {
           <text className="s" x="560" y="246">body</text>
         </svg>
       </div>
-      <div className="viz-steps" role="group" aria-label="ส่วนประกอบ">
+      <div className="viz-steps" role="group" aria-label={t.partsLabel}>
         {parts.map((p) => (
           <button key={p.id} type="button" aria-pressed={p.id === chosen.id} onClick={() => setPick(p.id)}>{p.label}</button>
         ))}

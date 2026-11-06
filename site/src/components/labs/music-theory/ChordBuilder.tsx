@@ -9,7 +9,36 @@ import { CHORDS, build, chordName, nameOf, parseNote, pcOf, degreeLabels, mod12 
 const KEYS = ['major', 'minor', 'dim', 'aug', 'sus2', 'sus4', 'maj7', 'dom7', 'min7', 'm7b5', 'dim7', 'add9'] as const;
 type Q = (typeof KEYS)[number];
 
-export default function ChordBuilder() {
+type Lang = 'th' | 'en';
+
+const TEXT: Record<Lang, {
+  title: string; kind: string; kbLabel: (name: string) => string; formula: string; notes: string;
+  distance: string; together: string; arp: string;
+}> = {
+  th: {
+    title: 'สร้างคอร์ดจากสูตร',
+    kind: 'ชนิด',
+    kbLabel: (name) => `คอร์ด ${name}`,
+    formula: 'สูตร:',
+    notes: 'โน้ต:',
+    distance: 'ระยะห่างจาก root (เสียงครึ่ง):',
+    together: 'ฟังพร้อมกัน',
+    arp: 'ฟังทีละตัว (อาร์เปจโจ)',
+  },
+  en: {
+    title: 'Build a chord from its formula',
+    kind: 'Type',
+    kbLabel: (name) => `Chord ${name}`,
+    formula: 'Formula:',
+    notes: 'Notes:',
+    distance: 'Distance from the root (semitones):',
+    together: 'Play together',
+    arp: 'Play one by one (arpeggio)',
+  },
+};
+
+export default function ChordBuilder({ lang = 'th' }: { lang?: Lang }) {
+  const t = TEXT[lang];
   const [root, setRoot] = useState('C');
   const [q, setQ] = useState<Q>('major');
   const spec = CHORDS[q];
@@ -29,21 +58,21 @@ export default function ChordBuilder() {
 
   return (
     <figure className="viz">
-      <div className="viz-title">สร้างคอร์ดจากสูตร</div>
+      <div className="viz-title">{t.title}</div>
       <Pills label="root" value={root} onChange={setRoot} options={rootOptions} />
-      <Pills<Q> label="ชนิด" value={q} onChange={setQ} options={KEYS.map((k) => ({ value: k, text: CHORDS[k].suffix || 'major' }))} />
+      <Pills<Q> label={t.kind} value={q} onChange={setQ} options={KEYS.map((k) => ({ value: k, text: CHORDS[k].suffix || 'major' }))} />
       <div className="viz-box">
-        <Keyboard marks={marks} octaves={3} from={60} label={`คอร์ด ${chordName(r, q)}`} />
+        <Keyboard marks={marks} octaves={3} from={60} label={t.kbLabel(chordName(r, q))} lang={lang} />
       </div>
       <div className="viz-now" aria-live="polite">
         <strong>{chordName(r, q)} · {spec.label}</strong>
-        <span style={{ display: 'block' }}>สูตร: <b>{degrees.join(' ')}</b> · โน้ต: <b>{notes.map(nameOf).join(' ')}</b></span>
+        <span style={{ display: 'block' }}>{t.formula} <b>{degrees.join(' ')}</b> · {t.notes} <b>{notes.map(nameOf).join(' ')}</b></span>
         <span style={{ display: 'block' }}>
-          ระยะห่างจาก root (เสียงครึ่ง): {spec.pattern.map(([, s]) => s).join(' ')}
+          {t.distance} {spec.pattern.map(([, s]) => s).join(' ')}
         </span>
         <div className="viz-controls" style={{ marginTop: 8 }}>
-          <button type="button" className="btn sm primary" onClick={() => chord(midis, { dur: 1.8 })}>ฟังพร้อมกัน</button>
-          <button type="button" className="btn sm" onClick={() => chord(midis, { spread: 0.32, dur: 1.8 })}>ฟังทีละตัว (อาร์เปจโจ)</button>
+          <button type="button" className="btn sm primary" onClick={() => chord(midis, { dur: 1.8 })}>{t.together}</button>
+          <button type="button" className="btn sm" onClick={() => chord(midis, { spread: 0.32, dur: 1.8 })}>{t.arp}</button>
         </div>
       </div>
     </figure>

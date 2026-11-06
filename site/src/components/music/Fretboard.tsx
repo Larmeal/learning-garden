@@ -10,6 +10,7 @@ interface Props {
   /** Fires with (string, fret) when a cell is clicked. Strings count from the low E = 0. */
   onPick?: (string: number, fret: number) => void;
   label?: string;
+  lang?: 'th' | 'en';
 }
 
 const X0 = 46; // nut
@@ -32,12 +33,12 @@ const paint = (k: Kind) =>
         ? { fill: 'var(--surface-2)', stroke: 'var(--line-strong)', text: 'var(--muted)' }
         : { fill: 'var(--accent-soft)', stroke: 'var(--accent)', text: 'var(--fg)' };
 
-export default function Fretboard({ marks = [], frets = 15, onPick, label = 'คอกีต้าร์' }: Props) {
+export default function Fretboard({ marks = [], frets = 15, onPick, label, lang = 'th' }: Props) {
   const mid = (f: number) => (edge(f - 1, frets) + edge(f, frets)) / 2;
   const single = [3, 5, 7, 9, 15, 17, 19, 21].filter((f) => f <= frets);
 
   return (
-    <svg viewBox={`0 0 ${X0 + W + 24} ${H}`} role="img" aria-label={label}>
+    <svg viewBox={`0 0 ${X0 + W + 24} ${H}`} role="img" aria-label={label ?? (lang === 'en' ? 'Guitar fretboard' : 'คอกีต้าร์')}>
       <rect x={X0} y={TOP - 12} width={W} height={GAP * 5 + 24} rx="4" fill="var(--surface-2)" />
       {single.map((f) => (
         <circle key={f} cx={mid(f)} cy={TOP + GAP * 2.5} r="5" fill="var(--line-strong)" />
@@ -67,7 +68,7 @@ export default function Fretboard({ marks = [], frets = 15, onPick, label = 'ค
             const x2 = f === 0 ? X0 : edge(f, frets);
             return (
               <rect key={`${s}-${f}`} x={x1} y={rowY(s) - GAP / 2} width={x2 - x1} height={GAP} fill="transparent" style={{ cursor: 'pointer' }} onClick={() => onPick(s, f)}>
-                <title>{`สาย ${STRING_NAMES[s]} เฟร็ต ${f}`}</title>
+                <title>{lang === 'en' ? `String ${STRING_NAMES[s]} fret ${f}` : `สาย ${STRING_NAMES[s]} เฟร็ต ${f}`}</title>
               </rect>
             );
           }),

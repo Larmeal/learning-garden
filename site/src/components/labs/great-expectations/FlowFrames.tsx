@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
+import type { Lang } from '../../../i18n';
 
 // A generic diagram that plays in frames. The lesson passes boxes, arrows and frames as props, so one component
 // serves every "what happens first, what happens next" picture. Nothing here is computed: each frame text is
@@ -35,13 +36,19 @@ interface Props {
   width?: number;
   height?: number;
   caption?: string;
+  lang?: Lang;
 }
+
+const BUTTONS: Record<Lang, { pause: string; play: string; prev: string; next: string }> = {
+  th: { pause: 'หยุด', play: 'เล่น', prev: 'ก่อนหน้า', next: 'ถัดไป' },
+  en: { pause: 'Pause', play: 'Play', prev: 'Previous', next: 'Next' },
+};
 
 const BW = 150;
 const BH = 54;
 
 function edge(a: Box, b: Box) {
-  // Straight line between the two box centres, clipped to the rectangles.
+  // Straight line between the two box centers, clipped to the rectangles.
   const aw = a.w ?? BW, ah = a.h ?? BH, bw = b.w ?? BW, bh = b.h ?? BH;
   const ax = a.x + aw / 2, ay = a.y + ah / 2, bx = b.x + bw / 2, by = b.y + bh / 2;
   const dx = bx - ax, dy = by - ay;
@@ -54,7 +61,8 @@ function edge(a: Box, b: Box) {
   return { x1: ax + dx * t1, y1: ay + dy * t1, x2: bx - dx * t2, y2: by - dy * t2 };
 }
 
-export default function FlowFrames({ title, boxes, arrows, frames, width = 760, height = 260, caption }: Props) {
+export default function FlowFrames({ title, boxes, arrows, frames, width = 760, height = 260, caption, lang = 'th' }: Props) {
+  const bt = BUTTONS[lang];
   const [i, setI] = useState(0);
   const [playing, setPlaying] = useState(false);
   const reduce = useReducedMotion();
@@ -79,10 +87,10 @@ export default function FlowFrames({ title, boxes, arrows, frames, width = 760, 
       <div className="viz-title">{title}</div>
       <div className="viz-controls">
         <button type="button" className="btn primary sm" onClick={() => { if (i >= frames.length - 1) setI(0); setPlaying((p) => !p); }}>
-          {playing ? 'หยุด' : 'เล่น'}
+          {playing ? bt.pause : bt.play}
         </button>
-        <button type="button" className="btn sm" onClick={() => { setPlaying(false); setI((n) => Math.max(0, n - 1)); }}>ก่อนหน้า</button>
-        <button type="button" className="btn sm" onClick={() => { setPlaying(false); setI((n) => Math.min(frames.length - 1, n + 1)); }}>ถัดไป</button>
+        <button type="button" className="btn sm" onClick={() => { setPlaying(false); setI((n) => Math.max(0, n - 1)); }}>{bt.prev}</button>
+        <button type="button" className="btn sm" onClick={() => { setPlaying(false); setI((n) => Math.min(frames.length - 1, n + 1)); }}>{bt.next}</button>
         <span className="gx-tag">{i + 1} / {frames.length}</span>
       </div>
 

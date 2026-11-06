@@ -1,5 +1,7 @@
 import { useState } from 'react';
 
+type Lang = 'th' | 'en';
+
 interface F {
   name: string;
   year: number;
@@ -22,6 +24,59 @@ const OPTS = {
   day: [1, 2, 3],
 };
 
+const TEXT: Record<
+  Lang,
+  {
+    title: string;
+    unset: string;
+    clear: string;
+    rows: (n: number) => string;
+    chosen: string;
+    matched: string;
+    filtered: string;
+    got: string;
+    noParams: string;
+    several: (n: number) => string;
+    one: string;
+    noMatch: string;
+    capA: string;
+    capB: string;
+  }
+> = {
+  th: {
+    title: 'get_batch() เลือกไฟล์ไหน ขึ้นกับพารามิเตอร์ที่ส่ง',
+    unset: 'ไม่ระบุ',
+    clear: 'ล้าง',
+    rows: (n) => `${n} แถว`,
+    chosen: 'ถูกเลือก',
+    matched: 'ตรงเงื่อนไข',
+    filtered: 'ถูกกรองออก',
+    got: 'ได้ ',
+    noParams: 'ไม่ส่งพารามิเตอร์เลย GX ไม่ error แต่ให้ batch สุดท้ายตามลำดับ ถ้า pipeline ลืมส่งค่า จะตรวจไฟล์ล่าสุดเงียบๆ',
+    several: (n) => `พารามิเตอร์ไม่ครบ มี ${n} ไฟล์ที่ตรง GX เลือกไฟล์สุดท้ายให้เงียบๆ`,
+    one: 'พารามิเตอร์ระบุไฟล์เดียว',
+    noMatch: 'ไม่มีไฟล์ที่ตรงกับพารามิเตอร์ GX raise error',
+    capA: 'ไฟล์ตัวอย่างเป็นแบบเดียวกับที่ทดลองใน ',
+    capB: ' (regex รายวัน) ลองเลือกเฉพาะ month แล้วสังเกตว่าได้ไฟล์เดียวทั้งที่ตรงสองไฟล์',
+  },
+  en: {
+    title: 'Which file get_batch() picks depends on the parameters you pass',
+    unset: 'not set',
+    clear: 'Clear',
+    rows: (n) => `${n} rows`,
+    chosen: 'chosen',
+    matched: 'matches',
+    filtered: 'filtered out',
+    got: 'Got ',
+    noParams: 'No parameters passed. GX gives no error, but returns the last batch in order. If a pipeline forgets to pass the values, it quietly checks the latest file.',
+    several: (n) => `The parameters are not complete and ${n} files match. GX quietly picks the last file.`,
+    one: 'The parameters point to one file',
+    noMatch: 'No file matches the parameters. GX raises an error.',
+    capA: 'The sample files are the same as the ones tried in ',
+    capB: ' (daily regex). Try choosing only month, and notice that you get one file even though two files match.',
+  },
+};
+
 type P = { year?: number; month?: number; day?: number };
 
 // get_batch(): keep the batches that match every given parameter, then return the LAST of them (verified by running GX).
@@ -32,7 +87,8 @@ function pick(p: P) {
   return { match, chosen: match.length ? match[match.length - 1] : null };
 }
 
-export default function BatchLab() {
+export default function BatchLab({ lang = 'th' }: { lang?: Lang }) {
+  const t = TEXT[lang];
   const [p, setP] = useState<P>({});
   const { match, chosen } = pick(p);
   const given = Object.entries(p).filter(([, v]) => v !== undefined);
@@ -41,20 +97,20 @@ export default function BatchLab() {
 
   return (
     <figure className="viz">
-      <div className="viz-title">get_batch() เลือกไฟล์ไหน ขึ้นกับพารามิเตอร์ที่ส่ง</div>
+      <div className="viz-title">{t.title}</div>
       <div className="lab-controls">
         {(['year', 'month', 'day'] as const).map((k) => (
           <label key={k} className="gx-select">
             <span className="lab-label">{k}</span>
             <select value={p[k] ?? ''} onChange={(e) => set(k, e.target.value)}>
-              <option value="">ไม่ระบุ</option>
+              <option value="">{t.unset}</option>
               {OPTS[k].map((v) => (
                 <option key={v} value={v}>{v}</option>
               ))}
             </select>
           </label>
         ))}
-        <button type="button" className="btn sm" onClick={() => setP({})}>ล้าง</button>
+        <button type="button" className="btn sm" onClick={() => setP({})}>{t.clear}</button>
       </div>
 
       <pre className="codeline">{call}</pre>
@@ -66,8 +122,8 @@ export default function BatchLab() {
           return (
             <li key={f.name} data-match={isMatch} data-chosen={isChosen}>
               <code>{f.name}</code>
-              <span>{f.rows} แถว</span>
-              <span className="gx-tag">{isChosen ? 'ถูกเลือก' : isMatch ? 'ตรงเงื่อนไข' : 'ถูกกรองออก'}</span>
+              <span>{t.rows(f.rows)}</span>
+              <span className="gx-tag">{isChosen ? t.chosen : isMatch ? t.matched : t.filtered}</span>
             </li>
           );
         })}
@@ -76,25 +132,25 @@ export default function BatchLab() {
       <div className="viz-now" aria-live="polite" data-bad={!chosen || undefined}>
         {chosen ? (
           <>
-            <strong>ได้ {chosen.name}</strong>
+            <strong>{t.got}{chosen.name}</strong>
             <span>
               {given.length === 0
-                ? 'ไม่ส่งพารามิเตอร์เลย GX ไม่ error แต่ให้ batch สุดท้ายตามลำดับ ถ้า pipeline ลืมส่งค่า จะตรวจไฟล์ล่าสุดเงียบๆ'
+                ? t.noParams
                 : match.length > 1
-                  ? `พารามิเตอร์ไม่ครบ มี ${match.length} ไฟล์ที่ตรง GX เลือกไฟล์สุดท้ายให้เงียบๆ`
-                  : 'พารามิเตอร์ระบุไฟล์เดียว'}
+                  ? t.several(match.length)
+                  : t.one}
             </span>
           </>
         ) : (
           <>
             <strong>NoAvailableBatchesError</strong>
-            <span>ไม่มีไฟล์ที่ตรงกับพารามิเตอร์ GX raise error</span>
+            <span>{t.noMatch}</span>
           </>
         )}
       </div>
 
       <p className="viz-caption">
-        ไฟล์ตัวอย่างเป็นแบบเดียวกับที่ทดลองใน <code>04_batches.py</code> (regex รายวัน) ลองเลือกเฉพาะ month แล้วสังเกตว่าได้ไฟล์เดียวทั้งที่ตรงสองไฟล์
+        {t.capA}<code>04_batches.py</code>{t.capB}
       </p>
     </figure>
   );
