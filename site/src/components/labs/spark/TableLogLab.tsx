@@ -1,5 +1,5 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { StepControls, useStepper, type StepInfo } from './stepper';
+import { StepControls, useStepper, type Lang, type StepInfo } from './stepper';
 
 // A Delta table over time. The commit sequence is the one exercises/10_table_formats.py ran on Spark 4.2.0 with
 // Delta 4.4.1: 100 rows in 4 files, then UPDATE, DELETE, MERGE, OPTIMIZE and VACUUM. Row counts (100, 100, 90, 90) and
@@ -8,21 +8,20 @@ import { StepControls, useStepper, type StepInfo } from './stepper';
 
 interface F {
   id: string;
-  range: string;
   rows: number;
   add: number;
   remove?: number;
 }
 
 const FILES: F[] = [
-  { id: 'f1', range: 'id 0 ถึง 24', rows: 25, add: 0, remove: 1 },
-  { id: 'f2', range: 'id 25 ถึง 49', rows: 25, add: 0, remove: 4 },
-  { id: 'f3', range: 'id 50 ถึง 74', rows: 25, add: 0, remove: 4 },
-  { id: 'f4', range: 'id 75 ถึง 99', rows: 25, add: 0, remove: 2 },
-  { id: 'f5', range: 'id 0 ถึง 24 (g = 99)', rows: 25, add: 1, remove: 3 },
-  { id: 'f6', range: 'id 75 ถึง 89', rows: 15, add: 2, remove: 4 },
-  { id: 'f7', range: 'id 0 ถึง 24 (merge)', rows: 25, add: 3, remove: 4 },
-  { id: 'f8', range: 'id 0 ถึง 89 (รวมไฟล์)', rows: 90, add: 4 },
+  { id: 'f1', rows: 25, add: 0, remove: 1 },
+  { id: 'f2', rows: 25, add: 0, remove: 4 },
+  { id: 'f3', rows: 25, add: 0, remove: 4 },
+  { id: 'f4', rows: 25, add: 0, remove: 2 },
+  { id: 'f5', rows: 25, add: 1, remove: 3 },
+  { id: 'f6', rows: 15, add: 2, remove: 4 },
+  { id: 'f7', rows: 25, add: 3, remove: 4 },
+  { id: 'f8', rows: 90, add: 4 },
 ];
 
 const COMMITS = [
@@ -33,7 +32,7 @@ const COMMITS = [
   { v: 4, op: 'OPTIMIZE', note: 'remove f2 f3 f6 f7, add f8' },
 ];
 
-const STEPS: StepInfo[] = [
+const STEPS_TH: StepInfo[] = [
   { name: 'v0 WRITE', title: 'เขียนครั้งแรก: 4 ไฟล์ 100 แถว', text: 'commit 0 บันทึก add ของทั้งสี่ไฟล์พร้อมสถิติ (numRecords, min, max ของแต่ละ column) ไฟล์ _delta_log/000...0.json คือ "ตาราง" จริงๆ ไฟล์ Parquet เป็นแค่ข้อมูลที่ log ชี้ไป' },
   { name: 'v1 UPDATE', title: 'UPDATE: ไม่แก้ไฟล์เดิม เขียนไฟล์ใหม่', text: 'Parquet แก้ไขที่ไม่ได้ Delta จึงอ่าน f1 ทั้งไฟล์ เขียน f5 ที่ g = 99 แล้ว commit เป็น remove f1 และ add f5 f1 ยังอยู่บน disk ผู้ที่อ่าน Parquet ตรงๆ จะได้ 125 แถว (วัดจริง) ผู้ที่อ่านผ่าน log ได้ 100' },
   { name: 'v2 DELETE', title: 'DELETE: เขียนไฟล์ที่เหลือใหม่', text: 'แถว id >= 90 อยู่ใน f4 ทั้งหมด Delta เขียน f6 ที่เหลือ 15 แถว และ commit remove f4 กับ add f6 (วัดจริง: 90 แถว)' },
@@ -43,10 +42,64 @@ const STEPS: StepInfo[] = [
   { name: 'time travel', title: 'time travel ไป v0 หลัง VACUUM: ล้มเหลว', text: 'log ยังบอกว่า v0 มี f1 ถึง f4 แต่ไฟล์ถูกลบไปแล้ว อ่านได้ error FILE_NOT_EXIST (วัดจริง) นี่คือราคาของ time travel: ยิ่งเก็บ version นานยิ่งเปลืองที่ เมื่อ VACUUM แล้วย้อนกลับไม่ได้' },
 ];
 
+const STEPS_EN: StepInfo[] = [
+  { name: 'v0 WRITE', title: 'First write: 4 files, 100 rows', text: 'Commit 0 records an add for all four files, with statistics (numRecords, min and max of each column). The file _delta_log/000...0.json is the real "table". The Parquet files are only data that the log points to.' },
+  { name: 'v1 UPDATE', title: 'UPDATE: the old file is not changed, a new file is written', text: 'Parquet cannot be edited in place, so Delta reads all of f1, writes f5 with g = 99, and commits remove f1 and add f5. f1 is still on disk. Someone who reads the Parquet directly gets 125 rows (measured). Someone who reads through the log gets 100.' },
+  { name: 'v2 DELETE', title: 'DELETE: the remaining rows are written again', text: 'The rows with id >= 90 are all in f4. Delta writes f6 with the 15 rows that remain, and commits remove f4 and add f6 (measured: 90 rows).' },
+  { name: 'v3 MERGE', title: 'MERGE: another rewrite', text: 'The row with id = 5, which is in f5, is changed, so f7 replaces f5. Each version is one commit. Every time, the log adds one new file, and no file is changed in place (measured: time travel to v0 shows g of id 5 as 0, and the current value is 7).' },
+  { name: 'v4 OPTIMIZE', title: 'OPTIMIZE: small files are compacted into one file', text: 'f2, f3, f6 and f7 are merged into one file, f8. This reduces the work at read time (measured: a table with 7 files is left with 1). But the old files are not deleted. On disk in the picture there are 8 files, and the table refers only to f8.' },
+  { name: 'VACUUM', title: 'VACUUM: delete the files that the log no longer refers to', text: 'It deletes the files that were removed and are old enough (here RETAIN 0 HOURS is set for the demo; the default keeps 7 days). Only the one file that the table uses is left on disk. Space is given back, but the old versions that need those files are gone too.' },
+  { name: 'time travel', title: 'Time travel to v0 after VACUUM: it fails', text: 'The log still says that v0 has f1 to f4, but the files were deleted. Reading gives the error FILE_NOT_EXIST (measured). This is the price of time travel: the longer you keep versions, the more space you use. After VACUUM you cannot go back.' },
+];
+
+const STEPS: Record<Lang, StepInfo[]> = { th: STEPS_TH, en: STEPS_EN };
+
+const TEXT: Record<Lang, {
+  title: string; disk: string; rows: (n: number) => string; inLog: string; removedAt: (v: number | undefined) => string;
+  ranges: Record<string, string>;
+}> = {
+  th: {
+    title: 'Transaction log: ตาราง Delta คือ log ที่ชี้ไปหาไฟล์ Parquet',
+    disk: 'ไฟล์ Parquet บน disk',
+    rows: (n) => `${n} แถว`,
+    inLog: 'อยู่ใน log',
+    removedAt: (v) => `ถูก remove ที่ v${v}`,
+    ranges: {
+      f1: 'id 0 ถึง 24',
+      f2: 'id 25 ถึง 49',
+      f3: 'id 50 ถึง 74',
+      f4: 'id 75 ถึง 99',
+      f5: 'id 0 ถึง 24 (g = 99)',
+      f6: 'id 75 ถึง 89',
+      f7: 'id 0 ถึง 24 (merge)',
+      f8: 'id 0 ถึง 89 (รวมไฟล์)',
+    },
+  },
+  en: {
+    title: 'Transaction log: a Delta table is a log that points to Parquet files',
+    disk: 'Parquet files on disk',
+    rows: (n) => `${n} rows`,
+    inLog: 'in the log',
+    removedAt: (v) => `removed at v${v}`,
+    ranges: {
+      f1: 'id 0 to 24',
+      f2: 'id 25 to 49',
+      f3: 'id 50 to 74',
+      f4: 'id 75 to 99',
+      f5: 'id 0 to 24 (g = 99)',
+      f6: 'id 75 to 89',
+      f7: 'id 0 to 24 (merge)',
+      f8: 'id 0 to 89 (compacted)',
+    },
+  },
+};
+
 const EASE = { duration: 0.5, ease: 'easeInOut' as const };
 
-export default function TableLogLab() {
-  const { step, go, playing, toggle } = useStepper(STEPS.length, 4200);
+export default function TableLogLab({ lang = 'th' }: { lang?: Lang }) {
+  const steps = STEPS[lang];
+  const T = TEXT[lang];
+  const { step, go, playing, toggle } = useStepper(steps.length, 4200);
   const reduce = useReducedMotion();
   const t = reduce ? { duration: 0 } : EASE;
   const version = Math.min(step, 4);
@@ -60,10 +113,10 @@ export default function TableLogLab() {
 
   return (
     <figure className="viz">
-      <div className="viz-title">Transaction log: ตาราง Delta คือ log ที่ชี้ไปหาไฟล์ Parquet</div>
+      <div className="viz-title">{T.title}</div>
       <div className="viz-box tl-wrap">
         <div className="tl-col">
-          <strong className="tl-h">ไฟล์ Parquet บน disk</strong>
+          <strong className="tl-h">{T.disk}</strong>
           <AnimatePresence initial={false}>
             {onDisk.map((f) => {
               const isLive = f.remove === undefined || f.remove > version;
@@ -79,9 +132,9 @@ export default function TableLogLab() {
                   data-live={isLive ? '' : undefined}
                 >
                   <code>{f.id}</code>
-                  <span>{f.range}</span>
-                  <span className="tl-rows">{f.rows} แถว</span>
-                  <em>{isLive ? 'อยู่ใน log' : `ถูก remove ที่ v${f.remove}`}</em>
+                  <span>{T.ranges[f.id]}</span>
+                  <span className="tl-rows">{T.rows(f.rows)}</span>
+                  <em>{isLive ? T.inLog : T.removedAt(f.remove)}</em>
                 </motion.div>
               );
             })}
@@ -101,11 +154,11 @@ export default function TableLogLab() {
           <div className="tl-readers">
             <div>
               <code>spark.read.parquet(path).count()</code>
-              <strong>{rawRows} แถว</strong>
+              <strong>{T.rows(rawRows)}</strong>
             </div>
             <div>
               <code>spark.read.format("delta").load(path).count()</code>
-              <strong>{deltaRows} แถว</strong>
+              <strong>{T.rows(deltaRows)}</strong>
             </div>
             {failed && (
               <div className="tl-fail">
@@ -116,7 +169,7 @@ export default function TableLogLab() {
           </div>
         </div>
       </div>
-      <StepControls steps={STEPS} step={step} playing={playing} go={go} toggle={toggle} />
+      <StepControls steps={steps} step={step} playing={playing} go={go} toggle={toggle} lang={lang} />
     </figure>
   );
 }

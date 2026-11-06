@@ -3,29 +3,109 @@ import { motion, useReducedMotion } from 'motion/react';
 
 type Mode = 'local' | 'cluster';
 type Part = 'driver' | 'executor' | 'manager' | 'storage';
+type Lang = 'th' | 'en';
 
-const INFO: Record<Part, { title: string; text: string }> = {
-  driver: {
-    title: 'Driver',
-    text: 'โปรแกรมหลักของคุณ รันโค้ด Python ถือ SparkSession สร้างแผนจากคำสั่ง DataFrame แล้วแบ่งงานเป็น task ส่งให้ executor ผลลัพธ์จะมาอยู่ที่นี่เมื่อคุณเรียก collect() หรือ toPandas()',
+const TEXT: Record<
+  Lang,
+  {
+    info: Record<Part, { title: string; text: string }>;
+    title: string;
+    modeLabel: string;
+    local: string;
+    cluster: string;
+    ariaLocal: string;
+    ariaCluster: string;
+    plan: string;
+    one: string;
+    askExec: string;
+    sendTask: string;
+    readWrite: string;
+    partition: string;
+    process: string;
+    threadExec: string;
+    cellNote: string;
+    storageSub: string;
+  }
+> = {
+  th: {
+    info: {
+      driver: {
+        title: 'Driver',
+        text: 'โปรแกรมหลักของคุณ รันโค้ด Python ถือ SparkSession สร้างแผนจากคำสั่ง DataFrame แล้วแบ่งงานเป็น task ส่งให้ executor ผลลัพธ์จะมาอยู่ที่นี่เมื่อคุณเรียก collect() หรือ toPandas()',
+      },
+      executor: {
+        title: 'Executor',
+        text: 'process (JVM) ที่รับ task ไปทำกับ partition ของตัวเอง และเก็บข้อมูลที่ cache ไว้ จำนวน task ที่รันพร้อมกันได้ขึ้นกับจำนวน core ใน local mode ไม่มี process แยก executor คือ thread ใน process เดียวกับ driver',
+      },
+      manager: {
+        title: 'Cluster manager',
+        text: 'ผู้จัดสรรเครื่องและ core ให้แอปพลิเคชัน เช่น standalone, YARN หรือ Kubernetes แอปพลิเคชันขอ executor จากที่นี่ ใน local mode ไม่ต้องมี',
+      },
+      storage: {
+        title: 'Storage',
+        text: 'ที่เก็บข้อมูลจริง เช่น ไฟล์ใน disk, HDFS หรือ S3 Spark อ่านข้อมูลจากที่นี่เป็นก้อนๆ (partition) และไม่เก็บข้อมูลถาวรเอง',
+      },
+    },
+    title: 'กดแต่ละส่วนเพื่อดูหน้าที่ แล้วลองสลับระหว่างเครื่องคุณกับ cluster',
+    modeLabel: 'โหมดการรัน',
+    local: 'local[*] (เครื่องเดียว)',
+    cluster: 'cluster (หลายเครื่อง)',
+    ariaLocal: 'โหมด local: driver และ executor อยู่ใน process เดียวกัน อ่านข้อมูลจาก storage',
+    ariaCluster: 'โหมด cluster: driver ส่ง task ให้ executor สามตัว cluster manager จัดสรร executor และ executor อ่านข้อมูลจาก storage',
+    plan: 'วางแผน และแจก task',
+    one: 'มี 1 ตัว',
+    askExec: 'ขอ executor',
+    sendTask: 'ส่ง task',
+    readWrite: 'อ่าน / เขียน',
+    partition: 'partition',
+    process: '1 process (JVM) บนเครื่องคุณ',
+    threadExec: 'Executor (thread ใน process เดียวกัน)',
+    cellNote: 'แต่ละช่อง = 1 thread (local[*] ใช้เท่าจำนวน core)',
+    storageSub: 'ไฟล์ / data lake',
   },
-  executor: {
-    title: 'Executor',
-    text: 'process (JVM) ที่รับ task ไปทำกับ partition ของตัวเอง และเก็บข้อมูลที่ cache ไว้ จำนวน task ที่รันพร้อมกันได้ขึ้นกับจำนวน core ใน local mode ไม่มี process แยก executor คือ thread ใน process เดียวกับ driver',
-  },
-  manager: {
-    title: 'Cluster manager',
-    text: 'ผู้จัดสรรเครื่องและ core ให้แอปพลิเคชัน เช่น standalone, YARN หรือ Kubernetes แอปพลิเคชันขอ executor จากที่นี่ ใน local mode ไม่ต้องมี',
-  },
-  storage: {
-    title: 'Storage',
-    text: 'ที่เก็บข้อมูลจริง เช่น ไฟล์ใน disk, HDFS หรือ S3 Spark อ่านข้อมูลจากที่นี่เป็นก้อนๆ (partition) และไม่เก็บข้อมูลถาวรเอง',
+  en: {
+    info: {
+      driver: {
+        title: 'Driver',
+        text: 'Your main program. It runs the Python code and holds the SparkSession. It builds a plan from your DataFrame commands, splits the work into tasks and sends them to the executors. Results arrive here when you call collect() or toPandas().',
+      },
+      executor: {
+        title: 'Executor',
+        text: 'A process (JVM) that takes tasks and runs them on its own partitions. It also keeps cached data. How many tasks run at the same time depends on the number of cores. In local mode there is no separate process: the executor is a thread inside the same process as the driver.',
+      },
+      manager: {
+        title: 'Cluster manager',
+        text: 'It hands out machines and cores to the application, for example standalone, YARN or Kubernetes. The application asks it for executors. In local mode you do not need one.',
+      },
+      storage: {
+        title: 'Storage',
+        text: 'Where the real data lives, for example files on disk, HDFS or S3. Spark reads data from here in pieces (partitions) and does not keep data permanently itself.',
+      },
+    },
+    title: 'Click each part to see what it does, then switch between your machine and a cluster',
+    modeLabel: 'Run mode',
+    local: 'local[*] (one machine)',
+    cluster: 'cluster (many machines)',
+    ariaLocal: 'Local mode: the driver and the executor are in the same process and read data from storage',
+    ariaCluster: 'Cluster mode: the driver sends tasks to three executors, the cluster manager allocates the executors, and the executors read data from storage',
+    plan: 'plans, hands out tasks',
+    one: 'only 1',
+    askExec: 'asks for executors',
+    sendTask: 'send tasks',
+    readWrite: 'read / write',
+    partition: 'partitions',
+    process: '1 process (JVM) on your machine',
+    threadExec: 'Executor (threads, same JVM)',
+    cellNote: '1 box = 1 thread, one per core',
+    storageSub: 'files / data lake',
   },
 };
 
 const EXEC_Y = [20, 115, 210];
 
-export default function ArchitectureLab() {
+export default function ArchitectureLab({ lang = 'th' }: { lang?: Lang }) {
+  const T = TEXT[lang];
+  const INFO = T.info;
   const [mode, setMode] = useState<Mode>('cluster');
   const [sel, setSel] = useState<Part>('driver');
   const reduce = useReducedMotion();
@@ -61,16 +141,16 @@ export default function ArchitectureLab() {
 
   return (
     <figure className="viz">
-      <div className="viz-title">กดแต่ละส่วนเพื่อดูหน้าที่ แล้วลองสลับระหว่างเครื่องคุณกับ cluster</div>
+      <div className="viz-title">{T.title}</div>
       <div className="lab-controls">
-        <div className="seg" role="group" aria-label="โหมดการรัน">
-          <button type="button" aria-pressed={mode === 'local'} onClick={() => setMode('local')}>local[*] (เครื่องเดียว)</button>
-          <button type="button" aria-pressed={mode === 'cluster'} onClick={() => setMode('cluster')}>cluster (หลายเครื่อง)</button>
+        <div className="seg" role="group" aria-label={T.modeLabel}>
+          <button type="button" aria-pressed={mode === 'local'} onClick={() => setMode('local')}>{T.local}</button>
+          <button type="button" aria-pressed={mode === 'cluster'} onClick={() => setMode('cluster')}>{T.cluster}</button>
         </div>
       </div>
 
       <div className="viz-box">
-        <svg viewBox="0 0 880 310" role="img" aria-label={mode === 'local' ? 'โหมด local: driver และ executor อยู่ใน process เดียวกัน อ่านข้อมูลจาก storage' : 'โหมด cluster: driver ส่ง task ให้ executor สามตัว cluster manager จัดสรร executor และ executor อ่านข้อมูลจาก storage'}>
+        <svg viewBox="0 0 880 310" role="img" aria-label={mode === 'local' ? T.ariaLocal : T.ariaCluster}>
           <defs>
             <marker id="al-ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
               <path className="mk" d="M0 0 L10 5 L0 10 z" />
@@ -83,8 +163,8 @@ export default function ArchitectureLab() {
                 <rect className={cls('driver')} x="20" y="88" width="190" height="112" rx="10" />
                 <text className="b" x="115" y="120" textAnchor="middle">Driver</text>
                 <text className="m" x="115" y="142" textAnchor="middle" style={{ fontSize: 12 }}>SparkSession</text>
-                <text className="s" x="115" y="166" textAnchor="middle">วางแผน และแจก task</text>
-                <text className="s" x="115" y="184" textAnchor="middle">มี 1 ตัว</text>
+                <text className="s" x="115" y="166" textAnchor="middle">{T.plan}</text>
+                <text className="s" x="115" y="184" textAnchor="middle">{T.one}</text>
               </g>
               <g {...pick('manager')}>
                 <rect className={cls('manager')} x="20" y="244" width="190" height="52" rx="10" />
@@ -92,12 +172,12 @@ export default function ArchitectureLab() {
                 <text className="s" x="115" y="284" textAnchor="middle">standalone / YARN / K8s</text>
               </g>
               <line className="ln" x1="115" y1="202" x2="115" y2="242" markerEnd="url(#al-ar)" />
-              <text className="s" x="125" y="226">ขอ executor</text>
+              <text className="s" x="125" y="226">{T.askExec}</text>
 
               {EXEC_Y.map((y, i) => (
                 <line key={y} className="ln" x1="210" y1={118 + i * 28} x2="348" y2={y + 35} markerEnd="url(#al-ar)" />
               ))}
-              <text className="s" x="280" y="138" textAnchor="middle">ส่ง task</text>
+              <text className="s" x="280" y="138" textAnchor="middle">{T.sendTask}</text>
               {EXEC_Y.map((y, i) => packet(`p${i}`, [212, 118 + i * 28], [346, y + 35], i * 0.5))}
 
               {EXEC_Y.map((y, i) => (
@@ -114,30 +194,30 @@ export default function ArchitectureLab() {
               {EXEC_Y.map((y, i) => (
                 <line key={y} className="ln" x1="570" y1={y + 35} x2="690" y2={[95, 150, 205][i]} markerStart="url(#al-ar)" markerEnd="url(#al-ar)" />
               ))}
-              <text className="s" x="630" y="132" textAnchor="middle">อ่าน / เขียน</text>
-              <text className="s" x="630" y="176" textAnchor="middle">partition</text>
+              <text className="s" x="630" y="132" textAnchor="middle">{T.readWrite}</text>
+              <text className="s" x="630" y="176" textAnchor="middle">{T.partition}</text>
             </g>
           ) : (
             <g key="local">
               <rect className="band" x="20" y="14" width="560" height="282" rx="14" />
-              <text className="b" x="38" y="40">1 process (JVM) บนเครื่องคุณ</text>
+              <text className="b" x="38" y="40">{T.process}</text>
               <g {...pick('driver')}>
                 <rect className={cls('driver')} x="40" y="100" width="170" height="112" rx="10" />
                 <text className="b" x="125" y="132" textAnchor="middle">Driver</text>
                 <text className="m" x="125" y="154" textAnchor="middle" style={{ fontSize: 12 }}>SparkSession</text>
-                <text className="s" x="125" y="178" textAnchor="middle">วางแผน และแจก task</text>
+                <text className="s" x="125" y="178" textAnchor="middle">{T.plan}</text>
               </g>
               <line className="ln" x1="210" y1="156" x2="298" y2="156" markerEnd="url(#al-ar)" />
-              <text className="s" x="254" y="146" textAnchor="middle">ส่ง task</text>
+              <text className="s" x="254" y="146" textAnchor="middle">{T.sendTask}</text>
               {packet('pl', [212, 156], [296, 156], 0)}
               {packet('pl2', [212, 156], [296, 156], 0.8)}
               <g {...pick('executor')}>
                 <rect className={cls('executor')} x="300" y="56" width="262" height="212" rx="10" />
-                <text className="b" x="316" y="82">Executor (thread ใน process เดียวกัน)</text>
+                <text className="b" x="316" y="82">{T.threadExec}</text>
                 {Array.from({ length: 16 }, (_, i) => (
                   <rect key={i} className="band" x={318 + (i % 4) * 56} y={100 + Math.floor(i / 4) * 40} width="46" height="30" rx="5" />
                 ))}
-                <text className="s" x="431" y="258" textAnchor="middle">แต่ละช่อง = 1 thread (local[*] ใช้เท่าจำนวน core)</text>
+                <text className="s" x="431" y="258" textAnchor="middle">{T.cellNote}</text>
               </g>
             </g>
           )}
@@ -146,7 +226,7 @@ export default function ArchitectureLab() {
             <path className={cls('storage')} d="M692 74 v146 a80 20 0 0 0 160 0 v-146" />
             <ellipse className={cls('storage')} cx="772" cy="74" rx="80" ry="20" />
             <text className="b" x="772" y="138" textAnchor="middle">Storage</text>
-            <text className="s" x="772" y="158" textAnchor="middle">ไฟล์ / data lake</text>
+            <text className="s" x="772" y="158" textAnchor="middle">{T.storageSub}</text>
           </g>
           {mode === 'local' && <line className="ln" x1="562" y1="162" x2="690" y2="150" markerStart="url(#al-ar)" markerEnd="url(#al-ar)" />}
         </svg>

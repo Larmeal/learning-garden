@@ -12,6 +12,52 @@ const ROWS_PER_GROUP = 2072;
 const TOTAL = 600000;
 const COLS = 29;
 
+type Lang = 'th' | 'en';
+
+const TEXT: Record<Lang, {
+  title: string;
+  startAt: string;
+  width: (w: string) => string;
+  sortedTitle: string;
+  sortedAria: string;
+  stat: (pct: string, groups: number) => string;
+  sortedHint: string;
+  otherTitle: string;
+  otherAria: string;
+  otherHint: string;
+  caption1: string;
+  caption2: string;
+}> = {
+  th: {
+    title: 'Row group และ min/max: filter ข้ามส่วนของไฟล์ได้เมื่อไร',
+    startAt: 'เริ่มที่ id',
+    width: (w) => `กว้าง ${w} แถว`,
+    sortedTitle: 'ไฟล์ที่เรียงตาม id',
+    sortedAria: 'row group ที่ต้องอ่านเมื่อไฟล์เรียงตาม id',
+    stat: (pct, groups) => ` แถวถูกอ่าน (${pct}) จาก row group ${groups} ก้อน`,
+    sortedHint: 'แต่ละก้อนมี id ช่วงของตัวเอง min/max ของก้อนที่ไม่ตรงกับ filter ถูกข้าม',
+    otherTitle: 'ข้อมูลชุดเดิมแต่เรียงตาม column อื่น',
+    otherAria: 'row group ที่ต้องอ่านเมื่อ id กระจาย',
+    otherHint: 'ทุกก้อนมี id ตั้งแต่เล็กถึงใหญ่ min/max ครอบทุก filter จึงข้ามไม่ได้เลย',
+    caption1: 'ค่าที่วัดจริงที่ตั้งต้นของแถบเลื่อน (id 1,000 ถึง 1,999): ไฟล์เรียง id อ่าน 2,072 แถว ไฟล์กระจายอ่าน 597,928 แถว ส่วนอื่นของแถบเลื่อนคำนวณจากช่วง id ของแต่ละ row group ตามกฎเดียวกัน',
+    caption2: 'การข้ามนี้ทำในระดับ row group เท่านั้น Filter ยังอยู่เหนือ scan และกรองแถวที่เหลือซ้ำ',
+  },
+  en: {
+    title: 'Row groups and min/max: when can a filter skip parts of a file',
+    startAt: 'Start at id',
+    width: (w) => `Width ${w} rows`,
+    sortedTitle: 'File sorted by id',
+    sortedAria: 'Row groups that must be read when the file is sorted by id',
+    stat: (pct, groups) => ` rows read (${pct}) from ${groups} row groups`,
+    sortedHint: 'Each group has its own id range. Groups whose min/max does not match the filter are skipped.',
+    otherTitle: 'Same data, sorted by another column',
+    otherAria: 'Row groups that must be read when the ids are scattered',
+    otherHint: 'Every group has ids from small to large. Its min/max covers every filter, so nothing can be skipped.',
+    caption1: 'Measured values at the starting position of the sliders (id 1,000 to 1,999): the file sorted by id reads 2,072 rows and the scattered file reads 597,928 rows. The rest of the slider range is computed from the id range of each row group with the same rule.',
+    caption2: 'This skipping happens at the row group level only. The Filter operator still sits above the scan and filters the remaining rows again.',
+  },
+};
+
 function Grid({ read, label }: { read: boolean[]; label: string }) {
   const reduce = useReducedMotion();
   return (
@@ -23,7 +69,8 @@ function Grid({ read, label }: { read: boolean[]; label: string }) {
   );
 }
 
-export default function ParquetSkipLab() {
+export default function ParquetSkipLab({ lang = 'th' }: { lang?: Lang }) {
+  const T = TEXT[lang];
   const [start, setStart] = useState(1000);
   const [width, setWidth] = useState(1000);
   const end = Math.min(TOTAL - 1, start + width - 1);
@@ -41,37 +88,38 @@ export default function ParquetSkipLab() {
 
   return (
     <figure className="viz">
-      <div className="viz-title">Row group และ min/max: filter ข้ามส่วนของไฟล์ได้เมื่อไร</div>
+      <div className="viz-title">{T.title}</div>
       <div className="pk-controls">
         <label>
           filter: <code>id BETWEEN {start.toLocaleString()} AND {end.toLocaleString()}</code>
         </label>
         <label className="pk-slider">
-          เริ่มที่ id
+          {T.startAt}
           <input type="range" min={0} max={TOTAL - 1} step={1000} value={start} onChange={(e) => setStart(Number(e.target.value))} />
         </label>
         <label className="pk-slider">
-          กว้าง {width.toLocaleString()} แถว
+          {T.width(width.toLocaleString())}
           <input type="range" min={1000} max={200000} step={1000} value={width} onChange={(e) => setWidth(Number(e.target.value))} />
         </label>
       </div>
       <div className="viz-box pk-wrap">
         <div>
-          <strong>ไฟล์ที่เรียงตาม id</strong>
-          <Grid read={sortedRead} label="row group ที่ต้องอ่านเมื่อไฟล์เรียงตาม id" />
-          <div className="pk-stat"><b>{sortedRows.toLocaleString()}</b> แถวถูกอ่าน ({pct(sortedRows)}) จาก row group {sortedRead.filter(Boolean).length} ก้อน</div>
-          <div className="pk-hint">แต่ละก้อนมี id ช่วงของตัวเอง min/max ของก้อนที่ไม่ตรงกับ filter ถูกข้าม</div>
+          <strong>{T.sortedTitle}</strong>
+          <Grid read={sortedRead} label={T.sortedAria} />
+          <div className="pk-stat"><b>{sortedRows.toLocaleString()}</b>{T.stat(pct(sortedRows), sortedRead.filter(Boolean).length)}</div>
+          <div className="pk-hint">{T.sortedHint}</div>
         </div>
         <div>
-          <strong>ข้อมูลชุดเดิมแต่เรียงตาม column อื่น</strong>
-          <Grid read={scatteredRead} label="row group ที่ต้องอ่านเมื่อ id กระจาย" />
-          <div className="pk-stat"><b>{scatteredRows.toLocaleString()}</b> แถวถูกอ่าน ({pct(scatteredRows)}) จาก row group {GROUPS} ก้อน</div>
-          <div className="pk-hint">ทุกก้อนมี id ตั้งแต่เล็กถึงใหญ่ min/max ครอบทุก filter จึงข้ามไม่ได้เลย</div>
+          <strong>{T.otherTitle}</strong>
+          <Grid read={scatteredRead} label={T.otherAria} />
+          <div className="pk-stat"><b>{scatteredRows.toLocaleString()}</b>{T.stat(pct(scatteredRows), GROUPS)}</div>
+          <div className="pk-hint">{T.otherHint}</div>
         </div>
       </div>
       <figcaption className="viz-caption">
-        ค่าที่วัดจริงที่ตั้งต้นของแถบเลื่อน (id 1,000 ถึง 1,999): ไฟล์เรียง id อ่าน 2,072 แถว ไฟล์กระจายอ่าน 597,928 แถว ส่วนอื่นของแถบเลื่อนคำนวณจากช่วง id ของแต่ละ row group ตามกฎเดียวกัน
-        การข้ามนี้ทำในระดับ row group เท่านั้น Filter ยังอยู่เหนือ scan และกรองแถวที่เหลือซ้ำ
+        {T.caption1}
+        {' '}
+        {T.caption2}
       </figcaption>
     </figure>
   );

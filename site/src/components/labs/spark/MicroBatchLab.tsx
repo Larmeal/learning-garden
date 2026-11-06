@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
-import { StepControls, useStepper, type StepInfo } from './stepper';
+import { StepControls, useStepper, type Lang, type StepInfo } from './stepper';
 
 // One micro-batch of a stateful query, with and without a crash. Order of events follows MicroBatchExecution
 // (constructNextBatch writes offsets/N, runBatch runs and the sink writes, markMicroBatchEnd writes commits/N).
@@ -19,7 +19,7 @@ interface S extends StepInfo {
   engine: string;
 }
 
-const NORMAL: S[] = [
+const NORMAL_TH: S[] = [
   { name: 'ไฟล์มาใหม่', title: 'Source เห็นข้อมูลใหม่', text: 'ไฟล์ f02.json เข้ามาในโฟลเดอร์ที่ source ดูอยู่ ตัวเลข checkpoint ตอนนี้: batch 0 เสร็จแล้ว (offsets/0 และ commits/0)', file: true, offsets: false, state: false, sink: 0, commit: false, engine: 'รอ trigger' },
   { name: 'เลือกช่วง', title: 'constructNextBatch: ตัดสินว่า batch 1 อ่านอะไร', text: 'engine ถาม source ว่ามีข้อมูลถึงไหน แล้วกำหนดช่วง offset ของ batch 1 (ที่นี่คือไฟล์ f02) จากนั้นยังไม่ได้ทำงานอะไรกับข้อมูล', file: true, offsets: false, state: false, sink: 0, commit: false, engine: 'กำหนดช่วง offset ของ batch 1' },
   { name: 'offsets/1', title: 'เขียน offsets/1 ก่อนประมวลผล (write-ahead log)', text: 'ช่วง offset ถูกเขียนลง checkpoint ก่อน เพื่อให้ถ้าล่มกลางทาง ครั้งหน้ารู้ว่า batch 1 ต้องอ่านช่วงเดิมเป๊ะ ไฟล์นี้ยังเขียน batchWatermarkMs และ conf ที่ใช้ด้วย', file: true, offsets: true, state: false, sink: 0, commit: false, engine: 'พร้อมรัน batch 1' },
@@ -28,13 +28,76 @@ const NORMAL: S[] = [
   { name: 'commits/1', title: 'เขียน commits/1: batch 1 เสร็จสมบูรณ์', text: 'markMicroBatchEnd เขียน commits/1 และอัปเดต watermark ของ batch ถัดไป หลังจุดนี้ batch 1 จะไม่ถูกรันซ้ำอีก', file: true, offsets: true, state: true, sink: 1, commit: true, engine: 'จบ batch 1 รอ batch 2' },
 ];
 
-const CRASH: S[] = [
-  NORMAL[0], NORMAL[1], NORMAL[2], NORMAL[3], NORMAL[4],
+const CRASH_TH: S[] = [
+  NORMAL_TH[0], NORMAL_TH[1], NORMAL_TH[2], NORMAL_TH[3], NORMAL_TH[4],
   { name: 'ล่ม', title: 'ล่มก่อนเขียน commits/1', text: 'โปรแกรมหยุดหลังเขียน sink แต่ก่อน commits/1 ใน checkpoint จึงมี offsets/1 แต่ไม่มี commits/1 ซึ่งแปลว่า batch 1 "เริ่มแล้วแต่ไม่ทราบว่าจบ"', file: true, offsets: true, state: true, sink: 1, commit: false, crash: true, engine: 'หยุดทำงาน' },
   { name: 'รีสตาร์ท', title: 'เริ่มใหม่: อ่าน checkpoint', text: 'populateStartOffsets เห็น offsets/1 โดยไม่มี commits/1 จึงรู้ว่า batch 1 ต้องรันอีกครั้งด้วยช่วง offset เดิม ไม่ใช่เลือกใหม่ (วัดจริง: batch id ที่รันหลังรีสตาร์ทเริ่มที่ 1)', file: true, offsets: true, state: true, sink: 1, commit: false, engine: 'อ่าน offsets/1 รัน batch 1 ซ้ำ' },
   { name: 'รันซ้ำ', title: 'รัน batch 1 อีกรอบ: ผลเหมือนเดิม', text: 'state กลับไปเวอร์ชัน 0 แล้วคำนวณใหม่ ได้ผลเท่าเดิม แต่ sink ได้รับ batch 1 เป็นครั้งที่สอง ถ้า sink เขียนซ้ำไม่ได้ เช่นเขียนต่อท้ายไฟล์ จะได้ข้อมูลซ้ำ ต้องใช้ batchId ทำให้การเขียนเป็น idempotent', file: true, offsets: true, state: true, sink: 2, commit: false, engine: 'รัน batch 1 ซ้ำ' },
   { name: 'commits/1', title: 'เขียน commits/1', text: 'รอบนี้ครบถ้วน จากนั้นต่อด้วย batch 2 ได้ตามปกติ state ต่อเนื่องไม่ถูกรีเซ็ต (วัดจริง: ค่านับของ a ยังเป็น 2 ไม่กลับเป็น 1)', file: true, offsets: true, state: true, sink: 2, commit: true, engine: 'จบ batch 1 รอ batch 2' },
 ];
+
+const NORMAL_EN: S[] = [
+  { name: 'New file', title: 'The source sees new data', text: 'The file f02.json arrives in the folder that the source watches. The checkpoint now shows that batch 0 is done (offsets/0 and commits/0).', file: true, offsets: false, state: false, sink: 0, commit: false, engine: 'Waiting for trigger' },
+  { name: 'Pick range', title: 'constructNextBatch: decides what batch 1 reads', text: 'The engine asks the source how far the data goes, then fixes the offset range of batch 1 (here it is the file f02). Nothing has been done with the data yet.', file: true, offsets: false, state: false, sink: 0, commit: false, engine: 'Fix offset range of batch 1' },
+  { name: 'offsets/1', title: 'Write offsets/1 before processing (write-ahead log)', text: 'The offset range is written to the checkpoint first. If the query crashes midway, the next start knows that batch 1 must read exactly the same range. This file also records batchWatermarkMs and the conf that was used.', file: true, offsets: true, state: false, sink: 0, commit: false, engine: 'Ready to run batch 1' },
+  { name: 'runBatch', title: 'runBatch: read the data and update the state', text: 'The query runs as a normal job. StateStoreRestore reads the old values from state version 0. StateStoreSave writes the new values as version 1 (the file 1.delta).', file: true, offsets: true, state: true, sink: 0, commit: false, engine: 'Process + update state' },
+  { name: 'Write sink', title: 'Send the result of batch 1 to the sink', text: 'The sink receives the result of batch 1 together with batchId = 1, so that the sink can tell whether it has already received this batch.', file: true, offsets: true, state: true, sink: 1, commit: false, engine: 'Write the result' },
+  { name: 'commits/1', title: 'Write commits/1: batch 1 is complete', text: 'markMicroBatchEnd writes commits/1 and updates the watermark for the next batch. After this point batch 1 will never run again.', file: true, offsets: true, state: true, sink: 1, commit: true, engine: 'Batch 1 done, wait for batch 2' },
+];
+
+const CRASH_EN: S[] = [
+  NORMAL_EN[0], NORMAL_EN[1], NORMAL_EN[2], NORMAL_EN[3], NORMAL_EN[4],
+  { name: 'Crash', title: 'Crash before commits/1 is written', text: 'The program stops after writing to the sink but before commits/1. So the checkpoint has offsets/1 but no commits/1, which means batch 1 "started but we do not know if it finished".', file: true, offsets: true, state: true, sink: 1, commit: false, crash: true, engine: 'Stopped' },
+  { name: 'Restart', title: 'Restart: read the checkpoint', text: 'populateStartOffsets sees offsets/1 without commits/1. So it knows that batch 1 must run again with the same offset range, not a newly chosen one (measured: the batch id that runs after the restart starts at 1).', file: true, offsets: true, state: true, sink: 1, commit: false, engine: 'Read offsets/1, rerun batch 1' },
+  { name: 'Replay', title: 'Run batch 1 again: the same result', text: 'The state goes back to version 0 and is computed again, with the same result. But the sink receives batch 1 for the second time. If the sink cannot write twice safely, for example it appends to a file, the data is duplicated. You need to use batchId to make the write idempotent.', file: true, offsets: true, state: true, sink: 2, commit: false, engine: 'Rerun batch 1' },
+  { name: 'commits/1', title: 'Write commits/1', text: 'This time the batch is complete. Batch 2 can follow as usual. The state continues and is not reset (measured: the count of a is still 2, it does not go back to 1).', file: true, offsets: true, state: true, sink: 2, commit: true, engine: 'Batch 1 done, wait for batch 2' },
+];
+
+const STEPS: Record<Lang, { normal: S[]; crash: S[] }> = {
+  th: { normal: NORMAL_TH, crash: CRASH_TH },
+  en: { normal: NORMAL_EN, crash: CRASH_EN },
+};
+
+const TEXT: Record<Lang, {
+  title: string; pick: string; normal: string; crash: string; stepAria: (n: number, title: string) => string;
+  source: string; engine: string; crashed: string; checkpoint: string; sink: string; got: string; times: (n: number) => string;
+  dup: string; done: string; caption: string;
+}> = {
+  th: {
+    title: 'หนึ่ง micro-batch: เขียนอะไรลง checkpoint และเมื่อไร',
+    pick: 'เลือกสถานการณ์',
+    normal: 'ทำงานปกติ',
+    crash: 'ล่มก่อน commit',
+    stepAria: (n, title) => `ขั้นที่ ${n}: ${title}`,
+    source: 'Source (โฟลเดอร์ไฟล์)',
+    engine: 'Engine',
+    crashed: 'X ล่ม',
+    checkpoint: 'Checkpoint',
+    sink: 'Sink (เก็บผลลัพธ์)',
+    got: 'ได้รับ batch 1 แล้ว',
+    times: (n) => `${n} ครั้ง`,
+    dup: 'ซ้ำ! sink ต้องแยกแยะด้วย batchId',
+    done: 'batch 1 จบสมบูรณ์ ไม่ถูกรันซ้ำอีก',
+    caption: 'ลำดับเขียนไฟล์มาจาก MicroBatchExecution ใน Spark 4.2.0 ส่วนผลของการรันซ้ำมาจาก exercises/09_streaming.py ที่ลบ commits/1 เองแล้วรีสตาร์ท',
+  },
+  en: {
+    title: 'One micro-batch: what is written to the checkpoint, and when',
+    pick: 'Choose a scenario',
+    normal: 'Normal run',
+    crash: 'Crash before commit',
+    stepAria: (n, title) => `Step ${n}: ${title}`,
+    source: 'Source (folder of files)',
+    engine: 'Engine',
+    crashed: 'X crashed',
+    checkpoint: 'Checkpoint',
+    sink: 'Sink (stores the result)',
+    got: 'Received batch 1',
+    times: (n) => (n === 1 ? '1 time' : `${n} times`),
+    dup: 'Duplicate! The sink must use batchId',
+    done: 'Batch 1 is complete, never runs again',
+    caption: 'The order of the file writes comes from MicroBatchExecution in Spark 4.2.0. The result of the replay comes from exercises/09_streaming.py, which deletes commits/1 on purpose and then restarts.',
+  },
+};
 
 const EASE = { duration: 0.5, ease: 'easeInOut' as const };
 
@@ -48,58 +111,59 @@ function Chip({ x, y, w = 130, label, on, danger }: { x: number; y: number; w?: 
   );
 }
 
-export default function MicroBatchLab() {
+export default function MicroBatchLab({ lang = 'th' }: { lang?: Lang }) {
+  const T = TEXT[lang];
   const [mode, setMode] = useState<Mode>('normal');
-  const steps = mode === 'normal' ? NORMAL : CRASH;
+  const steps = mode === 'normal' ? STEPS[lang].normal : STEPS[lang].crash;
   const { step, go, playing, toggle, reset } = useStepper(steps.length, 3600);
   const s = steps[Math.min(step, steps.length - 1)];
   return (
     <figure className="viz">
-      <div className="viz-title">หนึ่ง micro-batch: เขียนอะไรลง checkpoint และเมื่อไร</div>
-      <div className="viz-steps" role="group" aria-label="เลือกสถานการณ์">
-        <button type="button" aria-pressed={mode === 'normal'} onClick={() => { setMode('normal'); reset(); }}>ทำงานปกติ</button>
-        <button type="button" aria-pressed={mode === 'crash'} onClick={() => { setMode('crash'); reset(); }}>ล่มก่อน commit</button>
+      <div className="viz-title">{T.title}</div>
+      <div className="viz-steps" role="group" aria-label={T.pick}>
+        <button type="button" aria-pressed={mode === 'normal'} onClick={() => { setMode('normal'); reset(); }}>{T.normal}</button>
+        <button type="button" aria-pressed={mode === 'crash'} onClick={() => { setMode('crash'); reset(); }}>{T.crash}</button>
       </div>
       <div className="viz-box">
-        <svg viewBox="0 0 880 340" role="img" aria-label={`ขั้นที่ ${step + 1}: ${s.title}`}>
+        <svg viewBox="0 0 880 340" role="img" aria-label={T.stepAria(step + 1, s.title)}>
           <rect className="band" x="10" y="10" width="860" height="320" rx="12" />
 
-          <text className="b" x="30" y="40">Source (โฟลเดอร์ไฟล์)</text>
+          <text className="b" x="30" y="40">{T.source}</text>
           <Chip x={30} y={56} label="f01.json (batch 0)" on={true} />
           <Chip x={30} y={92} label="f02.json" on={s.file} />
 
           <motion.g initial={false} animate={{ opacity: 1 }}>
             <rect className={`box ${s.crash ? '' : 'on'}`} x="250" y="60" width="210" height="110" rx="10" />
-            <text className="b" x="266" y="86">Engine</text>
+            <text className="b" x="266" y="86">{T.engine}</text>
             <text className="s" x="266" y="108">{s.engine}</text>
-            <motion.text className="b acc" x="266" y="140" initial={false} animate={{ opacity: s.crash ? 1 : 0 }} transition={EASE} style={{ fontSize: 18 }}>X ล่ม</motion.text>
+            <motion.text className="b acc" x="266" y="140" initial={false} animate={{ opacity: s.crash ? 1 : 0 }} transition={EASE} style={{ fontSize: 18 }}>{T.crashed}</motion.text>
           </motion.g>
           <line className="ln" x1="170" y1="106" x2="248" y2="106" />
 
-          <text className="b" x="500" y="40">Checkpoint</text>
+          <text className="b" x="500" y="40">{T.checkpoint}</text>
           <Chip x={500} y={56} label="offsets/0   commits/0" on={true} w={170} />
           <Chip x={500} y={92} label="offsets/1" on={s.offsets} w={120} />
           <Chip x={630} y={92} label="commits/1" on={s.commit} w={120} />
           <Chip x={500} y={128} label="state/0/0/1.delta" on={s.state} w={170} />
 
-          <text className="b" x="250" y="214">Sink (เก็บผลลัพธ์)</text>
+          <text className="b" x="250" y="214">{T.sink}</text>
           <rect className="box" x="250" y="228" width="300" height="76" rx="10" />
-          <text className="s" x="266" y="252">ได้รับ batch 1 แล้ว</text>
+          <text className="s" x="266" y="252">{T.got}</text>
           <motion.text className="b acc m" x="266" y="284" initial={false} animate={{ opacity: s.sink > 0 ? 1 : 0.3 }} transition={EASE} style={{ fontSize: 20 }}>
-            {s.sink} ครั้ง
+            {T.times(s.sink)}
           </motion.text>
 
           <motion.g initial={false} animate={{ opacity: s.sink >= 2 ? 1 : 0 }} transition={EASE}>
-            <text className="s b acc" x="580" y="262">ซ้ำ! sink ต้องแยกแยะด้วย batchId</text>
+            <text className="s b acc" x="580" y="262">{T.dup}</text>
           </motion.g>
           <motion.g initial={false} animate={{ opacity: s.commit ? 1 : 0 }} transition={EASE}>
-            <text className="s b" x="580" y="290">batch 1 จบสมบูรณ์ ไม่ถูกรันซ้ำอีก</text>
+            <text className="s b" x="580" y="290">{T.done}</text>
           </motion.g>
         </svg>
       </div>
-      <StepControls steps={steps} step={Math.min(step, steps.length - 1)} playing={playing} go={go} toggle={toggle} />
+      <StepControls steps={steps} step={Math.min(step, steps.length - 1)} playing={playing} go={go} toggle={toggle} lang={lang} />
       <figcaption className="viz-caption">
-        ลำดับเขียนไฟล์มาจาก MicroBatchExecution ใน Spark 4.2.0 ส่วนผลของการรันซ้ำมาจาก exercises/09_streaming.py ที่ลบ commits/1 เองแล้วรีสตาร์ท
+        {T.caption}
       </figcaption>
     </figure>
   );

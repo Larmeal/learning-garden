@@ -1,5 +1,5 @@
 import { motion, useReducedMotion } from 'motion/react';
-import { StepControls, useStepper, type StepInfo } from './stepper';
+import { StepControls, useStepper, type StepInfo, type Lang } from './stepper';
 
 // A job with two shuffles, run by exercises/13_internals.py on PySpark RDDs (Spark 4.2.0):
 //   pairs = parallelize(range(100), 4).map(x -> (x % 5, 1))
@@ -22,18 +22,58 @@ const STAGES = [
   { name: 'Stage 2', kind: 'ResultStage', from: 4, to: 4 },
 ];
 
-const STEPS: StepInfo[] = [
-  { name: 'สร้าง lineage', title: 'transformation ต่อ RDD เป็นห่วงโซ่ ยังไม่เกิด job', text: 'แต่ละ RDD จำว่าตัวเองมาจาก RDD ไหนและด้วยการดำเนินการอะไร (dependencies) ยังไม่มีข้อมูลถูกคำนวณ (วัดจริง: job group ว่างจนกว่าจะเรียก collect)' },
-  { name: 'action', title: 'collect() เรียก SparkContext.runJob', text: 'action ส่ง RDD สุดท้ายให้ DAGScheduler ซึ่งสร้าง ResultStage สำหรับ RDD นี้ก่อน แล้วไล่ย้อนตาม dependency เพื่อหาว่าต้องมี stage อะไรก่อนหน้า' },
-  { name: 'ไล่ย้อน', title: 'เจอ ShuffleDependency: ตัดตรงนั้น', text: 'narrow dependency (map) อยู่ใน stage เดียวกัน เพราะแต่ละ partition ลูกอ่านจาก partition พ่อไม่กี่ตัว pipeline ได้ ส่วน ShuffleDependency คือขอบเขต: DAGScheduler สร้าง ShuffleMapStage ให้ฝั่งพ่อ แล้วทำซ้ำไปเรื่อยๆ' },
-  { name: '3 stage', title: 'ได้ 3 stage ที่ต้องรันตามลำดับ', text: 'Stage 0 และ 1 เป็น ShuffleMapStage (จบด้วยการเขียนไฟล์ shuffle) Stage 2 เป็น ResultStage วัดจริง: 3 stage ที่มี 4, 4, 4 task (PySpark join ของ RDD เป็น union ตามด้วย shuffle หนึ่งครั้ง จึงได้แค่ 2 stage)' },
-  { name: 'รัน stage 0', title: 'ส่ง Stage 0 เป็น TaskSet', text: 'stage ที่ไม่มีพ่อที่ยังขาด output ถูกส่งก่อน DAGScheduler ห่อ partition ที่ขาดเป็น TaskSet ส่งให้ TaskScheduler (TaskSetManager เลือก task ให้ executor ที่ว่าง) task ของ ShuffleMapStage ชื่อ ShuffleMapTask' },
-  { name: 'รัน stage 1', title: 'output ของ stage 0 พร้อมแล้ว: ส่ง Stage 1', text: 'เมื่อทุก task ของ stage 0 เสร็จ ผลที่เขียนไว้ถูกลงทะเบียนกับ MapOutputTracker ที่ driver stage 1 ที่ต้องการผลนั้นจึงส่งได้ task ของ stage 1 อ่านไฟล์ shuffle จากผู้เขียนทุกตัวตามที่ tracker บอกตำแหน่ง' },
-  { name: 'รัน stage 2', title: 'Stage สุดท้ายคืนผลให้ driver', text: 'ResultStage รัน ResultTask ที่คืนผลของแต่ละ partition ไปที่ driver ซึ่งประกอบเป็นผลของ collect ถ้า executor หายระหว่างทาง ไฟล์ shuffle หาย DAGScheduler จะส่ง stage พ่อที่ขาดใหม่ (stage attempt ถัดไป) แทนที่จะเริ่มทั้ง job' },
-];
+const STEPS: Record<Lang, StepInfo[]> = {
+  th: [
+    { name: 'สร้าง lineage', title: 'transformation ต่อ RDD เป็นห่วงโซ่ ยังไม่เกิด job', text: 'แต่ละ RDD จำว่าตัวเองมาจาก RDD ไหนและด้วยการดำเนินการอะไร (dependencies) ยังไม่มีข้อมูลถูกคำนวณ (วัดจริง: job group ว่างจนกว่าจะเรียก collect)' },
+    { name: 'action', title: 'collect() เรียก SparkContext.runJob', text: 'action ส่ง RDD สุดท้ายให้ DAGScheduler ซึ่งสร้าง ResultStage สำหรับ RDD นี้ก่อน แล้วไล่ย้อนตาม dependency เพื่อหาว่าต้องมี stage อะไรก่อนหน้า' },
+    { name: 'ไล่ย้อน', title: 'เจอ ShuffleDependency: ตัดตรงนั้น', text: 'narrow dependency (map) อยู่ใน stage เดียวกัน เพราะแต่ละ partition ลูกอ่านจาก partition พ่อไม่กี่ตัว pipeline ได้ ส่วน ShuffleDependency คือขอบเขต: DAGScheduler สร้าง ShuffleMapStage ให้ฝั่งพ่อ แล้วทำซ้ำไปเรื่อยๆ' },
+    { name: '3 stage', title: 'ได้ 3 stage ที่ต้องรันตามลำดับ', text: 'Stage 0 และ 1 เป็น ShuffleMapStage (จบด้วยการเขียนไฟล์ shuffle) Stage 2 เป็น ResultStage วัดจริง: 3 stage ที่มี 4, 4, 4 task (PySpark join ของ RDD เป็น union ตามด้วย shuffle หนึ่งครั้ง จึงได้แค่ 2 stage)' },
+    { name: 'รัน stage 0', title: 'ส่ง Stage 0 เป็น TaskSet', text: 'stage ที่ไม่มีพ่อที่ยังขาด output ถูกส่งก่อน DAGScheduler ห่อ partition ที่ขาดเป็น TaskSet ส่งให้ TaskScheduler (TaskSetManager เลือก task ให้ executor ที่ว่าง) task ของ ShuffleMapStage ชื่อ ShuffleMapTask' },
+    { name: 'รัน stage 1', title: 'output ของ stage 0 พร้อมแล้ว: ส่ง Stage 1', text: 'เมื่อทุก task ของ stage 0 เสร็จ ผลที่เขียนไว้ถูกลงทะเบียนกับ MapOutputTracker ที่ driver stage 1 ที่ต้องการผลนั้นจึงส่งได้ task ของ stage 1 อ่านไฟล์ shuffle จากผู้เขียนทุกตัวตามที่ tracker บอกตำแหน่ง' },
+    { name: 'รัน stage 2', title: 'Stage สุดท้ายคืนผลให้ driver', text: 'ResultStage รัน ResultTask ที่คืนผลของแต่ละ partition ไปที่ driver ซึ่งประกอบเป็นผลของ collect ถ้า executor หายระหว่างทาง ไฟล์ shuffle หาย DAGScheduler จะส่ง stage พ่อที่ขาดใหม่ (stage attempt ถัดไป) แทนที่จะเริ่มทั้ง job' },
+  ],
+  en: [
+    { name: 'Build lineage', title: 'Transformations chain RDDs together, and no job exists yet', text: 'Each RDD remembers which RDD it came from and by what operation (its dependencies). No data has been computed yet (measured: the job group is empty until collect is called).' },
+    { name: 'action', title: 'collect() calls SparkContext.runJob', text: 'The action hands the last RDD to the DAGScheduler. It first creates a ResultStage for this RDD, then walks back along the dependencies to find which stages must come before it.' },
+    { name: 'Walk back', title: 'Found a ShuffleDependency: cut here', text: 'A narrow dependency (map) stays in the same stage, because each child partition reads from only a few parent partitions, so it can be pipelined. A ShuffleDependency is the boundary: the DAGScheduler creates a ShuffleMapStage for the parent side, and repeats this again and again.' },
+    { name: '3 stages', title: 'The result is 3 stages that must run in order', text: 'Stage 0 and 1 are ShuffleMapStages (they end by writing shuffle files). Stage 2 is the ResultStage. Measured: 3 stages with 4, 4 and 4 tasks (a PySpark RDD join is a union followed by one shuffle, so it gives only 2 stages).' },
+    { name: 'Run stage 0', title: 'Submit Stage 0 as a TaskSet', text: 'A stage with no missing parent output is submitted first. The DAGScheduler wraps the missing partitions in a TaskSet and gives it to the TaskScheduler (the TaskSetManager picks tasks for free executors). A task of a ShuffleMapStage is called a ShuffleMapTask.' },
+    { name: 'Run stage 1', title: 'Output of stage 0 is ready: submit Stage 1', text: 'When every task of stage 0 is done, the output it wrote is registered with the MapOutputTracker on the driver. So stage 1, which needs that output, can be submitted. Tasks of stage 1 read shuffle files from every writer, at the locations the tracker gives.' },
+    { name: 'Run stage 2', title: 'The last stage returns results to the driver', text: 'The ResultStage runs ResultTasks that return the result of each partition to the driver, which assembles the result of collect. If an executor is lost on the way and its shuffle files disappear, the DAGScheduler resubmits the missing parent stage (the next stage attempt) instead of restarting the whole job.' },
+  ],
+};
 
-export default function SchedulerLab() {
-  const { step, go, playing, toggle } = useStepper(STEPS.length, 3800);
+const TEXT = {
+  th: {
+    title: 'DAGScheduler ตัด job เป็น stage ตรง shuffle',
+    aria: (n: number, title: string) => `ขั้นที่ ${n}: ${title}`,
+    tasks: 'task ต่อ partition: ShuffleMapTask ที่เขียนไฟล์ shuffle (stage 0, 1) และ ResultTask ที่คืนผลให้ driver (stage 2)',
+    n4: 'DAGScheduler -> TaskScheduler: TaskSet(stage 0, 4 tasks) -> executors',
+    n5: 'MapOutputTracker: shuffle 0 มี output ครบ 4 ตัว -> ส่ง stage 1',
+    n6: 'MapOutputTracker: shuffle 1 ครบ -> ส่ง ResultStage -> collect() ได้ผล',
+    status: 'สถานะ stage ตอนนี้: ',
+    done: 'เสร็จ',
+    running: 'กำลังรัน',
+    waiting: 'รอ',
+  },
+  en: {
+    title: 'The DAGScheduler cuts a job into stages at each shuffle',
+    aria: (n: number, title: string) => `Step ${n}: ${title}`,
+    tasks: 'one task per partition: ShuffleMapTask writes shuffle files (stage 0, 1), ResultTask returns results to the driver (stage 2)',
+    n4: 'DAGScheduler -> TaskScheduler: TaskSet(stage 0, 4 tasks) -> executors',
+    n5: 'MapOutputTracker: shuffle 0 has all 4 outputs -> submit stage 1',
+    n6: 'MapOutputTracker: shuffle 1 complete -> submit ResultStage -> collect() returns',
+    status: 'Stage status now: ',
+    done: 'done',
+    running: 'running',
+    waiting: 'waiting',
+  },
+};
+
+export default function SchedulerLab({ lang = 'th' }: { lang?: Lang }) {
+  const T = TEXT[lang];
+  const steps = STEPS[lang];
+  const { step, go, playing, toggle } = useStepper(steps.length, 3800);
   const reduce = useReducedMotion();
   const t = reduce ? { duration: 0 } : { duration: 0.55, ease: 'easeInOut' as const };
   const showStages = step >= 3;
@@ -42,9 +82,9 @@ export default function SchedulerLab() {
   const doneUpTo = step >= 4 ? step - 4 : -1; // stages with index < runningStage are done
   return (
     <figure className="viz">
-      <div className="viz-title">DAGScheduler ตัด job เป็น stage ตรง shuffle</div>
+      <div className="viz-title">{T.title}</div>
       <div className="viz-box">
-        <svg viewBox="0 0 880 340" role="img" aria-label={`ขั้นที่ ${step + 1}: ${STEPS[step].title}`}>
+        <svg viewBox="0 0 880 340" role="img" aria-label={T.aria(step + 1, steps[step].title)}>
           <defs>
             <marker id="sc-ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
               <path className="mk" d="M0 0 L10 5 L0 10 z" />
@@ -123,22 +163,22 @@ export default function SchedulerLab() {
             }),
           )}
           <motion.text className="s" x="34" y="232" initial={false} animate={{ opacity: showStages ? 1 : 0 }} transition={t}>
-            task ต่อ partition: ShuffleMapTask ที่เขียนไฟล์ shuffle (stage 0, 1) และ ResultTask ที่คืนผลให้ driver (stage 2)
+            {T.tasks}
           </motion.text>
 
           {/* driver notes */}
           <motion.g initial={false} animate={{ opacity: step >= 4 ? 1 : 0 }} transition={t}>
             <rect className="box" x="34" y="248" width="800" height="58" rx="8" />
             <text className="m s" x="48" y="270">
-              {step === 4 && 'DAGScheduler -> TaskScheduler: TaskSet(stage 0, 4 tasks) -> executors'}
-              {step === 5 && 'MapOutputTracker: shuffle 0 มี output ครบ 4 ตัว -> ส่ง stage 1'}
-              {step === 6 && 'MapOutputTracker: shuffle 1 ครบ -> ส่ง ResultStage -> collect() ได้ผล'}
+              {step === 4 && T.n4}
+              {step === 5 && T.n5}
+              {step === 6 && T.n6}
             </text>
-            <text className="s" x="48" y="292">สถานะ stage ตอนนี้: {STAGES.map((s, i) => `${s.name} ${i < runningStage ? 'เสร็จ' : i === runningStage ? 'กำลังรัน' : 'รอ'}`).join(' | ')}</text>
+            <text className="s" x="48" y="292">{T.status}{STAGES.map((s, i) => `${s.name} ${i < runningStage ? T.done : i === runningStage ? T.running : T.waiting}`).join(' | ')}</text>
           </motion.g>
         </svg>
       </div>
-      <StepControls steps={STEPS} step={step} playing={playing} go={go} toggle={toggle} />
+      <StepControls steps={steps} step={step} playing={playing} go={go} toggle={toggle} lang={lang} />
     </figure>
   );
 }

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import type { Lang } from './stepper';
 
 // Optimized plans printed by explain() for df.withColumn("u", plus1("id")) style queries, Spark 4.2.0
 // (asserted by subjects/spark/code/exercises/08_udf.py). Expression ids are removed.
@@ -12,17 +13,14 @@ interface N {
 }
 interface Case {
   id: string;
-  label: string;
   code: string;
   nodes: N[];
-  verdict: string;
   good: boolean;
 }
 
 const CASES: Case[] = [
   {
     id: 'other',
-    label: 'filter คอลัมน์อื่น',
     code: 'df.withColumn("u", plus1("id")).filter(col("v") > 4)',
     nodes: [
       { id: 'p', text: 'Project [id, (id * 2) AS v, pythonUDF0 AS u]' },
@@ -30,12 +28,10 @@ const CASES: Case[] = [
       { id: 'f', text: 'Filter ((id * 2) > 4)', hot: true },
       { id: 'r', text: 'Range (0, 10, step=1, splits=16)' },
     ],
-    verdict: 'Filter ลงไปอยู่ใต้ UDF ได้ เพราะไม่เกี่ยวกับผลของ UDF และ UDF เป็น deterministic แถวที่ถูกกรองออกไม่ต้องส่งไป Python เลย',
     good: true,
   },
   {
     id: 'output',
-    label: 'filter ผลของ UDF',
     code: 'df.withColumn("u", plus1("id")).filter(col("u") > 4)',
     nodes: [
       { id: 'p', text: 'Project [id, (id * 2) AS v, pythonUDF0 AS u]' },
@@ -45,12 +41,10 @@ const CASES: Case[] = [
       { id: 'u1', text: 'ArrowEvalPython [plus1(id)], [pythonUDF0], 101', udf: true, hot: true },
       { id: 'r', text: 'Range (0, 10, step=1, splits=16)' },
     ],
-    verdict: 'Filter ที่ใช้ผลของ UDF ต้องอยู่เหนือ UDF และแผนมี ArrowEvalPython สองตัว: UDF ถูกคำนวณสองรอบ (หนึ่งรอบเพื่อ filter อีกรอบเพื่อ column u) ดูคำเตือนเรื่องการเรียกซ้ำใน docstring ของ udf',
     good: false,
   },
   {
     id: 'inside',
-    label: 'UDF อยู่ในเงื่อนไข filter',
     code: 'df.filter(plus1("id") > 4)',
     nodes: [
       { id: 'p', text: 'Project [id, (id * 2) AS v]' },
@@ -59,12 +53,10 @@ const CASES: Case[] = [
       { id: 'u1', text: 'ArrowEvalPython [plus1(id)], [pythonUDF0], 101', udf: true, hot: true },
       { id: 'r', text: 'Range (0, 10, step=1, splits=16)' },
     ],
-    verdict: 'UDF ต้องรันกับทุกแถวก่อน แล้วค่อย filter ไม่มีทางเลี่ยงด้วยแผน ถ้าเงื่อนไขอื่นกรองได้ก่อน ให้เขียนไว้ก่อนและให้ UDF ตามหลัง',
     good: false,
   },
   {
     id: 'nondet',
-    label: 'UDF แบบ non-deterministic',
     code: 'df.withColumn("u", rnd("id")).filter(col("v") > 4)  # rnd.asNondeterministic()',
     nodes: [
       { id: 'p', text: 'Project [id, (id * 2) AS v, pythonUDF0 AS u]' },
@@ -72,23 +64,52 @@ const CASES: Case[] = [
       { id: 'u1', text: 'ArrowEvalPython [rnd(id)], [pythonUDF0], 101', udf: true },
       { id: 'r', text: 'Range (0, 10, step=1, splits=16)' },
     ],
-    verdict: 'ถ้าประกาศว่า UDF ไม่ deterministic Spark ไม่ย้าย filter ลงไปใต้มัน เพราะการกรองก่อนอาจเปลี่ยนผลของฟังก์ชัน (เช่นที่ใช้ตัวสุ่มหรือสถานะ)',
     good: false,
   },
 ];
 
-export default function UdfBarrierLab() {
+const TEXT: Record<Lang, {
+  title: string; pick: string; good: string; bad: string; cases: Record<string, { label: string; verdict: string }>;
+}> = {
+  th: {
+    title: 'Filter อยู่ตรงไหนของ UDF: ดูแผนที่ Optimizer เขียนให้',
+    pick: 'เลือกกรณี',
+    good: 'Optimizer ช่วยได้',
+    bad: 'ตรงนี้คือ barrier',
+    cases: {
+      other: { label: 'filter คอลัมน์อื่น', verdict: 'Filter ลงไปอยู่ใต้ UDF ได้ เพราะไม่เกี่ยวกับผลของ UDF และ UDF เป็น deterministic แถวที่ถูกกรองออกไม่ต้องส่งไป Python เลย' },
+      output: { label: 'filter ผลของ UDF', verdict: 'Filter ที่ใช้ผลของ UDF ต้องอยู่เหนือ UDF และแผนมี ArrowEvalPython สองตัว: UDF ถูกคำนวณสองรอบ (หนึ่งรอบเพื่อ filter อีกรอบเพื่อ column u) ดูคำเตือนเรื่องการเรียกซ้ำใน docstring ของ udf' },
+      inside: { label: 'UDF อยู่ในเงื่อนไข filter', verdict: 'UDF ต้องรันกับทุกแถวก่อน แล้วค่อย filter ไม่มีทางเลี่ยงด้วยแผน ถ้าเงื่อนไขอื่นกรองได้ก่อน ให้เขียนไว้ก่อนและให้ UDF ตามหลัง' },
+      nondet: { label: 'UDF แบบ non-deterministic', verdict: 'ถ้าประกาศว่า UDF ไม่ deterministic Spark ไม่ย้าย filter ลงไปใต้มัน เพราะการกรองก่อนอาจเปลี่ยนผลของฟังก์ชัน (เช่นที่ใช้ตัวสุ่มหรือสถานะ)' },
+    },
+  },
+  en: {
+    title: 'Where the Filter sits relative to the UDF: look at the plan the Optimizer writes',
+    pick: 'Choose a case',
+    good: 'The Optimizer helps',
+    bad: 'This is a barrier',
+    cases: {
+      other: { label: 'filter on another column', verdict: 'The Filter can move below the UDF, because it does not depend on the result of the UDF and the UDF is deterministic. The rows that are filtered out never have to be sent to Python.' },
+      output: { label: 'filter on the UDF result', verdict: 'A Filter that uses the result of the UDF must stay above the UDF, and the plan has two ArrowEvalPython nodes: the UDF is computed twice (once for the filter and once for the column u). See the warning about repeated calls in the docstring of udf.' },
+      inside: { label: 'UDF inside the filter condition', verdict: 'The UDF must run on every row first, and only then the filter runs. The plan cannot avoid this. If another condition can filter first, write it first and let the UDF come after.' },
+      nondet: { label: 'non-deterministic UDF', verdict: 'If you declare the UDF as non-deterministic, Spark does not move the filter below it, because filtering first could change the result of the function (for example when it uses a random number or state).' },
+    },
+  },
+};
+
+export default function UdfBarrierLab({ lang = 'th' }: { lang?: Lang }) {
+  const T = TEXT[lang];
   const [cur, setCur] = useState('other');
   const reduce = useReducedMotion();
   const c = CASES.find((x) => x.id === cur)!;
   const t = reduce ? { duration: 0 } : { type: 'spring' as const, stiffness: 260, damping: 30 };
   return (
     <figure className="viz">
-      <div className="viz-title">Filter อยู่ตรงไหนของ UDF: ดูแผนที่ Optimizer เขียนให้</div>
-      <div className="viz-steps" role="group" aria-label="เลือกกรณี">
+      <div className="viz-title">{T.title}</div>
+      <div className="viz-steps" role="group" aria-label={T.pick}>
         {CASES.map((x) => (
           <button key={x.id} type="button" aria-pressed={cur === x.id} onClick={() => setCur(x.id)}>
-            {x.label}
+            {T.cases[x.id].label}
           </button>
         ))}
       </div>
@@ -116,8 +137,8 @@ export default function UdfBarrierLab() {
         </div>
       </div>
       <div className="viz-now" data-bad={c.good ? undefined : ''} aria-live="polite">
-        <strong>{c.good ? 'Optimizer ช่วยได้' : 'ตรงนี้คือ barrier'}</strong>
-        <span>{c.verdict}</span>
+        <strong>{c.good ? T.good : T.bad}</strong>
+        <span>{T.cases[c.id].verdict}</span>
       </div>
     </figure>
   );
