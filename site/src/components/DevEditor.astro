@@ -1,0 +1,218 @@
+---
+// Dev only (rendered by LessonPage.astro when running `astro dev`): the MDX source of the page, shown instead of the
+// page while "Edit" is on. "View" saves first and only switches back when the text compiles and the page renders;
+// the checks run in the /__edit middleware of astro.config.mjs.
+import type { Lang } from '../i18n';
+import DevEditToggle from './DevEditToggle.astro';
+
+interface Props {
+  lang: Lang;
+  file: string;
+  vscode?: string;
+}
+const { lang, file, vscode } = Astro.props;
+const en = lang === 'en';
+---
+
+<section
+  class="dev-editor"
+  data-file={file}
+  data-t-loading={en ? 'Loading...' : 'กำลังโหลด...'}
+  data-t-saving={en ? 'Checking and saving...' : 'กำลังตรวจและบันทึก...'}
+  data-t-saved={en ? 'Saved' : 'บันทึกแล้ว'}
+  data-t-failed={en ? 'Not saved, the page stays as it was:' : 'ยังไม่ได้บันทึก หน้ายังเป็นฉบับเดิม:'}
+  data-t-compile={en ? 'The MDX does not compile' : 'MDX นี้ compile ไม่ผ่าน'}
+  data-t-frontmatter={en ? 'The frontmatter (the block between the --- lines) is not valid' : 'frontmatter (ส่วนระหว่างบรรทัด ---) ไม่ถูกต้อง'}
+  data-t-render={en ? 'The page could not render, the file was put back' : 'หน้านี้ render ไม่ได้ จึงคืนไฟล์เดิมให้แล้ว'}
+  data-t-leave={en ? 'You have unsaved changes.' : 'มีการแก้ที่ยังไม่ได้บันทึก'}
+  data-t-restored={en ? 'Your unsaved text was restored.' : 'กู้ข้อความที่ยังไม่ได้บันทึกของคุณกลับมาแล้ว'}
+>
+  <div class="dev-editor-head">
+    <strong>{file}</strong>
+    {vscode && <a href={vscode}>VS Code</a>}
+  </div>
+  <p class="dev-editor-hint">
+    {en
+      ? 'This is the MDX source of the lesson text, for both reading modes. Keep tags such as <Step> and <Question> whole. Press View to save and see the page. It only changes the file on this machine.'
+      : 'ซอร์ส MDX ของเนื้อหาบทเรียน ใช้กับทั้งสองโหมดการอ่าน เก็บแท็กอย่าง <Step> และ <Question> ให้ครบ กด View เพื่อบันทึกและดูหน้า ไฟล์เปลี่ยนเฉพาะในเครื่องนี้'}
+  </p>
+  <textarea spellcheck="false" aria-label={file} rows="12"></textarea>
+  <div class="dev-editor-foot">
+    <span class="dev-editor-status" data-edit-status aria-live="polite"></span>
+    <div class="dev-editor-bar">
+      <DevEditToggle />
+      <span class="spacer"></span>
+      <button type="button" class="btn sm" data-edit-discard>{en ? 'Discard changes' : 'ทิ้งการแก้ไข'}</button>
+      <button type="button" class="btn sm primary" data-edit-save>{en ? 'Save (Ctrl+S)' : 'บันทึก (Ctrl+S)'}</button>
+    </div>
+  </div>
+</section>
+
+<script is:inline>
+  (function () {
+    var root = document.documentElement;
+    var ed = document.querySelector('.dev-editor');
+    if (!ed) return;
+    var area = ed.querySelector('textarea');
+    var statusEl = ed.querySelector('[data-edit-status]');
+    var file = ed.dataset.file;
+    var views = document.querySelectorAll('[data-edit-view]');
+    var edits = document.querySelectorAll('[data-edit-edit]');
+    var KEY = 'garden:edit'; // '1' while Edit is on, so a reload of the page comes back into Edit
+    var DRAFT = KEY + '-draft'; // what is in the box, so a reload never loses it
+    var CARET = KEY + '-caret';
+    var H = { 'x-garden-edit': '1' };
+    var eol = '\n';
+    // The text that is on disk. null means "not known to match the box" (after a refused save), so the box counts as unsaved.
+    var saved = '';
+    var busy = false;
+
+    function say(msg, kind) {
+      statusEl.textContent = msg || '';
+      statusEl.dataset.kind = kind || '';
+    }
+    function blocked(on) {
+      views.forEach(function (b) { b.dataset.blocked = on ? '1' : ''; });
+    }
+    // The text box takes the height of its text, so the page scrolls like the page it replaces.
+    function grow() {
+      area.style.height = 'auto';
+      area.style.height = area.scrollHeight + 2 + 'px';
+    }
+    function setMode(on) {
+      if (on) {
+        root.setAttribute('data-edit', '');
+        // Edit always uses the layout of the long page (header, lesson list, title), also when the learner reads step by step.
+        // Only the attribute changes, not the saved choice, and View reloads the page, which puts the saved choice back.
+        root.dataset.view = 'read';
+      } else root.removeAttribute('data-edit');
+      views.forEach(function (b) { b.setAttribute('aria-pressed', String(!on)); });
+      edits.forEach(function (b) { b.setAttribute('aria-pressed', String(on)); });
+    }
+    function dirty() { return area.value !== saved; }
+    function keepDraft() {
+      try { sessionStorage.setItem(DRAFT, JSON.stringify({ file: file, text: area.value })); } catch (e) { /* too big: skip */ }
+    }
+    function dropDraft() { sessionStorage.removeItem(DRAFT); }
+    function parse(r) {
+      return r.json().then(function (j) { return { status: r.status, j: j }; });
+    }
+    function load() {
+      say(ed.dataset.tLoading, '');
+      return fetch('/__edit?file=' + encodeURIComponent(file), { headers: H })
+        .then(parse)
+        .then(function (r) {
+          if (!r.j.ok) throw new Error(r.j.error);
+          eol = r.j.text.indexOf('\r\n') >= 0 ? '\r\n' : '\n';
+          saved = r.j.text.replace(/\r\n/g, '\n');
+          area.value = saved;
+          grow();
+          blocked(false);
+          say('', '');
+        })
+        .catch(function (e) { say(ed.dataset.tFailed + ' ' + e.message, 'error'); });
+    }
+    // Back to the page. The dev server does not reload the page when this editor saves, so do it here, once.
+    function leave() {
+      sessionStorage.removeItem(KEY);
+      sessionStorage.removeItem(CARET);
+      dropDraft();
+      location.reload();
+    }
+    function applyResult(j) {
+      if (j.ok) {
+        saved = area.value;
+        dropDraft();
+        blocked(false);
+        say(ed.dataset.tSaved, 'ok');
+        return true;
+      }
+      var why = j.stage === 'compile' ? ed.dataset.tCompile : j.stage === 'frontmatter' ? ed.dataset.tFrontmatter : j.stage === 'render' ? ed.dataset.tRender : '';
+      saved = null;
+      say(ed.dataset.tFailed + ' ' + (why ? why + ': ' : '') + j.error, 'error');
+      blocked(true);
+      return false;
+    }
+    // Resolves true when the text on disk equals the text in the box and the page renders with it.
+    function save() {
+      if (!dirty()) return Promise.resolve(true);
+      if (busy) return Promise.resolve(false);
+      busy = true;
+      say(ed.dataset.tSaving, '');
+      keepDraft();
+      sessionStorage.setItem(CARET, JSON.stringify({ s: area.selectionStart, y: window.scrollY }));
+      return fetch('/__edit', {
+        method: 'POST',
+        headers: Object.assign({ 'content-type': 'application/json' }, H),
+        body: JSON.stringify({ file: file, text: area.value.replace(/\n/g, eol), page: location.pathname }),
+      })
+        .then(parse)
+        .then(function (r) {
+          busy = false;
+          return applyResult(r.j);
+        })
+        .catch(function (e) {
+          busy = false;
+          say(ed.dataset.tFailed + ' ' + e.message, 'error');
+          blocked(true);
+          return false;
+        });
+    }
+    function enter() {
+      setMode(true);
+      sessionStorage.setItem(KEY, '1');
+      return load().then(function () {
+        // If the page was reloaded while the box held text that is not on disk, put that text back.
+        try {
+          var d = JSON.parse(sessionStorage.getItem(DRAFT) || 'null');
+          if (d && d.file === file && typeof d.text === 'string' && d.text !== area.value) {
+            area.value = d.text;
+            grow();
+            say(ed.dataset.tRestored, '');
+          }
+        } catch (e) { /* no draft */ }
+        var back = null;
+        try { back = JSON.parse(sessionStorage.getItem(CARET) || 'null'); } catch (e) { /* nothing to restore */ }
+        area.focus({ preventScroll: true });
+        if (back) {
+          area.setSelectionRange(back.s, back.s);
+          window.scrollTo(0, back.y || 0);
+        } else {
+          // coming from the page: show the top of the editor, just under the header
+          var top = ed.getBoundingClientRect().top + window.scrollY - 90;
+          window.scrollTo(0, Math.max(0, top));
+        }
+      });
+    }
+
+    edits.forEach(function (b) { b.addEventListener('click', function () { if (!root.hasAttribute('data-edit')) enter(); }); });
+    views.forEach(function (b) {
+      b.addEventListener('click', function () {
+        if (!root.hasAttribute('data-edit')) return;
+        save().then(function (ok) { if (ok) leave(); });
+      });
+    });
+    ed.querySelector('[data-edit-save]').addEventListener('click', function () { save(); });
+    ed.querySelector('[data-edit-discard]').addEventListener('click', function () {
+      dropDraft();
+      load();
+    });
+    area.addEventListener('input', function () {
+      grow();
+      keepDraft();
+      blocked(false);
+      if (statusEl.dataset.kind === 'ok') say('', '');
+    });
+    area.addEventListener('keydown', function (e) {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        save();
+      }
+    });
+    window.addEventListener('resize', function () { if (root.hasAttribute('data-edit')) grow(); });
+    window.addEventListener('beforeunload', function (e) {
+      if (root.hasAttribute('data-edit') && dirty()) { e.preventDefault(); e.returnValue = ed.dataset.tLeave; }
+    });
+    if (sessionStorage.getItem(KEY) === '1') enter();
+  })();
+</script>

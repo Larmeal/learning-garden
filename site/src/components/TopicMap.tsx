@@ -29,6 +29,14 @@ export interface MapPhase {
 
 const finished = (done: Record<string, boolean>, l: MapLesson) => isFinished(done, l.pages.map((p) => p.id));
 const pad = (n: number) => String(n).padStart(2, '0');
+// The lesson page reads this key before it paints (layouts/Base.astro), so the button the learner pressed picks the mode.
+const rememberView = (view: 'steps' | 'read') => {
+  try {
+    localStorage.setItem('garden:view', view);
+  } catch {
+    // storage blocked: the lesson opens in its default mode
+  }
+};
 
 export default function TopicMap({ lessons, phases, initial, lang = 'th' }: { lessons: MapLesson[]; phases: MapPhase[]; initial: string; lang?: Lang }) {
   const t = ui[lang].map;
@@ -155,7 +163,6 @@ export default function TopicMap({ lessons, phases, initial, lang = 'th' }: { le
             <div className="panel-detail">
               <div className="actions">
                 <Pips level={cur.level} lang={lang} />
-                {cur.format === 'steps' && <span className="badge">{t.stepByStep}</span>}
               </div>
               <p>{cur.summary}</p>
               <dl>
@@ -179,9 +186,20 @@ export default function TopicMap({ lessons, phases, initial, lang = 'th' }: { le
               </dl>
             </div>
             <div className="actions">
-              <a className="btn primary" href={cur.href}>
-                {cur.stage === 'seed' ? t.outline : t.open}
-              </a>
+              {cur.format === 'steps' && cur.stage !== 'seed' ? (
+                <>
+                  <a className="btn primary" href={cur.href} onClick={() => rememberView('steps')} onAuxClick={() => rememberView('steps')}>
+                    {t.stepByStep}
+                  </a>
+                  <a className="btn" href={cur.href} onClick={() => rememberView('read')} onAuxClick={() => rememberView('read')}>
+                    {ui[lang].lesson.readLong}
+                  </a>
+                </>
+              ) : (
+                <a className="btn primary" href={cur.href}>
+                  {cur.stage === 'seed' ? t.outline : t.open}
+                </a>
+              )}
             </div>
           </motion.div>
         </AnimatePresence>
