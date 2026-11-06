@@ -1,0 +1,111 @@
+---
+title: YARN
+summary: ResourceManager, NodeManager และ ApplicationMaster ทำอะไร ทำไม YARN ต้องมี AM คั่นกลาง client mode กับ cluster mode ต่างกันตรงที่ driver อยู่ที่ไหน AM ถาม RM ถี่แค่ไหน และเกิดอะไรขึ้นเมื่อ executor หรือ AM ตาย (อ่านจากซอร์ส ยังไม่ได้รันบน YARN)
+order: 12
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import ClusterLaunchLab from '../../../../components/labs/spark/ClusterLaunchLab';
+import YarnAllocLab from '../../../../components/labs/spark/YarnAllocLab';
+
+<Callout type="warn" title="หน้านี้ยังไม่ได้รันบน YARN">
+เครื่องที่เขียนบทนี้ไม่มี Hadoop cluster ทุกข้อในหน้านี้อ่านจากซอร์ส Spark 4.2.0 (`resource-managers/yarn/`) และเอกสารของ Spark ไม่ได้ทดลอง PySpark มี jar `spark-yarn` มาให้ในแพ็กเกจ จึงเปิดใช้ได้เมื่อมี cluster
+</Callout>
+
+<Step>
+
+## ใครทำอะไรบน YARN
+
+YARN เป็น cluster manager ของ Hadoop ที่ใช้กับ Spark, Hive, MapReduce และงานอื่นรวมกันบน cluster เดียว จึงมีบทบาทมากกว่า standalone
+
+| บทบาท | อยู่ที่ไหน | ทำอะไร |
+|---|---|---|
+| ResourceManager (RM) | 1 ตัวต่อ cluster | ถือ core และ memory ของทั้ง cluster ตัดสินว่า container ของแอปไหนไปอยู่เครื่องไหน |
+| NodeManager (NM) | ทุกเครื่อง | ตัวแทนของ RM บนเครื่องนั้น เปิดและเฝ้า container ตามที่ได้รับสั่ง |
+| container | บน NM | กล่อง process ที่ถูกจำกัด core และ memory ทุกส่วนของ Spark ที่รันใน cluster คือ container |
+| ApplicationMaster (AM) | container แรกของแอป | ตัวแทนของแอปคุยกับ RM: ขอ container เพิ่ม คืน container และรายงานสถานะ |
+
+ข้อที่ต่างจาก standalone คือ **มี AM คั่นกลาง** driver ไม่ได้คุยกับ RM เอง แต่ AM ทำให้ ซึ่งทำให้ YARN รู้จัก "แอป" ของ Spark เป็นหน่วยหนึ่งที่มี container ตัวแรกของตัวเอง ดูลำดับตั้งแต่ส่งงานจนได้ task (สลับระหว่าง cluster mode กับ client mode)
+
+<ClusterLaunchLab cm="yarn" client:visible />
+
+</Step>
+
+<Step>
+
+## Client Mode กับ Cluster Mode ต่างกันที่ Driver อยู่ไหน
+
+ทั้งสองแบบมี AM แต่ทำงานต่างกัน (`Client.scala:1139-1144` เลือก class ที่ AM รัน)
+
+| | cluster mode | client mode |
+|---|---|---|
+| driver อยู่ที่ไหน | ใน AM container เป็น thread ชื่อ Driver | บนเครื่องที่รัน `spark-submit` หรือ notebook |
+| class ของ AM | `ApplicationMaster` (`runDriver`) | `ExecutorLauncher` (`runExecutorLauncher`) |
+| AM ทำอะไร | เรียกโปรแกรมของคุณ รอ SparkContext แล้วขอ container | ต่อกลับไปหา driver แล้วขอ container แทน driver |
+| ปิดเครื่องที่ส่งงาน | แอปยังรัน (ถ้าตั้ง `spark.yarn.submit.waitAppCompletion=false` spark-submit ออกเลย) | แอปจบ เพราะ driver หายไป |
+| executor ต้องต่อกลับ driver ที่ไหน | ในเครื่อง cluster ด้วยกัน | เครื่องของคุณ ต้องเปิด firewall และตั้ง `spark.driver.host` ให้ถูก |
+| เหมาะกับ | งานที่ปล่อยทิ้งไว้ (production, schedule) | งานโต้ตอบ (notebook, `pyspark` shell) ที่อยากเห็น output ตรงๆ |
+
+สองข้อที่ผิดบ่อย
+
+- **รัน client mode จากเครื่องนอก cluster** executor ต่อกลับเครื่องนั้นไม่ได้ (NAT, firewall) แอปค้างตอนรอ executor ลงทะเบียน
+- **คิดว่า cluster mode แล้ว log อยู่ที่ terminal** driver อยู่ใน container จึงต้องดู log ผ่าน YARN (`yarn logs -applicationId ...`) หรือ UI ของ RM
+
+ใน cluster mode ถ้า AM container ตาย YARN เปิด AM ตัวใหม่ได้ตาม `spark.yarn.maxAppAttempts` (ถ้าไม่ตั้งใช้ค่าของ YARN เอง) แต่ driver อยู่ในนั้น โปรแกรมของคุณเริ่มใหม่ตั้งแต่ต้น
+
+</Step>
+
+<Step>
+
+## AM ถาม RM ถี่แค่ไหน
+
+AM ไม่ได้รอ RM ตอบแบบ callback แต่มี thread ชื่อ Reporter ที่เรียก `allocate()` ไปที่ RM เป็นช่วงๆ การเรียกครั้งหนึ่งทำสองอย่างพร้อมกัน ส่งคำขอ container ที่ค้างอยู่ และรับ container ที่ RM จัดให้ตอนนี้ (กับรายการ container ที่จบหรือตายไปแล้ว)
+
+<YarnAllocLab client:visible />
+
+กติกา (จาก `ApplicationMaster.scala`): ขณะที่ยังมี container ค้างขอ รอ 200 มิลลิวินาที แล้วเพิ่มเป็นเท่าตัวทุกครั้งจนถึงเพดาน `spark.yarn.scheduler.heartbeat.interval-ms` (3 วินาที) เมื่อไม่มีอะไรค้างแล้วก็ยังเรียกทุก 3 วินาที เพราะ
+
+- เป็น heartbeat ที่บอก RM ว่า AM ยังอยู่ ถ้าเงียบนานเกิน RM ถือว่า AM ตาย
+- เป็นทางเดียวที่ RM บอก AM ว่า container ไหนจบหรือถูกฆ่า
+
+</Step>
+
+<Step>
+
+## ขนาด Container และไฟล์ที่ต้องส่งไปด้วย
+
+**ขนาด container ของ executor** ไม่ใช่แค่ `spark.executor.memory` แต่เป็นผลรวมที่ `YarnAllocator` ขอจาก RM (`totalMemMiB` ใน `ResourceProfile`) คือ heap บวก `spark.executor.memoryOverhead` (และ `spark.executor.pyspark.memory` ถ้าตั้ง) NodeManager ฆ่า container ที่ใช้ memory เกินขนาดที่ขอ และ RM ปฏิเสธคำขอที่ใหญ่เกินกว่าที่ cluster ตั้งเพดานไว้ ดังนั้นอาการ "executor ถูกฆ่าทั้งที่ heap ไม่เต็ม" มักเป็นเรื่อง overhead (Python worker, buffer, native) ไม่ใช่ heap
+
+**ไฟล์ที่ต้องส่ง**: container เปิดบนเครื่องอื่น จึงต้องมี jar ของ Spark และไฟล์ conf ไปด้วย `Client.submitApplication()` อัปโหลดไปไว้ staging directory ใน HDFS (ใต้โฟลเดอร์บ้านของผู้ใช้ ตั้งเปลี่ยนด้วย `spark.yarn.stagingDir`) ถ้าไม่ได้ตั้ง `spark.yarn.jars` หรือ `spark.yarn.archive` Spark จะแพ็ก jar ทั้งหมดใต้ `SPARK_HOME` ขึ้นไปทุกครั้งที่ส่งงาน (ซอร์สเตือนด้วย log `falling back to uploading libraries under SPARK_HOME`) การตั้ง `spark.yarn.archive` ให้ชี้ไปที่ไฟล์ใน HDFS ทำให้ข้ามขั้นนี้
+
+</Step>
+
+<Step>
+
+## เมื่อมีอะไรตาย
+
+| ตายอะไร | เกิดอะไรขึ้น |
+|---|---|
+| executor container | AM รู้จากรายการ completed containers ที่ RM ส่งมากับ `allocate()` (`YarnAllocator.processCompletedContainers`) แล้วขอ container ใหม่แทน นับจำนวนที่ล้ม ถึง `spark.executor.maxNumFailures` (ค่าเริ่มต้น `max(3, 2 x จำนวน executor)`) AM ปิดแอปว่า `EXIT_MAX_EXECUTOR_FAILURES` |
+| NodeManager หรือเครื่อง | container ทั้งหมดบนเครื่องนั้นหายพร้อมกัน RM รายงานเป็น container ที่จบ AM ขอใหม่ ที่อื่น |
+| AM container | RM เปิด AM ใหม่จนถึงจำนวนที่ตั้ง (`spark.yarn.maxAppAttempts`) cluster mode เริ่ม driver ใหม่ทั้งหมดเพราะ driver อยู่ใน AM ส่วน client mode driver ยังอยู่บนเครื่องของคุณ (ไม่ได้ตรวจรายละเอียดว่า driver รับ AM ตัวใหม่อย่างไร) |
+| driver (client mode) | แอปจบ AM กับ container ทั้งหมดถูกคืน |
+
+</Step>
+
+<Step>
+
+## เช็กตัวเอง
+
+- บน YARN ใครคุยกับ RM แทนแอป และทำไมต้องมีตัวนั้น
+- client mode กับ cluster mode ต่างกันที่ไหน และถ้าปิด laptop ที่ส่งงาน แอปแต่ละแบบเป็นอย่างไร
+- ตั้ง `spark.executor.memory = 4g` แต่ executor ถูก NodeManager ฆ่า ควรดู config ตัวไหนก่อน
+- ทำไม AM ต้องเรียก `allocate()` ทุก 3 วินาทีแม้ไม่ขออะไรเพิ่ม
+
+เมื่อมี cluster จริง ลองเทียบกับภาพ: ใน log ของ AM จะมีบรรทัด `Started progress reporter thread with (heartbeat: ..., initial allocation: ...)` และ `Launching container ... for executor with ID ...` ที่ตรงกับสองภาพด้านบน
+
+</Step>

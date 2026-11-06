@@ -20,12 +20,12 @@ import TableLogLab from '../../../../components/labs/spark/TableLogLab';
 
 data lake แบบเดิมคือโฟลเดอร์ของไฟล์ Parquet ที่ Spark อ่านและเขียน ใช้ได้ดีจนกว่าจะเจอเรื่องเหล่านี้ ซึ่งทดลองให้เห็นจริงด้วย Spark 4.2.0
 
-**1. ไม่มีใครตรวจ schema** เขียน Parquet เพิ่มด้วย DataFrame ที่มี column เกินมา Spark ไม่บ่น แต่ตอนอ่าน ผลขึ้นกับไฟล์ที่ Spark เลือกอ่าน schema (วัดจริง: อ่านแล้ว column `extra` หายไป เว้นแต่ใส่ `mergeSchema`)
+**1. ไม่มีใครตรวจ schema** เขียน Parquet เพิ่มด้วย DataFrame ที่มี column เกินมา Spark ไม่บ่น แต่ตอนอ่าน ผลขึ้นกับไฟล์ที่ Spark เลือกอ่าน schema (วัดจริง: ส่วนใหญ่อ่านแล้ว column `extra` หายไป แต่รันซ้ำบางครั้งได้ `['id', 'extra']` เพราะไฟล์ที่ถูกเลือกไม่คงที่ จึงต้องใส่ `mergeSchema` ถ้าต้องการผลที่แน่นอน)
 
 ```python
 spark.range(3).write.parquet(p)
 spark.range(3).withColumn("extra", F.lit(1)).write.mode("append").parquet(p)   # ไม่มี error
-spark.read.parquet(p).columns                                                  # ['id']  ไม่เห็น extra
+spark.read.parquet(p).columns                                                  # ['id'] ส่วนใหญ่ (บางครั้ง ['id', 'extra'])
 spark.read.option("mergeSchema", "true").parquet(p).columns                    # ['id', 'extra']
 ```
 

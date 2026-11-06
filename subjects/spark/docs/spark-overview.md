@@ -19,7 +19,7 @@ Apache Spark คือเอนจินประมวลผลข้อมู�
 | # | หัวข้อ | ความยาก | เหตุผลที่อยู่ลำดับนี้ |
 |---|---|---|---|
 | 0 | **พื้นฐานก่อนเริ่ม**: Python, SQL, ไฟล์ CSV/JSON/Parquet | ⭐ | ถ้าเขียน SQL หรือ pandas ได้อยู่แล้ว ข้ามได้ |
-| 1 | **สถาปัตยกรรม**: driver, executor, cluster manager, SparkSession | ⭐⭐ | ทุกหัวข้อหลังจากนี้อิงภาพนี้ |
+| 1 | **Architecture**: driver, executor, cluster manager, SparkSession | ⭐⭐ | ทุกหัวข้อหลังจากนี้อิงภาพนี้ |
 | 2 | **Lazy evaluation**: transformation vs action | ⭐⭐ | อธิบายว่าทำไมโค้ดบางบรรทัดไม่รันทันที เป็นต้นเหตุของความสับสนส่วนใหญ่ |
 | 3 | **DataFrame API + Spark SQL**: select, filter, join, groupBy, window, จัดการ null และ schema | ⭐⭐ | งานจริงส่วนใหญ่อยู่ตรงนี้ |
 | 4 | **Data I/O**: อ่านเขียน Parquet, partition บน disk, schema | ⭐⭐ | ข้อมูลเข้าออกกำหนดความเร็วของทั้งระบบ |

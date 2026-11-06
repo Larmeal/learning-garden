@@ -187,7 +187,9 @@ def plain_parquet_baseline(spark, root):
     spark.range(3).write.parquet(p)
     spark.range(3).withColumn("extra", F.lit(1)).write.mode("append").parquet(p)  # no schema check
     assert spark.read.parquet(p).count() == 6
-    assert "extra" not in spark.read.parquet(p).columns, "the reader takes the schema of one file"
+    # Without mergeSchema the reader takes the schema of ONE file, and which file it is can change between runs
+    # (['id'] in most runs, ['id', 'extra'] in some), so only the two possible answers are asserted.
+    assert spark.read.parquet(p).columns in (["id"], ["id", "extra"]), "the reader takes the schema of one file"
     assert "extra" in spark.read.option("mergeSchema", "true").parquet(p).columns
 
 

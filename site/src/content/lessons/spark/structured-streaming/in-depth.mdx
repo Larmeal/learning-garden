@@ -9,6 +9,8 @@ updated: 2026-11-05
 
 import Step from '../../../../components/Step.astro';
 import Callout from '../../../../components/Callout.astro';
+import CheckpointCrashLab from '../../../../components/labs/spark/CheckpointCrashLab';
+import StateStoreLab from '../../../../components/labs/spark/StateStoreLab';
 
 หน้านี้ต่อจากหน้าหลัก ข้อความที่ติดป้าย "source" มาจากการอ่านไฟล์ใน repo ของ Spark 4.2.0 และสรุปใน knowledge graph ของ Spark (`subjects/spark/graphs/`) ส่วนที่รันมาจาก `exercises/09_streaming.py`
 
@@ -42,6 +44,10 @@ query ของแต่ละ batch เป็น query ปกติ: `MicroBatc
 
 ตอนเริ่มใหม่ `populateStartOffsets` (`MicroBatchExecution.scala:743`) อ่านทั้งสอง log: ถ้าตัวล่าสุดของ `offsets/` ไม่มี `commits/` คู่กัน ก็รัน batch นั้นซ้ำด้วยช่วง offset จากไฟล์ ถ้ามีครบก็เริ่ม batch ถัดไป หลัง `constructNextBatch` เขียน offset แล้ว มันลบ log เก่าเกิน `spark.sql.streaming.minBatchesToRetain` (ค่าเริ่มต้น **100**) ทิ้งด้วย (`purge`, บรรทัด 990-1005)
 
+ลองเลือกจุดที่โปรแกรมล่มในระหว่าง batch 2 แล้วดูว่าตอนรีสตาร์ท Spark ตัดสินอย่างไร จากสองไฟล์ที่เหลืออยู่ใน checkpoint และสังเกตว่าล่มตรงไหนที่ sink อาจได้ข้อมูลซ้ำ
+
+<CheckpointCrashLab client:visible />
+
 </Step>
 
 <Step>
@@ -69,6 +75,10 @@ query ของแต่ละ batch เป็น query ปกติ: `MicroBatc
 `StreamingAggregationStateManager` (เวอร์ชัน 1 และ 2 โดยเวอร์ชัน 1 เป็นของเก่า) กำหนดรูปแบบเก็บค่า และ `StateStoreRDD` (`StateStoreRDD.scala:130`) คือ RDD ที่โหลด store ตามเวอร์ชันของ batch ก่อน รันฟังก์ชันอัปเดต แล้ว commit เป็นเวอร์ชันถัดไป
 
 ตำแหน่งของ state บนเครื่องที่รัน partition ถูกบันทึกกับ `StateStoreCoordinator` ที่ driver ซึ่งเก็บที่อยู่ของ provider แต่ละตัว เพื่อให้ scheduler วาง task ของ batch ถัดไปไว้ใกล้ state เดิม
+
+กดเล่นเพื่อดู batch ทีละตัวผ่านสามขั้น และดูไฟล์ใน `state/` ที่เพิ่มขึ้นทีละเวอร์ชัน (สลับ provider เพื่อดูหน้าตาไฟล์ต่างกัน)
+
+<StateStoreLab client:visible />
 
 </Step>
 

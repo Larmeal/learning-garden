@@ -15,6 +15,7 @@ import Callout from '../../../../components/Callout.astro';
 import JoinPickerLab from '../../../../components/labs/spark/JoinPickerLab';
 import SaltingLab from '../../../../components/labs/spark/SaltingLab';
 import SpillLab from '../../../../components/labs/spark/SpillLab';
+import JoinFlowLab from '../../../../components/labs/spark/JoinFlowLab';
 
 <Step>
 
@@ -74,6 +75,12 @@ import SpillLab from '../../../../components/labs/spark/SpillLab';
 
 ลองเปลี่ยนเงื่อนไขทีละอย่าง ทุกช่องคือผลของ join จริงที่รันแล้วอ่านจาก `explain()` ตาราง 100 แถวกับตาราง 2 ล้านแถว
 
+ก่อนดูว่า Spark เลือกอะไร ลองดูก่อนว่าสองวิธีหลักต่างกันตรงไหน จุดวงกลมคือตารางใหญ่ จุดสี่เหลี่ยมคือตารางเล็ก
+
+<JoinFlowLab client:visible />
+
+ทีนี้ดูว่า Spark เลือกวิธีไหนตามเงื่อนไข
+
 <JoinPickerLab client:visible />
 
 สิ่งที่ควรลองและสังเกต
@@ -110,7 +117,7 @@ rows       22,936 29,112 25,328 28,713 22,726 1,821,935  22,334 26,916
 
 เครื่องที่ว่างอยู่ช่วยอะไรไม่ได้ เพราะ partition ที่ 6 เป็นของ task เดียว
 
-**วิธีที่ 1: ให้ AQE จัดการ (เฉพาะ join)** `OptimizeSkewedJoin` แยก partition ที่ใหญ่เกินเป็นชิ้นย่อย ที่ถือว่าเบ้ต้อง "ใหญ่กว่า 256 MB **และ** ใหญ่กว่า median 5 เท่า" ทั้งสองข้อ เพราะฉะนั้นกับข้อมูลทดลองเล็กๆ มันไม่ทำงานเอง (วัดจริง: ค่าเริ่มต้นไม่เกิด skew join ต้องลด threshold ลง (ในแล็บของบทที่ 6 ลดเหลือ 50 KB) ถึงเห็น `SortMergeJoin(skew=true)`) กฎนี้ดูเฉพาะ join ไม่มี `groupBy` ที่ skew
+**วิธีที่ 1: ให้ AQE จัดการ (เฉพาะ join)** `OptimizeSkewedJoin` แยก partition ที่ใหญ่เกินเป็นชิ้นย่อย ที่ถือว่า skew ต้อง "ใหญ่กว่า 256 MB **และ** ใหญ่กว่า median 5 เท่า" ทั้งสองข้อ เพราะฉะนั้นกับข้อมูลทดลองเล็กๆ มันไม่ทำงานเอง (วัดจริง: ค่าเริ่มต้นไม่เกิด skew join ต้องลด threshold ลง (ในแล็บของบทที่ 6 ลดเหลือ 50 KB) ถึงเห็น `SortMergeJoin(skew=true)`) กฎนี้ดูเฉพาะ join ไม่มี `groupBy` ที่ skew
 
 **วิธีที่ 2: Salting** เติม column สุ่มเข้าไปใน key เพื่อให้ key ใหญ่แตกเป็นหลายกลุ่ม
 

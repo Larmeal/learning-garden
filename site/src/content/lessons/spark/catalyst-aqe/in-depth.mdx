@@ -9,6 +9,8 @@ updated: 2026-11-05
 
 import Step from '../../../../components/Step.astro';
 import Callout from '../../../../components/Callout.astro';
+import RuleLoopLab from '../../../../components/labs/spark/RuleLoopLab';
+import AqeLoopLab from '../../../../components/labs/spark/AqeLoopLab';
 
 หน้านี้ตามรอยจาก source ของ Spark 4.2.0 (tag v4.2.0) ตัวเลขบรรทัดอ้างอิงถึงไฟล์ใน repo ของ Spark ส่วนผลที่ระบุว่ารัน มาจาก `exercises/06_catalyst_aqe.py` หรือการรันแยกบนเครื่อง 16 core (ANSI mode เปิดตามค่าเริ่มต้น)
 
@@ -43,6 +45,12 @@ Analyzer และ Optimizer สืบจาก `RuleExecutor` (`RuleExecutor.sc
 2. ไล่ batch ตามลำดับ ในแต่ละ batch รัน rule ทุกตัวหนึ่งรอบ
 3. ถ้า strategy เป็น `Once` (maxIterations = 1) จบ
 4. ถ้าเป็น `FixedPoint(n)` วนซ้ำจนแผนไม่เปลี่ยน (`curPlan.fastEquals(lastPlan)`, บรรทัด 312) หรือครบ n รอบ
+
+ลองดู batch หนึ่งทำงานจริงกับ query ที่มี subquery ซ้อนสี่ชั้น (รัน: `exercises/06b_rule_iterations.py`) Spark รายงานว่า batch นี้วน **4 รอบ** กดเล่นหรือลาก slider ดูว่าแต่ละ rule เปลี่ยนแผนตรงไหน และรอบสุดท้ายทำไมไม่มีอะไรเปลี่ยนแต่ยังต้องมี
+
+<RuleLoopLab client:visible />
+
+กับ query ธรรมดาที่ไม่ซ้อน batch เดียวกันนี้วนแค่ 2 รอบ (วัดจริงทั้ง query ที่ใช้ view และ query ที่ join กับ filter) รอบแรกเปลี่ยนแผน รอบที่สองพิสูจน์ว่านิ่งแล้ว ส่วนตัว Analyzer ของ query ซ้อนสี่ชั้นใช้ batch Resolution ถึง 9 รอบ เพราะแต่ละรอบ resolve ได้ทีละชั้น
 
 ค่าสูงสุดของ `FixedPoint` คือ `spark.sql.optimizer.maxIterations` และ `spark.sql.analyzer.maxIterations` ทั้งคู่ 100 ถ้าครบ 100 รอบแล้วแผนยังเปลี่ยนอยู่ Optimizer แค่เตือน (`errorOnExceed = false`) แต่ Analyzer ตั้ง `errorOnExceed = true` จึง error
 
@@ -113,6 +121,10 @@ plan text ของ cast ไม่ต่างกันระหว่างส�
 5. **เทียบ cost** แล้วรับแผนใหม่เมื่อ cost ต่ำกว่า หรือเท่ากันแต่แผนต่างกัน (บรรทัด 367-379)
 6. วนกลับไปข้อ 1 จนไม่เหลือ stage ที่ต้องสร้าง แล้วตั้ง `_isFinalPlan = true` (บรรทัด 389)
 
+ลองดูลูปนี้ทำงานกับ query `groupBy(k).count()` ของบทหลัก ครั้งนี้เห็นครบหกข้อและรอบที่สองที่สร้าง stage สุดท้าย
+
+<AqeLoopLab client:visible />
+
 ใน 4.2 stage สุดท้ายคือ `ResultQueryStage` (บรรทัด 345, 394) ซึ่งไม่มีในเอกสารเก่า
 
 **cost คืออะไร** ค่าเริ่มต้นคือ `SimpleCostEvaluator` ซึ่งนับ **จำนวน `ShuffleExchangeLike` ในแผน** เท่านั้น (`simpleCosting.scala:42-65`) ดังนั้น AQE ยอมรับแผนใหม่ที่ shuffle น้อยลง หรือเท่าเดิมแต่ต่างกัน ไม่ได้ดูขนาดข้อมูลหรือเวลาเลย
@@ -174,7 +186,7 @@ target = max( min( totalBytes / minNumPartitions , advisory ), minPartitionSize 
 
 1. **Join strategy ที่ AQE เปลี่ยนใช้ขนาดจริงของ shuffle output** `canBroadcastBySize` (`joins.scala:367-375`) ใช้ `spark.sql.autoBroadcastJoinThreshold` หรือถ้าตั้ง `spark.sql.adaptive.autoBroadcastJoinThreshold` (ค่าเริ่มต้นไม่ตั้ง) ก็ใช้ตัวนั้นกับสถิติ runtime
 2. **เมื่อฝั่งเล็กมี partition ว่างเกินไป** `DynamicJoinSelection` ใส่ `NO_BROADCAST_HASH` ให้ฝั่งนั้น (`DynamicJoinSelection.scala:30-44`) ตั้ง `nonEmptyPartitionRatioForBroadcastJoin=0` แล้ว query เดิมกลายเป็น `BroadcastHashJoin` (รัน)
-3. **Skew join ต้องมี shuffled join** broadcast join ไม่มี shuffle ให้แยก threshold คือ `max(skewedPartitionThresholdInBytes, median × skewedPartitionFactor)` (`OptimizeSkewedJoin.scala:65-68`) partition ที่เบ้ถูกหั่นตามช่วงของ map task และ partition อีกฝั่งถูกทำสำเนา ถ้าทั้งสองฝั่งเบ้จะกลายเป็น cartesian ของชิ้นย่อย
+3. **Skew join ต้องมี shuffled join** broadcast join ไม่มี shuffle ให้แยก threshold คือ `max(skewedPartitionThresholdInBytes, median × skewedPartitionFactor)` (`OptimizeSkewedJoin.scala:65-68`) partition ที่ skew ถูกหั่นตามช่วงของ map task และ partition อีกฝั่งถูกทำสำเนา ถ้าทั้งสองฝั่ง skew จะกลายเป็น cartesian ของชิ้นย่อย
 4. **filter ที่อนุมานข้าม join ทำให้ขนาดฝั่งตรงข้ามเล็กลงโดยไม่คาดคิด** ในการทดลอง filter บน key ที่คำนวณจากฝั่งขวาทำให้ฝั่งซ้ายถูกกรองเหมือนกัน ถ้าต้องการให้ขนาดของฝั่งหนึ่ง "ไม่รู้" ให้ใช้ non-deterministic filter อย่าง `F.rand(42) < 0.000002` ซึ่งไม่ถูกอนุมานหรือ push
 5. **ชื่อ scan ไม่เหมือนกันระหว่างโหมด** `Scan csv` ใน `formatted` แต่ `FileScan csv` ใน tree แบบอื่น
 6. **ค่า config ที่อ่านใน Python มีหน่วยต่อท้าย** `spark.conf.get("spark.sql.adaptive.advisoryPartitionSizeInBytes")` ได้ `67108864b`

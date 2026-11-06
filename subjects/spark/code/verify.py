@@ -15,14 +15,18 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# Run by 07_performance_tuning.py with an argument, not on its own.
+HELPERS = {"07b_jvm_limits.py"}
 
 
 def main():
     wanted = set(sys.argv[1:])
-    scripts = sorted(glob.glob(os.path.join(HERE, "exercises", "[0-9][0-9]_*.py")))
+    scripts = sorted(glob.glob(os.path.join(HERE, "exercises", "[0-9][0-9]*_*.py")))
     results = []
     for path in scripts:
         name = os.path.basename(path)
+        if name in HELPERS:
+            continue
         if wanted and name[:2] not in wanted:
             continue
         start = time.time()

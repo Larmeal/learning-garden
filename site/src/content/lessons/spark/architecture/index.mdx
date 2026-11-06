@@ -1,6 +1,6 @@
 ---
-title: สถาปัตยกรรม
-summary: Driver วางแผนและแจกงาน executor ลงมือทำ cluster manager จัดสรรเครื่อง SparkSession คือประตูเข้าใช้งาน
+title: Architecture
+summary: Driver วางแผนและแจกงาน executor ลงมือทำ cluster manager จัดสรรเครื่อง ดูตามลำดับเวลาว่าใครเข้ามาตอนไหน cluster manager มีสามแบบ (Standalone, YARN, Kubernetes) แยกเป็นหน้าย่อย และ SparkSession คือประตูเข้าใช้งาน
 order: 1
 phase: A
 level: 2
@@ -13,14 +13,23 @@ updated: 2026-11-05
 import Step from '../../../../components/Step.astro';
 import Callout from '../../../../components/Callout.astro';
 import ArchitectureLab from '../../../../components/labs/spark/ArchitectureLab';
+import RolesFlowLab from '../../../../components/labs/spark/RolesFlowLab';
 
 <Step>
 
 ## ใครทำอะไร
 
-แอปพลิเคชัน Spark มีสามบทบาท driver ที่ถือโปรแกรมของคุณและวางแผน executor ที่ลงมือคำนวณ และ cluster manager ที่จัดสรรเครื่องให้
+แอปพลิเคชัน Spark มีสามบทบาท driver ที่ถือโปรแกรมของคุณและวางแผน executor ที่ลงมือคำนวณ และ cluster manager ที่จัดสรรเครื่องให้ ดูว่าแต่ละบทบาทเข้ามาเมื่อไรและทำอะไร ตามลำดับเวลาของแอปหนึ่งตัว (เลือกได้ว่าจบด้วย `collect()` หรือ `write`)
 
-<ArchitectureLab client:visible />
+<RolesFlowLab client:visible />
+
+สรุปจากภาพ
+
+| บทบาท | ทำอะไร | ไม่ทำอะไร |
+|---|---|---|
+| Driver | ถือโค้ดของคุณ สร้างแผน ขอ executor แบ่งงานเป็น task ส่ง task และรวมสถานะ | ไม่คำนวณข้อมูล (ยกเว้นเมื่อคุณสั่งดึงผลมา) |
+| Cluster manager | รู้ว่าเครื่องไหนว่างเท่าไร และเปิด executor ให้ตามที่ driver ขอ | ไม่ถือข้อมูล ไม่แจก task ไม่อยู่ระหว่าง driver กับ executor หลังเปิด executor แล้ว |
+| Executor | รับ task อ่าน partition จาก storage คำนวณ เก็บ cache และเขียนผล | ไม่ตัดสินว่าจะทำงานอะไร |
 
 โค้ด PySpark ของคุณรันใน Python process แล้วคุยกับ JVM ของ Spark ผ่าน Py4J การคำนวณหนักเกิดใน JVM ฝั่ง executor ยกเว้น Python UDF ที่ต้องเรียก Python process เพิ่ม (บทที่ 8)
 
@@ -46,7 +55,26 @@ print(sc.master, sc.defaultParallelism, spark.version)
 
 </Callout>
 
-เพราะเหตุนี้ การเรียนแนวคิดแบบกระจายบนเครื่องเดียวจึงทำได้ task หลายตัวรันพร้อมกันจริง แต่ไม่มีเครือข่ายคั่นกลาง ใน cluster จริง ต้นทุนการส่งข้อมูลข้ามเครื่องจะสูงกว่าที่เห็นที่นี่
+เพราะเหตุนี้ การเรียนแนวคิดแบบกระจายบนเครื่องเดียวจึงทำได้ task หลายตัวรันพร้อมกันจริง แต่ไม่มีเครือข่ายคั่นกลาง ใน cluster จริง ต้นทุนการส่งข้อมูลข้ามเครื่องจะสูงกว่าที่เห็นที่นี่ ลองสลับดูว่า local กับ cluster ต่างกันอย่างไร และกดแต่ละส่วนเพื่ออ่านหน้าที่
+
+<ArchitectureLab client:visible />
+
+</Step>
+
+<Step>
+
+## Cluster Manager มีกี่แบบ
+
+เมื่อรันบน cluster จริง driver ต้องรู้ว่าจะไปขอ executor จากใคร บอกผ่าน `--master` ลำดับ "driver ขอ แล้ว executor ติดต่อกลับ" เหมือนกันหมด สิ่งที่ต่างคือใครคือผู้จัดสรร และใครเป็นคนสั่งเปิด executor
+
+| `--master` | ผู้จัดสรร | หน่วยที่รัน | อ่านต่อ |
+|---|---|---|---|
+| `local[N]` | ไม่มี (process เดียว) | thread | หัวข้อก่อนหน้า |
+| `spark://host:7077` | Master ของ Spark เอง | process ที่ Worker เปิด | [Standalone](/spark/architecture/standalone/) (รันจริงแล้ว) |
+| `yarn` | ResourceManager ของ Hadoop (มี ApplicationMaster คั่น) | container | [YARN](/spark/architecture/yarn/) (อ่านจากซอร์ส) |
+| `k8s://https://...` | kube-scheduler (driver ขอ pod เองผ่าน API server) | pod | [Kubernetes](/spark/architecture/kubernetes/) (อ่านจากซอร์ส) |
+
+แต่ละหน้ามีแอนิเมชันของลำดับตั้งแต่ส่งงานจนได้ task และแล็บเฉพาะของ cluster manager นั้น เรื่อง deploy mode, Spark UI และ dynamic allocation อยู่ในบทที่ 11
 
 </Step>
 

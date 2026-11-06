@@ -14,6 +14,7 @@ import Step from '../../../../components/Step.astro';
 import Callout from '../../../../components/Callout.astro';
 import UdfBridgeLab from '../../../../components/labs/spark/UdfBridgeLab';
 import UdfBarrierLab from '../../../../components/labs/spark/UdfBarrierLab';
+import UdfLanesLab from '../../../../components/labs/spark/UdfLanesLab';
 
 <Step>
 
@@ -94,6 +95,12 @@ df.select(plus1("id"))
 ## ข้อมูลเดินทางอย่างไร
 
 executor แต่ละ task เปิด **Python worker** (process แยก) ต่อกันด้วย socket JVM ส่ง handshake ก่อน (เวอร์ชัน Python, ไฟล์, broadcast, ฟังก์ชันที่ pickle แล้ว) แล้วจึงส่งแถว ลองดูสามเส้นทางเทียบกัน
+
+เริ่มจากภาพรวม 24 แถวเท่ากัน ใช้งานเดียวกัน แต่เดินทางต่างกันสามแบบ ดูตัวนับใต้แต่ละเลน
+
+<UdfLanesLab client:visible />
+
+แล้วดูรายละเอียดของแต่ละเส้นทางทีละขั้น
 
 <UdfBridgeLab client:visible />
 
@@ -213,7 +220,7 @@ pandas_udf เข้มกว่า: ถ้าคืน Series ที่ cast �
 3. **Python UDF แบบ Arrow** (ค่าเริ่มต้น) เมื่อ logic เป็น if/else ต่อแถว ใช้ library ที่รับค่าเดี่ยว
 4. **`useArrow=False`** ใช้เมื่อจำเป็นต้องได้พฤติกรรมเดิม เท่านั้น
 
-ถ้าต้องทำกับ "ทั้งกลุ่ม" ให้ใช้ `groupBy().applyInPandas(...)` แต่จำไว้สองข้อ: ต้อง shuffle (มี `Exchange` ในแผน) และ **ทั้งกลุ่มต้องอยู่ใน memory ของ Python worker** ถ้ามี key ที่เบ้ ก็เสี่ยงล้มที่ Python (ข้อหลังเป็นหลักการ ยังไม่ได้ทดสอบ OOM) ส่วน `mapInPandas` รับ iterator ของ pandas DataFrame ไม่ต้อง shuffle
+ถ้าต้องทำกับ "ทั้งกลุ่ม" ให้ใช้ `groupBy().applyInPandas(...)` แต่จำไว้สองข้อ: ต้อง shuffle (มี `Exchange` ในแผน) และ **ทั้งกลุ่มต้องอยู่ใน memory ของ Python worker** ถ้ามี key ที่ skew ก็เสี่ยงล้มที่ Python (ข้อหลังเป็นหลักการ ยังไม่ได้ทดสอบ OOM) ส่วน `mapInPandas` รับ iterator ของ pandas DataFrame ไม่ต้อง shuffle
 
 </Step>
 
