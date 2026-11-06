@@ -138,7 +138,12 @@ export default function WorkerReuseLab({ lang = 'th' }: { lang?: Lang }) {
 
           {/* JVM and daemon */}
           <text className="b" x="26" y="52">executor (JVM)</text>
-          <text className="s" x="26" y="70">{hasDaemon ? T.daemonLine : T.noDaemon}</text>
+          {hasDaemon ? (
+            // the daemon bar starts right of this column, so the line is cut in two instead of running under the bar
+            T.daemonLine.split(' (').map((part, k) => <text key={k} className="s" x="26" y={70 + k * 14}>{k ? `(${part}` : part}</text>)
+          ) : (
+            <text className="s" x="26" y="70">{T.noDaemon}</text>
+          )}
           {hasDaemon && <rect x={X0} y="58" width={W} height="22" rx="6" className="fx-file" />}
           {hasDaemon && <text className="s m" x={X0 + 8} y="74">{T.daemonBar}</text>}
 
@@ -161,9 +166,11 @@ export default function WorkerReuseLab({ lang = 'th' }: { lang?: Lang }) {
                 return (
                   <g key={s}>
                     <line x1={px(startT) + 6} x2={px(startT) + 6} y1="80" y2={lane(s) - 6} stroke="var(--accent)" strokeWidth="2.5" strokeDasharray="4 3" />
-                    <text className="s b acc" x={px(startT) + 12} y={lane(s) - 12}>fork</text>
+                    {/* the other slot's dashed line runs 20 px to the right of this one: slot 1 puts "fork" on the left of its own line,
+                        and its label after both lines, so no line crosses a word */}
+                    <text className="s b acc" x={s === 0 ? px(startT) + 1 : px(startT) + 12} y={lane(s) - 12} textAnchor={s === 0 ? 'end' : 'start'}>fork</text>
                     <rect x={px(startT)} y={lane(s)} width={Math.max(0, px(e) - px(startT))} height="54" rx="8" className="fx-hot" />
-                    <text className="s b" x={px(startT) + 44} y={lane(s) - 12}>{T.reused(s + 1)}</text>
+                    <text className="s b" x={s === 0 ? px(segs.filter((g) => g.slot === 1)[0].start) + 14 : px(startT) + 44} y={lane(s) - 12}>{T.reused(s + 1)}</text>
                   </g>
                 );
               })

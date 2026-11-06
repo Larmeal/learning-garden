@@ -207,7 +207,7 @@ export default function ShuffleWriterLab({ lang = 'th' }: { lang?: Lang }) {
                 {Array.from({ length: pd }, (_, p) => (
                   <g key={p} transform={`translate(${20 + (p % 6) * 78} ${130 + Math.floor(p / 6) * 74})`}>
                     <rect width="56" height="56" rx="6" className="fx-file" />
-                    <text className="s m" x="28" y="48" textAnchor="middle">p{p + 1}</text>
+                    <text className="s m" x="28" y="49" textAnchor="middle">p{p + 1}</text>
                   </g>
                 ))}
                 <g transform={`translate(0 288)`} opacity={merge}>
@@ -269,7 +269,11 @@ export default function ShuffleWriterLab({ lang = 'th' }: { lang?: Lang }) {
                 const fx = 20 + (r.p % 6) * 78;
                 const fy = 150 + Math.floor(r.p / 6) * 74;
                 const m = move(r.i);
-                return <g key={r.i}><Dot x={mix(hx, fx + 28, m)} y={mix(hy, fy + 30 + ((r.i >> 1) % 2) * 0, m)} k={r.k} p={r.p} /></g>;
+                // dots that land in the same file sit side by side, in the upper part of the file (fy is 20 below its top) so the label p1, p2, ... at the bottom stays readable
+                const same = recs.filter((o) => o.p === r.p);
+                const nth = same.findIndex((o) => o.i === r.i);
+                const dx = (nth - (same.length - 1) / 2) * 18;
+                return <g key={r.i}><Dot x={mix(hx, fx + 28 + dx, m)} y={mix(hy, fy + 4, m)} k={r.k} p={r.p} /></g>;
               }
               if (ch.w === 'serialized') {
                 const m = move(r.i);
