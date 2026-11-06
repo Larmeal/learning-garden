@@ -1,0 +1,55 @@
+---
+title: Which expectations support your backend
+summary: We read the SUPPORTED_DATA_SOURCES list of 54 expectations, search for the ones that do not list your backend, and note that this is documentation data and is not enforced.
+order: 2
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import SupportLookup from '../../../../components/labs/great-expectations/SupportLookup';
+
+<Step>
+
+## Where this list comes from
+
+The file of each expectation in GX has a module-level variable named `SUPPORTED_DATA_SOURCES`. It is a list of the backends that the GX team says are supported. The variable is used to build the documentation text of the class. Part 2 of the script `30_sql_where_support.py` reads this variable from the module of every expectation that GX 1.24.1 exports. (At first the script read it from the class directly and found nothing, because it is a module variable and not a class attribute.)
+
+| What is counted | Number |
+|---|---|
+| Expectations whose module has this list | 54 |
+| Say they support PostgreSQL | 53 |
+| Say they support SQLite | 51 |
+| Say they support Spark | 48 |
+| Say they support Pandas | 46 |
+| Say they support BigQuery | 47 |
+
+</Step>
+
+<Step>
+
+## Search it yourself
+
+Choose a backend and see which expectations do not list it.
+
+<SupportLookup client:visible lang="en" />
+
+On Spark, 6 do not list it: `ExpectColumnValuesToMatchLikePattern`, `...MatchLikePatternList`, `ExpectColumnValuesToNotMatchLikePattern`, `...NotMatchLikePatternList`, `ExpectQueryResultsToMatchComparison` and `ExpectTableRowCountToEqualOtherTable`. The first four use the SQL `LIKE` pattern. The last two compare with another table or run a query.
+
+</Step>
+
+<Step>
+
+## Use it with care
+
+1. This list is GX documentation. It is not checked at run time. An expectation that does not list your backend can still run if a matching metric implementation exists, and one that does list it can still fail if the metric is missing. The fact about support is in the metric registry (lesson 8, page "The built-in metric registry of GX").
+2. Keep pandas and SQL apart: the list says 46 expectations for Pandas, but the metric registry has a wider set of pandas implementations (241 metrics). The two sources count different things. Do not compare the numbers.
+3. The way that works is to run the suite on sample data on the real backend, and read the result with the sequence of questions in lesson 4, page "Read a failed result in a systematic way".
+
+<Callout type="warn" title="Spark is untested">
+The number 48 for Spark is the number that the documentation lists. It is not the number that pass on Spark. This path did not run GX on Spark.
+</Callout>
+
+</Step>

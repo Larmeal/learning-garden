@@ -1,0 +1,111 @@
+---
+title: YARN
+summary: What the ResourceManager, the NodeManager and the ApplicationMaster do, why YARN needs an AM in between, how client mode and cluster mode differ in where the driver lives, how often the AM asks the RM, and what happens when an executor or the AM dies (read from the source, not run on YARN)
+order: 12
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import ClusterLaunchLab from '../../../../components/labs/spark/ClusterLaunchLab';
+import YarnAllocLab from '../../../../components/labs/spark/YarnAllocLab';
+
+<Callout type="warn" title="This page was not run on YARN">
+The machine where this lesson was written has no Hadoop cluster. Every point on this page was read from the Spark 4.2.0 source (`resource-managers/yarn/`) and the Spark documentation, and nothing was run. PySpark ships the `spark-yarn` jar in its package, so you can use it when you have a cluster.
+</Callout>
+
+<Step>
+
+## Who does what on YARN
+
+YARN is the cluster manager of Hadoop. Spark, Hive, MapReduce and other jobs share one cluster through it, so it has more roles than standalone.
+
+| Role | Where it is | Does |
+|---|---|---|
+| ResourceManager (RM) | 1 per cluster | Holds the cores and memory of the whole cluster, and decides which machine the containers of which app go to |
+| NodeManager (NM) | Every machine | The representative of the RM on that machine. Starts and watches containers as it is told |
+| container | On an NM | A process box with limited cores and memory. Every part of Spark that runs in the cluster is a container |
+| ApplicationMaster (AM) | The first container of the app | The representative of the app that talks to the RM: asks for more containers, gives containers back and reports the status |
+
+The difference from standalone is that **there is an AM in between**. The driver does not talk to the RM itself. The AM does it for the driver. This lets YARN know a Spark "app" as one unit that has its own first container. See the sequence from submitting the job to getting a task (switch between cluster mode and client mode).
+
+<ClusterLaunchLab cm="yarn" client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## Client mode and cluster mode differ in where the driver is
+
+Both have an AM, but they work differently (`Client.scala:1139-1144` chooses the class that the AM runs).
+
+| | cluster mode | client mode |
+|---|---|---|
+| Where the driver is | Inside the AM container, as a thread named Driver | On the machine that runs `spark-submit` or the notebook |
+| Class of the AM | `ApplicationMaster` (`runDriver`) | `ExecutorLauncher` (`runExecutorLauncher`) |
+| What the AM does | Calls your program, waits for the SparkContext, then asks for containers | Connects back to the driver and asks for containers on behalf of the driver |
+| You shut down the machine that submitted the job | The app keeps running (if you set `spark.yarn.submit.waitAppCompletion=false`, spark-submit exits right away) | The app ends, because the driver is gone |
+| Where executors must connect back to the driver | Inside the cluster machines | Your machine. You must open the firewall and set `spark.driver.host` correctly |
+| Good for | Jobs you leave alone (production, scheduled) | Interactive work (notebook, `pyspark` shell) where you want to see the output directly |
+
+Two common mistakes:
+
+- **Running client mode from a machine outside the cluster.** The executors cannot connect back to that machine (NAT, firewall), and the app hangs while waiting for the executors to register.
+- **Thinking that the log is in the terminal in cluster mode.** The driver is inside a container, so you have to read the log through YARN (`yarn logs -applicationId ...`) or the RM UI.
+
+In cluster mode, if the AM container dies, YARN can start a new AM, up to `spark.yarn.maxAppAttempts` (if it is not set, YARN's own value is used). But the driver is inside it, so your program starts again from the beginning.
+
+</Step>
+
+<Step>
+
+## How often the AM asks the RM
+
+The AM does not wait for the RM to answer with a callback. It has a thread named Reporter that calls `allocate()` on the RM from time to time. One call does two things at once: it sends the container requests that are still waiting, and it receives the containers that the RM gives right now (together with the list of containers that finished or died).
+
+<YarnAllocLab client:visible lang="en" />
+
+The rule (from `ApplicationMaster.scala`): while there are still containers waiting to be asked for, it waits 200 milliseconds, and then doubles the wait each time up to the ceiling `spark.yarn.scheduler.heartbeat.interval-ms` (3 seconds). When nothing is waiting any more, it still calls every 3 seconds, because:
+
+- It is a heartbeat that tells the RM the AM is still alive. If it is silent for too long, the RM considers the AM dead.
+- It is the only way for the RM to tell the AM which containers finished or were killed.
+
+</Step>
+
+<Step>
+
+## Container size and the files that must be sent along
+
+**The size of an executor container** is not only `spark.executor.memory`. It is the total that `YarnAllocator` asks the RM for (`totalMemMiB` in `ResourceProfile`): the heap plus `spark.executor.memoryOverhead` (and `spark.executor.pyspark.memory` if it is set). The NodeManager kills a container that uses more memory than the size that was requested, and the RM rejects a request that is bigger than the ceiling the cluster set. So the symptom "the executor was killed although the heap is not full" is usually about the overhead (Python workers, buffers, native memory), not the heap.
+
+**The files that must be sent.** The container starts on another machine, so the Spark jars and the conf files must go with it. `Client.submitApplication()` uploads them to a staging directory in HDFS (under the user's home folder, which you can change with `spark.yarn.stagingDir`). If `spark.yarn.jars` or `spark.yarn.archive` is not set, Spark packs all the jars under `SPARK_HOME` and uploads them every time you submit a job (the source warns about it with the log `falling back to uploading libraries under SPARK_HOME`). Setting `spark.yarn.archive` to point to a file in HDFS skips this step.
+
+</Step>
+
+<Step>
+
+## When something dies
+
+| What dies | What happens |
+|---|---|
+| executor container | The AM learns about it from the list of completed containers that the RM sends with `allocate()` (`YarnAllocator.processCompletedContainers`), and asks for a new container to replace it. It counts the failures. When they reach `spark.executor.maxNumFailures` (default `max(3, 2 x number of executors)`), the AM shuts the app down with `EXIT_MAX_EXECUTOR_FAILURES`. |
+| NodeManager or the machine | All the containers on that machine are lost at the same time. The RM reports them as finished containers, and the AM asks again, somewhere else. |
+| AM container | The RM starts a new AM, up to the number that is set (`spark.yarn.maxAppAttempts`). In cluster mode the driver starts all over again, because the driver is inside the AM. In client mode the driver is still on your machine (the details of how the driver accepts the new AM were not checked). |
+| driver (client mode) | The app ends. The AM and all the containers are given back. |
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- On YARN, who talks to the RM on behalf of the app, and why is that part needed?
+- Where do client mode and cluster mode differ, and if you close the laptop that submitted the job, what happens to the app in each mode?
+- You set `spark.executor.memory = 4g` but the NodeManager killed the executor. Which config should you look at first?
+- Why does the AM have to call `allocate()` every 3 seconds even when it asks for nothing more?
+
+When you have a real cluster, compare it with the pictures. In the log of the AM there are the lines `Started progress reporter thread with (heartbeat: ..., initial allocation: ...)` and `Launching container ... for executor with ID ...`, which match the two pictures above.
+
+</Step>

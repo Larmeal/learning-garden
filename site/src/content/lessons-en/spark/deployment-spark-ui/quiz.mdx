@@ -1,0 +1,79 @@
+---
+title: Check your understanding
+summary: Answer 5 questions to check how well you can read the Spark UI and how well you understand deployment
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="The application has ended, and you want to open the Spark UI afterwards. What must you have done before?"
+  options={['Nothing. The Spark UI is kept on the driver forever', 'Turned on spark.eventLog.enabled when it ran (it is off by default), and then used the History Server to read the event log', 'You must run on YARN only']}
+  answer={1}
+  why="The Spark UI lives on the driver only while the application runs. If the event log is on, Spark writes every event (for example the 14 task start/end events in the lab) to a file, and the History Server replays those events as the same UI pages."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="In one stage, Summary Metrics shows a task Duration with a Median of 3 seconds but a Max of 90 seconds. What does it tell you?"
+  options={['Some executors are missing', 'There is probably skew, which means some tasks got much more data than the others', 'shuffle.partitions is always too small']}
+  answer={1}
+  why="A Max far from the Median is a sign of skew. Next, look at how much data the slow task read (shuffleReadMetrics), and fix it with salting or the AQE skew join as in chapter 7."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="What is the result of spark-submit --master spark://... --deploy-mode cluster app.py when the program is Python?"
+  options={['It runs, and the driver is sent to run on the cluster', 'An error saying that cluster deploy mode is not supported for Python applications on a standalone cluster', 'It runs in client mode automatically']}
+  answer={1}
+  why="SparkSubmit checks the case (STANDALONE, CLUSTER) with a Python application and raises an error directly. To use cluster mode with Python, you need YARN or Kubernetes."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Dynamic allocation and shuffle tracking are on. A job with a shuffle has finished, and you waited longer than executorIdleTimeout, but the executors are not given back. Why?"
+  options={['It is a bug. They should always be given back', 'The executors hold the shuffle data of the job that just finished, so shuffle tracking does not release them until that data is no longer used (the default timeout is unlimited)', 'Because the idle timeout must always be more than 60 seconds']}
+  answer={1}
+  why="In the lab, the job with a shuffle still had 2 executors after waiting 8 seconds, while the job with no shuffle gave them back until only the driver was left. The default of shuffleTracking.timeout is Long.MaxValue."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Which of these cannot be done in Spark Connect?"
+  options={['df.collect() and df.explain()', 'df.rdd and spark.sparkContext, because they need a JVM that the client does not have', 'df.filter and df.groupBy']}
+  answer={1}
+  why="The Connect client builds a logical plan and sends it over gRPC to the server. There is no JVM on the client side, so it cannot reach SparkContext and RDD (PySparkAttributeError and PySparkNotImplementedError in the experiment). Transformations, collect and explain work."
+/>
+
+</Step>

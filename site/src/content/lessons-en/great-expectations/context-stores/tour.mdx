@@ -1,0 +1,74 @@
+---
+title: A tour of the gx/ folder
+summary: Create a file context, then open every file that GX writes to disk. See what goes into git, what does not, and whether the real data is stored in the results.
+order: 1
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import FileExplorer from '../../../../components/labs/great-expectations/FileExplorer';
+
+<Step>
+
+## Create it, then look at what you got
+
+The script `22_file_context_tour.py` creates a file context in a temporary folder. It adds a data source, a suite with two rules, a validation definition and a checkpoint with an `UpdateDataDocsAction`, then runs once (GX 1.24.1).
+
+```python
+context = gx.get_context(mode="file", project_root_dir=root)
+# ... add_pandas, suites.add, validation_definitions.add, checkpoints.add ...
+result = checkpoint.run(batch_parameters={"dataframe": df})
+```
+
+The files that appear under `gx/` (the font and image files of Data Docs are left out):
+
+```text
+.gitignore
+great_expectations.yml
+expectations/people_suite.json
+expectations/.ge_store_backend_id
+validation_definitions/people_vd.json
+checkpoints/people_cp.json
+plugins/custom_data_docs/styles/data_docs_custom_styles.css
+uncommitted/config_variables.yml
+uncommitted/validations/people_suite/__none__/<run>/people_src-people.json
+uncommitted/data_docs/local_site/index.html            (and sub-files)
+```
+
+Click a file in the box below to see its content.
+
+<FileExplorer
+  client:visible
+  lang="en"
+  title="Files that a file context writes"
+  files={[
+    { path: '.gitignore', note: 'created by GX', git: true, text: 'uncommitted/' },
+    { path: 'great_expectations.yml', note: 'context settings (3.9 KB)', git: true, text: '# Welcome to Great Expectations! Always know what to expect from your data.\n# ...(explanatory comments)...\nconfig_version: 4.0\n\n# This config file supports variable substitution ...\n# Environment variables take precedence over variables defined here.' },
+    { path: 'expectations/people_suite.json', note: 'the suite as JSON', git: true, text: '{\n  "expectations": [\n    {\n      "id": "e4c9694a-...",\n      "kwargs": { "column": "id" },\n      "meta": {},\n      "severity": "critical",\n      "type": "expect_column_values_to_not_be_null"\n    },\n    {\n      "id": "cb3cf781-...",\n      "kwargs": { "column": "age", "max_value": 120.0, "min_value": 0.0 },\n      "meta": {},\n      "severity": "critical",\n      "type": "expect_column_values_to_be_between"\n    }\n  ],\n  "id": "6800ebe9-...",\n  "meta": { "great_expectations_version": "1.24.1" },\n  "name": "people_suite",\n  "notes": null\n}' },
+    { path: 'validation_definitions/people_vd.json', note: 'name + id of what it refers to', git: true, text: '{\n  "data": {\n    "asset": { "id": "b5c72983-...", "name": "people" },\n    "batch_definition": { "id": "ba074519-...", "name": "whole" },\n    "datasource": { "id": "619609c4-...", "name": "people_src" }\n  },\n  "id": "f39bd95b-...",\n  "name": "people_vd",\n  "suite": { "id": "6800ebe9-...", "name": "people_suite" }\n}' },
+    { path: 'checkpoints/people_cp.json', note: 'the checkpoint and its actions', git: true, text: '{\n  "actions": [\n    { "name": "docs", "site_names": [], "type": "update_data_docs" }\n  ],\n  "id": "5d5d7036-...",\n  "name": "people_cp",\n  "result_format": "SUMMARY",\n  "validation_definitions": [\n    { "id": "f39bd95b-...", "name": "people_vd" }\n  ]\n}' },
+    { path: 'uncommitted/config_variables.yml', note: 'variables and secrets', git: false, text: '# This config file supports variable substitution which enables: 1) keeping\n# secrets out of source control & ...\n# Environment variables take precedence over variables defined here.\n\ninstance_id: 9ee08596-...' },
+    { path: 'uncommitted/validations/people_suite/__none__/<run>/people_src-people.json', note: 'the result of one run', git: false, text: '{\n  "meta": {\n    "active_batch_definition": {\n      "batch_identifiers": { "dataframe": "<DATAFRAME>" },\n      "data_asset_name": "people",\n      "datasource_name": "people_src"\n    },\n    "batch_markers": {\n      "ge_load_time": "20261029T064738.933866Z",\n      "pandas_data_fingerprint": "9d42daae8e0002b8985838fd67c6c6da"\n    },\n    "batch_parameters": { "dataframe": "<DATAFRAME>" },\n    "batch_spec": { "batch_data": "PandasDataFrame" },\n    "checkpoint_id": "3ad45b7f-...",\n    "run_id": { "run_name": null, "run_time": "2026-10-29T13:47:38.929791+07:00" },\n    "validation_id": "99c79cda-..."\n  },\n  "results": [ ... ]\n}' },
+    { path: 'uncommitted/data_docs/local_site/index.html', note: 'HTML report (18 KB)', git: false },
+  ]}
+  caption="Some content is shortened with ..., but the text and the structure you see are what the files on disk really contain. The id values are cut short."
+/>
+
+</Step>
+
+<Step>
+
+## Three things you can see from the files
+
+1. The validation definition stored in a file refers to three levels by name + id: the datasource, the asset and the batch definition. This is different from the `.json()` output in memory on the page "References by name and id" (lesson 1), which has only the batch definition. Serializing to a file keeps the full chain of references.
+2. The validation result does not store the real data. At `batch_parameters.dataframe` it says `<DATAFRAME>`. There is only a fingerprint of the data (`pandas_data_fingerprint`), used to check whether it is the same data (the case where the fingerprint changes was not tested).
+3. The `.gitignore` that GX creates has one line: `uncommitted/`. So the validation results, the reports and `config_variables.yml` stay out of git by default. `expectations/`, `checkpoints/`, `validation_definitions/` and `great_expectations.yml` can go into git, so a team can review a suite in a pull request like code.
+
+<Callout type="note" title="Not looked at">
+I did not open the Data Docs HTML file in a browser. I also did not test whether a suite JSON file that was edited by hand loads back correctly.
+</Callout>
+
+</Step>

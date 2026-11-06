@@ -1,0 +1,120 @@
+---
+title: What kinds of bad data GX can catch
+summary: Take one table and break it nine ways, then see which defects the same eight rules catch, which slip through, and why a rule that was never written is never checked
+order: 1
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import CaseExplorer from '../../../../components/labs/great-expectations/CaseExplorer';
+
+<Step>
+
+## The sample table and eight rules
+
+The table `people` has five rows and four columns. The first version of the data is clean.
+
+```text
+id  age  email      country
+1   31   a@x.com    TH
+2   24   b@x.com    TH
+3   45   c@x.com    JP
+4   52   d@x.com    SG
+5   38   e@x.com    TH
+```
+
+The rules, written in one suite:
+
+| Rule | expectation |
+|---|---|
+| id is not null | `ExpectColumnValuesToNotBeNull(column="id")` |
+| id is unique | `ExpectColumnValuesToBeUnique(column="id")` |
+| age is not null | `ExpectColumnValuesToNotBeNull(column="age")` |
+| age is between 0 and 120 | `ExpectColumnValuesToBeBetween(column="age", min_value=0, max_value=120)` |
+| email looks like an email | `ExpectColumnValuesToMatchRegex(column="email", regex=...)` |
+| country is in the known set | `ExpectColumnValuesToBeInSet(column="country", value_set=["TH", "JP", "SG"])` |
+| the columns are exactly the expected ones | `ExpectTableColumnsToMatchSet(column_set=[...], exact_match=True)` |
+| there are 1 to 1000 rows | `ExpectTableRowCountToBeBetween(min_value=1, max_value=1000)` |
+
+</Step>
+
+<Step>
+
+## Break the data one way at a time
+
+Pick a case from the buttons above the table. The results come from running `16_defect_catalog.py` with GX 1.24.1, which uses the same suite for every case.
+
+<CaseExplorer
+  lang="en"
+  client:visible
+  title="One suite, nine kinds of data"
+  cases={[
+    { label: 'Clean', input: 'id age email   country\n1  31  a@x.com TH\n...', rows: [
+      { name: 'id not null', ok: true }, { name: 'id unique', ok: true }, { name: 'age not null', ok: true },
+      { name: 'age between 0 and 120', ok: true }, { name: 'email matches regex', ok: true }, { name: 'country in set', ok: true },
+      { name: 'columns match set', ok: true }, { name: 'row count 1..1000', ok: true } ], note: 'All pass. Used as the baseline' },
+    { label: 'age is null', input: 'age: 31, null, 45, 52, 38', rows: [
+      { name: 'id not null', ok: true }, { name: 'id unique', ok: true }, { name: 'age not null', ok: false },
+      { name: 'age between 0 and 120', ok: true, detail: 'null is not counted as out of range' }, { name: 'email matches regex', ok: true }, { name: 'country in set', ok: true },
+      { name: 'columns match set', ok: true }, { name: 'row count 1..1000', ok: true } ], note: 'Only one rule fails. The range rule ignores null' },
+    { label: 'Duplicate id', input: 'id: 1, 2, 2, 4, 5', rows: [
+      { name: 'id not null', ok: true }, { name: 'id unique', ok: false }, { name: 'age not null', ok: true },
+      { name: 'age between 0 and 120', ok: true }, { name: 'email matches regex', ok: true }, { name: 'country in set', ok: true },
+      { name: 'columns match set', ok: true }, { name: 'row count 1..1000', ok: true } ] },
+    { label: 'age 450', input: 'age: 31, 24, 450, 52, 38', rows: [
+      { name: 'id not null', ok: true }, { name: 'id unique', ok: true }, { name: 'age not null', ok: true },
+      { name: 'age between 0 and 120', ok: false }, { name: 'email matches regex', ok: true }, { name: 'country in set', ok: true },
+      { name: 'columns match set', ok: true }, { name: 'row count 1..1000', ok: true } ] },
+    { label: 'Bad email format', input: 'email: a@x.com, b-at-x.com, ...', rows: [
+      { name: 'id not null', ok: true }, { name: 'id unique', ok: true }, { name: 'age not null', ok: true },
+      { name: 'age between 0 and 120', ok: true }, { name: 'email matches regex', ok: false }, { name: 'country in set', ok: true },
+      { name: 'columns match set', ok: true }, { name: 'row count 1..1000', ok: true } ] },
+    { label: 'Unknown country', input: 'country: TH, TH, JP, SG, XX', rows: [
+      { name: 'id not null', ok: true }, { name: 'id unique', ok: true }, { name: 'age not null', ok: true },
+      { name: 'age between 0 and 120', ok: true }, { name: 'email matches regex', ok: true }, { name: 'country in set', ok: false },
+      { name: 'columns match set', ok: true }, { name: 'row count 1..1000', ok: true } ] },
+    { label: 'Renamed column', input: 'age was renamed to age_years', rows: [
+      { name: 'id not null', ok: true }, { name: 'id unique', ok: true }, { name: 'age not null', ok: false, detail: 'values not checked: column age not found' },
+      { name: 'age between 0 and 120', ok: false, detail: 'values not checked: column age not found' }, { name: 'email matches regex', ok: true }, { name: 'country in set', ok: true },
+      { name: 'columns match set', ok: false, detail: 'says directly that the column set does not match' }, { name: 'row count 1..1000', ok: true } ], note: 'One cause makes three rules fail. Two of them are exceptions that GX caught (success=False with exception_info)' },
+    { label: 'Empty file', input: '0 rows, all column headers present', rows: [
+      { name: 'id not null', ok: true }, { name: 'id unique', ok: true }, { name: 'age not null', ok: true },
+      { name: 'age between 0 and 120', ok: true }, { name: 'email matches regex', ok: true }, { name: 'country in set', ok: true },
+      { name: 'columns match set', ok: true }, { name: 'row count 1..1000', ok: false } ], note: 'Only one rule catches it: the row count rule' },
+    { label: 'Wrong but looks right', input: 'age of the first row is 13 instead of 31', rows: [
+      { name: 'id not null', ok: true }, { name: 'id unique', ok: true }, { name: 'age not null', ok: true },
+      { name: 'age between 0 and 120', ok: true }, { name: 'email matches regex', ok: true }, { name: 'country in set', ok: true },
+      { name: 'columns match set', ok: true }, { name: 'row count 1..1000', ok: true } ], note: 'All pass, even though the value is wrong' },
+  ]}
+/>
+
+</Step>
+
+<Step>
+
+## Read the result in the right place
+
+The renamed column case gives three observations.
+
+1. One cause (the column `age` is missing) made three rules fail. When you read results, look for the shared cause first. Do not count failures one by one. The rule `columns match set` names the cause most directly.
+2. For the two rules that failed because the column was not found, GX caught the exception and reported it as `success=False` with `exception_info`. It did not raise. With `success` alone you cannot tell whether the data is wrong or the rule cannot be used. You have to look at `exception_info`.
+3. The order of `result.results` does not always match the order in the suite. In this case GX puts the entries that raised an exception first (script `16` compared with the original order and got `same_order=False` only for this case). There is also another reason that has nothing to do with exceptions: GX groups expectations by column before evaluating them (the page "Nulls and the order of results" in lesson 3). If you want to match results to expectations, match them through `expectation_config`, not by position in the list. Matching by position in this case labelled all three wrongly (the first version of the script did that and gave wrong output).
+
+</Step>
+
+<Step>
+
+## The case where every rule passes but the data is wrong
+
+In the "Wrong but looks right" case, the `age` of the first row was changed from 31 to 13. The value 13 is inside 0 to 120, it is an integer, and it is not null. So the suite passes completely. GX checks only the rules that were written. If no rule speaks about this kind of error, GX has no way to see it.
+
+Rules that check values row by row cannot catch this kind of error at all. You need rules about the whole, such as the range of the mean or the share of each group. Those rules can still miss it if the error is smaller than the range you set. So the number of passing rules does not tell you the quality of the data. It only tells you that the data does not contradict what we knew to write down.
+
+<Callout type="warn" title="What this table did not test">
+Every case has 5 rows and uses plain pandas. The number of failed rules and the exception messages may differ on SQL or Spark. Lesson 11 looks at that. As for GX not changing the DataFrame it checks, that was tested in every case (the DataFrame was the same before and after the run), but only with pandas.
+</Callout>
+
+</Step>

@@ -1,0 +1,90 @@
+---
+title: Reading the Spark engine source, part by part
+summary: GX has not been run on Spark, so we read the source of resolve_metric_bundle instead. It has three parts, and there is a list of what you must measure yourself to confirm it.
+order: 3
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import FlowFrames from '../../../../components/labs/great-expectations/FlowFrames';
+
+<Step>
+
+## The evidence level of this page
+
+Everything on this page is at the level "read from the source". Not one point was run on Spark. The source we read is `execution_engine/sparkdf_execution_engine.py` of GX 1.24.1. The method `resolve_metric_bundle` (lines 966 to 1038) has the same name as the SQL method that lesson 8 measured. The difference is how the statements are combined.
+
+</Step>
+
+<Step>
+
+## The three parts of the method
+
+The code is cut down to its outline, without log comments and type hints.
+
+```python
+aggregates = {}
+
+# Part 1: group the metrics by domain
+for bundled in metric_fn_bundle:
+    domain_id = IDDict(bundled.compute_domain_kwargs or {}).to_id()
+    if domain_id not in aggregates:
+        aggregates[domain_id] = {"column_aggregates": [], "metric_ids": [], "domain_kwargs": ...}
+    aggregates[domain_id]["column_aggregates"].append(bundled.metric_fn)
+    aggregates[domain_id]["metric_ids"].append(bundled.metric_configuration.id)
+
+# Part 2: one agg per domain
+for aggregate in aggregates.values():
+    df = self.get_domain_records(domain_kwargs=aggregate["domain_kwargs"])
+    res = df.agg(*aggregate["column_aggregates"]).collect()
+    assert len(res) == 1, "all bundle-computed metrics must be single-value statistics"
+
+    # Part 3: split the result back into one value per metric
+    for idx, metric_id in enumerate(aggregate["metric_ids"]):
+        resolved_metrics[metric_id] = convert_to_json_serializable(data=res[0][idx])
+```
+
+<FlowFrames
+  client:visible
+  lang="en"
+  title="resolve_metric_bundle on Spark"
+  width={760}
+  height={260}
+  boxes={[
+    { id: 'in', label: 'Aggregate metrics', sub: 'max, mean, null count ...', x: 10, y: 20, w: 190 },
+    { id: 'g', label: 'Group by domain', sub: 'table + row_condition', x: 270, y: 20, w: 190 },
+    { id: 'agg', label: 'df.agg(*aggs).collect()', sub: 'once per domain', x: 270, y: 140, w: 190 },
+    { id: 'row', label: 'One row', sub: 'value of every metric', x: 540, y: 140 },
+    { id: 'out', label: 'Value per metric', sub: 'sent to the expectation', x: 540, y: 20 },
+  ]}
+  arrows={[ { from: 'in', to: 'g' }, { from: 'g', to: 'agg', label: 'per domain' }, { from: 'agg', to: 'row' }, { from: 'row', to: 'out', label: 'split by order' } ]}
+  frames={[
+    { title: 'Receive the deferred aggregate metrics', text: 'These metrics are still Spark expressions (for example F.max(column)). They have no value yet', on: ['in'], arrows: [] },
+    { title: 'Group by domain', text: 'domain_kwargs is the key. Metrics with the same domain go in the same group (like the SQL side, which the page "The domain of a metric" in lesson 8 tried)', on: ['in', 'g'], arrows: [0], tag: 'sparkdf_execution_engine.py ~lines 994-1012' },
+    { title: 'One agg per domain', text: 'df.agg(*list of expressions).collect() once per group. From the Spark point of view: agg is a transformation and collect is an action, so it is one job per group, unless Spark splits it into several jobs by itself (this must be measured)', on: ['g', 'agg'], arrows: [1], tag: 'lines 1014-1020' },
+    { title: 'Get one row', text: 'The code asserts that it gets one row. If a metric is not a single value, it fails here. So only aggregates that return a single value take this path', on: ['agg', 'row'], arrows: [2], tag: 'line 1026' },
+    { title: 'Split the result back into metrics', text: 'The value at index idx of the row is converted to a type that can be serialized, then stored under the id of the metric', on: ['row', 'out'], arrows: [3], tag: 'lines 1031-1036' },
+  ]}
+/>
+
+</Step>
+
+<Step>
+
+## If you want to measure it yourself
+
+To turn the conclusion above into a measured result, you need a Spark installation (the Spark path in this garden has a project at `subjects/spark/code`). Then follow these steps. None of this has been done yet.
+
+1. Create a small Spark DataFrame and run a validation with the same 6-rule suite as `05_sql_bundling.py` (BOOLEAN_ONLY).
+2. Open the Spark UI before and after the run and look at the Jobs tab to see how many jobs were added.
+3. Compare with the number of domains in the suite (the table, the table with a row_condition, and so on). If the explanation above is right, you should see about one aggregate job per domain, plus the jobs of the metrics that are not aggregates.
+4. Switch `result_format` to SUMMARY and compare again.
+
+<Callout type="warn" title="Why it has not been done">
+Running GX on Spark is not something this path checks. So this page is at source level only. Treat any number or behavior about Spark as unconfirmed until you measure it with the steps above.
+</Callout>
+
+</Step>

@@ -1,0 +1,92 @@
+---
+title: Check your understanding
+summary: Answer 6 questions to check how well you understand RDD, stages, shuffle files, memory and codegen
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="Where does the DAGScheduler cut a job into stages?"
+  options={['Every time you call a new transformation', 'At each ShuffleDependency, while narrow dependencies stay together in one stage', 'According to the number of executors']}
+  answer={1}
+  why="Narrow dependencies (map, filter) can be pipelined in one task. A ShuffleDependency needs the output of every parent partition, so it is a boundary: the parent side is a ShuffleMapStage and the last side is a ResultStage."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="How many stages do two reduceByKey in a row followed by collect give?"
+  options={['2 stages', '3 stages (two ShuffleMapStages and one ResultStage)', '1 stage']}
+  answer={1}
+  why="Two shuffles cut the job into three parts. Measured with statusTracker, the stages had 4, 4, 4 tasks. A single reduceByKey would give 2 stages."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A groupBy with 8 map tasks wrote how many shuffle files in total in the measurement?"
+  options={['8 files (one file per map task)', '24 files (8 map tasks x .data, .index and .checksum)', '8 x the number of reduce partition files']}
+  answer={1}
+  why="Each map task writes one .data file that holds every reduce partition one after another, with an .index that gives the offsets and a .checksum.ADLER32. So there is no need for M x R files."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The heap is 600 MiB, memory.fraction is the default 0.6 and reserved is 300 MiB. How much is the unified memory?"
+  options={['360 MiB (600 x 0.6)', '180 MiB ((600 - 300) x 0.6)', '300 MiB']}
+  answer={1}
+  why="Subtract the reserved 300 MiB first, then multiply by 0.6. The measured value was 188,743,680 bytes = 180 MiB, which matches the formula. Half of it (90 MiB) is the storage region by the default of storageFraction."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You cache data with MEMORY_ONLY until storage uses more than half of the unified memory, and then run a sort that needs a lot of memory. What happens?"
+  options={['The sort fails because storage does not give memory back', 'Execution takes it back by evicting the storage blocks that borrowed beyond the line. The measured result was that the cache kept 2 of 4 partitions', 'Storage evicts execution instead']}
+  answer={1}
+  why="Storage can borrow free space from execution, but execution can take it back (by evicting storage blocks over the line). Storage cannot take memory back from execution, so there is no guarantee that a MEMORY_ONLY cache stays complete."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="In the plan of a groupBy, why does the Exchange have no * in front, while the operators around it have *(1) and *(2)?"
+  options={['Because Exchange is slower', 'Because Exchange is not in whole-stage codegen, but is a boundary that splits codegen into two pieces', 'Because AQE turns off its codegen']}
+  answer={1}
+  why="Exchange (shuffle) is a stage boundary and not an operator that is merged into the loop of a generated class. We checked that the plan has *(1) and *(2), but no * on the Exchange line."
+/>
+
+</Step>

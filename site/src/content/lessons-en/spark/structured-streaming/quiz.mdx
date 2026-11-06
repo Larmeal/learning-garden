@@ -1,0 +1,79 @@
+---
+title: Check your understanding
+summary: Answer 5 questions to check how well you understand micro-batch, watermark and checkpoint
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="In one round of a micro-batch, in what order does Spark write offsets/N and commits/N?"
+  options={['commits/N first, then offsets/N after the run', 'offsets/N before processing, and commits/N after processing is done', 'Both at the same time after the run']}
+  answer={1}
+  why="offsets/N is a write-ahead log written before the run, so that after a crash in the middle Spark knows the original data range. commits/N is written at the end to say that this batch is complete."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The checkpoint has offsets/1 but no commits/1, and you restart. What happens to the query?"
+  options={['It skips batch 1 and starts at batch 2', 'It runs batch 1 again with the same offset range, and the sink may get batch 1 twice', 'It builds a new batch 1 and picks a new data range']}
+  answer={1}
+  why="Spark sees that batch 1 started but was not committed, so it runs it again with the same range. The result is the same and the state continues, but the sink has to handle batchId itself to avoid duplicate data."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="What is the result of groupBy(user).count() in append mode with no watermark?"
+  options={['It works and sends the result in every batch', 'AnalysisException saying that output mode append is not supported for aggregations without a watermark', 'It works but sends only the new rows']}
+  answer={1}
+  why="Without a watermark, Spark has no way to know which group is finished, so it cannot emit rows that will not change again in append mode. Use update or complete instead, or add a watermark."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The window 12:00 to 12:05 has two events. The watermark delay is 10 minutes. The newest event so far is 12:03. In append mode, when is this window sent out?"
+  options={['Immediately, in the batch that receives the events', 'When the watermark passes 12:05, which needs a new event of at least 12:15, and the next batch applies that value', 'After 10 minutes of real clock time']}
+  answer={1}
+  why="The watermark is the newest event time minus the delay. It is computed at the end of a batch and used in the next batch. In the real run, the event 12:20 made the watermark 12:10, and the next batch (with no new data) emitted the window. It does not depend on the real clock."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You run trigger(availableNow=True) with the same checkpoint a second time, after the first query processed all the files. What is the result?"
+  options={['It processes all the files again from the start', 'No batch at all, because the checkpoint remembers which files were read, and the query finishes by itself', 'An error because the checkpoint is a duplicate']}
+  answer={1}
+  why="availableNow processes only what has not been read yet and then stops by itself. The checkpoint keeps the committed offsets, so there is nothing to do. You can use this as an incremental job that runs in rounds."
+/>
+
+</Step>

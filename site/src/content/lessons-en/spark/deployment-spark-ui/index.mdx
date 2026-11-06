@@ -1,0 +1,178 @@
+---
+title: Deployment and the Spark UI
+summary: "Learn to read the Spark UI when a job is slow, how spark-submit talks to the cluster manager until it gets executors, how dynamic allocation works, and how Spark Connect differs from normal PySpark. Run for real on a standalone cluster that we started ourselves"
+order: 11
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [architecture, execution-model]
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import UiGuideLab from '../../../../components/labs/spark/UiGuideLab';
+import SubmitFlowLab from '../../../../components/labs/spark/SubmitFlowLab';
+
+<Step>
+
+## The most important skill is reading the Spark UI
+
+Deploying is something you do once per environment, but opening the Spark UI and knowing what is wrong is something you use every day. So this chapter starts with the UI and then goes to deployment.
+
+The Spark UI is a web page that the **driver serves** (port 4040 by default, `spark.ui.port`), and it exists only while the application is running. Its data comes from events that Spark sends internally. Every page has the same data in the REST API (`/api/v1/applications/<id>/...`), which the script `exercises/11_deployment_ui.py` uses to read the numbers in this chapter.
+
+Pick a symptom and see which page to open and what to read.
+
+<UiGuideLab client:visible lang="en" />
+
+The real numbers of the `groupBy` job used in this chapter (run on a cluster we started ourselves, 8 starting partitions, `shuffle.partitions = 6`):
+
+| where to look | what you get |
+|---|---|
+| Jobs | 1 job, 14 tasks (`numTasks`), status `SUCCEEDED` |
+| Stages | the first stage has 8 tasks (map) that write 2,296 bytes of shuffle, and the second stage has 6 tasks that read 2,296 bytes (the same) |
+| Stage > Summary Metrics | `executorRunTime` at quantiles 0, 0.5, 1 (values such as 5, 16 and 114 ms) |
+| SQL | a query with status `COMPLETED` |
+| Environment | `spark.master` and `spark.executor.memory` match what was set |
+
+The task counts match what [chapter 5](/en/spark/execution-model/) taught: 8 partitions give 8 map tasks, and 6 shuffle partitions give the next 6 tasks.
+
+</Step>
+
+<Step>
+
+## The event log and the History Server
+
+The Spark UI disappears when the application ends. To look at it afterwards, you must turn on the **event log** (`spark.eventLog.enabled`, default **false**) and use the History Server to read it back as the same UI pages.
+
+When it is on, Spark writes a folder `eventlog_v2_<app-id>/` with the files `appstatus_<app-id>` and `events_1_<app-id>`, in JSON with one event per line. By default it is compressed with zstd (`spark.eventLog.compress` = true). The events of the `groupBy` run above can be counted (compression was turned off to make them easy to read):
+
+| event | count |
+|---|---|
+| `SparkListenerApplicationStart` / `End` | 1 / 1 |
+| `SparkListenerJobStart` / `End` | 1 / 1 |
+| `SparkListenerStageSubmitted` / `Completed` | 2 / 2 |
+| `SparkListenerTaskStart` / `End` | 14 / 14 |
+| `SparkListenerExecutorAdded` | 2 |
+| `SparkListenerSQLExecutionStart` / `End` | 1 / 1 |
+
+The number 14 matches the number of tasks in the UI exactly: the whole UI is the result of replaying these events. The History Server (the script `sbin/start-history-server.sh` is in the PySpark package) reads the same event log. Starting the History Server ourselves was not tested.
+
+</Step>
+
+<Step>
+
+## Cluster manager and deploy mode
+
+The **cluster manager** is what allocates machines to Spark. Your program says which one to use through `--master`.
+
+| `--master` | use when | tested in this chapter |
+|---|---|---|
+| `local[N]` | development on one machine (driver and executor are the same process) | used in all earlier chapters |
+| `spark://host:7077` | the standalone cluster that comes with Spark (Master + Worker) | **run** |
+| `yarn` | a Hadoop cluster | not run (the package has the `spark-yarn` jar) |
+| `k8s://https://...` | Kubernetes | not run (the package has the `spark-kubernetes` jar) |
+
+The **deploy mode** says where the driver lives.
+
+- `client` (default): the driver is on the machine that runs `spark-submit` or your Python script, and you see the output directly.
+- `cluster`: the driver is sent to run on the cluster. Use it for jobs you leave running on their own.
+
+A limit that we checked: **standalone cluster mode does not support Python applications**. `spark-submit --master spark://... --deploy-mode cluster app.py` gives `Cluster deploy mode is currently not supported for python applications on standalone clusters` (from `SparkSubmit.scala:299`). To run Python in cluster mode you need YARN or Kubernetes.
+
+</Step>
+
+<Step>
+
+## From spark-submit to the executor
+
+See the real order on the standalone cluster started in the lab (one Master, a Worker with 2 cores, 1 core per executor).
+
+<SubmitFlowLab client:visible lang="en" />
+
+Who does the job at each step (read from the source: `SparkSubmit.scala`, `StandaloneAppClient.scala`, `Master.scala`, `Worker.scala`, `ExecutorRunner.scala`, `CoarseGrainedExecutorBackend.scala`):
+
+| player | job |
+|---|---|
+| `SparkSubmit` | the entry point of `spark-submit`. It decides whether to submit, kill or ask for status, and then calls the main of the application |
+| `StandaloneAppClient` | on the driver side, it talks to the Master: it registers the application and asks for or releases executors |
+| `Master` | receives `RegisterWorker` and `RegisterApplication`, queues waiting applications in FIFO order, and chooses a Worker for each executor |
+| `Worker` | receives `LaunchExecutor` and counts the cores and memory it has used |
+| `ExecutorRunner` | starts the executor as a child process and reports its state back to the Worker |
+| `CoarseGrainedExecutorBackend` | lives in each executor, registers with the driver, and then receives `LaunchTask` |
+
+The important point is that after an executor is started, **the executor talks to the driver directly**, not through the Master. If the driver dies, the application ends. On YARN and Kubernetes the players on the cluster manager side are different, but the order "the driver asks for executors and the executors contact the driver back" is the same.
+
+</Step>
+
+<Step>
+
+## Asking for resources and dynamic allocation
+
+These are values you always have to decide when you submit an application to a cluster.
+
+| config | meaning | default |
+|---|---|---|
+| `spark.executor.memory` | the heap of each executor (at least 450m according to the doc) | see the doc of your version |
+| `spark.executor.cores` | the number of cores (= tasks that can run in parallel) per executor | 1 |
+| `spark.driver.memory` | the memory of the driver | 1g |
+| `spark.executor.memoryOverhead` | memory outside the heap (used by Python workers, native code, buffers) | computed as a fraction of the executor memory |
+| `spark.ui.port` | the port of the UI | 4040 |
+
+**Dynamic allocation** (`spark.dynamicAllocation.enabled`) lets Spark ask for and give back executors according to the work (`ExecutorAllocationManager` on the driver). The policy: start from `initialExecutors`. When tasks have been waiting longer than `schedulerBacklogTimeout` (1 second), ask for 1 more, then 2, then 4, up to `maxExecutors`. Give back an executor that has been idle longer than `executorIdleTimeout` (**60 seconds** by default). The measured result on a cluster with `minExecutors = 0` and `idleTimeout = 4s`:
+
+1. Before any work: the only executor is `driver`.
+2. After the `groupBy` job: there are 2 executors (1 core each, as many as the Worker has).
+3. After waiting 8 seconds (longer than the idle timeout): there are still 2, because the executors hold the **shuffle data** of the job that just finished.
+4. An application with no shuffle (`range(...).collect()`): the executors are given back, and only `driver` remains.
+
+Point 3 is the result of **shuffle tracking** (`spark.dynamicAllocation.shuffleTracking.enabled`), which is needed when there is no external shuffle service: Spark does not release an executor that holds shuffle files that may still be needed. The default of `shuffleTracking.timeout` is unlimited (`Long.MaxValue`). So a job that shuffles often will show executors that stay, even when they are really idle.
+
+</Step>
+
+<Step>
+
+## Spark Connect: the client and the server are separate
+
+Normal (classic) PySpark starts a JVM in the same process as your program and talks to it through Py4J. **Spark Connect** splits the two parts: a thin client builds the logical plan and sends it over **gRPC** (protobuf) to a server that runs full Spark, and gets the result back as Arrow.
+
+From the real run (a client connected to a local server opened by `SparkSession.builder.remote("local[2]")`):
+
+| what we checked | classic | Connect |
+|---|---|---|
+| module of the session | `pyspark.sql.session` | `pyspark.sql.connect.session` |
+| what the DataFrame holds | a proxy of the JVM Dataset (`_jdf`) | a logical plan on the client side (`_plan`), where `filter` gives a `Filter` |
+| `df.collect()` | the same | gives `[0, 2, 4, 6, 8]` |
+| `df.explain()` | the same | the same plan `*(1) Filter ... Range (0, 10, step=1, splits=2)` |
+| `spark.sparkContext` | works | `PySparkAttributeError` (needs the JVM) |
+| `df.rdd` | works | `PySparkNotImplementedError` |
+
+What is lost is everything that touches the JVM directly (SparkContext, RDD). What you get is a **light client**: no JVM or Spark needed on the machine that runs the code, it can connect to a remote cluster, and a client crash does not bring down the server.
+
+On the server side (read from the source): `SparkConnectService` is a gRPC service with `ExecutePlan` (returns the result as a stream), `AnalyzePlan`, `Config`, `AddArtifacts`, `Interrupt` and `ReattachExecute`. `SparkConnectPlanner` translates protobuf into a Catalyst plan, and from there it is all the normal Catalyst you have learned ([chapter 6](/en/spark/catalyst-aqe/)). Each session has a `SessionHolder` that keeps the state on the server side, and each operation has an `ExecuteHolder` and a thread that runs it (`ExecuteThreadRunner`). `ReattachExecute` lets a client reconnect and continue receiving the result when the connection drops in the middle.
+
+Databricks and EMR are services that start clusters for you. The author did not test either one. The part that matters for this chapter is reading the Spark UI, which looks the same.
+
+</Step>
+
+<Step>
+
+## Try it and check yourself
+
+```bash
+cd subjects/spark/code
+uv run python exercises/11_deployment_ui.py
+```
+
+The script starts a standalone cluster itself (Master + Worker in WSL), runs an application, reads the REST API and the event log, and tries dynamic allocation and Spark Connect. It takes about 2 to 3 minutes. If you want to see the real UI, open the Master UI at `http://127.0.0.1:8080` while it runs.
+
+Check yourself:
+
+- One task is much slower than the others. Which page do you open and what do you look at?
+- Why are the executors still not given back after a job with a shuffle, even though dynamic allocation is on?
+- Why does `df.rdd` not work in Spark Connect?
+- You want to run Python in cluster mode. Which cluster manager must you choose?
+
+</Step>

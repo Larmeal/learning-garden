@@ -1,0 +1,250 @@
+---
+title: Performance tuning in depth
+summary: The order of join choice in JoinSelection, the conditions of a shuffled hash join, which side OptimizeSkewedJoin can split, CacheManager and locked partitions, the spill mechanism in the source, how the shuffle writer is chosen, locality, and a table of configs
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import JoinDecisionLab from '../../../../components/labs/spark/JoinDecisionLab';
+import ShuffleWriterLab from '../../../../components/labs/spark/ShuffleWriterLab';
+import LocalityWaitLab from '../../../../components/labs/spark/LocalityWaitLab';
+
+This page refers to the source of Spark 4.2.0 (tag v4.2.0). What was run comes from `exercises/07_performance_tuning.py`. What is marked "not tested" has no evidence from a run, so do not treat it as fact.
+
+<Step>
+
+## `JoinSelection`: the order of choice
+
+`object JoinSelection` is at `SparkStrategies.scala:181`. The order for an equi-join is:
+
+**When there is a hint** (lines 321-329)
+
+1. `BroadcastHashJoin` if there is a broadcast hint and that side can be built.
+2. `SortMergeJoin` if there is a merge hint.
+3. `ShuffledHashJoin` if there is a shuffle_hash hint.
+4. `CartesianProduct` if there is a shuffle_replicate_nl hint.
+5. If none of these match (the hint cannot be used), it acts as if there were no hint.
+
+**When there is no hint** (`createJoinWithoutHint`, lines 305-319)
+
+1. `BroadcastHashJoin` if either side is small enough and can be built.
+2. `ShuffledHashJoin` if the conditions are met (see the next section).
+3. `SortMergeJoin` if the keys can be ordered.
+4. `CartesianProduct`, only for inner-like joins.
+5. Last is `BroadcastNestedLoopJoin` (it builds the smaller side).
+
+The requirement of each method: broadcast and shuffle hash need keys that are `hashJoinSupported` (line 240, `joins.scala:406`). Sort-merge needs keys that are `RowOrdering.isOrderable` (lines 286-293). A null-aware anti join (`NOT IN` with a single column) can only be done by broadcast (lines 331-334).
+
+**A join with no equality condition** (lines 336-420): with a hint it is `BroadcastNestedLoopJoin`. Without a hint, a small side also gives BNLJ. If it is not small and the join is inner-like, it is `CartesianProduct`. Everything else is BNLJ anyway, which the source itself says may be very slow or run out of memory. Measured: `big.k < small.k` gives `BroadcastNestedLoopJoin` with the normal threshold and `CartesianProduct` with -1. A left outer of the same form with -1 is still `BroadcastNestedLoopJoin` (because cartesian works only for inner).
+
+**Which side can be broadcast, by join type** (`joins.scala:377-390`)
+
+| Side | Join types it can build |
+|---|---|
+| Left | InnerLike, RightOuter |
+| Right | InnerLike, LeftOuter, LeftSingle, LeftSemi, LeftAnti, ExistenceJoin |
+| (none) | FullOuter |
+
+Walk through this flow chart with your own conditions. Choose an example marked "measured" to see a case where the exercise ran and checked the plan, or change the join type, hint and size yourself and see at which step the path changes.
+
+<JoinDecisionLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## Why you never get a shuffled hash join by accident
+
+The conditions of a shuffled hash join without a hint (`joins.scala:318-359`, helpers 538-560) are that all of these are true:
+
+- `spark.sql.join.preferSortMergeJoin` is false. This one is **internal** and its default is **true**.
+- The small side has `sizeInBytes < autoBroadcastJoinThreshold * number of shuffle partitions`.
+- The small side times `spark.sql.shuffledHashJoinFactor` (3) is still not bigger than the big side.
+- The join type passes `canBuildShuffledHashJoinLeft/Right`.
+
+The result is that by default Spark does not choose a shuffled hash join by itself. If you want one, you must add the `shuffle_hash` hint yourself. Measured: threshold 100 with `preferSortMergeJoin=false` gave `ShuffledHashJoin ... BuildRight` with 2 Exchanges and no Sort, but the default (`preferSortMergeJoin=true`) at the same threshold gave `SortMergeJoin`. If you set the threshold to -1, the size condition is always negative, so a shuffled hash join without a hint is impossible.
+
+</Step>
+
+<Step>
+
+## Hints: names, order, and the ones that cannot be used
+
+A hint has several names (`hints.scala`).
+
+| Hint | Names you can use |
+|---|---|
+| broadcast | `BROADCAST`, `BROADCASTJOIN`, `MAPJOIN` |
+| merge | `SHUFFLE_MERGE`, `MERGE`, `MERGEJOIN` |
+| shuffle hash | `SHUFFLE_HASH` |
+| cartesian | `SHUFFLE_REPLICATE_NL` |
+
+The priority when you add several hints is BROADCAST > SHUFFLE_MERGE > SHUFFLE_HASH > SHUFFLE_REPLICATE_NL (comment at `hints.scala:117-123`). Measured: BROADCAST on one side and MERGE on the other gave `BroadcastHashJoin`, and with BROADCAST on both sides, Spark broadcast the smaller side. In PySpark you call it with `df.hint("broadcast")` or `F.broadcast(df)`. In SQL you write `/*+ BROADCAST(t) */`.
+
+An unknown hint name (`hint("nonsense")`) gives **no error**, and the plan comes out as normal (there may be a log warning, whose message was not checked).
+
+A `shuffle_hash` hint on a left join gives `ShuffledHashJoin LeftOuter` whichever side you put it on, building the side that has the hint (both BuildRight and BuildLeft were measured).
+
+</Step>
+
+<Step>
+
+## The planning order of a broadcast
+
+A table that is broadcast is read to the driver through `BroadcastExchangeExec` (`BroadcastExchangeExec.scala:186`: `child.executeCollectIterator()`), built into a relation, and then sent on. The metrics you see in the SQL UI are data size, time to collect, time to build, time to broadcast (lines 129-133).
+
+The limits: `spark.sql.broadcastTimeout` = 300 seconds (`SQLConf.scala:1971`) and `spark.sql.maxBroadcastTableSize` = 8 GiB since 4.1.0 (line 1976).
+
+`canBroadcastBySize` (`joins.scala:367-375`) checks `0 <= sizeInBytes <= threshold`. For the runtime statistics of AQE it uses `spark.sql.adaptive.autoBroadcastJoinThreshold` first if it is set, otherwise the normal one. And `LogicalQueryStageStrategy` (lines 38-85) prevents a broadcast stage that was already created from being turned back into a shuffle.
+
+</Step>
+
+<Step>
+
+## `OptimizeSkewedJoin` in detail
+
+The file is `OptimizeSkewedJoin.scala`.
+
+- **Skew line** = `max(skewedPartitionThresholdInBytes, median × skewedPartitionFactor)` (lines 65-68). A partition counts as skewed when it is bigger than this line (lines 146, 148). The median is computed from the size of the map task outputs per reduce partition (lines 124-125).
+- **Size of a split piece** = `max(advisoryPartitionSize, average size of the partitions that are not skewed)` (lines 75-83).
+- **Which side can be split** (lines 85-92): the left for Inner, Cross, LeftSemi, LeftAnti, LeftOuter, and the right for Inner, Cross, RightOuter. For **FullOuter neither side can be split**, so there is no skew handling.
+- **Applies to** `SortMergeJoin` and `ShuffledHashJoin` only (lines 225-240), and both children must be a `ShuffleQueryStage` with origin `ENSURE_REQUIREMENTS` (lines 286-293). The stream side of a `BroadcastHashJoin` can be split only when the local shuffle reader is off (lines 242-253).
+- **If the split would cause an extra shuffle**, the rule is cancelled, unless `spark.sql.adaptive.forceOptimizeSkewedJoin` is true (default false, lines 262-283).
+- The rule has no case for aggregate, so it does not split a skewed key of a `groupBy` (read from the match cases of the rule).
+
+Measured (2 million rows, 90% at `k = 1`, payload `rand()`, broadcast threshold -1, `shuffle.partitions=10`): with the defaults no skew handling happened. After lowering the threshold and advisory to 1 MB, it gave `SortMergeJoin(skew=true)` with `AQEShuffleRead coalesced and skewed` on the left side. The metrics of the node were skewed partitions 1, splits 16, partitions 17, and the join stage ran 17 tasks from the original 10 partitions. Using `rand()` as the payload is necessary, because repeated columns compress almost completely, and the shuffle file would be so small that it stays under the skew line.
+
+</Step>
+
+<Step>
+
+## Inside `CacheManager`
+
+- `Dataset.cache()` calls `persist()` and then `CacheManager.cacheQuery` (`Dataset.scala:1631-1640`), which registers `CachedData(normalizedPlan, InMemoryRelation)` and returns at once (`CacheManager.scala:133-176`). The data is built when `cachedColumnBuffers` is first accessed (`InMemoryRelation.scala:288-293`, `buildBuffers` at line 343).
+- The key is the **normalized plan** (comment at `CacheManager.scala:133`). So a DataFrame that is built again but has the same plan finds the cache.
+- Calling `persist` again on data that is already cached makes Spark log "Asked to cache already cached data" and it does not change the level (line 147).
+- When it builds the cache of a plan that has a shuffle, `CacheManager.getOrCloneSessionWithConfigsOff` turns off `spark.sql.adaptive.applyFinalStageShuffleOptimizations`, unless `spark.sql.optimizer.canChangeCachedPlanOutputPartitioning` is true (internal, default false, `CacheManager.scala:638-648`). This is why the cached partitions stay at 200 and are not merged.
+- The default storage level: `spark.sql.defaultCacheStorageLevel` = `MEMORY_AND_DISK` (since 4.0.0, `SQLConf.scala:2312`), while `df.persist()` in PySpark defaults to `MEMORY_AND_DISK_DESER` (`classic/dataframe.py:540-542`).
+
+<Callout type="warn" title="StorageLevel names in Scala and PySpark do not match">
+`MEMORY_ONLY` in Scala stores data deserialized, but in PySpark (`storagelevel.py:88-96`) `MEMORY_ONLY` and `MEMORY_AND_DISK` are serialized, and the deserialized form uses the name `MEMORY_AND_DISK_DESER`. Look at `df.storageLevel` to see what you really get. The results that were measured are `Memory Serialized 1x`, `Disk Memory Serialized 1x`, `Disk Memory Deserialized 1x`, `Disk Serialized 1x` and `Disk Memory Serialized 2x`.
+</Callout>
+
+Before `cache()` is called, `df.storageLevel` prints `Serialized 1x Replicated`, which means it is not cached (NONE). Right after `cache()` and before the first action, `explain()` already shows `InMemoryTableScan`, but `getRDDStorageInfo` is still empty. `CACHE LAZY TABLE t` in SQL creates nothing at all, while `CACHE TABLE t` creates it at once.
+
+</Step>
+
+<Step>
+
+## The spill mechanism in the source
+
+There are three layers.
+
+1. **`Spillable.maybeSpill`** (`Spillable.scala:86-111`): every 32 elements, if the memory of the collection reaches the threshold, it asks the pool for up to double. If it gets too little, it spills. It also spills when it reaches the forced threshold of row count or size. It is used by `ExternalSorter` (`ExternalSorter.scala:102`, `maybeSpillCollection` at lines 234-247).
+2. **`TaskMemoryManager.acquireExecutionMemory`** (`TaskMemoryManager.java:159-215`): if the pool cannot give memory, it orders other consumers to `spill()`. It picks the smallest consumer that has enough memory first, and if there is none, the biggest one, and the one that asked is last (`trySpillAndAcquire`, lines 249-262).
+3. **`UnsafeExternalSorter.spill`** (`UnsafeExternalSorter.java:226-268`), which SQL uses in `SortExec` and in the buffer of `SortMergeJoin`. It adds to the counters `memoryBytesSpilled` and `diskBytesSpilled` (lines 265-266). The serialized shuffle writer uses `ShuffleExternalSorter.spill` (`ShuffleExternalSorter.java:301-313`).
+
+The comment in `UnsafeExternalSorter.java:257-259` says the memory number that is spilled is "approximately a multiple of the page size" and includes the pointer array, so it can be bigger than disk. The counters are shown on the Stage page (`StagePage.scala:190-198`) and in the `spill size` metric of `SortExec` (lines 61-63), `HashAggregateExec` (lines 71-72), `SortMergeJoinExec` (line 50) and `WindowExec` (line 94).
+
+`spark.shuffle.spill.numElementsForceSpillThreshold` and `spark.sql.sortMergeJoinExec.buffer.spill.threshold` are internal and should not be treated as settings for users to tune. The formula for dividing memory among tasks, and the eviction of cache data when memory is tight, belong to `UnifiedMemoryManager` (the Internals chapter).
+
+</Step>
+
+<Step>
+
+## Choosing the shuffle writer
+
+`SortShuffleManager.registerShuffle` (`SortShuffleManager.scala:90-109`) chooses in order:
+
+1. **`BypassMergeSortShuffleHandle`** if `shouldBypassMergeSort`: no map-side combine and `numPartitions <= spark.shuffle.sort.bypassMergeThreshold` (200) (`SortShuffleWriter.scala:118-126`). It writes a file per partition, then joins them. It uses more file handles and buffers.
+2. **`SerializedShuffleHandle`** if `canUseSerializedShuffle` (lines 227-246): the serializer supports moving serialized data, there is no map-side combine, and the partitions are no more than 16,777,216. The `UnsafeRowSerializer` of SQL supports it (`UnsafeRowSerializer.scala:48`).
+3. **Everything else**: the general `SortShuffleWriter` (deserialized data, `ExternalSorter`).
+
+Switch the kind of work and the number of partitions, and see at which number the writer changes, and how each kind places rows into files differently.
+
+<ShuffleWriterLab client:visible lang="en" />
+
+SQL aggregation does the partial aggregate as a separate `HashAggregate` operator and does not use the `mapSideCombine` of RDD (measured: `mapSideCombine` is False). So a SQL shuffle can match cases 1 and 2. Measured from the handle of the Exchange: 8 and 200 partitions gave Bypass, and 201 gave Serialized.
+
+</Step>
+
+<Step>
+
+## Data locality (read from the source only)
+
+The task levels, from good to bad, are: `PROCESS_LOCAL`, `NODE_LOCAL`, `NO_PREF`, `RACK_LOCAL`, `ANY` (`TaskLocality.scala:25`). The scheduler uses **delay scheduling**: it waits for a good slot at the allowed level, and only accepts a lower level when the wait is over (`TaskSetManager.getAllowedLocalityLevel` lines 621-682). The wait time is read from `spark.locality.wait.process/.node/.rack`, each of which falls back to `spark.locality.wait`. The default is **3 seconds** (`getLocalityWait` lines 1339-1354). A level that has no wait time (NO_PREF, ANY) returns 0.
+
+Switch which executor is free, and see how long a task waits before it accepts a lower level.
+
+<LocalityWaitLab client:visible lang="en" />
+
+None of this was run on this machine, because local mode has one executor and no HDFS, so it does not confirm the behavior on a real cluster.
+
+</Step>
+
+<Step>
+
+## `count(distinct)` in the plan
+
+Measured from the plan (100,000 rows, AQE on):
+
+- A single `countDistinct("a")`: `HashAggregate(keys=[a])` → `Exchange hashpartitioning(a, 200)` → `HashAggregate` → partial count → `Exchange SinglePartition` → final count. That is two Exchanges in total.
+- Two of them, `countDistinct("a"), countDistinct("b")`: Catalyst rewrites it with `Expand [[a, null, 1], [null, b, 2]]` and a column `gid`, then aggregates on `(a, b, gid)`, so it counts with `FILTER (WHERE gid = ...)`. The number of rows after `Expand` equals the number of distinct aggregates times the input rows. If there is also a `groupBy("g")`, the key of the shuffle includes `g` (`Exchange hashpartitioning(g, a, b, gid, 200)`).
+- `approx_count_distinct("a")`: partial aggregate → `Exchange SinglePartition` → final. It has no Exchange on the distinct key and no `Expand` (the `rsd` value 0.05 appears in the plan).
+
+The time of these three forms, and the error of `approx_count_distinct`, were not measured.
+
+</Step>
+
+<Step>
+
+## Table of configs often used in this lesson
+
+| Config | Default | Source |
+|---|---|---|
+| `spark.sql.shuffle.partitions` | 200 | `SQLConf.scala:1000` |
+| `spark.sql.adaptive.enabled` | true | `SQLConf.scala:1050` |
+| `spark.sql.adaptive.coalescePartitions.enabled` | true | `SQLConf.scala:1102` |
+| `spark.sql.adaptive.coalescePartitions.parallelismFirst` | true | `SQLConf.scala:1111` |
+| `spark.sql.adaptive.coalescePartitions.minPartitionSize` | 1 MB | `SQLConf.scala:1125` |
+| `spark.sql.adaptive.coalescePartitions.initialPartitionNum` | not set (equals shuffle.partitions) | `SQLConf.scala:1147` |
+| `spark.sql.adaptive.advisoryPartitionSizeInBytes` | 64 MB | `SQLConf.scala:1094` |
+| `spark.sql.adaptive.skewJoin.enabled` | true | `SQLConf.scala:1231` |
+| `spark.sql.adaptive.skewJoin.skewedPartitionFactor` | 5.0 | `SQLConf.scala:1240` |
+| `spark.sql.adaptive.skewJoin.skewedPartitionThresholdInBytes` | 256 MB | `SQLConf.scala:1250` |
+| `spark.sql.adaptive.forceOptimizeSkewedJoin` | false | `SQLConf.scala:1321` |
+| `spark.sql.adaptive.localShuffleReader.enabled` | true | `SQLConf.scala:1222` |
+| `spark.sql.adaptive.autoBroadcastJoinThreshold` | not set (uses the normal one) | `SQLConf.scala:1281` |
+| `spark.sql.autoBroadcastJoinThreshold` | 10 MB | `SQLConf.scala:949` |
+| `spark.sql.shuffledHashJoinFactor` | 3 | `SQLConf.scala:956` |
+| `spark.sql.broadcastTimeout` | 300 seconds | `SQLConf.scala:1971` |
+| `spark.sql.maxBroadcastTableSize` | 8 GiB | `SQLConf.scala:1976` |
+| `spark.sql.defaultCacheStorageLevel` | MEMORY_AND_DISK | `SQLConf.scala:2312` |
+| `spark.sql.files.maxPartitionBytes` | 128 MB | `SQLConf.scala:2706` |
+| `spark.memory.fraction` | 0.6 | `config/package.scala:495` |
+| `spark.memory.storageFraction` | 0.5 | `config/package.scala:485` |
+| `spark.shuffle.sort.bypassMergeThreshold` | 200 | `config/package.scala:1750` |
+| `spark.locality.wait` | 3 seconds | `config/package.scala:812` |
+| `spark.driver.maxResultSize` | 1 GB | `config/package.scala:1649` |
+
+A value read in Python has a unit at the end, for example `10485760b`.
+
+</Step>
+
+<Step>
+
+## What is not proven yet
+
+- The real speed gain from salting, skew join, or cache with a heavy pipeline.
+- An OOM when broadcasting a table that is too big (there is only a comment in the source at `SparkStrategies.scala:156-158`).
+- The speed difference between the bypass and serialized shuffle writers.
+- The division of memory per task and the eviction of cache when memory is tight.
+- Locality on a cluster, and the effect of `spark.sql.files.maxPartitionBytes` (this machine cannot write Parquet, so there is no example of how partitions are divided when reading files).
+- Why `spark.range(n).groupBy("id")` has no Exchange (it can be observed, but `RangeExec.outputPartitioning` was not read). The examples use a computed key such as `id % 7` so that an Exchange appears.
+- The behavior of an old DataFrame object after `unpersist()` (two runs gave results that do not agree).
+
+</Step>

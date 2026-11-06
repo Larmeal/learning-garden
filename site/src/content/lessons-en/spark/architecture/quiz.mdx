@@ -1,0 +1,92 @@
+---
+title: Check your understanding
+summary: Answer 6 questions to check how well you understand this lesson, including each kind of cluster manager
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-10-23
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="In local[*], what is an executor?"
+  options={['A separate process', 'A thread in the same process as the driver', 'Another machine']}
+  answer={1}
+  why="local[*] does not create a separate process. Everything is in one JVM, and as many threads as there are cores act as the executors."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Which command moves all the data into the memory of the driver?"
+  options={['show()', 'write.parquet(...)', 'toPandas()']}
+  answer={2}
+  why="toPandas() gathers every row into a pandas DataFrame in the driver. show() pulls only the first 20 rows, and write lets the executors write the files themselves."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Who splits the work into tasks?"
+  options={['The driver', 'The executor', 'The cluster manager']}
+  answer={0}
+  why="The driver builds the plan and splits it into tasks. The cluster manager only allocates executors and knows nothing about your commands."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="On YARN, who talks to the ResourceManager on behalf of the Spark app to ask for containers?"
+  options={['The driver talks to it directly', 'The ApplicationMaster', 'The executor']}
+  answer={1}
+  why="YARN has an ApplicationMaster (the first container of the app) as a representative that registers and calls allocate() to ask for containers. In cluster mode the driver runs inside the AM. In client mode an AM of the ExecutorLauncher kind asks on behalf of the driver (read from the source, not run on YARN)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A standalone cluster has 3 Workers with 4 cores each. The app sets spark.cores.max = 6 and uses the default spreadOutApps. How many cores does each Worker give?"
+  options={['4 · 2 · 0', '2 · 2 · 2', '6 · 0 · 0']}
+  answer={1}
+  why="The default is spreadOutApps = true. The Master hands out one core at a time per Worker in turn, so you get 2 · 2 · 2. Checked on a cluster of 3 Workers (exercises/11b_standalone_spread.py). If you set it to false you get 4 · 2 · 0."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="On Kubernetes, you delete the driver pod while the app is running. What happens to the executor pods?"
+  options={['They keep running until their own work is finished', 'They are deleted too, because they have an ownerReference that points to the driver pod', 'They move over and wait for a new driver pod']}
+  answer={1}
+  why="The executor pods are created with the driver pod as their ownerReference. When the owner is gone, Kubernetes' garbage collector deletes the pods tied to it. Nobody has to tell it to (read from the source, not run on Kubernetes)."
+/>
+
+</Step>

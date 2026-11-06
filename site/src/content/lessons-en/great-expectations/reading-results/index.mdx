@@ -1,0 +1,117 @@
+---
+title: Reading results and the traps
+summary: What a validation result contains, why passing does not mean the data is good, and why a broken expectation does not raise
+order: 4
+phase: A
+level: 2
+stage: sprout
+format: steps
+requires: [first-validation, expectations-suites]
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import ResultLab from '../../../../components/labs/great-expectations/ResultLab';
+
+<Step>
+
+## The shape of a result
+
+`ValidationDefinition.run()` returns an `ExpectationSuiteValidationResult`.
+
+| part | meaning |
+|---|---|
+| `success` | True when every expectation passed |
+| `statistics` | the number evaluated, passed, failed, and `success_percent` |
+| `results` | a list of results, one per expectation |
+| `results[i].success` | whether that expectation passed |
+| `results[i].result` | details such as `unexpected_count` and `observed_value` |
+| `results[i].exception_info` | if the expectation could not be evaluated, this holds the message and traceback |
+| `meta` | `run_id`, time, `batch_spec`, `batch_parameters` |
+
+The result is saved to the validation results store every time you run (lesson 5).
+
+</Step>
+
+<Step>
+
+## Trap 1: passing with no data to check
+
+A column map expectation that has no rows to look at returns `success=True` by default. (The source calls this vacuously true: there are no bad rows because there are no rows.) This can happen in two ways: an empty table, and a column that is entirely null for an expectation that does not count nulls.
+
+<ResultLab client:visible lang="en" initial="empty" withRowCount={false} />
+
+The real results from GX 1.24.1:
+
+| data | not null `age` | between `age` | row count ≥ 1 |
+|---|---|---|---|
+| normal | pass | pass | pass |
+| has null | fail | pass | pass |
+| value out of range | pass | fail | pass |
+| empty table | pass | pass | fail |
+| `age` all null | fail | pass | pass |
+
+How to guard against it: add an expectation that knows the table must have rows (`ExpectTableRowCountToBeBetween(min_value=1)`), and `ExpectColumnValuesToNotBeNull` for columns that must not be empty.
+
+</Step>
+
+<Step>
+
+## Trap 2: a broken expectation does not raise
+
+If an expectation cannot be evaluated, for example because it refers to a column that does not exist, GX does not raise. It puts `success=False` with `exception_info` in the result of that expectation, and the other expectations are still evaluated (because the expectation's `catch_exceptions` is set to true).
+
+```python
+suite.add_expectation(gxe.ExpectColumnValuesToNotBeNull(column="no_such_column"))
+suite.add_expectation(gxe.ExpectColumnValuesToNotBeNull(column="id"))
+result = vd.run(batch_parameters={"dataframe": df})
+# result.success = False, 2 evaluated: the first is False (has exception_info), the second passes
+```
+
+So "the data did not pass" and "the expectation is broken" look the same at `success=False`. You have to look at `exception_info` to tell them apart. Otherwise you will hunt for bad data when the real problem is that a column was renamed.
+
+<Callout type="tip" title="Make it a habit">
+When a suite does not pass, loop over `result.results` and split them into two groups: those with an `exception_info` that is a real error (the problem is in the expectation or the data structure), and those that failed in the normal way (the problem is in the data values).
+</Callout>
+
+</Step>
+
+<Step>
+
+## result_format: more detail costs more
+
+`result_format` sets how much detail the result has, and it also changes how many metrics have to be computed.
+
+| value | what you get | metrics in the example suite (5 expectations, pandas)* |
+|---|---|---|
+| `BOOLEAN_ONLY` | pass or fail | 10 |
+| `BASIC` | adds examples of the bad values | 13 |
+| `SUMMARY` | adds a summary and indexes (the default of `ValidationDefinition.run`) | 19 |
+| `COMPLETE` | the most detailed result | 19 |
+
+\* Measured with GX 1.24.1 in `02_metric_rounds.py` (in 1.9.3 the numbers were 11, 14, 20). Where these numbers come from is explained in lesson 8.
+
+A detailed result costs extra computation. With small data you do not notice it. With big data, it was not measured on this path. If a pipeline only needs pass or fail, `BOOLEAN_ONLY` is a better fit.
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- The whole suite passes. Does that prove that the table has data? Why or why not?
+- One expectation has `success=False` and an `exception_info` that is a real error. What should you suspect first?
+- The data is very big and the pipeline only needs pass or fail. What should `result_format` be?
+
+</Step>
+
+<Step>
+
+## Sub-pages of this lesson
+
+1. result_format level by level: the keys that appear at each level, and the options for finding bad rows
+2. Passing with no data, who passes: eight rules on an empty table and an empty column
+3. Read a failed result in a systematic way: a sequence of questions, and a triage function that was tested
+
+</Step>

@@ -1,0 +1,79 @@
+---
+title: Data I/O
+summary: Read and write CSV and Parquet, set a schema, and lay out partitions on disk so that Spark can skip data it does not need
+order: 4
+phase: A
+level: 2
+stage: sprout
+format: steps
+requires: [dataframe-sql]
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import PruneLab from '../../../../components/labs/spark/PruneLab';
+
+<Step>
+
+## Reading files
+
+```python
+df = spark.read.csv("sales.csv", header=True, inferSchema=True)
+df.printSchema()
+```
+
+The result from the sample file on the test machine: `sales` is guessed as integer, and the empty cell in the file becomes NULL.
+
+`inferSchema=True` makes Spark read the data one more time to guess the types. It is convenient, but slow on a large file, and it can guess wrong. In real work, pass the schema yourself.
+
+```python
+df = spark.read.csv("sales.csv", header=True, schema="country string, city string, sales int")
+```
+
+Reading and writing use the same form for every file type.
+
+| Task | Command |
+|---|---|
+| Read | `spark.read.csv(path)`, `.json(path)`, `.parquet(path)` |
+| Write | `df.write.mode("overwrite").parquet(path)` |
+
+`mode` has four values: `error` (the default, which gives an error if the files already exist), `overwrite`, `append` and `ignore`.
+
+</Step>
+
+<Step>
+
+## partitionBy
+
+`df.write.partitionBy("country").parquet(path)` writes the data into separate folders by the value of `country`, for example `country=th/`. The value of that column is in the folder name. It is not stored again in the file, and Spark puts it back when reading.
+
+<PruneLab client:visible lang="en" />
+
+The result is that a query that filters on the partition column reads only the folders that matter (partition pruning). This suits a column with few distinct values that is filtered often, such as a date or a country.
+
+</Step>
+
+<Step>
+
+## Beware of many small files
+
+<Callout type="warn" title="A column with many distinct values">
+If you use partitionBy on a column with a very large number of values, such as `user_id`, you get a huge number of folders and small files. Every file has a cost when it is opened, so reading everything becomes slower than before.
+</Callout>
+
+Spark writes one file per partition in each folder. If the DataFrame has many partitions, there are many files. Controlling this with `repartition` or `coalesce` before writing is in chapter 7.
+
+</Step>
+
+<Step>
+
+## Writing files does not work on this Windows machine
+
+<Callout type="warn" title="A note from the author's machine">
+On the Windows machine used to write this lesson, `df.write.parquet(...)` fails with `UnsatisfiedLinkError: NativeIO$Windows.access0`. The `bin` folder under `HADOOP_HOME` has only `winutils.exe` and no `hadoop.dll`, which is probably the cause, because PySpark 4.2.0 comes with Hadoop 3.5.0, which needs a native file of the matching version (not run: I did not try adding the file to confirm).
+
+Reading files and `show()` are not affected. The ways around it are to add a `hadoop.dll` and `winutils.exe` of the matching version, or to run Spark in WSL or Docker. The author ran the examples that write files, from chapter 4 onward in this course, in WSL (Ubuntu, Java 21) with the script `subjects/spark/code/run_wsl.sh`, which writes Parquet normally. The measured results are in [Data I/O in depth](/en/spark/data-io/in-depth/).
+</Callout>
+
+</Step>

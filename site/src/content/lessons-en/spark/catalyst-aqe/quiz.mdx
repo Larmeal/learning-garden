@@ -1,0 +1,92 @@
+---
+title: Check your understanding
+summary: Answer 6 questions to check how well you can read plans and understand AQE
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="You want to see all four plans: Parsed, Analyzed, Optimized and Physical. What should you call?"
+  options={['explain("formatted")', 'explain(True)', 'explain("cost")']}
+  answer={1}
+  why="explain(True) or explain('extended') prints all four plans. formatted prints only the Physical plan, laid out so it is easier to read, and cost prints the Optimized plan with statistics."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="In the plan for reading a CSV file, PushedFilters lists the filter conditions, and the Filter operator is still above the scan. Which explanation is correct?"
+  options={['Spark failed to push the filter, so the Filter is still there', 'PushedFilters is a hint for the file reader. Spark always checks again with the Filter', 'The Filter you see is old and will be gone when the query runs']}
+  answer={1}
+  why="Pushdown does not mean the Filter is gone. Some file readers can use the conditions to skip data, but Spark keeps the Filter to check again. You can also see in ReadSchema that the columns that are not used were cut."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The query has WHERE 1 = 1 AND id > 10. Why is 1 = 1 gone from the Optimized plan?"
+  options={['The Parser removes it when it reads the SQL', 'The rule ConstantFolding computes it as true, then BooleanSimplification cuts true AND p down to p', 'The file reader removes it at run time']}
+  answer={1}
+  why="The Parsed and Analyzed plans still have 1 = 1. It disappears because two rules of the Optimizer work one after the other. This is the picture of Catalyst: many small rules in a chain."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You call g.explain() before the run and see isFinalPlan=false. Then you call g.count() and call g.explain() again. What do you see?"
+  options={['isFinalPlan=true, because count() ran the query', 'Still isFinalPlan=false, because count() creates a new DataFrame and g did not run', 'AdaptiveSparkPlan is gone from the plan']}
+  answer={1}
+  why="count() and show() add an aggregate or a limit to make a new query. The original DataFrame did not run. You have to use collect() or rdd on the same object to see isFinalPlan=true."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A groupBy on very small data shuffles into 200 partitions, from spark.sql.shuffle.partitions. With AQE on (the default), about how much do you get from getNumPartitions() of the result?"
+  options={['Always 200, because AQE does not change the number that was set', '1, because AQE merges the partitions that are smaller than the target', '16, because it equals the number of cores']}
+  answer={1}
+  why="The target is max(min(total / parallelism, 64 MB), 1 MB) = 1 MB, and all the data is smaller than that, so it is merged down to 1. With AQE off you get 200. This number depends on data size and cores, it is not fixed."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A big table joins a small table. The starting plan is SortMergeJoin, and after AQE the final plan is still SortMergeJoin. Which is a possible reason?"
+  options={['The small table is bigger than spark.sql.autoBroadcastJoinThreshold (10 MB), or it is spread over partitions where fewer than 20% are non-empty', 'AQE can only merge partitions, it cannot change a join', 'You must cache the small table before it can be broadcast']}
+  answer={0}
+  why="AQE can change a sort-merge join to a broadcast when it knows the real size is small enough. But if the size is over the threshold, or the small side is spread over too many empty partitions (nonEmptyPartitionRatioForBroadcastJoin 0.2), it keeps the sort-merge join."
+/>
+
+</Step>

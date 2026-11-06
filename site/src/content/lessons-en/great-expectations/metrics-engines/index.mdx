@@ -1,0 +1,162 @@
+---
+title: Metrics and execution engines
+summary: An expectation does not read the data itself. It asks an engine to compute metrics. This is why one suite can run on many backends, and it is where the cost comes from.
+order: 8
+phase: B
+level: 4
+stage: sprout
+format: steps
+requires: [validation-checkpoints, reading-results]
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import MetricRounds from '../../../../components/labs/great-expectations/MetricRounds';
+
+<Step>
+
+## An expectation does not read the data itself
+
+Suppose `ExpectColumnMaxToBeBetween` had code that reads the data itself. It would have to know whether the data lives in pandas, Spark or a database, and sixty expectations would have to be rewritten for every backend. GX solves this by splitting the work into two parts.
+
+- The expectation declares which metric it needs (`column.max` of the column `age`), then decides the result from the value it gets.
+- The execution engine (pandas, Spark, SQLAlchemy) knows how to compute that metric on its own backend.
+
+A metric is a named fact about the data, for example `table.row_count`, `column.max`, `column_values.nonnull.condition`. Many expectations can use the same metric. This is the core of the whole GX system.
+
+</Step>
+
+<Step>
+
+## Declare first, then decide
+
+Every expectation must have two methods in the source (`expectations/expectation.py`).
+
+1. `get_validation_dependencies()`: returns the list of metrics it needs.
+2. `_validate(metrics=...)`: takes the metric values that were computed and returns `success` and `result`.
+
+Between these two steps, GX does the work for you: it merges the metric requests of all expectations in the suite into one graph (`Validator.graph_validate`) and lets the engine compute it. The expectation itself does not know what the backend is.
+
+Think of the Spark path in this garden: the DataFrame API you write is a plan, and nothing runs immediately. Catalyst improves the plan before it runs. GX has a similar idea. The expectations are requests, and GX merges and orders them before the engine does the work.
+
+</Step>
+
+<Step>
+
+## Watch it compute
+
+<MetricRounds client:visible lang="en" />
+
+What to notice in the lab (everything was measured on real GX 1.24.1):
+
+- Every column-level expectation needs the same basic set of metrics: `table.column_types`, `table.row_count` and `table.columns` always come first. Pick just one expectation and look at rounds 1 and 2. A single row-count expectation (`ExpectTableRowCountToEqual`) uses only the one metric `table.row_count`.
+- A shared metric is computed once. Pick "not null id" and "unique id" together, and you will see `column_values.nonnull.condition` of `id` appear only once, although both expectations use it.
+- Rounds are set by dependencies. Metrics in the same round must not wait for each other's results. The next round uses the results of the round before (for example, `unexpected_count` must wait for `condition`).
+- result_format changes the last round. Switch BOOLEAN_ONLY to SUMMARY and the last round grows a lot, because it must compute sample values of the bad data and the row indexes.
+
+</Step>
+
+<Step>
+
+## One name, many implementations
+
+One metric is written separately for each engine. A real example from the source, `column.max`:
+
+```python
+class ColumnMax(ColumnAggregateMetricProvider):
+    metric_name = "column.max"
+
+    @column_aggregate_value(engine=PandasExecutionEngine)
+    def _pandas(cls, column, kwargs):
+        return column.max()
+
+    @column_aggregate_partial(engine=SqlAlchemyExecutionEngine)
+    def _sqlalchemy(cls, column, kwargs):
+        return sa.func.max(column)
+
+    @column_aggregate_partial(engine=SparkDFExecutionEngine)
+    def _spark(cls, column, kwargs):
+        return F.max(column)
+```
+
+When the class is defined, GX registers each method in a registry under the name `column.max` and the class of the engine. At run time, `get_metric_provider(metric_name, engine)` finds the implementation that matches the engine (if there is no exact match, it looks at the parent classes in MRO order). If there is no implementation for that engine at all, the expectation fails with `No provider found for ...` (lesson 12).
+
+</Step>
+
+<Step>
+
+## Two kinds: compute now, or defer and combine
+
+Notice that pandas uses `column_aggregate_value`, but SQL and Spark use `column_aggregate_partial`. The difference is systematic.
+
+| Kind | What it does | Used with |
+|---|---|---|
+| value | computes at once and returns the value | pandas (the computation happens immediately in memory) |
+| partial (aggregate) | returns an "expression" that has not run yet, such as `sa.func.max(column)` | SQL and Spark, which can defer execution |
+
+Because a partial has not run yet, GX can combine many metrics in the same domain into one statement. From a run on SQLite (`05_sql_bundling.py`, a suite of 6 expectations, `BOOLEAN_ONLY`):
+
+```sql
+SELECT count(*) AS "table.row_count" FROM (SELECT * FROM users WHERE 1 = 1) AS anon_1
+SELECT avg(1.0 * age) AS "column.mean", max(age) AS "column.max" FROM (...) AS anon_1
+SELECT sum(CASE WHEN (id IS NULL) THEN 1 ELSE 0 END) AS "column_values.nonnull.unexpected_count",
+       sum(CASE WHEN (age IS NULL) THEN 1 ELSE 0 END) AS "...", ... FROM (...) AS anon_1
+```
+
+`avg` and `max` are sent in one SELECT, and the null counts of many columns are combined into another statement. For Spark, the source does the same thing with a single `df.agg(*aggregates).collect()` per domain (read from the source, not confirmed by running it).
+
+</Step>
+
+<Step>
+
+## Where the cost comes from
+
+From the measurements:
+
+| What | What you see |
+|---|---|
+| `result_format` | the example suite (5 expectations) uses 10, 13, 19 and 19 metrics for BOOLEAN_ONLY, BASIC, SUMMARY and COMPLETE |
+| number of expectations | a base cost paid once. Metrics of the same column are shared, and each new column adds its own |
+| re-running | everything is computed again (19 and then 19). There is no cache between runs |
+| backend | pandas: one metric at a time in memory. SQL: 6 expectations become 3 statements (BOOLEAN_ONLY) or 6 statements (SUMMARY) |
+
+<Callout type="note" title="The numbers differ by version">
+In GX 1.9.3 the same numbers are 11, 14 and 20 metrics, and SQL is 4 and 7 statements, because `table.row_count` was computed one extra time and sent as a separate statement. In 1.24.1 it is merged. The principle is the same, and the numbers move with the improvements of each version. Do not memorize the numbers as constants.
+</Callout>
+
+On big data, the main cost is how many times you have to reach the data, and how large the returned results are. Using `BOOLEAN_ONLY` when you do not need details, and putting expectations on the same column so they share the same domain, lowers the cost right away (the number of statements was measured, but the real time on big data was not).
+
+</Step>
+
+<Step>
+
+## When a metric breaks
+
+In `ValidationGraph`, if a metric fails to compute, GX retries up to 3 times (`MAX_METRIC_COMPUTATION_RETRIES`). If it still fails, GX "cancels" that metric. Every expectation that depends on it gets `success=False` with `exception_info`, and the unrelated expectations are still evaluated normally. This is the mechanism behind what lesson 4 showed as "a broken expectation does not raise".
+
+## Try it in this repo
+
+Open `02_metric_rounds.py`.
+
+1. Add a sixth expectation that asks about the column `name`, and see how much the rounds and the metrics change.
+2. Change the whole script to `ResultFormat.BOOLEAN_ONLY` and compare the number of metrics.
+3. Run `05_sql_bundling.py` and read the SQL statements line by line. Find the `CASE WHEN` of each expectation.
+
+## Check yourself
+
+- A suite has 3 expectations that all ask about `age`. How many times is `table.row_count` computed?
+- Why is there no "statement combining" on pandas, but there is on SQL?
+- Your data has hundreds of millions of rows on Spark. What can you change on the GX side to reduce the computation?
+
+</Step>
+
+<Step>
+
+## Sub-pages of this lesson
+
+1. The built-in metric registry of GX: search the 315 metrics to see which engine has each one.
+2. Metric domains and row_condition: why a row filter makes more SQL statements.
+3. How many times GX retries a failing metric: count the calls of a function that always fails.
+
+</Step>

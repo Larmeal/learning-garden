@@ -1,0 +1,106 @@
+---
+title: Foundations before you start
+summary: What GX does and does not do, what bad data looks like, what you need to know before starting, and why examples on the web often fail to run
+order: 0
+phase: A
+level: 1
+stage: sprout
+format: steps
+requires: []
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import VersionCompare from '../../../../components/labs/great-expectations/VersionCompare';
+
+<Step>
+
+## GX is an inspector, not a fixer
+
+Great Expectations (GX) is a Python library. You write what you expect from your data as code, then run the check against real data. The official docs compare it to unit tests for data. Each expectation is an assertion, for example "column `id` must not be null". The result is pass or fail with details, and it can be turned into a report that people can read.
+
+GX does not fix data and does not store data. It reads data from somewhere else (a DataFrame, a file, a database, Spark), computes facts about that data, and compares them with what we wrote. Fixing data is the job of another step. GX only knows whether the data is bad or not.
+
+<Callout type="tip" title="Compared with Spark in this garden">
+Spark is a compute engine that reads data from somewhere else. GX sits in a similar place: it is a checker that reads data from somewhere else, and when the data is large, GX hands the computing to Spark or SQL (lesson 11).
+</Callout>
+
+</Step>
+
+<Step>
+
+## What bad data looks like
+
+Before you write an expectation, you need to know what you are guarding against. These are common problems and the expectations GX offers for them.
+
+| Problem | Real example | Expectation to use |
+|---|---|---|
+| Empty values | The source system sends `age` as null | `ExpectColumnValuesToNotBeNull` |
+| Duplicates | A key is duplicated after joining two tables | `ExpectColumnValuesToBeUnique` |
+| Out of range | Age 400, a negative price | `ExpectColumnValuesToBeBetween` |
+| Wrong format | An email without `@` | `ExpectColumnValuesToMatchRegex` |
+| Structure changed | A column is missing or renamed | `ExpectTableColumnsToMatchSet` |
+| Abnormal row count | Today's file arrives empty | `ExpectTableRowCountToBeBetween` |
+
+Always have a row count rule, because column map expectations pass when the table is empty (lesson 4 and the page "What kinds of bad data GX can catch").
+
+</Step>
+
+<Step>
+
+## What you need to know before starting
+
+| Topic | Level needed | Used when |
+|---|---|---|
+| Python | Can read and write classes, keyword arguments and exceptions | Every lesson. GX 1.x is almost all pydantic models |
+| pandas | Can create a DataFrame and read the result | All the first examples check a DataFrame |
+| Kinds of data defects | Have seen a table where the data was not what you thought | Deciding which expectation to write |
+| Basic SQL | `select`, `count`, `case when` | Reading the statements GX sends to a database (lesson 8) |
+| Spark | Finished the Spark path in this garden up to lesson 5 | Only lesson 11 |
+
+You do not need to have used GX before, and you do not need to know pydantic.
+
+</Step>
+
+<Step>
+
+## Two versions you must tell apart
+
+If you search the web for GX examples, you will find two styles of code mixed together, because GX 1.0 changed the API a lot. The official docs are split by version. At the time of writing, 1.24.1 is the latest, 0.18.21 is no longer maintained, and there are links to 0.17 and older.
+
+<VersionCompare lang="en" client:visible />
+
+Signs that code is from the old version: `context.sources.pandas_default`, `validator.expect_column_...(...)` called as a method, `add_or_update_checkpoint(... validations=[...])`, and YAML files for checkpoints. If you see these patterns, do not copy them into 1.x.
+
+<Callout type="warn" title="Which version this path uses">
+Every example in this path was run with GX 1.24.1 (the code in the repo pins this version). The knowledge graph used to study the structure was built from 1.9.3. Where the two versions really differ, the lesson says so, for example nested contexts in lesson 5.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Install and try it for the first time
+
+All the example code is in `subjects/great-expectations/code/`, which is its own `uv` project.
+
+```bash
+cd subjects/great-expectations/code
+uv sync
+uv run python 01_first_validation.py
+```
+
+If the first line is `great_expectations 1.24.1` (or the version that is pinned) and you get a list of results for each expectation, you are ready. `08_legacy_018.py` is an old-version example for comparison. It must be run with a special command written at the top of the file.
+
+</Step>
+
+<Step>
+
+## Sub-pages of this lesson
+
+1. What kinds of bad data GX can catch: one table, nine kinds of defects, and what one set of rules catches and misses
+2. Where GX sits in a pipeline: how data and results flow, and where to put the checks
+3. How 0.18 code and 1.x code differ: run the same job on both versions
+
+</Step>

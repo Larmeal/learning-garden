@@ -1,0 +1,140 @@
+---
+title: Context and Store
+summary: There are three kinds of context. This lesson covers what GX keeps where, why you must add an object to the context before you run it, and how to handle secrets.
+order: 5
+phase: B
+level: 3
+stage: sprout
+format: steps
+requires: [first-validation]
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import ContextPicker from '../../../../components/labs/great-expectations/ContextPicker';
+
+<Step>
+
+## Two kinds of context you can actually use
+
+A Data Context is the object that holds the config and the validation results of the whole workflow. `gx.get_context()` picks the kind for you in this order.
+
+1. If the GX Cloud settings are all present, it takes the cloud path. In GX 1.24.1 that path raises `GreatExpectationsError` right away, because GX Cloud has been shut down (confirmed with `mode="cloud"` in `23_persistence_config.py`; the message is "GX Cloud has been shut down, so this no longer functions and will be removed in great_expectations 2.0").
+2. If it finds a `gx/` folder, you get a file context.
+3. If it finds nothing else, you get an ephemeral context.
+
+You can choose yourself with `mode="ephemeral"` or `mode="file"`.
+
+<ContextPicker client:visible lang="en" />
+
+The consequence of this order: the same code gets a different kind of context on different machines (your machine has `gx/`, the CI machine does not). If you want a fixed result, pass `mode` yourself.
+
+</Step>
+
+<Step>
+
+## What a file context writes to disk
+
+Run it for real with `gx.get_context(mode="file", project_root_dir=...)`, then add a suite, a validation definition and a checkpoint and run. You get this layout.
+
+```
+gx/
+  great_expectations.yml        # context settings and data sources
+  .gitignore                    # one line only: uncommitted/
+  expectations/                 # suites as JSON files
+  validation_definitions/       # names and ids of the batch definition and the suite
+  checkpoints/                  # checkpoints and actions
+  plugins/
+  uncommitted/                  # stays out of git
+    config_variables.yml        # secrets
+    validations/                # the results of every run
+    data_docs/local_site/       # HTML report
+```
+
+What goes into git is the definitions (what is checked, and against what). What stays out is the results and the secrets. The `.gitignore` that GX creates already does this, so a team can review a suite in a pull request like code.
+
+</Step>
+
+<Step>
+
+## Store: where everything is kept
+
+Inside the context, each kind of object is kept through its own Store (expectations, validation definitions, checkpoints, validation results). A Store turns a GX object into data that can be saved. A StoreBackend is the real storage underneath, and you can choose from: memory, files, S3, GCS, Azure and a database (this list is read from the source, I did not try each backend).
+
+```python
+context.validation_results_store.list_keys()   # see the stored results
+```
+
+An ephemeral context uses a memory backend, so everything is gone when the program ends. A file context uses a file backend with the layout above.
+
+</Step>
+
+<Step>
+
+## Why you must add before you run
+
+A validation definition does not hold the suite inside itself. When it is stored, it keeps the names and ids of the batch definition and the suite, and picks them up from the store when it needs them. If something it refers to is not in the store, it cannot be picked up, so GX always checks before a run (the "freshness check").
+
+| What you do | Result (measured) |
+|---|---|
+| `run()` on a validation definition whose suite was not added | error `ValidationDefinitionRelatedResourcesFreshnessError`, telling you to call `context.suites.add(...)` |
+| `run()` on a validation definition whose suite and data source were added, but the validation definition itself was not | it runs, and GX adds it for you (an id that was `None` now has a value) |
+| `context.checkpoints.add(...)` with a validation definition that was not added | error `CheckpointRelatedResourcesFreshnessError` |
+
+In short: add from the bottom piece up (data source, suite, validation definition, checkpoint). If you forget the top piece, GX fills it in. If you forget a lower piece, you get an error.
+
+</Step>
+
+<Step>
+
+## More than one context in one process
+
+GX keeps the "current context" as a singleton for the whole process (`ProjectManager`). A second call to `gx.get_context()` creates a new context and replaces the old one as the current one.
+
+The effect differs by version (I ran both versions).
+
+| Version | `vd.run()` of a validation definition created under the first context, after the second context was created |
+|---|---|
+| 1.9.3 | error (`ValidationDefinitionRelatedResourcesFreshnessError` saying the datasource was not found, because it looks in the new context) |
+| 1.24.1 | it runs. The object remembers the context that owns it (the source refers to GX issue #12209) |
+
+<Callout type="warn" title="Write code that is safe on both versions">
+If your project must still support 1.9.3 or earlier, do not hold an object from one context and run it after you create another context in the same process (this is common in tests that create a new context for every case). Keep one context per process, or create the objects again each time you create a context.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Secrets and values that change by environment
+
+Never write a password into the config. Use a variable instead, and GX replaces `${NAME}` when it uses the value.
+
+```python
+source = context.data_sources.add_sqlite("sales", connection_string="${MY_DB_URL}")
+```
+
+Measured: I set the environment variable `MY_DB_URL` and it ran. The value stored in the config is still the text `${MY_DB_URL}`, not the real value (so it is safe to commit). The file `uncommitted/config_variables.yml` is another source of variables, and it was also measured to work (see the page "Secrets and config_variables.yml").
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- Your machine has a `gx/` folder but CI does not. What kind of context does `gx.get_context()` give in each place, and how can you make them the same?
+- You create a validation definition first and add the suite afterwards. What happens at `run()`?
+- Which files in the `gx/` folder should not be committed?
+
+</Step>
+
+<Step>
+
+## Sub-pages of this lesson
+
+1. A tour of the gx/ folder: every file that a file context writes, with the real content.
+2. A context that lives across processes: create it in one process, load it and run it in another.
+3. Secrets and config_variables.yml: variables from a file and from the environment, and which one wins.
+
+</Step>

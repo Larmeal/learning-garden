@@ -1,0 +1,104 @@
+---
+title: Splitting batches of a SQL table
+summary: One table can be split into batches by year, month or day without separate files. See what the identifiers look like and which rows of the table one batch becomes
+order: 1
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import CaseExplorer from '../../../../components/labs/great-expectations/CaseExplorer';
+import FlowFrames from '../../../../components/labs/great-expectations/FlowFrames';
+
+<Step>
+
+## The table used for the experiment
+
+The table `events` in SQLite has 5 rows. The column `day` stores the date as text, `YYYY-MM-DD`.
+
+```text
+id  day         amount
+1   2024-01-30  5
+2   2024-01-31  7
+3   2024-02-01  9
+4   2024-02-01  11
+5   2024-02-02  3
+```
+
+```python
+src = context.data_sources.add_sqlite("sq", connection_string=f"sqlite:///{db}")
+asset = src.add_table_asset("events", table_name="events")
+by_month = asset.add_batch_definition_monthly("monthly", column="day")
+```
+
+The same table can be cut into batches at three levels. The method name says the level, and it takes the name of the date column through the parameter `column`. Results from part 1 of `24_batch_details.py` (GX 1.24.1).
+
+<CaseExplorer
+  lang="en"
+  client:visible
+  title="The batches GX sees in the table events"
+  okWord="present"
+  badWord="absent"
+  cases={[
+    { label: 'whole table', input: 'add_batch_definition_whole_table', rows: [
+      { name: 'one batch', ok: true, detail: 'the whole table, 5 rows' } ], note: 'No identifier. You do not need to pass batch_parameters' },
+    { label: 'yearly', input: 'add_batch_definition_yearly(column="day")', rows: [
+      { name: "{'year': 2024}", ok: true, detail: '5 rows' } ], note: '1 batch, because every row is in the year 2024' },
+    { label: 'monthly', input: 'add_batch_definition_monthly(column="day")', rows: [
+      { name: "{'year': 2024, 'month': 1}", ok: true, detail: 'rows id 1, 2' },
+      { name: "{'year': 2024, 'month': 2}", ok: true, detail: 'rows id 3, 4, 5' } ], note: '2 batches' },
+    { label: 'daily', input: 'add_batch_definition_daily(column="day")', rows: [
+      { name: "{'year': 2024, 'month': 1, 'day': 30}", ok: true },
+      { name: "{'year': 2024, 'month': 1, 'day': 31}", ok: true },
+      { name: "{'year': 2024, 'month': 2, 'day': 1}", ok: true, detail: 'two rows (id 3, 4) are in this batch' },
+      { name: "{'year': 2024, 'month': 2, 'day': 2}", ok: true } ], note: '4 batches. The date 2024-02-01 has two rows, but they make one batch' },
+  ]}
+  caption="The list of identifiers comes from get_batch_identifiers_list() of each batch definition. The number of rows per monthly batch is computed from the table above. For daily, the date 2024-02-01 was checked in a run (it gave 2 rows)"
+/>
+
+</Step>
+
+<Step>
+
+## Which rows one batch becomes
+
+When you call `get_batch(batch_parameters={"year": 2024, "month": 2, "day": 1})`, GX does not pull the whole table and filter it in Python. It sends the condition to the database, and the database filters. In the test in `24`, this batch gave 2 rows, matching the table, and the `batch_spec` of the batch names the partitioner as `partition_on_year_and_month_and_day`.
+
+<FlowFrames
+  lang="en"
+  client:visible
+  title="From parameters to the rows in a batch"
+  width={760}
+  height={220}
+  boxes={[
+    { id: 'p', label: 'batch_parameters', sub: 'year 2024, month 2, day 1', x: 10, y: 20, w: 200 },
+    { id: 'bd', label: 'Batch Definition', sub: 'daily, column=day', x: 280, y: 20, w: 180 },
+    { id: 'db', label: 'Database', sub: 'WHERE on the date', x: 540, y: 20 },
+    { id: 'b', label: 'Batch', sub: '2 rows (id 3, 4)', x: 540, y: 140 },
+  ]}
+  arrows={[ { from: 'p', to: 'bd' }, { from: 'bd', to: 'db', label: 'build condition' }, { from: 'db', to: 'b', label: 'matching rows' } ]}
+  frames={[
+    { title: 'Pass the parameters', text: 'The caller gives the year, month and day', on: ['p'], arrows: [] },
+    { title: 'The batch definition turns them into a condition', text: 'The daily partitioner builds a filter condition on the column day (the source calls it partition_on_year_and_month_and_day)', on: ['p', 'bd'], arrows: [0], tag: 'batch_spec.partitioner_method' },
+    { title: 'The database filters', text: 'The database does the filtering. The whole table is not pulled into Python', on: ['bd', 'db'], arrows: [1] },
+    { title: 'You get a batch', text: 'The batch has the two rows of 2024-02-01. Any expectation that runs next works on these two rows only', on: ['db', 'b'], arrows: [2] },
+  ]}
+/>
+
+</Step>
+
+<Step>
+
+## Things to know
+
+- No parameters: on files you get the latest batch. On SQL, script `24` called `get_batch()` with no parameters and got no error, but did not check which batch it got. If your daily pipeline reads a table, always pass the full parameters, as in the file case.
+- SQL identifiers are numbers (`'year': 2024`), unlike files, where they are strings (see the main lesson).
+- This example stores the date as text in SQLite. Other databases that store a real date type were not tested.
+
+<Callout type="warn" title="Not tested yet">
+We did not read the SQL that GX really builds for the partitioner. We did not test a timestamp column with a time zone, and we did not test with Spark.
+</Callout>
+
+</Step>

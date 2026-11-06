@@ -1,0 +1,88 @@
+---
+title: Run again with the next day's data
+summary: One validation definition can validate many pieces of data. See what stays fixed and what changes in each run, and where the results of every run go
+order: 2
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import FlowFrames from '../../../../components/labs/great-expectations/FlowFrames';
+
+<Step>
+
+## Change only the DataFrame
+
+Script `18_result_anatomy.py`, part 3, uses the same validation definition and runs it twice.
+
+```python
+day1 = pd.DataFrame({"id": [1, 2, 3, 4], "age": [10, None, 30, 400], "name": ["a", "b", None, "d"]})
+day2 = pd.DataFrame({"id": [1, 2, 3, 4], "age": [10, 20, 30, 40],   "name": ["a", "b", "c", "d"]})
+
+r1 = vd.run(batch_parameters={"dataframe": day1})
+r2 = vd.run(batch_parameters={"dataframe": day2})
+```
+
+The printed result (GX 1.24.1):
+
+```text
+day1 success: False | day2 success: True
+run ids differ: True
+results kept in the store: 2
+```
+
+One suite and one validation definition give different results depending on the data. The results of both runs are kept in the validation results store, and they do not overwrite each other.
+
+</Step>
+
+<Step>
+
+## What stays fixed, what changes
+
+<FlowFrames
+  client:visible
+  lang="en"
+  title="Two runs of one validation definition"
+  width={760}
+  height={300}
+  boxes={[
+    { id: 'suite', label: 'Suite', sub: 'users_suite', x: 10, y: 20 },
+    { id: 'bdef', label: 'Batch Definition', sub: 'whole dataframe', x: 10, y: 140 },
+    { id: 'vd', label: 'Validation Definition', sub: 'users_vd', x: 270, y: 80, w: 190 },
+    { id: 'd1', label: 'DataFrame day 1', sub: 'has null and 400', x: 560, y: 10, kind: 'data' },
+    { id: 'd2', label: 'DataFrame day 2', sub: 'complete, correct', x: 560, y: 150, kind: 'data' },
+    { id: 'store', label: 'Results store', sub: '2 entries', x: 270, y: 225, kind: 'store' },
+  ]}
+  arrows={[
+    { from: 'suite', to: 'vd' },
+    { from: 'bdef', to: 'vd' },
+    { from: 'd1', to: 'vd', label: 'run 1' },
+    { from: 'd2', to: 'vd', label: 'run 2' },
+    { from: 'vd', to: 'store' },
+  ]}
+  frames={[
+    { title: 'What stays fixed', text: 'The suite, the batch definition and the validation definition are created once and do not change between runs', on: ['suite', 'bdef', 'vd'], arrows: [0, 1] },
+    { title: 'Run 1 sends the day 1 DataFrame', text: 'The result is success = False (age has a null and 400). One result is stored', on: ['vd', 'd1', 'store'], arrows: [2, 4] },
+    { title: 'Run 2 sends the day 2 DataFrame', text: 'The result is success = True. This result is stored as the second entry and does not overwrite the first. The run_time of the two runs is different', on: ['vd', 'd2', 'store'], arrows: [3, 4], tag: '18_result_anatomy.py' },
+  ]}
+  caption="The number 2 in the Results store box comes from len(context.validation_results_store.list_keys()) after two runs"
+/>
+
+</Step>
+
+<Step>
+
+## Things to know when you run every day
+
+1. Every run computes everything again. GX does not remember metrics between runs (measured in `02`: running again gave 19 and 19 metrics).
+2. `run_id` has the `run_time` of each run. You can use it to tell old results from new ones.
+3. The results store in an ephemeral context lives in memory and disappears when the script ends. If you want to keep results across days, you need a file context ([lesson 5](/en/great-expectations/context-stores/)).
+4. The data in the DataFrame must come from your own code. In this example it is passed as a variable. If the data comes from a file or a table, the batch definition does the job of choosing the batch ([lesson 6](/en/great-expectations/datasources-batches/)).
+
+<Callout type="warn" title="Not tested">
+Item 3 comes from the explanation of the context in [lesson 5](/en/great-expectations/context-stores/). We did not close the script and open it again to see the results disappear.
+</Callout>
+
+</Step>

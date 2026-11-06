@@ -1,0 +1,82 @@
+---
+title: "When does notify_on send? Every pair tested"
+summary: A fake Slack on localhost receives the messages and counts them. We tested the six values of notify_on against four validation outcomes, which gives a table that says whether a message is sent, including a severity level that is compared by exact equality
+order: 1
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import CaseExplorer from '../../../../components/labs/great-expectations/CaseExplorer';
+
+<Step>
+
+## How to test without sending a real message
+
+`SlackNotificationAction` sends its message with an HTTP POST to a webhook. The script `27_actions_notify.py` sets the webhook to a small server on `127.0.0.1` that counts the POSTs it receives. No message leaves the machine. We tested four scenarios and six `notify_on` values (GX 1.24.1).
+
+| scenario | rule that is set | result |
+|---|---|---|
+| pass | `age` between 0 and 500 | everything passes |
+| fail warning | `age` between 0 and 120 with `severity="warning"` | 1 expectation fails, level warning |
+| fail critical | `name` not null (default critical) | 1 expectation fails, level critical |
+| fail both | the two rules above together | 2 expectations fail, the highest is critical |
+
+The data is `age = [10, 20, 300]`, `name = ['a', None, 'c']`.
+
+</Step>
+
+<Step>
+
+## The results
+
+Choose a scenario to see which `notify_on` values really sent a message. In the table below, "sent" means one POST arrived. "not sent" means none arrived.
+
+<CaseExplorer
+  client:visible
+  lang="en"
+  title="Does notify_on send?"
+  okWord="sent"
+  badWord="not sent"
+  cases={[
+    { label: 'pass', input: 'everything passes', rows: [
+      { name: 'notify_on = all', ok: true }, { name: 'notify_on = success', ok: true }, { name: 'notify_on = failure', ok: false },
+      { name: 'notify_on = critical', ok: false }, { name: 'notify_on = warning', ok: false }, { name: 'notify_on = info', ok: false } ],
+      note: 'Everything passes, so only all and success send' },
+    { label: 'fail warning', input: 'one expectation fails, level warning', rows: [
+      { name: 'notify_on = all', ok: true }, { name: 'notify_on = success', ok: false }, { name: 'notify_on = failure', ok: true },
+      { name: 'notify_on = critical', ok: false }, { name: 'notify_on = warning', ok: true }, { name: 'notify_on = info', ok: false } ],
+      note: 'warning sends, critical does not' },
+    { label: 'fail critical', input: 'one expectation fails, level critical', rows: [
+      { name: 'notify_on = all', ok: true }, { name: 'notify_on = success', ok: false }, { name: 'notify_on = failure', ok: true },
+      { name: 'notify_on = critical', ok: true }, { name: 'notify_on = warning', ok: false }, { name: 'notify_on = info', ok: false } ],
+      note: 'critical sends, warning does not' },
+    { label: 'fail both', input: 'two expectations fail, warning and critical', rows: [
+      { name: 'notify_on = all', ok: true }, { name: 'notify_on = success', ok: false }, { name: 'notify_on = failure', ok: true },
+      { name: 'notify_on = critical', ok: true }, { name: 'notify_on = warning', ok: false }, { name: 'notify_on = info', ok: false } ],
+      note: 'The highest level among the failed expectations is critical, so only critical sends (warning does not)' },
+  ]}
+  caption="All 24 cells come from part 1 of 27_actions_notify.py. Each cell is a POST that the server on localhost received"
+/>
+
+</Step>
+
+<Step>
+
+## Three things the table shows
+
+1. `notify_on="warning"` does not mean "warning and above". In the fail both case (a warning and a critical expectation both failed), it does not send, because the highest level among the failed expectations is critical, and critical is not equal to warning. In the source, `should_notify` compares with `notify_on == max_severity`. If you want both warning and critical to send, use `failure`.
+2. The value `info` never sent in these four scenarios, because in none of them was an info expectation the highest level that failed (we did not test `severity="info"`).
+3. Set up two actions to separate the channels. For example, the team's Slack is `failure` and PagerDuty is `critical`, so the outcome depends on how serious the problem is, as the main lesson suggests.
+
+## What the message looks like
+
+In the fail critical case with `notify_on="all"`, the POST has a body with a single key, `blocks`, 416 characters long. The readable text has the heading `slack_all - cp_fail_critical_all - Failure :no_entry:`, the run time, and a summary with `*Asset*`, `*Expectation Suite*` and `*Summary*: 0 of 1 Expectations were met`. The message is short and has no detail about the bad rows. If you want detail, the message needs a link to Data Docs, which the next page explains.
+
+<Callout type="warn" title="What was tested and what was not">
+Only the Slack action was tested, through a fake webhook. Teams, PagerDuty, Opsgenie and Email use the same `should_notify` function according to the source, but none of them was really sent. Opsgenie and PagerDuty have a default `notify_on` of `failure`.
+</Callout>
+
+</Step>

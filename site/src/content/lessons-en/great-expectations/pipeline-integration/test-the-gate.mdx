@@ -1,0 +1,96 @@
+---
+title: Test the gate before you use it
+summary: A gate is code too. It needs test cases that should pass and cases that should stop. See the minimum table of test cases that was run, and what you still need to test with real data.
+order: 3
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import CaseExplorer from '../../../../components/labs/great-expectations/CaseExplorer';
+
+<Step>
+
+## The minimum test cases
+
+The gate you wrote should answer correctly in cases where you already know the answer. Part 3 of the script `29_pipeline_policies.py` runs three cases with a plain assert-style checker (GX 1.24.1). It does not use pytest.
+
+```python
+CASES = [
+    ("good data passes",                 cp,       DATA["good"],     False),
+    ("null id stops",                    cp,       DATA["critical"], True),
+    ("suite with no expectations stops", empty_cp, DATA["good"],     True),
+]
+for label, checkpoint, frame, should_stop in CASES:
+    try:
+        gate(checkpoint, {"dataframe": frame})
+        stopped = False
+    except QualityGateError:
+        stopped = True
+    print("PASS" if stopped == should_stop else "FAIL", label)
+```
+
+The printed result:
+
+```text
+PASS  good data passes
+PASS  null id stops
+PASS  suite with no expectations stops
+```
+
+</Step>
+
+<Step>
+
+## The table of cases you should have
+
+Choose a group to see which cases were run on this path, and which ones you should add yourself.
+
+<CaseExplorer
+  client:visible
+  lang="en"
+  title="Test cases of the gate"
+  okWord="run"
+  badWord="add yourself"
+  cases={[
+    { label: 'Data that should pass', rows: [
+      { name: 'Good data', ok: true, detail: '29 part 3 and 09' },
+    ], note: 'This is the only case that should pass, but you always need it, so that you know the gate does not stop everything.' },
+    { label: 'Data that should stop', rows: [
+      { name: 'null in a column that must not be empty', ok: true, detail: '29 part 3' },
+      { name: 'out-of-range value', ok: true, detail: '09 (amount = 99999)' },
+      { name: 'empty table (the suite has a row-count rule)', ok: true, detail: '09' },
+      { name: 'duplicate values in a key column', ok: false, detail: 'tried as an example in lesson 0 but is not in the gate test set' },
+    ] },
+    { label: 'The rule itself is broken', rows: [
+      { name: 'a column was renamed', ok: true, detail: '09' },
+      { name: 'an empty suite (no expectation)', ok: true, detail: '29 part 3 and 09' },
+      { name: 'a custom expectation fails to load in another process', ok: true, detail: '10 (gives evaluated_expectations = 0)' },
+    ] },
+    { label: 'Dates and files', rows: [
+      { name: 'no file for the requested date', ok: true, detail: '29 part 2 (NoAvailableBatchesError)' },
+      { name: 'the scheduler forgets to pass the date', ok: true, detail: '29 part 2 (passes with the latest file)' },
+      { name: 'a file that is still being written and is incomplete', ok: false, detail: 'not tested' },
+    ] },
+  ]}
+  caption="The 'add yourself' cases are the ones this path has not tested, or that are not in the gate's test set."
+/>
+
+</Step>
+
+<Step>
+
+## Good to know
+
+1. Use an ephemeral context for testing. The context starts empty every time, so there is no problem with duplicate names (lesson 1).
+2. Each case needs new objects. If you reuse the same expectation object in two suites, you get a `RuntimeError` (lesson 4, the page "Read a failed result in a systematic way").
+3. Testing the gate on made-up data does not prove that the suite catches real bad data. This test set only tells you that the decision after reading the result is correct. Whether the rules are suitable must be compared with real bad data that has happened.
+4. If you use pytest, you can wrap these three cases as test functions directly (I did not run pytest on this path).
+
+<Callout type="note" title="Read next">
+Lesson 12, the page "Test and ship", is about testing a custom expectation, which is another layer of the same work.
+</Callout>
+
+</Step>

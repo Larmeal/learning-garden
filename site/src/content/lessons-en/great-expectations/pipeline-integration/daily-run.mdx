@@ -1,0 +1,100 @@
+---
+title: "Daily jobs: pass the date explicitly and make runs repeatable"
+summary: Try a daily file where the second day never arrives. See how passing all the date parameters differs from forgetting them, and how re-running the same day stores its results.
+order: 2
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import FlowFrames from '../../../../components/labs/great-expectations/FlowFrames';
+import Variants from '../../../../components/labs/great-expectations/Variants';
+
+<Step>
+
+## Set up the situation
+
+The folder has the files for 1 and 3 January 2024. The file for 2 January never arrives (`29_pipeline_policies.py` part 2, GX 1.24.1). The checkpoint checks that the row count is at least 1, through a daily batch definition whose regex is anchored at the start and the end (see the page "File name regex" of lesson 6).
+
+```python
+def run_for(day: date):
+    return daily_cp.run(batch_parameters={"year": day.year, "month": day.month, "day": day.day})
+```
+
+</Step>
+
+<Step>
+
+## Pass the date fully, or forget it
+
+<Variants
+  client:visible
+  lang="en"
+  title="A scheduler that passes the date, and one that forgets"
+  variants={[
+    {
+      label: 'Pass the full date',
+      code: `for d in (1, 2, 3):\n    run_for(date(2024, 1, d))`,
+      output: `day 1: validated data_2024-01-01.csv success=True\nday 2: NoAvailableBatchesError | No available batches found.\nday 3: validated data_2024-01-03.csv success=True`,
+      reading: 'The day with no file fails loudly with NoAvailableBatchesError. The team knows at once that the data for that day did not arrive.',
+    },
+    {
+      label: 'Forget the date',
+      code: `daily_cp.run(batch_parameters={})   # the date variables are empty and are not passed`,
+      output: `validated data_2024-01-03.csv success=True\n(day 2 was requested, which has no file)`,
+      reading: 'No error. It checks the latest file that exists (day 3) and reports a pass. The data of day 2 was never checked and nobody knows.',
+      bad: true,
+    },
+  ]}
+/>
+
+The second case is the trap from lesson 6, confirmed here at the checkpoint level too. The result tells you which file was checked in `meta["batch_spec"]["path"]` of each validation result. The script uses this field to print the file name.
+
+</Step>
+
+<Step>
+
+## The picture of a safe daily run
+
+<FlowFrames
+  client:visible
+  lang="en"
+  title="From the scheduler to the validation result"
+  width={760}
+  height={250}
+  boxes={[
+    { id: 'sch', label: 'Scheduler', sub: 'run_date = 2024-01-02', x: 10, y: 20 },
+    { id: 'task', label: 'Task', sub: 'turns run_date into batch_parameters', x: 230, y: 20, w: 210 },
+    { id: 'gx', label: 'Checkpoint.run', sub: 'finds the batch of that day', x: 530, y: 20 },
+    { id: 'ok', label: 'File exists', sub: 'check and store that day', x: 530, y: 150, w: 200 },
+    { id: 'miss', label: 'No file', sub: 'NoAvailableBatchesError', x: 250, y: 150, w: 200 },
+  ]}
+  arrows={[ { from: 'sch', to: 'task' }, { from: 'task', to: 'gx' }, { from: 'gx', to: 'ok' }, { from: 'gx', to: 'miss' } ]}
+  frames={[
+    { title: 'The scheduler sets the date', text: 'run_date comes from the scheduler, not from date.today() in the code, so a backfill gives the same result as running on that day.', on: ['sch'], arrows: [] },
+    { title: 'The task builds all the parameters', text: 'year, month and day are integers, and you always pass all of them.', on: ['sch', 'task'], arrows: [0] },
+    { title: 'Pass them to the checkpoint', text: 'GX filters the batches by the parameters it gets. It does not use "latest".', on: ['task', 'gx'], arrows: [1] },
+    { title: 'File exists: check that day', text: 'The result of that day is stored, and the file name is in meta so you can trace it back.', on: ['gx', 'ok'], arrows: [2] },
+    { title: 'No file: fail loudly', text: 'NoAvailableBatchesError makes the task fail, and the scheduler alerts in its own way.', on: ['gx', 'miss'], arrows: [3], tag: '29_pipeline_policies.py' },
+  ]}
+/>
+
+</Step>
+
+<Step>
+
+## Run the same day again
+
+Run `run_for(date(2024, 1, 3))` twice. The number of results in the results store goes up by 2 (not 1). The older result is not overwritten, and every run has its own `run_time` (see the page "Run again with the next day's data" of lesson 2). The consequences:
+
+- A backfill is direct: just pass an old date. The results of the older runs are all kept.
+- If you want to know whether a day passed, you must choose the latest result of that day yourself. GX does not do this for you.
+- Repeated results of the same day can contradict each other (the first run failed, the second passed after the file was fixed). The system that reads the results must know which run to trust.
+
+<Callout type="warn" title="Not tested">
+I tested only CSV files in one folder with an ephemeral context. I did not test a real scheduler, two jobs running at the same time, or a data source that is a SQL table, although the principle of passing all the parameters applies in the same way.
+</Callout>
+
+</Step>

@@ -1,0 +1,235 @@
+---
+title: Table formats (Delta / Iceberg / Hudi)
+summary: "Plain Parquet files have no transactions, schema check or history. A table format adds a log that points to the files, which gives ACID and time travel. This chapter runs real Delta Lake on Spark 4.2.0, looks at the log commit by commit, and then compares it with Iceberg and Hudi"
+order: 10
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [data-io]
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import TableLogLab from '../../../../components/labs/spark/TableLogLab';
+
+<Step>
+
+## The problem with "a folder full of Parquet"
+
+The old kind of data lake is a folder of Parquet files that Spark reads and writes. It works well until you meet the problems below, which we reproduced with Spark 4.2.0.
+
+**1. Nobody checks the schema.** If you append a DataFrame that has an extra column to Parquet, Spark does not complain. But when you read, the result depends on which file Spark picks to read the schema from (measured: most of the time the `extra` column is missing, but some runs gave `['id', 'extra']` because the chosen file is not fixed, so you need `mergeSchema` if you want a certain result).
+
+```python
+spark.range(3).write.parquet(p)
+spark.range(3).withColumn("extra", F.lit(1)).write.mode("append").parquet(p)   # no error
+spark.read.parquet(p).columns                                                  # ['id'] most of the time (sometimes ['id', 'extra'])
+spark.read.option("mergeSchema", "true").parquet(p).columns                    # ['id', 'extra']
+```
+
+**2. You cannot change a single row.** Parquet files are immutable. To change something you must write a new file and delete the old one yourself, and that is not one action: if it crashes in the middle, you are left with both sets or with neither.
+
+**3. Readers see incomplete things.** While a job is writing many files, another reader may see only some of them.
+
+**4. There is no history.** After an overwrite, the old data is gone.
+
+A **table format** fixes all of this with one idea: keep a **log of changes** next to the data files, and define "the table right now" as the result of replaying the log. The Parquet files are still the data, but the log owns the answer to which files are in the table.
+
+<Callout type="warn" title="The examples in this chapter run in WSL and need the internet the first time">
+Hadoop cannot write files on Windows because there is no `hadoop.dll` (see [chapter 9](/en/spark/structured-streaming/)). So the examples run with `run_wsl.sh` and download the Delta jar from Maven Central into `~/.ivy2` on the first run. Linux or macOS machines can run them directly.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Take a Delta table apart
+
+We wrote a table of 100 rows in 4 files with `write.format("delta")`. The folder has 4 Parquet files and a folder `_delta_log/` (run: `exercises/10_table_formats.py`).
+
+```
+t/
+  part-00000-....snappy.parquet   x4
+  _delta_log/
+    00000000000000000000.json
+```
+
+The file `00000000000000000000.json` is commit number 0. Each line is one **action**.
+
+| action | meaning |
+|---|---|
+| `commitInfo` | who did what and when (for example WRITE, UPDATE) |
+| `metaData` | schema, partition columns, config |
+| `protocol` | the reader and writer versions that are needed |
+| `add` | this file **enters** the table: path, size and **statistics** |
+| `remove` | this file **leaves** the table |
+
+An `add` has statistics for each file, for example `{"numRecords":25,"minValues":{"id":0},"maxValues":{"id":24},"nullCount":{"id":0}}`, which are used to skip files when reading (see the section [Performance: the log gives you extras](#performance-the-log-gives-you-extras)).
+
+**The table at version N = the files that were `add`ed and not yet `remove`d when you replay commits 0 to N.** Click through the commits one at a time.
+
+<TableLogLab client:visible lang="en" />
+
+The important point the picture shows: **no file is changed in place.** An `UPDATE` writes a new file with the changed values, and then commits "take the old file out, put the new file in". This is called **copy-on-write**. Measured: commit 1 of the `UPDATE` has the actions `commitInfo`, `add` and `remove`, and the old file is still on disk.
+
+Proof of why the log is needed: if you read this folder with `spark.read.parquet(path)` after the `UPDATE`, you get **125 rows** (the old file with 100 rows plus the newly written file with 25 rows). But reading through Delta gives the correct **100 rows**, because Delta reads only the files the log tells it to.
+
+</Step>
+
+<Step>
+
+## How ACID works with plain files
+
+The letters of ACID translate into what the log gives you:
+
+- **Atomicity**: the whole set of changes (many `add` and `remove`) is in one commit file. A commit takes effect when the file `N.json` is created successfully. If a crash comes before that, there is no new version. The Parquet files that were written are just orphan files that readers cannot see.
+- **Isolation**: a reader picks one version and replays the log up to that version. It sees a still picture, and does not see the effect of a writer that has not finished.
+- **Consistency**: the schema is checked before a commit (see the section [Schema: checked before writing](#schema-checked-before-writing)).
+- **Durability**: the log and the files live in durable storage (if the object store guarantees atomic file creation).
+
+When two writers work at the same time, Delta uses **optimistic concurrency**: each one reads the current version, does its work, and tries to create the file of the next version. The one that creates it first wins. The slower one must check whether its own work conflicts with what the other one committed. If it conflicts, it fails.
+
+We tested it with two threads that `UPDATE` different rows in the same file (a single file of 3 million rows) at the same time:
+
+```
+{'A': 'ok', 'B': 'ConcurrentAppendException'}     # the result
+the log has 2 versions: 0 (write the table) and 1 (the work of A)
+rows that were changed: 1                          # only the one from A
+```
+
+B got `[DELTA_CONCURRENT_APPEND] Transaction conflict detected` because the file B read had already been changed by A. This is why the log is the "source of truth": nothing is overwritten silently. The user has to retry. This experiment depends on timing, so the script tries up to 3 rounds and confirms that at least one round had a conflict.
+
+</Step>
+
+<Step>
+
+## Time travel and the price you pay
+
+Because each version is the set of files the log names, you can look at an old version as long as the old files are still there.
+
+```python
+spark.read.format("delta").option("versionAsOf", 0).load(p)
+spark.sql("DESCRIBE HISTORY delta.`/path`")      # (3, MERGE) (2, DELETE) (1, UPDATE) (0, WRITE)
+```
+
+Measured: the row counts at versions 0 to 3 are 100, 100, 90, 90, and `id = 5` has `g = 0` at version 0 while the current value is `g = 7`.
+
+But files that were `remove`d do not disappear by themselves. If you keep using the table, they pile up, so there is `VACUUM`, which deletes files that the log does not refer to and that are older than the retention (default 7 days). After a vacuum, an old version that needs those files **cannot be read any more**. Measured: with `RETAIN 0 HOURS` (you must turn off `retentionDurationCheck`, which normally stops you from doing this), the number of files on disk went from 11 to 1, and `versionAsOf = 0` gave `FILE_NOT_EXIST`. So the choice is a trade: how long you keep history against the space you lose.
+
+</Step>
+
+<Step>
+
+## Schema: checked before writing
+
+Measured on a table where `g` is bigint:
+
+| what you write | result |
+|---|---|
+| `g` as string | `AnalysisException: [DELTA_FAILED_TO_MERGE_FIELDS]` |
+| an extra column `extra` | `AnalysisException: [DELTA_METADATA_MISMATCH]` |
+| an extra column `extra` and `option("mergeSchema", "true")` | succeeds, and the schema becomes `id, g, extra` |
+
+Compare this with plain Parquet, which accepts everything silently. Changing the schema of a table is a decision you must state clearly (`mergeSchema`), and it is recorded in the `metaData` of the next commit.
+
+</Step>
+
+<Step>
+
+## Performance: the log gives you extras
+
+The data stored in the log helps reads go faster.
+
+- **Data skipping**: the `min` and `max` statistics in `add` let Spark skip files that cannot have the rows you want. Measured: a table of 4 files (id 0 to 99) with `where("id > 95")` read only **1 file**.
+- **`OPTIMIZE`** merges small files into bigger ones. Measured: a table that went through `UPDATE`, `DELETE` and `MERGE` had 7 files, and after `OPTIMIZE` it had 1 (the old files stay until `VACUUM`).
+- **Checkpoint**: if every read had to replay the log from commit 0, a table with a million commits would be slow to read. So Delta writes a checkpoint (a Parquet file that summarizes the state) every 10 commits. Measured: after 12 commits there was a `00000000000000000010.checkpoint.parquet` and a `_last_checkpoint`. A reader starts from the latest checkpoint and replays only what follows.
+
+</Step>
+
+<Step>
+
+## Delta, Iceberg and Hudi
+
+All three have the same idea (log + data files + protocol). They differ in how the metadata is organized. This part was **not run on this machine**. It is a summary of the documentation of each project, so it is an overview and not a test result.
+
+| | Delta Lake | Apache Iceberg | Apache Hudi |
+|---|---|---|---|
+| where the truth is kept | a JSON log per commit + Parquet checkpoints | a metadata JSON file that points to a manifest list, then manifests, then data files | a timeline of instants (`.hoodie/`) |
+| updates | copy-on-write (as measured) and deletion vectors | copy-on-write or merge-on-read with delete files | copy-on-write or merge-on-read (base file + log file) |
+| strengths the docs stress | deep integration with Spark, `MERGE`, streaming | hidden partitioning, use with many engines | fast upsert, incremental query |
+
+**Merge-on-read** is the alternative to copy-on-write: instead of rewriting a whole file every time you change a few rows, you write a small file that says which rows were deleted or changed, and merge them when reading. Writes are faster, but you pay at read time and you need compaction.
+
+<Callout type="note" title="A real finding about versions: the jar must match Spark">
+While preparing this chapter, we tried the Iceberg runtime built for Spark 4.1 (`iceberg-spark-runtime-4.1_2.13:1.12.0`) on Spark 4.2.0, and `CREATE TABLE` failed with `IncompatibleClassChangeError: class org.apache.iceberg.spark.source.SparkView can not implement org.apache.spark.sql.connector.catalog.View, because it is not an interface`. In the Spark 4.2 source, `View` is now a class (`View.java:43`) and not an interface, and Maven Central had no Iceberg runtime for Spark 4.2 on the date we checked (5 Nov 2026). On the other hand, `delta-spark_2.13:4.4.1` targets Spark 4.2.0 and works. The lesson: a table format is always tied to the minor version of Spark. Check the compatibility table before you upgrade Spark.
+</Callout>
+
+</Step>
+
+<Step>
+
+## How Spark connects to a table format
+
+Spark does not know Delta directly. It uses **two hooks** that Spark leaves open (measured that these configs are set in the session):
+
+```python
+SparkSession.builder
+  .config("spark.jars.packages", "io.delta:delta-spark_2.13:4.4.1")
+  .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+  .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+```
+
+1. **Extensions** (`SparkSessionExtensions`): plugins that insert themselves into the parser (so it knows commands such as `OPTIMIZE`, `VACUUM`, `DESCRIBE HISTORY`), the analyzer and the optimizer.
+2. **Catalog and DataSource V2** in `org.apache.spark.sql.connector.*` is a set of interfaces that a table format must implement.
+
+| interface (in Spark 4.2) | job |
+|---|---|
+| `TableCatalog` | create, load and drop tables |
+| `Table` and `TableCapability` | the table, and what it can do (`BATCH_READ`, `BATCH_WRITE`, `TRUNCATE`, `OVERWRITE_BY_FILTER`, `MICRO_BATCH_READ`, and so on) |
+| `SupportsRead`, `Scan`, `SupportsPushDownFilters`, `SupportsPushDownRequiredColumns` | read data, and accept the filters and columns that are pushed down |
+| `SupportsWrite`, `WriteBuilder`, `BatchWrite` | write data so that it can be committed as a whole |
+| `SupportsRowLevelOperations`, `RowLevelOperation` | `DELETE`, `UPDATE`, `MERGE`, where the source tells Spark whether it handles them as groups of files (copy-on-write) or as a delta of rows |
+
+Spark writes and optimizes the plan as before ([chapter 6](/en/spark/catalyst-aqe/)), but when it reaches the step "read this table" or "commit this write", it calls these interfaces. For example, `RowLevelOperation.Command` has three values, `DELETE`, `UPDATE` and `MERGE`, which are what Spark hands to the table to do. (The author read only the Spark interfaces and did not read the Delta code, so we do not say which parts of the interfaces Delta uses.)
+
+</Step>
+
+<Step>
+
+## Which one to choose
+
+This is the author's opinion, not a test result.
+
+- **If you live mostly with Spark and Databricks**, Delta is the one with the deepest integration, and it is the easiest to find examples for.
+- **If you need the same table in many engines** (Trino, Flink, Spark and so on), Iceberg was designed for that.
+- **If your main work is upsert and continuous streaming ingestion**, Hudi focuses on this.
+
+Before you choose, always check three things: (1) is there a release that matches your Spark (see the note box above), (2) do the other engines that must read the same table support the features you use, (3) does your storage guarantee atomic file creation, because the commits of all three depend on it.
+
+</Step>
+
+<Step>
+
+## Try it and check yourself
+
+```bash
+cd subjects/spark/code
+uv run python exercises/10_table_formats.py
+```
+
+The first time it takes a while to download the Delta jar, and then about 2 to 3 minutes. Try changing it:
+
+1. Create a Delta table and open the files in `_delta_log/` by eye. Look at the `add` and `remove` of each commit.
+2. `UPDATE` one row and count the Parquet files in the folder before and after.
+3. Write a DataFrame with a different schema into the table and read the error you get.
+
+Check yourself:
+
+- Why does reading a Delta folder with `spark.read.parquet` give the wrong row count?
+- Two writers change the same file at the same time. What is the result, and why is no data damaged?
+- What does `VACUUM` trade against what?
+- Why can upgrading Spark make an Iceberg jar unusable?
+
+</Step>

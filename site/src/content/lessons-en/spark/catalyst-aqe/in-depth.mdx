@@ -1,0 +1,195 @@
+---
+title: Inside Catalyst
+summary: QueryExecution member by member, RuleExecutor and the batches of the Analyzer and Optimizer, ANSI mode that is locked at analyze time, the AQE loop, how the size of a merged partition is calculated, and the conditions where AQE does not work
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import RuleLoopLab from '../../../../components/labs/spark/RuleLoopLab';
+import AqeLoopLab from '../../../../components/labs/spark/AqeLoopLab';
+
+This page follows the source of Spark 4.2.0 (tag v4.2.0). The line numbers refer to files in the Spark repo. Results marked as ran come from `exercises/06_catalyst_aqe.py` or from a separate run on a 16-core machine (ANSI mode on, the default).
+
+<Step>
+
+## `QueryExecution` member by member
+
+The class `QueryExecution` (`QueryExecution.scala:67`) holds every kind of plan as a `lazy val`. There is no member called `parsedPlan`. The Parsed plan that `explain` prints is the argument called `logical` that is passed in when the object is created.
+
+| Member | What it does | Lines |
+|---|---|---|
+| `analyzed` | `analyzer.executeAndCheck(...)` | 192-213 |
+| `commandExecuted` | Runs a `Command` node right away, such as the write in `CREATE TABLE AS SELECT` | 215-225 |
+| `withCachedData` | Replaces the parts that were `cache()`d with the data in the cache | 289-307 |
+| `optimizedPlan` | `optimizer.executeAndTrack(...)` | 311-331 |
+| `sparkPlan` | `planner.plan(ReturnAnswer(plan)).next()`, always takes the first choice | 335-349 |
+| `executedPlan` | Applies `preparations` in order | 353-372 |
+
+The order of `preparations` matters (lines 750-782): `InsertAdaptiveSparkPlan` comes before the others, followed by `PlanSubqueries`, `RemoveRedundantProjects`, `EnsureRequirements` (this is the one that inserts `Exchange` and `Sort`), `CollapseCodegenStages`, `ReuseExchangeAndSubquery`.
+
+`AdaptiveSparkPlanExec` is a leaf node that hides the original plan inside it, so the rules after it in `preparations` have nothing to do (comment at lines 754-756). It calls these rules again by itself, inside, when it builds a stage.
+
+</Step>
+
+<Step>
+
+## `RuleExecutor`: Batch, `Once` and `FixedPoint`
+
+The Analyzer and the Optimizer inherit from `RuleExecutor` (`RuleExecutor.scala:215-325`). Its job is:
+
+1. It has a list of **batches**. Each batch is a group of rules with a strategy.
+2. It goes through the batches in order. In each batch it runs every rule once.
+3. If the strategy is `Once` (maxIterations = 1), it stops there.
+4. If it is `FixedPoint(n)`, it repeats until the plan does not change (`curPlan.fastEquals(lastPlan)`, line 312) or n rounds are done.
+
+Watch one batch work on a real query that has four levels of nested subquery (ran: `exercises/06b_rule_iterations.py`). Spark reports that this batch loops **4 rounds**. Press play or drag the slider to see where each rule changes the plan, and why the last round changes nothing but still has to exist.
+
+<RuleLoopLab client:visible lang="en" />
+
+With an ordinary query that is not nested, the same batch loops only 2 rounds (measured, for both a query that uses a view and a query that joins with a filter). The first round changes the plan. The second round proves that it is stable. The Analyzer on the four-level nested query used the Resolution batch for 9 rounds, because each round resolves only one level.
+
+The maximum of `FixedPoint` is `spark.sql.optimizer.maxIterations` and `spark.sql.analyzer.maxIterations`, both 100. If the plan is still changing after 100 rounds, the Optimizer only gives a warning (`errorOnExceed = false`), but the Analyzer sets `errorOnExceed = true`, so it raises an error.
+
+</Step>
+
+<Step>
+
+## Batches of the Optimizer
+
+`Optimizer.defaultBatches` (`Optimizer.scala:100-291`) has 30 batches. This table picks the ones that tell a story.
+
+| Batch | Strategy | At line |
+|---|---|---|
+| Finish Analysis | FixedPoint(1) | 177 |
+| Union | FixedPoint(100) | 192 |
+| Subquery | FixedPoint(1) | 213 |
+| Replace Operators | FixedPoint(100) | 216 |
+| Aggregate | FixedPoint(100) | 228 |
+| **Operator Optimization before Inferring Filters** | FixedPoint(100) | 165 (the rule list at 101-162 has about 60 rules) |
+| **Infer Filters** | Once | 167 |
+| **Operator Optimization after Inferring Filters** | FixedPoint(100) | 170 |
+| Push extra predicate through join | FixedPoint(100) | 172 |
+| Early Filter and Projection Push-Down | Once | 239 (`SparkOptimizer` adds the rules for schema pruning, V2 scan pushdown and partition pruning) |
+| Join Reorder | FixedPoint(1) | 243 (`CostBasedJoinReorder` does nothing unless CBO is on) |
+| Eliminate Sorts | Once | 251 |
+| Check Cartesian Products | Once | 274 |
+
+Two interesting points:
+
+- "Operator Optimization" appears twice, **with the same set of rules**, and "Infer Filters" sits between them. This is because `InferFiltersFromConstraints` creates new filters (for example `IsNotNull(amount)`, or `c_id > 990` on the other side of a join), and the pushdown rules must run one more time on them.
+- `SparkOptimizer` (the one that is really used) adds batches of its own around these, such as `PartitionPruning`, `InjectRuntimeFilter`, and **Extract Python UDFs** (`SparkOptimizer.scala:75`). The last one is where a Python UDF is pulled out as a separate node (this is the topic of [chapter 8](/en/spark/udf/)).
+
+</Step>
+
+<Step>
+
+## The Analyzer and ANSI mode locked at analyze time
+
+The Analyzer also works in batches. The big batch is **Resolution** (`Analyzer.scala:539`, FixedPoint), made of `ResolveRelations`, `ResolveReferences`, type coercion and others. A small query like `SELECT ... FROM v` uses only `ResolveRelations`, `ResolveReferences`, `AnsiTypeCoercion`, `ResolveUpCast` and `ResolveTimeZone` (traced from the plan change log).
+
+The type coercion rule is chosen by ANSI mode: `AnsiTypeCoercion` when it is on, and `TypeCoercion` when it is off (`Analyzer.scala:506-510`). The default of `spark.sql.ansi.enabled` is true, unless the environment variable `SPARK_ANSI_SQL_MODE=false` is set.
+
+What people often get wrong: **ANSI mode is locked when the query is analyzed, not when it runs** (ran).
+
+```python
+spark.conf.set("spark.sql.ansi.enabled", "true")
+df = spark.createDataFrame([("abc",)], "s string").selectExpr("cast(s as int) AS i")
+spark.conf.set("spark.sql.ansi.enabled", "false")
+df.collect()     # still an error: CAST_INVALID_INPUT
+```
+
+The DataFrame was analyzed on the first line, and ANSI was on at that time. Turning it off later does not help. If you want to see `NULL`, you must turn it off before you create the DataFrame.
+
+The plan text of the cast is the same in both modes (both show `cast(s as int)`). The difference is in the generated code: `explain("codegen")` of `a + 1` has `MathUtils.addExact` when ANSI is on and does not have it when ANSI is off.
+
+</Step>
+
+<Step>
+
+## The AQE loop
+
+`AdaptiveSparkPlanExec` (`AdaptiveSparkPlanExec.scala:69`) is the leaf node that holds the original plan. The main loop is `withFinalPlanUpdate` (lines 268-396).
+
+1. **Create query stages**: it cuts the plan at each `Exchange` into `ShuffleQueryStage` and `BroadcastQueryStage` (`createQueryStages`, line 543).
+2. **Start to materialize** the stages that are ready, broadcast stages first (lines 293-322), then block and wait for an event that says a stage has finished (line 328).
+3. **Replace the finished stage** in the logical plan, with real statistics (line 357).
+4. **`reOptimize`** (lines 805-835): clear the cache of statistics, run `AQEOptimizer`, plan again with the planner, and run another set of physical rules.
+5. **Compare cost**, and accept the new plan if its cost is lower, or equal but the plan is different (lines 367-379).
+6. Go back to step 1 until no stage is left to create, then set `_isFinalPlan = true` (line 389).
+
+Watch this loop work on the `groupBy(k).count()` query of the main lesson. This time you can see all six steps and the second round that creates the last stage.
+
+<AqeLoopLab client:visible lang="en" />
+
+In 4.2 the last stage is `ResultQueryStage` (lines 345, 394), which is not in the old documentation.
+
+**What is cost?** The default is `SimpleCostEvaluator`, which counts only **the number of `ShuffleExchangeLike` in the plan** (`simpleCosting.scala:42-65`). So AQE accepts a new plan that has fewer shuffles, or the same number but a different plan. It does not look at data size or time at all.
+
+`AQEOptimizer` (logical, `AQEOptimizer.scala:39-47`) has these batches: Propagate Empty Relations, **Dynamic Join Selection** (Once), Eliminate Limits, Optimize One Row Plan. The physical rules per stage (`AdaptiveSparkPlanExec.scala:137-145`) are `CoalesceShufflePartitions`, `OptimizeShuffleWithLocalRead`, `OptimizeSkewInRebalancePartitions`, and the rules for dynamic pruning and subqueries.
+
+</Step>
+
+<Step>
+
+## Why it merges down to 1 partition
+
+The number "200 becomes 1" comes from the formula in `ShufflePartitionsUtil.scala:60-62`.
+
+```
+target = max( min( totalBytes / minNumPartitions , advisory ), minPartitionSize )
+```
+
+In the query of the main lesson, the shuffle has only 1,152 bytes in total (48 rows = 16 map tasks times 3 keys after the partial aggregate). On this machine `defaultParallelism` = 16 (when `parallelismFirst` is true, this value is used as `minNumPartitions`, `CoalesceShufflePartitions.scala:59-69`).
+
+- `totalBytes / minNumPartitions` = 1152 / 16 = 72 bytes
+- `min(72 B, advisory 64 MB)` = 72 bytes
+- `max(72 B, minPartitionSize 1 MB)` = **1 MB**
+
+The target of 1 MB is much bigger than all the data, so partitions next to each other are merged until only 1 is left. Try changing the settings (ran):
+
+| Setting | Partitions you get |
+|---|---|
+| Default | 1 |
+| `spark.sql.adaptive.enabled=false` | 200 |
+| `coalescePartitions.enabled=false` | 200 |
+| `coalescePartitions.parallelismFirst=false` | 1 |
+| advisory = 1 byte, minPartitionSize = 1 byte | 3 (only 3 of the 200 partitions have data: key 0, 1, 2) |
+
+This number depends on the number of cores and the amount of data. On real data of many GB, the target will be about 64 MB per partition, not 1 partition.
+
+</Step>
+
+<Step>
+
+## When AQE does not wrap the plan
+
+`InsertAdaptiveSparkPlan` (`InsertAdaptiveSparkPlan.scala:44`) wraps the plan with AQE only when at least one of these is true (lines 99-124):
+
+- The plan already has an `Exchange`.
+- There is an operator that needs a new distribution, which would create an `Exchange`.
+- There is a subquery.
+- `spark.sql.adaptive.forceApply` is true (internal, default false).
+
+It always skips a command (lines 52-58) and stateful streaming (lines 62-70).
+
+So `spark.range(100).filter("id > 5")` has no `AdaptiveSparkPlan` in the plan at all (ran).
+
+</Step>
+
+<Step>
+
+## More things to watch out for
+
+1. **The join strategy that AQE changes uses the real size of the shuffle output.** `canBroadcastBySize` (`joins.scala:367-375`) uses `spark.sql.autoBroadcastJoinThreshold`, or, if `spark.sql.adaptive.autoBroadcastJoinThreshold` is set (not set by default), uses that one with the runtime statistics.
+2. **When the small side has too many empty partitions**, `DynamicJoinSelection` puts `NO_BROADCAST_HASH` on that side (`DynamicJoinSelection.scala:30-44`). Set `nonEmptyPartitionRatioForBroadcastJoin=0` and the same query becomes a `BroadcastHashJoin` (ran).
+3. **Skew join needs a shuffled join.** A broadcast join has no shuffle to split. The threshold is `max(skewedPartitionThresholdInBytes, median × skewedPartitionFactor)` (`OptimizeSkewedJoin.scala:65-68`). A skewed partition is cut by ranges of map tasks, and the partition on the other side is copied. If both sides are skewed, it becomes a cartesian product of the small pieces.
+4. **A filter inferred across a join can make the size of the opposite side smaller than you expect.** In an experiment, a filter on a key computed from the right side made the left side filtered in the same way. If you want the size of one side to stay "unknown", use a non-deterministic filter such as `F.rand(42) < 0.000002`, which is not inferred or pushed.
+5. **The scan name is not the same in every mode.** It is `Scan csv` in `formatted` but `FileScan csv` in the other tree forms.
+6. **A config value read in Python has a unit at the end.** `spark.conf.get("spark.sql.adaptive.advisoryPartitionSizeInBytes")` gives `67108864b`.
+7. **Not tested yet:** the pushdown behavior of Parquet/ORC (this machine cannot write Parquet, so the examples use CSV), the merging of partitions after `repartition(n)` (read from `supportedShuffleOrigins`, which has no `REPARTITION_BY_NUM`), and the speed numbers of Tungsten/codegen/AQE.
+
+</Step>

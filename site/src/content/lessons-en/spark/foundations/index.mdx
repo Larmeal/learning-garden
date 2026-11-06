@@ -1,0 +1,62 @@
+---
+title: Basics before you start
+summary: You can start learning Spark with SQL, some Python and a little knowledge about data files. This lesson goes through what you should know first
+order: 0
+phase: A
+level: 1
+stage: sprout
+format: steps
+requires: []
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import FormatLab from '../../../../components/labs/spark/FormatLab';
+
+<Step>
+
+## What you can start from
+
+Spark does not need much background. If you can write SQL (`select`, `where`, `group by`, `join`) and read Python code, you can skip ahead to the next lesson. Two things are worth knowing a little better: data file formats, and the words partition and serialization, which you will meet all the way through.
+
+<Callout type="tip" title="If you have used pandas">
+Coming from pandas, you will learn quickly. Two differences take some getting used to. The data does not live in the memory of one machine, and most commands do not run right away. The second point is explained in lesson 2.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Data files: CSV and Parquet
+
+These two formats differ in how they lay the data out on disk, and that difference decides how much Spark has to read.
+
+- CSV is plain text, one row per line. It has no data types: everything is text until someone guesses the type. JSON is similar in that it is text, stored one record at a time, but it can nest structures.
+- Parquet stores data one column at a time. The data types are inside the file, and it compresses well per column.
+
+<FormatLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## Why real work chooses Parquet
+
+Parquet reads only the columns that the query uses (this is called column pruning), it does not need to guess data types, and the file is usually smaller than a CSV with the same data. So real work usually stores data as Parquet. CSV suits small data, or data that you receive from another system.
+
+The wider the table, the bigger the difference. With a table of 200 columns where the query uses 3, Parquet reads about 3 columns out of 200. CSV has to read every line in full.
+
+Real numbers from a measurement: a table of 600,000 rows and 9 columns was written as CSV at 71.7 MiB and as Parquet at 48.9 MiB. To sum the values of one column (`sum(amount)`), CSV had to read **73.3 MiB** (the whole file), while Parquet read only **0.10 MiB**. The details and the method of measuring are in [Data I/O in depth](/en/spark/data-io/in-depth/).
+
+</Step>
+
+<Step>
+
+## Partition and serialization
+
+A partition is a chunk of data that Spark gives to one task to process. A dataset has many partitions, and different partitions can run at the same time. In the test machine's example, `spark.range(1_000_000)` splits into 16 partitions (you see it as `splits=16` in the `explain()` output of lesson 5), which matches the number of cores of the machine.
+
+Serialization means turning data in memory into bytes, so it can be sent to another machine or written to disk, and then turned back when it is read. Data that has to move between machines always carries this cost, and it is one reason why a shuffle is expensive (lesson 5).
+
+</Step>

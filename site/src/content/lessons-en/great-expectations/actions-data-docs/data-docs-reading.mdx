@@ -1,0 +1,63 @@
+---
+title: Read Data Docs
+summary: Extract the text from the HTML of Data Docs and read it page by page, then compare the validation result page when result_format is BOOLEAN_ONLY and when it is COMPLETE
+order: 3
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Variants from '../../../../components/labs/great-expectations/Variants';
+
+<Step>
+
+## Three pages to know
+
+`28_data_docs_text.py` builds a file context with a suite of two rules (`name` is not null, `age` between 0 and 120) and a checkpoint that has `UpdateDataDocsAction`. It runs on data that fails both rules, then extracts the visible text from the HTML (GX 1.24.1). This is what it found.
+
+| page | text you see |
+|---|---|
+| `index.html` | the heading "Data Docs created by Great Expectations", the tabs "Validation Results" and "Expectation Suites", a Clear Filters button, and a footer that invites you to subscribe to a newsletter (it can be turned off with `show_how_to_buttons`) |
+| `expectations/people_suite.html` | the suite name, the GX version, "This Expectation suite currently contains 2 total Expectations across 2 columns.", then one section per column, for example `age`: "values must be greater than or equal to 0.0 and less than or equal to 120.0." and `name`: "values must never be null." |
+| `validations/.../<run>/<batch>.html` | the status Failed or Passed, a Statistics table (Evaluated, Successful, Unsuccessful, Success Percent), the run and batch information, then one section per column |
+
+The suite page is the expectations written in human language. A data owner can read it and check the rules without reading any code.
+
+</Step>
+
+<Step>
+
+## The validation result page: result_format changes what you see
+
+We ran the same checkpoint twice, changing only the `result_format` of the checkpoint. Switch tabs to see the text of the `age` and `name` sections on the validation result page.
+
+<Variants
+  client:visible
+  lang="en"
+  title="The validation result page with BOOLEAN_ONLY and COMPLETE"
+  variants={[
+    {
+      label: 'BOOLEAN_ONLY',
+      code: `gx.Checkpoint(..., result_format="BOOLEAN_ONLY")`,
+      output: `age\n  Status | Expectation | Observed Value\n  values must be >= 0.0 and <= 120.0 .\n  --\n\nname\n  values must never be null.\n  unknown % not null\n\n(the page has 65 text parts, 24.7 KB)`,
+      reading: 'The page only says Failed and shows the text of the rule. The observed value cell is "--" and the ratio is "unknown % not null". There are no bad values to look at',
+      bad: true,
+    },
+    {
+      label: 'COMPLETE',
+      code: `gx.Checkpoint(..., result_format="COMPLETE")`,
+      output: `age\n  values must be >= 0.0 and <= 120.0 .\n  1 unexpected values found. ≈33.33% of 3 total rows.\n  Unexpected Value | Count | Index\n  300 | 1 | 2\n  To retrieve all unexpected values...\n  df.filter(items=[2], axis=0)\n  ≈33.333% unexpected\n\nname\n  values must never be null.\n  1 unexpected values found. ≈33.33% of 3 total rows.\n  null | 1 | 1\n  df.filter(items=[1], axis=0)\n  ≈66.667% not null\n\n(the page has 83 text parts, 28.5 KB)`,
+      reading: 'The page has the count and ratio of bad values, a table of the bad values with their row index, and a command to pull the bad rows out yourself',
+    },
+  ]}
+/>
+
+If you give Data Docs to a team, the `BOOLEAN_ONLY` level gives a page that can only say that something failed, and the team has to find the cause on their own. The `COMPLETE` level gives the bad values and the bad rows on one page. This matches what lesson 4 said: a detailed result costs extra computation.
+
+<Callout type="note" title="Read from text, not from pictures">
+This part comes from extracting the text of the HTML with a script. The pages were not opened in a browser, so colors, layout and the working "Failed Only" filter were not checked. Pointing a site at object storage was not tested either.
+</Callout>
+
+</Step>

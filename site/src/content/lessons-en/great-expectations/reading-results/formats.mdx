@@ -1,0 +1,89 @@
+---
+title: result_format level by level
+summary: See which keys are added to the result at each level of result_format, the extra options for finding bad rows, and the size of the sample of bad values
+order: 1
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Variants from '../../../../components/labs/great-expectations/Variants';
+
+<Step>
+
+## Four levels, how the results differ
+
+The data is `age = [10, None, 30, 400]`. The rules are `ExpectColumnValuesToBeBetween(0..120)` (column map) and `ExpectColumnMaxToBeBetween(0..120)` (aggregate), run at all four `result_format` levels (`21_formats_empty.py` part 1, GX 1.24.1). Switch tabs to see the keys of `result`.
+
+<Variants
+  client:visible
+  lang="en"
+  title="The keys in result of a column map expectation"
+  variants={[
+    { label: 'BOOLEAN_ONLY', code: `vd.run(batch_parameters=..., result_format="BOOLEAN_ONLY")`, output: `between  keys=[]\nmax      keys=[]`, reading: 'You only get the success of each expectation. result is empty, for both the column map and the aggregate expectation' },
+    { label: 'BASIC', code: `result_format="BASIC"`, output: `between keys=[\n  element_count, missing_count, missing_percent,\n  partial_unexpected_list, unexpected_count,\n  unexpected_percent, unexpected_percent_nonmissing,\n  unexpected_percent_total]\nmax     keys=[observed_value]`, reading: 'Adds summary numbers and examples of the bad values. The aggregate expectation gets observed_value' },
+    { label: 'SUMMARY', code: `result_format="SUMMARY"  # default of run()`, output: `between keys=[... same as BASIC, plus\n  partial_unexpected_counts,\n  partial_unexpected_index_list]\nmax     keys=[observed_value]`, reading: 'Adds the examples of bad values with how many times each appears, and the row positions of the examples' },
+    { label: 'COMPLETE', code: `result_format="COMPLETE"`, output: `between keys=[... same as SUMMARY, plus\n  unexpected_list,\n  unexpected_index_list,\n  unexpected_index_query]\nmax     keys=[observed_value]`, reading: 'Adds the full list of bad values (not cut down to examples), all the row positions, and a command to pull out the bad rows' },
+  ]}
+/>
+
+Two observations. `BOOLEAN_ONLY` makes `result` an empty dict (even `element_count` is gone). And the aggregate expectation does not change from BASIC upward, because it has only one value to report.
+
+A higher level means more metrics to compute (the main page of lesson 4 has the numbers 10, 13, 19, 19 for the example suite). So COMPLETE is slower than BOOLEAN_ONLY on big data. The real speed on big data was not measured on this path.
+
+</Step>
+
+<Step>
+
+## Finding the bad rows
+
+At the COMPLETE level there are three extra options. We tried them together (part 2 of the script).
+
+```python
+vd.run(
+    batch_parameters={"dataframe": df},
+    result_format={
+        "result_format": "COMPLETE",
+        "include_unexpected_rows": True,
+        "return_unexpected_index_query": True,
+        "unexpected_index_column_names": ["id"],
+    },
+)
+```
+
+The result:
+
+```text
+unexpected_index_list:  [{'age': 400.0, 'id': 4}]
+unexpected_rows:           id    age
+                        3   4  400.0
+unexpected_index_query: df.filter(items=[3], axis=0)
+```
+
+- `unexpected_index_column_names` makes `unexpected_index_list` a list of dicts that hold the values of the columns you chose (here `id`), instead of raw position numbers. So a bad row can be traced back to its record in the source system with a business key.
+- `include_unexpected_rows` puts the whole rows into `unexpected_rows` as a DataFrame.
+- `unexpected_index_query` is the command that pulls out the bad rows. On pandas it is `df.filter(...)`. On SQL it is a SQL statement (lesson 12 shows an example that GX builds on SQLite).
+
+<Callout type="warn" title="Whole rows are big">
+`include_unexpected_rows` stores all the bad rows in the result. If a million rows are bad, the result saved to the store is big too. The real size was not measured.
+</Callout>
+
+</Step>
+
+<Step>
+
+## How many bad values are in the sample
+
+The data is 60 rows that are all bad (`x = 200..259`, rule 0..100), run at SUMMARY (part 3).
+
+| `partial_unexpected_count` set to | `unexpected_count` | size of `partial_unexpected_list` |
+|---|---|---|
+| 3 | 60 | 3 |
+| 20 | 60 | 20 |
+| not set | 60 | 20 |
+
+`unexpected_count` always counts every row. What gets cut is the list of examples. The default is 20, as the experiment showed.
+
+</Step>

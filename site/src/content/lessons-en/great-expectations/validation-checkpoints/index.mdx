@@ -1,0 +1,102 @@
+---
+title: Validation Definition and Checkpoint
+summary: The unit you can run again and again in production. Follow Checkpoint.run step by step, and see why it does not raise when the data fails
+order: 7
+phase: B
+level: 3
+stage: sprout
+format: steps
+requires: [expectations-suites, datasources-batches, context-stores]
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import RunFlow from '../../../../components/labs/great-expectations/RunFlow';
+
+<Step>
+
+## Two layers of running
+
+| Layer | Job | Result |
+|---|---|---|
+| Validation Definition | Validates one piece of data with one suite | `ExpectationSuiteValidationResult` |
+| Checkpoint | Runs several validation definitions with shared parameters, then fires actions | `CheckpointResult` |
+
+A validation definition is good for experiments and one-off checks. A checkpoint is the main way in production, because it attaches actions and joins several checks into one job.
+
+```python
+vd = context.validation_definitions.add(
+    gx.ValidationDefinition(name="users_vd", data=batch_definition, suite=suite)
+)
+checkpoint = context.checkpoints.add(
+    gx.Checkpoint(name="users_daily", validation_definitions=[vd])
+)
+result = checkpoint.run(batch_parameters={"dataframe": df})
+```
+
+</Step>
+
+<Step>
+
+## Follow Checkpoint.run() step by step
+
+<RunFlow client:visible lang="en" />
+
+GX does not touch the data until step 3, and the result is stored before the actions start. These two facts answer the question of what you lose if the run fails halfway.
+
+</Step>
+
+<Step>
+
+## CheckpointResult
+
+```python
+result = checkpoint.run(batch_parameters={"dataframe": df})
+result.success            # True when every validation passes
+result.run_results        # dict: ValidationResultIdentifier -> ExpectationSuiteValidationResult
+result.describe()         # a summary as JSON
+```
+
+`run_results` has one entry per validation definition. The key is made of the suite name, the `run_id` and the batch id. Every validation in a checkpoint gets the same `run_id`, so you can tell they are in the same run.
+
+The parameters `batch_parameters` and `expectation_parameters` that you pass to `run()` are given to every validation definition in the same way. `result_format` is a field of `Checkpoint` itself. If two validation definitions use different kinds of batch definition (one daily, one the whole table), a single set of parameters must be compatible with both.
+
+</Step>
+
+<Step>
+
+## The trap: no raise when the data fails
+
+```python
+result = checkpoint.run(batch_parameters={"dataframe": bad_df})
+# no exception, result.success == False
+```
+
+Measured in `03_traps.py`: the checkpoint returns a result with `success=False` as normal, without raising. GX treats failing data as a result of the check. The side effect is that a pipeline that calls `checkpoint.run(...)` and does not check `.success` always keeps going ([lesson 10](/en/great-expectations/pipeline-integration/) is about how to block it).
+
+<Callout type="warn" title="What does make it raise">
+Failing data does not make it raise, but these things do: no validation definition in the checkpoint, a referenced object that has not been added to the context, a batch that was asked for but does not exist (`NoAvailableBatchesError`), and an action that errors ([lesson 9](/en/great-expectations/actions-data-docs/)).
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- A checkpoint has two validation definitions. The first fails and the second passes. What is `result.success`, and does the second validation still run? (The page "Several validations in one checkpoint" has the answer.)
+- Why must a validation definition be added to the context before you put it in a checkpoint?
+- Today's data is broken, but the code does not fail. What is the likely cause?
+
+</Step>
+
+<Step>
+
+## Sub-pages of this lesson
+
+1. Several validations in one checkpoint: the overall result, a failing one does not stop the others, and one set of parameters
+2. Read a CheckpointResult: describe() and run_results, and a function that pulls out the failed items
+3. Validation definition or checkpoint, which one to use: the differences that were measured
+
+</Step>

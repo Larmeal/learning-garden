@@ -1,0 +1,85 @@
+---
+title: Architecture in depth
+summary: What a local[*] session really is (one process, and the only executor is the driver), PySpark as a client of the JVM through Py4J, how the driver memory is divided to give the number 455,501,414, and what is sent back to the driver
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Py4jLab from '../../../../components/labs/spark/Py4jLab';
+import DriverMemoryLab from '../../../../components/labs/spark/DriverMemoryLab';
+
+Every point comes from `exercises/01_architecture.py` (Spark 4.2.0, PySpark in WSL, 16 cores, Java 21).
+
+<Step>
+
+## What local[*] really is
+
+`get_spark()` in this project creates a `local[*]` session. What was checked:
+
+- `sc.master` is `local[*]` and `defaultParallelism` equals the number of cores of the machine (16).
+- Asking for executors through the REST API of the UI gives only one entry, `driver`, with `totalCores` = 16. **In local mode the driver is the only executor.** Every task runs as a thread in the same JVM.
+- `spark.range(1_000_000)` splits into 16 partitions, following the number of cores.
+- Calling `SparkSession.builder.getOrCreate()` again gives the **same object** (`is spark` is True). It does not create a new one, so it is safe to call it again in many files.
+
+The result is that on one machine you see real parallel running (tasks run in parallel on many threads), but there is no network in between. The cost of a shuffle on a real cluster is higher than what you see here (see lesson 11 for a cluster you can start yourself).
+
+</Step>
+
+<Step>
+
+## PySpark is a client of the JVM
+
+Spark is written in Scala and Java. Your Python program does not run Spark itself. It talks to the JVM through **Py4J** (a gateway that lets Python call methods of objects in the JVM).
+
+- `type(spark).__module__` is `pyspark.sql.session`, and `sc._jvm` is the entry point to the JVM. From here you can call Spark classes directly, for example `sc._jvm.org.apache.spark.sql.SparkSession.active().version()` gives `4.2.0`, and `sc._jvm.java.lang.System.getProperty("java.version")` gives `21.0.13` (Spark 4 needs Java 17 or newer).
+- A DataFrame in Python holds a **handle** to the Dataset that lives in the JVM (`df._jdf`, which is a `JavaObject`). Every transformation you call is a call to a method on the JVM side through the gateway, and you get a new handle back. The data is never in Python unless you ask to pull it (see the last section).
+- Because each call is only a small message through a socket, DataFrame code in Python is not slower than Scala for the planning part. The part that is slower is when data really has to cross over to Python, for example Python UDFs (lesson 8).
+
+Choose an action and press play, to see what crosses the gateway back and what does not cross at all.
+
+<Py4jLab client:visible lang="en" />
+
+This is also the reason why Spark Connect (lesson 11) can separate the client side: it changes from Py4J to gRPC, but the client still sends only the "plan" to the side that has a JVM.
+
+</Step>
+
+<Step>
+
+## Driver memory
+
+The driver of a local session gets a 1 GiB heap by default (`spark.driver.memory`). The number that the UI reports is **455,501,414 bytes**, which is the part that Spark manages itself. It matches the formula exactly (checked):
+
+```
+(heap 1,073,741,824 - reserved 314,572,800) x 0.6 = 455,501,414
+```
+
+Change the heap size and see what fraction Spark can really manage.
+
+<DriverMemoryLab client:visible lang="en" />
+
+The rest is reserved (the 300 MiB that Spark keeps aside) and user memory (what is left of the heap). Lesson 13 explains this formula in detail and shows how storage and execution share the memory. The conclusion you can use now is that a 1 GiB heap does not mean your data can use 1 GiB: Spark manages about two fifths of it, and the rest of the driver is used for other objects.
+
+</Step>
+
+<Step>
+
+## What comes back to the driver
+
+The data is on the executors. The part that is sent back is **only what you ask for** (checked):
+
+- `collect()` returns all the `Row`s as a list in the memory of the driver (`[(0, 0), (1, 1), (2, 4), ...]`).
+- `show()` prints (20 rows by default) and returns `None`.
+- `toPandas()` copies the whole result into the memory of the driver as a pandas DataFrame (on `limit(2)` the shape is `(2, 1)`).
+- `write` does not go through the driver: the executors write the files themselves.
+
+The whole result of `collect()` and `toPandas()` must fit in the memory of the driver (and not exceed `spark.driver.maxResultSize`, which is set to 1g, see lesson 7, where it was checked that setting it to 1m made `collect()` of 2 million rows fail). So filter or aggregate the data to make it smaller before you pull it.
+
+<Callout type="tip" title="Everything that follows uses this picture">
+The driver plans and hands out work. The executors do the work and hold the data. The cluster manager allocates machines. This picture is used again in the scheduler (lesson 13), deployment (lesson 11) and the search for missing memory (lesson 7).
+</Callout>
+
+</Step>

@@ -1,0 +1,126 @@
+---
+title: Data Source and Batch
+summary: How GX refers to data, the kinds of data source, batch definitions, and the trap of get_batch that quietly gives you the latest batch
+order: 6
+phase: B
+level: 3
+stage: sprout
+format: steps
+requires: [first-validation, context-stores]
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import BatchLab from '../../../../components/labs/great-expectations/BatchLab';
+
+<Step>
+
+## Three layers for naming data
+
+Lesson 1 has three layers: Data Source (the place where data is kept), Data Asset (a set of data in that place) and Batch Definition (how to pick up a batch to check). This lesson goes into each layer with examples that really run.
+
+| Layer | Examples that were tested |
+|---|---|
+| Data Source | `context.data_sources.add_pandas(...)`, `add_pandas_filesystem(name, base_directory=...)`, `add_sqlite(name, connection_string=...)` |
+| Data Asset | `add_dataframe_asset(...)`, `add_csv_asset(...)`, `add_table_asset(name, table_name=...)` |
+| Batch Definition | `add_batch_definition_whole_dataframe(...)`, `add_batch_definition_whole_table(...)`, `add_batch_definition_daily(name, regex=...)`, `add_batch_definition_monthly(...)`, `add_batch_definition_path(name, path=...)` |
+
+The list of files in `datasource/fluent/` also has these (read from the source only, not tested): files on S3, GCS, Azure and DBFS, Spark (`add_spark`, Spark filesystem), and databases such as Postgres, Snowflake, BigQuery, Redshift and Databricks SQL.
+
+</Step>
+
+<Step>
+
+## A batch definition is a recipe, not data
+
+`add_batch_definition_...` only writes down how to pick up the data. The real read happens at `get_batch()` or at `run()` of the validation definition (measured: before that, the engine was called 0 times).
+
+```python
+batch = batch_definition.get_batch(batch_parameters={...})   # the data is read here
+df = batch.data.dataframe                                    # pandas
+```
+
+To see which batches you can choose from, use `batch_definition.get_batch_identifiers_list()`.
+
+</Step>
+
+<Step>
+
+## Two families of partitioner
+
+You can split data into several batches (for example, one per day) in two ways. It depends on the shape of the data.
+
+- By file name (the data is files in a folder): give a regex with named groups `year`, `month`, `day`, for example `data_(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})\.csv`. GX then knows which batch each file is.
+- By column (the data is a table): use the name of a date column, for example by year, month or day, or the values in a column. There are several kinds in `core/partitioners.py` (source 1.9.3).
+
+Tested with the files `data_2024-01-01.csv` to `data_2024-01-03.csv` in `04_batches.py`: `get_batch_identifiers_list()` returns a list of `{'path': ..., 'year': ..., 'month': ..., 'day': ...}`, one entry per file.
+
+</Step>
+
+<Step>
+
+## Which file does get_batch pick
+
+The parameters you pass act as a filter on the list of batches. Then GX returns the last one of what remains (sorted from small to large).
+
+<BatchLab lang="en" client:visible />
+
+Three things to remember (all tested):
+
+1. No parameters: you get the latest batch, with no error.
+2. Incomplete parameters: if you pass year and month to a daily regex, several files remain, and you quietly get the last file of that month.
+3. Values that match no file: `NoAvailableBatchesError`.
+
+<Callout type="warn" title="A trap in daily pipelines">
+If the scheduler forgets to pass the date (the variable is empty, so it is not passed), the pipeline does not fail. It checks the latest file that exists, which may be yesterday's file, and reports that it passed. Always pass `year`, `month` and `day` in full, and make the pipeline check that the values exist before it calls.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Types of the parameters, and DataFrames
+
+The keys of `batch_parameters` depend on the batch definition.
+
+| batch definition | keys |
+|---|---|
+| whole DataFrame | `dataframe` (the value is the DataFrame itself) |
+| whole table / path | none |
+| daily (regex) | `year`, `month`, `day` |
+| monthly (regex) | `year`, `month` |
+
+In 1.24.1, numeric parameters should be integers (`{"year": 2024, "month": 1, "day": 2}`). Passing a numeric string (`"01"`) still works, but GX warns that it is deprecated (removed in 2.0). The values that `get_batch_identifiers_list()` returns are still strings, so convert them to numbers before you pass them back.
+
+The saved result does not store the whole DataFrame. GX puts placeholder text in `meta["batch_parameters"]` instead.
+
+</Step>
+
+<Step>
+
+## Try it in this repo
+
+Open `04_batches.py` and try three things.
+
+1. Change `for day in (1, 2, 3)` to `(1, 2, 3, 4)` to add a file for day 4. See how `get_batch()` with no parameters changes.
+2. Pass `{"year": 2024, "month": 1}`. Guess first which file you will get.
+3. Change `add_batch_definition_daily` to `add_batch_definition_monthly` (the regex has no `day` group) and compare `get_batch_identifiers_list()`.
+
+## Check yourself
+
+- Why is `get_batch()` with no parameters dangerous in a daily pipeline?
+- How do a batch definition and a batch differ? Which one reads the real data?
+- Data in a SQL table split by a date column, and data in daily files: which family of partitioner does each use?
+
+</Step>
+
+<Step>
+
+## Sub-pages of this lesson
+
+1. Splitting batches of a SQL table: yearly, monthly, daily on one table
+2. File name regex and files that should not get in: a regex without anchors makes get_batch fail
+3. batch.validate, a shortcut for trying rules: try a rule without creating a validation definition
+
+</Step>

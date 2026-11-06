@@ -1,0 +1,67 @@
+---
+title: Metric domains and row_condition
+summary: Metrics in the same domain are combined into one SQL statement. A row_condition changes the domain, so it breaks that combining. See how many statements are added, and a parser that SQL does not accept.
+order: 2
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Variants from '../../../../components/labs/great-expectations/Variants';
+
+<Step>
+
+## What is a domain
+
+A metric is computed "on something". That something is called the domain: the table, the column and the row filter (`row_condition`). Metrics whose domain is exactly the same are combined into one SQL statement (see the section "Two kinds" in the main lesson). Parts 2 to 3 of the script `26_registry_domains.py` look at how the SQL changes when the domain is different (GX 1.24.1, SQLite, a `users` table with 4 rows).
+
+</Step>
+
+<Step>
+
+## Compare three cases
+
+<Variants
+  client:visible
+  lang="en"
+  title="Number of SQL statements and row_condition"
+  variants={[
+    {
+      label: 'One domain',
+      code: `ExpectColumnMaxToBeBetween(column="age", ...)\nExpectColumnMeanToBeBetween(column="age", ...)`,
+      output: `two on age, same domain   statements=2 success=True`,
+      reading: 'Two rules on the same column give 2 statements: one for row_count, and one that combines max and mean.',
+    },
+    {
+      label: 'Add a row_condition',
+      code: `ExpectColumnMaxToBeBetween(column="age", ...)\nExpectColumnMaxToBeBetween(column="age", ...,\n    row_condition='col("plan") == "pro"',\n    condition_parser="great_expectations")`,
+      output: `statements=4 success=True\n  SELECT count(*) AS "table.row_count" FROM (... WHERE 1 = 1)\n  SELECT count(*) AS "table.row_count" FROM (... WHERE plan = 'pro')\n  SELECT max(age) AS "column.max" FROM (... WHERE plan = 'pro')\n  SELECT max(age) AS "column.max" FROM (... WHERE 1 = 1)`,
+      reading: 'A rule with a row_condition has its own domain, so it gets its own row_count and its own max inside its own WHERE. The statements grow from 2 to 4 (the two cases are two different suites, which differ in the second rule).',
+    },
+    {
+      label: 'A parser that SQL does not accept',
+      code: `ExpectColumnMaxToBeBetween(column="age", ...,\n    row_condition='plan == "pro"',\n    condition_parser="pandas")`,
+      output: `success: False\nexception: PassThroughCondition (pandas/spark syntax) is not\n  supported for SqlAlchemyExecutionEngine. Please use the latest\n  documented row_condition syntax, ...`,
+      reading: 'A pandas-style row_condition cannot be used on SQL. The result is success=False with exception_info, not bad data. You must write it in the form col("plan") == "pro" with the great_expectations parser.',
+      bad: true,
+    },
+  ]}
+/>
+
+</Step>
+
+<Step>
+
+## What this means for suite design
+
+1. Rules that you split by group on purpose (for example only the pro plan) cost extra statements per group. With 10 groups, that is 10 sets. On big data in SQL, count the groups before you use this.
+2. A `row_condition` that passes on pandas may fail on SQL, so test it on the real engine.
+3. You can always inspect the SQL that GX sends with the method in `05_sql_bundling.py` and `26` (it wraps `SqlAlchemyExecutionEngine.execute_query` and records the statements).
+
+<Callout type="note" title="Scope">
+The numbers 2 and 4 are the result of the suite used in `26` (result_format `BOOLEAN_ONLY`) on a small table. Other suites can give a different number of statements, and I did not test with Spark.
+</Callout>
+
+</Step>

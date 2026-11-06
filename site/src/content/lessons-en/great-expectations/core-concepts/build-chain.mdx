@@ -1,0 +1,105 @@
+---
+title: Building it one line at a time
+summary: Follow what happens in the context after each line of code, who gets an id and when, and on which line GX starts to touch the data
+order: 1
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import FlowFrames from '../../../../components/labs/great-expectations/FlowFrames';
+
+<Step>
+
+## Eight lines that build the workflow
+
+```python
+context = gx.get_context()
+source = context.data_sources.add_pandas("people_src")
+asset = source.add_dataframe_asset("people")
+bdef = asset.add_batch_definition_whole_dataframe("whole")
+suite = context.suites.add(gx.ExpectationSuite(name="people_suite"))
+suite.add_expectation(gxe.ExpectColumnValuesToNotBeNull(column="id"))
+vd = gx.ValidationDefinition(name="people_vd", data=bdef, suite=suite)
+result = vd.run(batch_parameters={"dataframe": df})
+```
+
+The script `17_object_chain.py` prints the state after every line (GX 1.24.1). The column `engine_rounds` counts how many times the execution engine was called to compute a metric.
+
+| After the line | id | In the context | engine_rounds |
+|---|---|---|---|
+| `get_context()` | (ephemeral context) | empty | 0 |
+| `add_pandas` | yes | 1 data source | 0 |
+| `add_dataframe_asset` | yes | 1 asset under the source | 0 |
+| `add_batch_definition_whole_dataframe` | yes | a batch definition | 0 |
+| `ExpectationSuite(name=...)` | `None` | no suite yet | 0 |
+| `context.suites.add(...)` | yes | `people_suite` is there | 0 |
+| `suite.add_expectation(...)` | the expectation gets an id | | 0 |
+| `ValidationDefinition(...)` | `None` | no validation definition yet | 0 |
+| `vd.run(...)` | yes (added during the run) | `people_vd` is there | 5 |
+
+This table shows two things. Objects created with `add_*` get an id immediately. `ExpectationSuite(...)` and `ValidationDefinition(...)`, created with a constructor, have no id yet and are not in the context until you add them or run. The other thing is that computing on the data happens on the last line only.
+
+</Step>
+
+<Step>
+
+## See it as a picture
+
+Press play, or press next to go one step at a time.
+
+<FlowFrames
+  lang="en"
+  client:visible
+  title="Building the workflow step by step"
+  width={760}
+  height={320}
+  boxes={[
+    { id: 'ctx', label: 'Data Context', sub: 'ephemeral', x: 10, y: 10 },
+    { id: 'src', label: 'Data Source', sub: 'people_src', x: 200, y: 10 },
+    { id: 'asset', label: 'Data Asset', sub: 'people', x: 390, y: 10 },
+    { id: 'bdef', label: 'Batch Definition', sub: 'whole', x: 580, y: 10 },
+    { id: 'suite', label: 'Expectation Suite', sub: 'people_suite', x: 10, y: 130 },
+    { id: 'vd', label: 'Validation Definition', sub: 'people_vd', x: 290, y: 130, w: 180 },
+    { id: 'df', label: 'DataFrame', sub: 'passed at run, not stored', x: 580, y: 130, kind: 'data' },
+    { id: 'res', label: 'Result', sub: 'success, statistics', x: 290, y: 250, kind: 'out' },
+  ]}
+  arrows={[
+    { from: 'ctx', to: 'src' },
+    { from: 'src', to: 'asset' },
+    { from: 'asset', to: 'bdef' },
+    { from: 'suite', to: 'vd', label: 'name + id' },
+    { from: 'bdef', to: 'vd', label: 'name + id' },
+    { from: 'df', to: 'vd', label: 'batch_parameters' },
+    { from: 'vd', to: 'res' },
+  ]}
+  frames={[
+    { title: 'get_context()', text: 'You get an ephemeral context, because there is no gx/ folder and no cloud variables. There is nothing inside yet', on: ['ctx'], arrows: [] },
+    { title: 'add_pandas', text: 'The data source gets an id and is stored in the context right away. No data has been read yet', on: ['ctx', 'src'], arrows: [0] },
+    { title: 'add_dataframe_asset', text: 'The asset is added under the source and gets its own id. The asset only says that there is a DataFrame named people. There is no real data yet', on: ['src', 'asset'], arrows: [1] },
+    { title: 'add_batch_definition_whole_dataframe', text: 'A recipe for picking up the whole batch of data. It gets an id. engine_rounds is still 0', on: ['asset', 'bdef'], arrows: [2] },
+    { title: 'ExpectationSuite(name=...) then suites.add', text: 'Before add, the suite has no id (None) and is not in the context. After add it has an id and shows up in context.suites.all()', on: ['suite'], arrows: [] },
+    { title: 'suite.add_expectation', text: 'The expectation goes into the suite and gets its own id. Nothing has been computed yet', on: ['suite'], arrows: [] },
+    { title: 'ValidationDefinition(data=bdef, suite=suite)', text: 'This pairs the two sides. For now it is only a Python object, with no id, and it is not in the context. When serialized, it stores the batch definition and the suite as name + id', on: ['suite', 'bdef', 'vd'], arrows: [3, 4] },
+    { title: 'vd.run(batch_parameters={"dataframe": df})', text: 'run() adds the validation definition to the context for you (because the suite and the batch definition were already added), then picks up the DataFrame and computes. At this point the engine has been called 5 times for a single expectation', on: ['df', 'vd', 'res'], arrows: [5, 6], tag: '17_object_chain.py' },
+  ]}
+  caption="The DataFrame does not stay with the batch definition. We tested it: the json of the batch definition has no data values"
+/>
+
+</Step>
+
+<Step>
+
+## run() can add only itself
+
+`ValidationDefinition.run` can add itself to the context when the suite and the batch definition it refers to are already in the context. If the suite has not been added, you get `ValidationDefinitionRelatedResourcesFreshnessError` with a message to call `context.suites.add(...)` first (the full message is on the page "The first errors you will meet").
+
+A validation definition refers to a suite by name and id (the page "References by name and id"). A suite that was never added has no id to refer to. This is an inference from the error message and the json shape. I did not read this part of the code line by line.
+
+<Callout type="note" title="Check it yourself">
+Run `uv run python 17_object_chain.py` in the folder `subjects/great-expectations/code/` and compare with the table. The ids are random UUIDs, so they differ every time, but `None` versus a value must match.
+</Callout>
+
+</Step>

@@ -1,0 +1,130 @@
+---
+title: Standalone
+summary: The cluster manager that comes with Spark itself. It has two roles, Master and Worker. See who tells whom what to do, how the Master hands out cores to apps (measured on a cluster of 3 Workers), what happens when an executor or a Worker dies, and why Python cannot use cluster mode
+order: 11
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import ClusterLaunchLab from '../../../../components/labs/spark/ClusterLaunchLab';
+import StandaloneSpreadLab from '../../../../components/labs/spark/StandaloneSpreadLab';
+
+This page explains the standalone cluster manager that comes with Spark (`--master spark://host:7077`). The parts that were actually run are `exercises/11_deployment_ui.py` and `exercises/11b_standalone_spread.py` (both start the cluster themselves in WSL). The parts that were read from the Spark 4.2.0 source are marked.
+
+<Step>
+
+## What the Master and the Worker do
+
+Standalone has only two roles. Each role is one JVM process.
+
+| Role | Does | Does not do |
+|---|---|---|
+| `Master` (port 7077, UI 8080) | Knows how many Workers there are and how many cores and how much memory are free, receives the applications that register, and decides which core of which Worker goes to which app | Does not hold data, does not hand out tasks, and is not on the path where executors send their results |
+| `Worker` (UI 8081) | Registers with the Master and says how many cores and how much memory it has, starts executors as child processes when the Master says so, and reports the executor status back to the Master | Does not decide who gets the cores |
+
+The rest is on the application side. The driver has a `StandaloneAppClient` to talk to the Master, and each executor is a `CoarseGrainedExecutorBackend` that a Worker starts. The animation shows the order of events, from registering to getting a task.
+
+<ClusterLaunchLab cm="standalone" client:visible lang="en" />
+
+This picture makes two points clear:
+
+- **The Master is on the path only at the start.** After it hands out the cores and tells the Workers to start the executors, the driver and the executors talk to each other directly. The tasks and the results do not pass through the Master at all (read from the source: the executor gets the address of the driver in the command that the Worker uses to start it, and then registers with the driver directly).
+- **The numbers in the core boxes are the Master's decision** about which Worker the app stays on and how many cores it gets. That is the subject of the next section.
+
+</Step>
+
+<Step>
+
+## How the Master hands out cores
+
+If an app asks for 6 cores and the cluster has 3 Workers with 4 cores each, where do the cores come from? Two settings decide. The first is `spark.deploy.spreadOutApps`, set on the Master (default `true`). The second is `spark.executor.cores`, set on the app. Try changing both.
+
+<StandaloneSpreadLab client:visible lang="en" />
+
+The results measured on a cluster of 3 Workers (4 cores each, `spark.cores.max = 6`) match the picture in all 6 cases:
+
+| `spreadOutApps` | `spark.executor.cores` | cores per Worker | executors |
+|---|---|---|---|
+| true (default) | not set | 2 · 2 · 2 | 3 |
+| true | 1 | 2 · 2 · 2 | 6 |
+| true | 2 | 2 · 2 · 2 | 3 |
+| false | not set | 4 · 2 · 0 | 2 |
+| false | 1 | 4 · 2 · 0 | 6 |
+| false | 2 | 4 · 2 · 0 | 3 |
+
+What to notice:
+
+- **If `spark.executor.cores` is not set**, the Master gives one executor per Worker and puts all the cores it gives in that one executor (`oneExecutorPerWorker` in `Master.scala:741`). If you set it, every chunk that is handed out is a new executor, so there can be many executors per Worker.
+- **If the app does not set `spark.cores.max`**, the app asks for every core the cluster has (`spark.deploy.defaultCores`, unlimited by default) and takes them all, so the next app has to wait. In this case standalone queues the apps in FIFO order, by the order in which they registered.
+- **Spread out or pack together.** The Spark documentation says that spreading out is usually better for HDFS data locality, while packing onto few machines suits CPU-heavy jobs (read from the docs, the difference in speed was not tested).
+
+<Callout type="warn" title="The picture does not simulate memory">
+The Master also checks the memory of a Worker before it starts an executor (`spark.executor.memory` per executor). This picture assumes that memory is always enough. If memory is not enough, that Worker is skipped even when it still has free cores.
+</Callout>
+
+</Step>
+
+<Step>
+
+## When something dies
+
+Who looks after whom (read from the source `Master.scala` unless said otherwise):
+
+| What dies | What happens |
+|---|---|
+| executor | The Worker reports `ExecutorStateChanged`. The Master removes the executor and calls `schedule()` to hand out the cores again. If executors exit abnormally `spark.deploy.maxExecutorRetries` (10) times in a row (the count starts again every time an executor reaches RUNNING), and no executor is running at that moment, the Master considers the app failed and removes it. |
+| Worker | The Master gets no heartbeat for longer than `spark.worker.timeout` (60 seconds), so it calls `removeWorker`, and the executors of that Worker are counted as lost. |
+| Master | The default is `spark.deploy.recoveryMode = NONE`. A Master that starts again knows nothing about the old apps. Set it to `ZOOKEEPER`, `FILESYSTEM` or `ROCKSDB` to keep the state for recovery (ZooKeeper is also used to elect a standby Master). The documentation says that apps that are already running are not affected when the Master switches, because the executors talk to the driver directly (read from the docs, not tested). |
+| driver | In client mode, if the driver dies the application ends, because nobody gives the executors work any more. |
+
+The behavior of a task that was running on an executor that is gone belongs to the driver's scheduler (retry by `spark.task.maxFailures`). It is the same for every cluster manager, so it is not on this page.
+
+</Step>
+
+<Step>
+
+## Deploy mode: Python cannot use cluster mode
+
+Standalone has two deploy modes: `client` (the default, the driver is on the machine that runs `spark-submit`) and `cluster` (the Master tells a Worker to start the driver). But for a Python app:
+
+```
+spark-submit --master spark://... --deploy-mode cluster app.py
+→ Cluster deploy mode is currently not supported for python applications on standalone clusters.
+```
+
+This message comes from `SparkSubmit.scala:299`, and it was checked that you really get this message (lesson 11). So the picture above is client mode, the only way PySpark can run on standalone. If you want to run the driver inside the cluster with Python, you have to use [YARN](/en/spark/architecture/yarn/) or [Kubernetes](/en/spark/architecture/kubernetes/).
+
+The consequence of client mode is that the machine that runs the driver has to stay on all the time, and the executors must be able to connect back to that machine (`spark.driver.host`, `spark.driver.port`). In the test for this lesson, `spark.driver.host = 127.0.0.1` was set because the cluster is on the same machine.
+
+</Step>
+
+<Step>
+
+## Start the cluster yourself and check yourself
+
+Start the Master and a Worker with `spark-class` (the script `sbin/start-master.sh` calls the same thing):
+
+```bash
+spark-class org.apache.spark.deploy.master.Master --host 127.0.0.1 --port 7077 --webui-port 8080
+spark-class org.apache.spark.deploy.worker.Worker --cores 4 --memory 2g spark://127.0.0.1:7077
+```
+
+Then run an app with `--master spark://127.0.0.1:7077`. Open `http://127.0.0.1:8080` to see the Worker and the application appear. The two scripts in the project do all of it: start the cluster, run the app, read the result and shut it down.
+
+```bash
+cd subjects/spark/code
+uv run python exercises/11_deployment_ui.py
+uv run python exercises/11b_standalone_spread.py
+```
+
+Check yourself:
+
+- What does the Master decide, and what is it not involved in at all?
+- The app asks for 6 cores, spreadOutApps is off, and `spark.executor.cores` is not set. How many executors do you get, and how many cores does each have?
+- Why might a second app on the same cluster get no executors if `spark.cores.max` is not set?
+- Why does a Python app on standalone have to use client mode?
+
+</Step>

@@ -1,0 +1,118 @@
+---
+title: Check your understanding
+summary: Answer 8 questions to check how well you understand this lesson
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="When you write a new ColumnMapExpectation, what do you have to write yourself?"
+  options={['The logic that counts bad rows, the mostly calculation, and the shaping of the result', 'A boolean condition per row for each engine, and the name of map_metric in the expectation class', 'Registering the class in the registry with a register function']}
+  answer={1}
+  why="ColumnMapExpectation handles the counting, mostly and the shape of the result. Registration happens automatically when the class is defined (a metaclass). What you write is the per-row condition for each engine (column_condition_partial) and the map_metric."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Column n is [2, 4, None, 7]. What values does the condition of a ColumnMapMetricProvider receive when it runs on pandas (the default)?"
+  options={['[2.0, 4.0, 7.0]: only the rows that are not null, and as float because pandas converts a column that has None', '[2, 4, None, 7]: all four rows, and the condition has to handle None itself', '[2, 4, 7]: as integers, like the original data']}
+  answer={0}
+  why="The wrapper of column_condition_partial filters notnull before it calls the condition (filter_column_isnull is True by default), and pandas stores an integer column that has None as float, so it sees 2.0, 4.0, 7.0."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You set filter_column_isnull = False in a metric and run it on data that has null. What happens on GX 1.24.1?"
+  options={['null is counted as a failure and the result comes out correct', 'GX removes null as before, and the switch has no effect', 'unexpected_count includes null but the denominator does not, so the percentage is over 100, GX cannot build the result, and you get success=False with exception_info']}
+  answer={2}
+  why="_validate always computes nonnull_count = total - null_count, while unexpected_count in this case counts null as well. The example [2, None, 7, None] gives 3 unexpected rows out of 2 non-null rows (150%). The right way is to add ExpectColumnValuesToNotBeNull next to it."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You write a custom expectation only for PandasExecutionEngine and run it on SQLite. What is the result?"
+  options={['run() raises an exception', 'That expectation gets success=False with an exception_info that says no provider was found', 'GX converts the condition to SQL by itself']}
+  answer={1}
+  why="There is no implementation of the metric for that engine. GX catches the error and gives a failed result with exception_info (No provider found for ... using ...). Tested with SQLite."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A text column ['a', 'bb', 'c'] is checked with the condition column % 2 == 0, written for both pandas and SQLAlchemy. What are the results on the two engines?"
+  options={['Both fail, because text cannot be divided by two', 'Both pass', 'pandas gets a TypeError (success=False, empty result), and SQLite passes because SQLite reads "a" as 0']}
+  answer={2}
+  why="In Python, 'a' % 2 is string formatting and raises TypeError. In SQLite, text that does not start with a number equals 0, which is even, so it passes quietly. Test every engine with data of the wrong type before you ship."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You set expectation_type = 'my_chosen_name' in the class ExpectSomethingElse. What is the registered type name?"
+  options={['expect_something_else', 'my_chosen_name', 'Both names are registered at the same time']}
+  answer={0}
+  why="MetaExpectation.__new__ sets expectation_type = camel_to_snake(class name) every time. The value you set is overwritten. Tested on GX 1.9.3 and 1.24.1. So renaming a class is the same as renaming the type stored in a suite."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You save a suite with a custom expectation in a file context, then load it in a new process that did not import the class. What happens?"
+  options={['A clear error right when it loads', 'You get an empty suite (an ERROR is written to the log), and run() gives success=True without evaluating anything', 'GX finds the class by itself from the type name']}
+  answer={1}
+  why="ExpectationSuite.__init__ catches InvalidExpectationConfigurationError and calls logger.exception before it moves to the next entry. The result is an empty suite, and success=True with evaluated_expectations=0. Tested in 10_missing_import.py and 13_custom_registry.py."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A new colleague clones the repo and runs the pipeline, and the whole suite passes even though the data is bad. What do you suspect first?"
+  options={['The bad data does not match the rules, so the rules need fixing', 'The GX version is too new', 'Is evaluated_expectations 0, and was the custom expectation module imported before the suite was loaded?']}
+  answer={2}
+  why="The symptom of success=True with nothing evaluated is the trace of a suite that loaded empty because the class was not imported. Check result.statistics['evaluated_expectations'] and compare the number of expectations in the JSON with the number that loaded."
+/>
+
+</Step>

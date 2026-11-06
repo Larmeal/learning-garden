@@ -1,0 +1,115 @@
+---
+title: Lazy evaluation in depth
+summary: Count the jobs of every command with a job group, how a repeated action on the same DataFrame differs from one on a new DataFrame, show() on 1 trillion rows using 1 task, a cache that is still empty, errors that appear at different moments, and ANSI mode being locked when the DataFrame is defined
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import JobCounterLab from '../../../../components/labs/spark/JobCounterLab';
+
+Every number comes from `exercises/02_lazy_evaluation.py`, which counts **jobs** with a job group (`setJobGroup`, then ask `statusTracker`). A job is what an action starts, so this is a direct way to measure which command "really runs" and which command only "writes down the plan". The numbers were run on Spark 4.2.0 with AQE on, which is the default.
+
+<Step>
+
+## Count the jobs, command by command
+
+<JobCounterLab client:visible lang="en" />
+
+The results to remember:
+
+| Command | jobs |
+|---|---|
+| `spark.range(...)`, `filter`, `select`, `withColumn`, `where` | **0** |
+| `df.explain()` | **0** |
+| `cache()` | **0** (and Storage is still empty) |
+| `count()` (an action) | at least 1 |
+| `groupBy(...).count().collect()` the first time | **2** |
+
+Why `groupBy` is two jobs: with AQE on, Spark cuts the plan at the shuffle. It first runs the stage that writes the shuffle to the end, as the first job, and only then decides how to run the result stage, as the second job (lesson 6). With AQE off it is one job (measured both ways).
+
+</Step>
+
+<Step>
+
+## How true is "a repeated action means repeated work"
+
+The main lesson says that calling an action again repeats the work. This is right in principle, but the measured numbers are more detailed, for a `groupBy` query that has a shuffle.
+
+| Call | jobs |
+|---|---|
+| `agg.collect()` the first time | 2 |
+| `agg.collect()` again on the **same** DataFrame | **1** |
+| Build a new DataFrame with the same code, then `collect()` | 2 |
+
+Calling again on the same object leaves 1 job, because the shuffle files that the first run wrote are still there. Spark skips the map-side stage (in the Spark UI you see it as a "skipped stage"), but the result stage has to run again. A newly built DataFrame does not use the old files, so it works from the start.
+
+Two things to be careful about:
+
+- This is a reuse of the **shuffle** result, not a cache. If the plan has no shuffle (a query that is only narrow), every action reads and computes everything again, and there is nothing to skip (checked: `count()` twice on a narrow DataFrame ran both times).
+- Shuffle files are kept only for a while. Spark deletes them when the DataFrame is garbage collected or the session ends. So it is not something to depend on instead of `cache()`.
+
+</Step>
+
+<Step>
+
+## An action does not always read everything
+
+`show()` and `limit` need only a few rows, so Spark stops when it has enough. Try it with `spark.range(0, 10**12, 1, 200)` (1 trillion rows in 200 partitions) and call `show(5)`:
+
+- You get **1 job** with **1 task** out of 200 partitions.
+- It takes **about 0.1 seconds**.
+
+If Spark read everything, it would take many hours. It starts from the first partition, gets 5 rows and stops (if the first partition does not have enough rows, it moves on to read more). This is why `show()` and `take(n)` are faster than `count()`, which always has to touch every row, and it is a safe way to look at a sample of a big table.
+
+</Step>
+
+<Step>
+
+## `cache()` is lazy too
+
+`c = df.filter(...).cache()` does not start a job (measured: 0 jobs). `c.is_cached` is `True` right away, but Spark's storage tracker is still empty (`getRDDStorageInfo()` has no entries). Only after the first action (`c.count()`) is there one entry. See lesson 7 for other traps of cache (which partitions are stored, whether it is worth it).
+
+</Step>
+
+<Step>
+
+## When the error shows up
+
+The results that were checked:
+
+| Mistake | Shows up when |
+|---|---|
+| A column name that does not exist (`select("no_such_column")`) | **As soon as that line runs**: `AnalysisException: [UNRESOLVED_COLUMN...]` |
+| A malformed value in the data (`cast("int")` on `"abc"`) | **At the action**: `[CAST_INVALID_INPUT]` |
+
+The reason: Spark analyzes the names and types of columns when you chain the transformation (it uses the schema and does not touch the data), but the real values in the data are only known when an executor reaches that row. The result is that a data error can show up at a `show()` far from the line that caused it.
+
+</Step>
+
+<Step>
+
+## ANSI mode is locked when the DataFrame is defined
+
+A trap that was checked and is worth knowing: ANSI mode (which makes `cast("abc" as int)` raise an error) is read when you **create the DataFrame**, not when you run the action.
+
+```python
+spark.conf.set("spark.sql.ansi.enabled", "true")
+on = spark.createDataFrame([("abc",)], "s string").selectExpr("cast(s as int) AS i")   # defined while ANSI is on
+spark.conf.set("spark.sql.ansi.enabled", "false")
+off = spark.createDataFrame([("abc",)], "s string").selectExpr("cast(s as int) AS i")  # defined while ANSI is off
+
+on.collect()    # still an error: CAST_INVALID_INPUT  (turning it off later does not help)
+off.collect()   # [Row(i=None)]  you get NULL
+```
+
+The main lesson says "If you turn this mode off, you get NULL". That is true when you turn it off **before** you define the DataFrame. Turning it off after the definition has no effect. A learner who tries the opposite order will be confused. Lesson 6 explains the deeper reason (the analyzer picks rules by the mode when it analyzes).
+
+<Callout type="tip" title="How to check what Spark really did">
+Use the Spark UI Jobs tab (or `statusTracker` in Python) and see which line adds a job. If it does not add one, it only wrote down the plan. If you find an unexpected job (for example `read.csv` with `inferSchema` starts 2 jobs before any action, see lesson 4), suspect an option that makes Spark read the data ahead of time.
+</Callout>
+
+</Step>

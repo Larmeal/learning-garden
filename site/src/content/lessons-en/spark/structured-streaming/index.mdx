@@ -1,0 +1,241 @@
+---
+title: Structured Streaming
+summary: "Streaming is a DataFrame that runs again and again in rounds. This chapter shows what each round (micro-batch) writes to the checkpoint, how a watermark closes a window, where state is kept, and why the result is not duplicated after a restart. Every example was run and checked with assert"
+order: 9
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [dataframe-sql, execution-model]
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import MicroBatchLab from '../../../../components/labs/spark/MicroBatchLab';
+import WatermarkLab from '../../../../components/labs/spark/WatermarkLab';
+import WatermarkFlowLab from '../../../../components/labs/spark/WatermarkFlowLab';
+
+<Step>
+
+## Streaming is a DataFrame that never ends
+
+In batch, we read a block of data, compute, and finish. In Structured Streaming, we treat the input as a table where **new rows keep being appended**, and we write the query like a normal DataFrame. Spark runs the query again and again on the part of the data that was added. Each round is called a **micro-batch**.
+
+```python
+events = (spark.readStream
+          .schema("ts timestamp, user string, amt int")
+          .json("/data/in"))                              # a folder where new files keep arriving
+
+counts = events.groupBy("user").count()                   # a normal transformation
+
+query = (counts.writeStream
+         .outputMode("complete")
+         .option("checkpointLocation", "/data/ck")
+         .format("memory").queryName("counts")
+         .start())                                        # start running
+```
+
+Things to know right away:
+
+- `events.isStreaming` is `True`, and you cannot call an action such as `events.count()`. You get `AnalysisException: Queries with streaming sources must be executed with writeStream.start()` (measured).
+- Everything you have learned still applies: Catalyst rewrites the plan, and `explain()` is readable (with some extra streaming operators).
+- The **checkpoint** is what lets a query stop and come back without losing its memory. So you must set it in every real use.
+
+<Callout type="warn" title="On Windows, run in WSL">
+Hadoop cannot write a checkpoint to a Windows machine without `hadoop.dll`. This machine got `UnsatisfiedLinkError: NativeIO$Windows.access0` at `start()`. So the examples in this chapter were run in WSL (Ubuntu, Java 21, PySpark 4.2.0) with the script `subjects/spark/code/run_wsl.sh`. If you use Linux or macOS, you can run them directly.
+</Callout>
+
+</Step>
+
+<Step>
+
+## What happens in one micro-batch
+
+The loop is in `MicroBatchExecution` (`MicroBatchExecution.scala:612-700`, function `executeOneBatch`). Every round does these things in order:
+
+1. **`constructNextBatch`** asks the source how far the data goes, decides the offset range of this batch, and **writes `offsets/N` to the checkpoint** before it does anything with the data (lines 909-1013, written through `markMicroBatchStart`).
+2. **`runBatch`** turns the query into a physical plan for that range of data and runs it as a normal job. Operators that have state read and write the state store.
+3. The result is sent to the sink.
+4. **`markMicroBatchEnd`** updates the watermark and then **writes `commits/N`** (lines 1406-1530).
+
+Go through it step by step, and try the case where the program crashes before it writes `commits/N`.
+
+<MicroBatchLab client:visible lang="en" />
+
+This is what a checkpoint looks like after a real run (`exercises/09_streaming.py`):
+
+```
+ck/
+  metadata                  # the id of the query
+  offsets/0 1 2 ... 6       # the data range of each batch (written before it runs)
+  commits/0 1 2 ... 6       # batches that finished completely (written after it runs)
+  sources/0/                # data of the source (for a file source, the list of files)
+  state/0/<partition>/      # state of operator number 0: files 1.delta 2.delta ...
+```
+
+The file `offsets/1` is three lines of text:
+
+```
+v1
+{"batchWatermarkMs":..., "batchTimestampMs":..., "conf":{"spark.sql.streaming.stateStore.providerClass":"...", ...}}
+{"logOffset": ...}                      # the offset of the source (for a file source)
+```
+
+The middle line records both the watermark and the important configs used when this batch ran, so that it can be run again in the same way. The number of files in `offsets/` and `commits/` is the same when the query is idle.
+
+</Step>
+
+<Step>
+
+## Why a restart does not duplicate results
+
+The "exactly-once" promise of Structured Streaming has three parts:
+
+1. **A source that can be replayed**: you can always ask again for the same offset range (files, Kafka).
+2. **The checkpoint**: it remembers which batch started (`offsets/N`) and which batch finished (`commits/N`).
+3. **A sink that can safely be written again** (idempotent).
+
+Spark takes care of the first two. The last one is the job of the sink. We tested it by simulating a crash: delete `commits/1`, then start the query again with the same checkpoint (ran: `exercises/09_streaming.py`).
+
+```python
+def per_batch(df, batch_id):
+    seen.append((batch_id, sorted((r.user, r["count"]) for r in df.collect())))
+
+# before the crash:  [(0, [("a",1), ("b",1)]), (1, [("a",2), ("b",1)])]
+# delete commits/1, restart, then add new data (user c):
+# after the restart: [(1, [("a",2), ("b",1)]), (2, [("a",2), ("b",1), ("c",1)])]
+```
+
+- Batch 1 is run **again** with the same data and gives the same result (`foreachBatch` is called with `batch_id = 1` a second time).
+- State continues: the count of `a` is still 2, not reset.
+- The new batch starts at 2.
+
+So if the sink is a `foreachBatch` that appends to a table, you will get duplicate rows for batch 1. You must use `batch_id` as a key: write as an upsert, or store the `batch_id` values you already wrote and skip them. Spark's file sink does this itself through a manifest. A sink you write yourself has to handle this on its own.
+
+</Step>
+
+<Step>
+
+## Output mode: what is sent to the sink in each batch
+
+| mode | what it sends | used with |
+|---|---|---|
+| `append` | only rows that **will not change again** | a query with no aggregation, or an aggregation with a watermark |
+| `update` | only rows that changed in this batch | aggregation |
+| `complete` | the whole result table in every batch | aggregation (must keep all state forever) |
+
+`append` cannot be used with an aggregation that has no watermark, because Spark has no way to know which group is "finished". The result (measured) is `AnalysisException: [STREAMING_OUTPUT_MODE.UNSUPPORTED_OPERATION] Invalid streaming output mode: append. This output mode is not supported for streaming aggregations without watermark`. `complete` and `update` start normally.
+
+</Step>
+
+<Step>
+
+## Event time, window and watermark
+
+Data that has an event time often arrives out of order and late. If you count "per 5-minute window", Spark has to keep the state of every window that can still receive more data. Without a rule to close them, the state grows forever. The **watermark** is that rule.
+
+```python
+agg = (events
+       .withWatermark("ts", "10 minutes")
+       .groupBy(F.window("ts", "5 minutes")).count())
+```
+
+It means "accept data that is late by at most 10 minutes, compared with the newest event ever seen". Spark uses **watermark = the newest event time minus 10 minutes**. A window whose end is not later than the watermark is considered finished: its result is sent out in `append` mode and it is removed from state. An event older than the watermark is dropped.
+
+Watch four files arrive one at a time, where the last file is a late event.
+
+This picture places each event on its own event-time axis. Change the delay and see whether the late event is dropped, and when the result comes out.
+
+<WatermarkFlowLab client:visible lang="en" />
+
+This picture goes batch by batch, following the measured table.
+
+<WatermarkLab client:visible lang="en" />
+
+What the real numbers teach (the `recentProgress` table from the run):
+
+```
+batchId  numInputRows  watermark used
+0        2             1970-01-01T00:00:00Z
+1        0             11:53
+2        1             11:53
+3        0             11:56
+4        1             11:56
+5        0             12:10        <- the window closes and is sent out
+6        1             12:10        <- the late event
+```
+
+- **The watermark is computed at the end of a batch and used in the next batch**, not in the same batch. So the result of a window comes out one batch later than you might expect.
+- Spark runs **batches with no new data** (`numInputRows = 0`) in order to apply the new watermark. Without them, a window would not close until more data arrives (controlled by `spark.sql.streaming.noDataMicroBatches.enabled`, default true).
+- In `append` mode the output of files 1 and 2 is empty (measured), because the window is still open. It has to wait for the event at 12:20 to push the watermark to 12:10.
+- The late event 12:01 is dropped. A result that was already sent out does not change, and `numRowsDroppedByWatermark` in the progress goes up.
+
+<Callout type="note" title="What a larger watermark costs">
+A long watermark accepts later data, but the result comes out later and the state is bigger (windows must be kept longer). A short watermark gives results sooner, but late data is dropped. Choose it by how late your data can be.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Where state lives
+
+An operator that has to remember values across batches (aggregation, dedup, a join on the stream side) keeps them in the **state store**. The plan of the query above has operators that exist only in streaming (measured from `explain()`):
+
+```
+StateStoreSave   [window#..-T600000ms], state info [... opId = 0, numPartitions = 4], Append, ...
++- StateStoreRestore [window#..-T600000ms], state info [...]
+   +- EventTimeWatermark ..., ts#0: timestamp, 10 minutes
+      +- StreamingRelation FileSource[...], [ts#0, user#1, amt#2]
+```
+
+In every batch, `StateStoreRestore` reads the old values from the previous version of the state, and `StateStoreSave` writes the new values as the next version. State is split by the partitions of the shuffle (4 here) and stored in `state/<operator>/<partition>/`.
+
+- **The default provider** is `HDFSBackedStateStoreProvider` (`spark.sql.streaming.stateStore.providerClass`). It keeps all the state of a partition in executor memory and writes the changes as a `.delta` file per version (some versions are merged into a snapshot).
+- **RocksDB** is the alternative (`RocksDBStateStoreProvider`). It keeps state in RocksDB on disk, so it can hold state larger than memory. Measured: after changing the provider the query counted normally, and the checkpoint showed `.sst` and `.zip` files instead of `.delta`.
+- The numbers are in `lastProgress["stateOperators"]`: `numRowsTotal`, `numRowsUpdated`, `numRowsRemoved`, `numRowsDroppedByWatermark`, `memoryUsedBytes`. Use them to watch whether state grows too much. In the watermark run above, `numRowsRemoved` = 2 when the window closed.
+
+</Step>
+
+<Step>
+
+## Trigger: when the next batch runs
+
+| trigger | behavior |
+|---|---|
+| not set | run the next batch as soon as the previous one finishes and there is data |
+| `processingTime="1 second"` | start a batch every fixed interval |
+| `availableNow=True` | process all the data that is waiting, then **stop by itself** |
+| `once=True` | like the one above but in a single batch (deprecated since Spark 3.4.0, use `availableNow` instead) |
+
+`availableNow` suits jobs that run in rounds, such as a cron job every hour, and you still get the full checkpoint. Measured: with 3 files waiting and `maxFilesPerTrigger=1`, we got batches 0, 1, 2 and then the query finished by itself (`isActive` is False). Running again with the same checkpoint produced no batch at all, because the checkpoint remembers which files were already read.
+
+Spark 4.2 also has a real-time trigger in the source (`RealTimeTrigger`), but this chapter did not test it.
+
+</Step>
+
+<Step>
+
+## Try it
+
+```bash
+cd subjects/spark/code
+uv run python exercises/09_streaming.py
+```
+
+On Windows the script opens WSL for you (you must set up `~/spark-lab` once, following the comments in `run_wsl.sh`). It takes about 2 minutes. Every number in this chapter passes an `assert`. Try changing it:
+
+1. Change the watermark to `"1 minute"` and see when the window closes.
+2. Add a file with an event at 12:08 after the batch that closed the window. Is it dropped?
+3. Delete every `commits/N` after the second one, restart, and see which batches are run again.
+
+Check yourself:
+
+- Why does Spark have to write `offsets/N` **before** it runs the batch?
+- After a restart following a crash, the sink gets the same batch twice. What must you do to avoid duplicate data?
+- Why can `append` not be used with a `groupBy().count()` that has no watermark?
+
+**Not covered yet**: stream-stream join, `flatMapGroupsWithState`, Kafka source and sink (not tested, and the parts about stream joins and arbitrary state are not yet in the knowledge graph).
+
+</Step>

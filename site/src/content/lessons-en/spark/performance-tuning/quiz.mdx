@@ -1,0 +1,92 @@
+---
+title: Check your understanding
+summary: Answer 6 questions to check how well you can tune with evidence
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="You join a table of 2 million rows with a table of 100 rows, with the defaults, but the plan is SortMergeJoin. Which is NOT a possible reason?"
+  options={['The small table is on the left of a left join, which cannot be broadcast', 'It is a full outer join', 'The small table has fewer rows than the big table']}
+  answer={2}
+  why="Having fewer rows is not a condition. What Spark looks at is the estimated size compared with the threshold, and whether that side can be built for the join type. The left side of a left join and a full outer join cannot be broadcast. Check with explain()."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="AQE is on by default, and you call df.repartition(200). What does rdd.getNumPartitions() give?"
+  options={['1, because AQE merges small partitions of every kind', '200, because a repartition(n) with a number you set yourself is not merged by AQE', 'It depends on the number of cores of the machine']}
+  answer={1}
+  why="CoalesceShufflePartitions merges only shuffles whose origin is ENSURE_REQUIREMENTS, REPARTITION_BY_COL and REBALANCE. repartition(n) is REPARTITION_BY_NUM, which counts as something you meant, so AQE does not touch it."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A join has one key with 90% of the rows, on 50 MB of data in total, with the AQE defaults. Will OptimizeSkewedJoin work?"
+  options={['Yes, because the one key is more than 5 times the median', 'No, because a partition must also be bigger than 256 MB, and 50 MB of data in total can never reach that', 'It works only when coalescePartitions is turned off']}
+  answer={1}
+  why="The skew line is max(256 MB, median x 5). A partition must pass both. So on small data it does not work by itself, and you must lower skewedPartitionThresholdInBytes before you see SortMergeJoin(skew=true)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You call df.cache() and then explain() already shows InMemoryTableScan. Is the data stored in memory now?"
+  options={['Yes, because the plan changed to InMemoryTableScan', 'Not yet. cache() only registers the plan, and the data is built at the first action', 'Yes, but only on disk']}
+  answer={1}
+  why="cache() is lazy. The plan changes at once because the cache is looked up by plan, but Storage stays empty until the first action makes InMemoryRelation build the buffers."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="What is the difference between coalesce(1) and repartition(1) placed after a heavy computation?"
+  options={['No difference. Both merge into 1 partition in the same way', 'coalesce(1) has no Exchange, so the earlier computation runs in a single task. repartition(1) puts an Exchange after the computation', 'repartition(1) does not shuffle but coalesce(1) does']}
+  answer={1}
+  why="From the plan, coalesce(1) wraps the Project that computes in the same stage, while repartition(1) puts Exchange SinglePartition after the computation, so the computation can still run in parallel (this is read from the plan. The number of tasks was not measured)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You use salting to fix skew in a join. What must you do with the small table so the join result is correct?"
+  options={['Nothing, because salt is used only on the big side', 'Copy every row once for every salt value, then join on the key and the salt', 'Remove the duplicate keys first']}
+  answer={1}
+  why="The rows of the big side got a random salt, so the small side must have every salt to match them all. In the lab, 1,003 rows x 64 salts = 64,192 rows, and the join result is still 2,000,000 rows. The price is that the small side grows by the number of salt values."
+/>
+
+</Step>

@@ -1,0 +1,115 @@
+---
+title: What is inside one result
+summary: Open the result that vd.run() returns and look at it layer by layer, from the success of the whole suite down to the numbers of a single expectation, and the keys that many people overlook
+order: 1
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import JsonTree from '../../../../components/labs/great-expectations/JsonTree';
+
+<Step>
+
+## Two layers
+
+`vd.run(...)` returns one `ExpectationSuiteValidationResult`. Inside it is a `results` list, and each item is the result of one expectation. The script `18_result_anatomy.py` calls `to_json_dict()` and prints the keys of both layers (GX 1.24.1).
+
+Outer layer:
+
+```text
+['success', 'results', 'suite_name', 'suite_parameters', 'statistics', 'meta', 'id']
+```
+
+The layer of one expectation:
+
+```text
+['success', 'expectation_config', 'result', 'meta', 'exception_info']
+```
+
+</Step>
+
+<Step>
+
+## Open it yourself
+
+The data in the tree below is the real result of `ExpectColumnValuesToBeBetween(column="age", min_value=0, max_value=120)` on the table `age = [10, None, 30, 400]`, with the long batch id removed. Click a key name to read its explanation.
+
+<JsonTree
+  client:visible
+  lang="en"
+  title="The result of one expectation"
+  open={['expectation_config', 'result']}
+  data={{
+    success: false,
+    expectation_config: {
+      type: 'expect_column_values_to_be_between',
+      kwargs: { column: 'age', min_value: 0.0, max_value: 120.0 },
+      severity: 'critical',
+    },
+    result: {
+      element_count: 4,
+      unexpected_count: 1,
+      unexpected_percent: 33.33333333333333,
+      partial_unexpected_list: [400.0],
+      missing_count: 1,
+      missing_percent: 25.0,
+      unexpected_percent_total: 25.0,
+      unexpected_percent_nonmissing: 33.33333333333333,
+      partial_unexpected_counts: [{ value: 400.0, count: 1 }],
+      partial_unexpected_index_list: [3],
+    },
+    meta: {},
+    exception_info: { raised_exception: false, exception_traceback: null, exception_message: null },
+  }}
+  notes={{
+    success: 'Pass or fail for this one expectation only (not for the whole suite)',
+    expectation_config: 'A copy of the expectation that was checked. It comes with the result so you can read the result without going back to open the suite',
+    type: 'The type name of the expectation (the class name converted to snake_case)',
+    severity: 'The severity level of this expectation. The default is critical',
+    element_count: 'The total number of rows in the batch that was checked (nulls included)',
+    unexpected_count: 'The number of rows that break the rule. Rows that are null are not counted',
+    unexpected_percent: 'unexpected_count divided by the number of rows that are not null (3 rows): 1/3',
+    missing_count: 'The number of rows that are null',
+    missing_percent: 'missing_count divided by element_count: 1/4',
+    unexpected_percent_total: 'unexpected_count divided by all rows, element_count: 1/4',
+    unexpected_percent_nonmissing: 'The same value as unexpected_percent in this case: divided by the rows that are not null',
+    partial_unexpected_list: 'Sample bad values (a part of all of them, not the full list). 400 is shown as 400.0 because pandas stores a column that has nulls as float',
+    partial_unexpected_counts: 'The bad values with how many times each appears',
+    partial_unexpected_index_list: 'The row positions of the bad values (counting from 0). Row 3 is the value 400',
+    exception_info: 'Tells you whether an exception happened while this expectation was computed. If raised_exception is true, the rule could not be used. It does not mean the data is wrong',
+    raised_exception: 'false: the computation succeeded',
+    meta: 'A place for extra information about this expectation. It is empty in this example',
+  }}
+  caption="unexpected_percent and unexpected_percent_nonmissing are equal in this example, because both divide by the rows that are not null. unexpected_percent_total divides by all rows"
+/>
+
+The five numbers in the percent and count group look alike, and they are a common point of confusion. If you set `mostly`, the one that decides is unexpected divided by the rows that are not null (see [lesson 4](/en/great-expectations/reading-results/)).
+
+</Step>
+
+<Step>
+
+## The outer layer: keys that are often overlooked
+
+```text
+statistics: {'evaluated_expectations': 4, 'successful_expectations': 2,
+             'unsuccessful_expectations': 2, 'success_percent': 50.0}
+suite_name: users_suite
+meta keys: great_expectations_version, batch_spec, batch_markers,
+           active_batch_definition, validation_id, checkpoint_id,
+           run_id, validation_time, batch_parameters
+```
+
+- `statistics` has four values. `evaluated_expectations` matters more than it looks, because it can be 0 when the suite is empty (see the page "The suite loaded empty" in [lesson 12](/en/great-expectations/custom-expectations/)), and then `success` is True.
+- `meta.run_id` has `run_name` and `run_time`. Use them to tell the results of each run apart.
+- `meta.validation_id` and `checkpoint_id` tell you, as the names say, which validation definition and which checkpoint ran this result (their values were not checked).
+- `result_url` is `None` in this experiment.
+
+<Callout type="note" title="The numbers in result depend on result_format">
+The example above is in the SUMMARY form, which is the default of `ValidationDefinition.run`. If you ask for BOOLEAN_ONLY, `result` comes back empty. [Lesson 4](/en/great-expectations/reading-results/) compares all four levels.
+</Callout>
+
+</Step>

@@ -1,0 +1,132 @@
+---
+title: Run on Spark and SQL
+summary: Use the same suite on SQL tables and Spark DataFrames and let the backend do the computing. SQL is confirmed by running it, Spark is read from the source.
+order: 11
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [metrics-engines, pipeline-integration]
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import BackendCompare from '../../../../components/labs/great-expectations/BackendCompare';
+
+<Step>
+
+## The idea: send the work to the data
+
+Since lesson 8 we know that an expectation asks for a metric and the engine of the backend computes it. So when the data lives in a database or in Spark, GX does not pull the data to one machine. It sends an expression (SQL or a Spark aggregate) to the backend to compute, and gets back only a number.
+
+The differences you need to know when you move from pandas to another backend:
+
+| | pandas | SQL | Spark |
+|---|---|---|---|
+| The data lives in | memory of the process | the database | a cluster or local |
+| Metrics are computed | right away, one by one | aggregates are combined into one SELECT | aggregates are combined into `df.agg` |
+| Status of the confirmation | ran | ran (SQLite) | read from the source only |
+
+</Step>
+
+<Step>
+
+## SQL: what was run
+
+```python
+source = context.data_sources.add_sqlite("sales_db", connection_string="sqlite:///t.db")
+batch_definition = (
+    source.add_table_asset("sales", table_name="sales")
+    .add_batch_definition_whole_table("whole")
+)
+```
+
+After that you use the suite and the validation definition exactly as with pandas. The only difference is that you do not pass `batch_parameters` for a whole table. Other databases use `add_postgres`, `add_snowflake`, `add_bigquery` and so on (the names come from the file list of `datasource/fluent/`; they were not tried with those databases).
+
+<BackendCompare client:visible lang="en" />
+
+Reading the picture: the number of metrics to compute is the same on every backend, but SQL sends far fewer statements, because it combines several aggregates into one SELECT. This is why a backend that can defer execution suits big data.
+
+</Step>
+
+<Step>
+
+## SQL: a batch becomes a WHERE
+
+A table split by a date column (`add_batch_definition_daily("daily", column="d")`) turns the check of one batch into a statement that filters in the database. Tried with SQLite:
+
+```sql
+SELECT sum(CASE WHEN (amount IS NULL) THEN 1 ELSE 0 END) AS "column_values.nonnull.unexpected_count"
+FROM (SELECT * FROM sales
+      WHERE CAST(STRFTIME('%Y', d) AS INTEGER) = 2024 AND CAST(STRFTIME('%m', d) AS INTEGER) = 1
+        AND CAST(STRFTIME('%d', d) AS INTEGER) = 2) AS anon_1
+```
+
+This is the SQL that SQLite really received (`STRFTIME` belongs to SQLite; other databases use their own function). The point: the database filters out the data that is not in the chosen batch before it computes, so that data does not need to be sent to GX.
+
+Unlike files, `get_batch_identifiers_list()` of a column-based batch definition returns numbers (`{'year': 2024, 'month': 1, 'day': 1}`), not strings.
+
+</Step>
+
+<Step>
+
+## Spark: what was read from the source
+
+The Spark connection uses the same API (`context.data_sources.add_spark(...)` really exists in 1.24.1).
+
+```python
+source = context.data_sources.add_spark("spark_src")
+batch_definition = (
+    source.add_dataframe_asset("events")
+    .add_batch_definition_whole_dataframe("all")
+)
+result = validation_definition.run(batch_parameters={"dataframe": spark_df})
+```
+
+What the source of `SparkDFExecutionEngine.resolve_metric_bundle` does:
+
+1. It collects all the aggregate metrics that are in the same domain (same table, same filter condition).
+2. It calls `df.agg(*aggregates).collect()` once per domain.
+3. It splits the result back into the value of each metric.
+
+If we use the Spark knowledge from this garden: `agg` is a transformation and `collect()` is an action, so the aggregate metrics of the whole suite should be combined into only a few jobs.
+
+<Callout type="warn" title="Not proven yet">
+This path did not run GX on Spark. The conclusion "one job per domain" comes from reading the source, not from a measurement. How to confirm it yourself (details on the page "Reading the Spark engine source, part by part"): in `subjects/spark/code`, create a Spark DataFrame and run the validation above. Open the Spark UI (lesson 11 of the Spark path), look at the Jobs tab before and after the run, and compare the number of jobs with the number of rounds in the lab of lesson 8.
+</Callout>
+
+A metric that is not an aggregate (for example the list of wrong values, `unexpected_values`) must bring rows back as a list. The number of rows is limited by the `result_format` setting. Read more in the next step.
+
+</Step>
+
+<Step>
+
+## Control the cost on big data
+
+| Lever | Effect | Evidence |
+|---|---|---|
+| `result_format="BOOLEAN_ONLY"` | far fewer metrics (10 compared with 19 in the example suite) and no need to bring the wrong values back | measured with pandas and SQL |
+| Use a narrow batch (daily instead of the whole table) | the database filters before it computes | measured with SQL |
+| Use an aggregate expectation instead of a column map when you do not need the rows | fewer metrics, no per-row computing | from the structure of metrics (lesson 8) |
+| Combine the expectations of the same column | the metrics are shared | measured |
+
+Not every expectation supports every backend. The file of each expectation has a `SUPPORTED_DATA_SOURCES` list (the page "Which expectations support your backend" lets you search it). This is documentation data. An expectation that has no metric implementation for that backend fails as `success=False` with `exception_info`.
+
+## Check yourself
+
+- You have hundreds of millions of rows in SQL. What can you adjust without making the suite less complete?
+- Why is a daily batch cheaper than checking the whole table on SQL?
+- If you want to know how many Spark jobs GX runs on Spark, how would you measure it?
+
+</Step>
+
+<Step>
+
+## Sub-pages of this lesson
+
+1. The SQL that a daily batch becomes: three statements, including the statement that looks for batches and sweeps the whole column
+2. Which expectations support your backend: search the SUPPORTED_DATA_SOURCES list of 54 expectations
+3. Reading the Spark engine source, part by part: source level only, with a way to measure it yourself
+
+</Step>

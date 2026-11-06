@@ -1,0 +1,115 @@
+---
+title: Execution model
+summary: One piece of code becomes jobs, stages and tasks. The point where data must shuffle is the cut between stages. This is the biggest hurdle in learning Spark.
+order: 5
+phase: B
+level: 4
+stage: sprout
+requires: [lazy-evaluation, dataframe-sql]
+updated: 2026-11-05
+---
+
+import StageQuiz from '../../../../components/labs/spark/StageQuiz';
+import ShuffleFlowLab from '../../../../components/labs/spark/ShuffleFlowLab';
+import StragglerLab from '../../../../components/labs/spark/StragglerLab';
+
+This chapter is where people who can use Spark separate from people who understand how it works. Once you understand it, reading `explain()` and the Spark UI, and finding why a job is slow, start to make sense.
+
+## Goals of this chapter
+
+- Explain the difference between a job, a stage and a task
+- Tell which operations are narrow and which are wide (they need a shuffle)
+- Look at a short piece of code and guess the number of stages
+- See how data skew comes from a shuffle
+
+## Three terms
+
+| Term | Meaning |
+|---|---|
+| **job** | The work that starts when you call one action, such as `write`, `count` or `show` |
+| **stage** | A set of tasks that can run without moving data between machines |
+| **task** | One unit of work on one partition. All tasks in the same stage do the same work, each on a different piece of data |
+
+An easy way to remember: an action creates a job, a shuffle cuts a job into stages, and partitions split a stage into tasks.
+
+## Narrow and wide
+
+Operations come in two kinds, depending on whether they need data from many partitions.
+
+| Kind | Description | Examples |
+|---|---|---|
+| **narrow** | The result of each partition comes from one partition | `filter`, `select`, `withColumn`, `map` |
+| **wide** | Data from many partitions must be brought together, so a shuffle happens | `groupBy`, `join` (the usual kind), `distinct`, `orderBy`, `repartition` |
+
+You can chain any number of narrow operations and they stay in one stage. When a wide operation appears, there is a cut and a new stage starts.
+
+## Watch it work step by step
+
+This time we look at one row at a time. Each dot is one row, and the color is the key. Press play, or drag the slider to the part you care about. Try changing the number of map tasks and see how the number of slots that each reduce task must fetch changes with it.
+
+<ShuffleFlowLab client:visible lang="en" />
+
+What to notice:
+
+- In stage 1 there are no crossing lines. Each task can finish its own work.
+- During the shuffle, every task must send data to several target tasks, so the lines cross.
+- Stage 2 cannot start until the whole shuffle is finished.
+
+## Why a shuffle is expensive
+
+Data that must be shuffled is written to the sender's disk, and then the receiver must pull it over the network and read it. Both sides must turn the data into bytes and back into data. A narrow operation works on data in its own memory, so the cost is very different.
+
+For this reason, when you talk about making Spark fast, the first question to ask is how many shuffles there are and how much data each one sends.
+
+## When a shuffle is unbalanced: data skew
+
+A shuffle sends the same key to the same task. If one key has an unusually large amount of data, that task works much longer than the others, and the whole stage must wait for the slowest one.
+
+This picture is a timeline of tasks on 4 cores. Switch between evenly spread data, skewed data (measured), and data after adding salt, and see that a free core cannot help.
+
+<StragglerLab client:visible lang="en" />
+
+An idle machine cannot help, because that key's data must be processed by one task. Fixes such as salting and turning on AQE are in chapter 7.
+
+## Test your understanding
+
+<StageQuiz client:visible lang="en" />
+
+## Try it in this repo
+
+Create a file at the root of the project (next to `main.py`), for example `shuffle_lab.py`.
+
+```python
+from spark_session import get_spark
+
+spark = get_spark("shuffle-lab")
+
+df = spark.range(1_000_000)                       # column id
+agg = df.groupBy((df.id % 3).alias("k")).count()  # wide: needs a shuffle
+
+agg.explain()   # look for the word Exchange in the plan
+agg.show()      # action: real work starts here
+
+input("Open http://localhost:4040 and look at the Stages tab, then press Enter")
+spark.stop()
+```
+
+Run it with `uv run python shuffle_lab.py`
+
+What you should see and be able to answer:
+
+1. The output of `explain()` has a line `Exchange hashpartitioning(...)`. That is the shuffle. Remove `groupBy` and run again. Does this line go away?
+2. In the Spark UI Stages tab, how many stages does this job split into? Does it match your guess?
+3. How many partitions are there after the shuffle? The default of `spark.sql.shuffle.partitions` is 200, but AQE merges small partitions while running. On the 16-core machine used for testing, the result of a `groupBy` on small data has **1 partition** with AQE on and **200** with it off (`spark.sql.adaptive.enabled=false`). With AQE on, `explain()` before the run starts with `AdaptiveSparkPlan isFinalPlan=false`, which chapter 6 explains.
+
+## Check yourself
+
+- Look at three lines of code. Can you say how many stages there are, and why?
+- If a job is slow, where do you look first to know whether it is stuck on a shuffle?
+- Is `repartition(10)` narrow or wide, and why?
+
+## Next
+
+- [Execution model in depth](/en/spark/execution-model/in-depth/): which operations shuffle (every one measured), the number of stages is Exchange plus one, and the task counts and shuffle bytes
+- [Chapter 6](/en/spark/catalyst-aqe/) (Catalyst and AQE): how Spark adjusts the plan by itself, and how to read the plan
+- [Chapter 7](/en/spark/performance-tuning/) (Performance tuning): once you know the job is stuck on a shuffle, how to reduce or manage it

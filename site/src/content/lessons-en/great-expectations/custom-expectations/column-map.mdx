@@ -1,0 +1,226 @@
+---
+title: Column map in depth
+summary: Follow your one-line condition until it becomes a whole result. See what the condition receives, which metrics and SQL GX builds from it, and the edge cases that make a result misleading
+order: 2
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import RowJourney from '../../../../components/labs/great-expectations/RowJourney';
+
+<Step>
+
+## Why two classes
+
+The first class (`ColumnMapMetricProvider`) knows how to answer "is this row normal?" on one particular engine. The second class (`ColumnMapExpectation`) knows which metrics to ask for, and then summarizes them into `success`. This split is the same one that lesson 8 explained: the expectation declares what it needs, and the engine does the computing.
+
+You can see what `ColumnMapExpectation` asks for in `get_validation_dependencies` in `expectations/expectation.py`. These are the results tested with `ExpectColumnValuesToBeEven` (the full name of a metric is `column_values.are_even.unexpected_count`, and the others follow the same pattern).
+
+| result_format | count | metrics requested |
+|---|---|---|
+| BOOLEAN_ONLY | 3 | `are_even.unexpected_count`, `nonnull.unexpected_count`, `table.row_count` |
+| BASIC | 4 | the three above, and `are_even.unexpected_values` |
+| SUMMARY | 6 | the four above, and `are_even.unexpected_index_list`, `are_even.unexpected_index_query` |
+| COMPLETE | 6 | the same set as SUMMARY |
+
+Two metrics are requested every time even though you did not write them: `column_values.nonnull.unexpected_count` (counts null) and `table.row_count` (counts all rows). These two are used to find the number of rows that are not null, which is the denominator of the `mostly` formula.
+
+</Step>
+
+<Step>
+
+## What your condition really receives
+
+In `expectations/metrics/map_metric_provider/column_condition_partial.py`, the wrapper for the pandas engine does this:
+
+```python
+df = df[df[column_name].notnull()]            # 1. remove null first
+meets_expectation_series = metric_fn(cls, df[column_name], **metric_value_kwargs, _metrics=metrics)
+return ~meets_expectation_series              # 2. invert: True means a bad row
+```
+
+So the condition you write answers "this row is normal" (True means pass), and it never sees a row that is null. Tested in `11_custom_column_map.py`: a table of 6 rows with two `None`. The condition was called once and received `[2.0, 4.0, 7.0, 11.0]`.
+
+Notice that it is `2.0`, not `2`. pandas turns an integer column that has `None` into float for the whole column. If your condition depends on the data type (for example it compares as strings, or uses `isinstance`), the result will differ between a table that has null and one that does not. The `unexpected_values` in the result also comes out as `[7.0, 11.0]` instead of `[7, 11]`.
+
+On the SQL side the wrapper does the same job with the expression `sa.and_(sa.not_(column.is_(None)), sa.not_(expected_condition))`. The condition you return is a SQLAlchemy expression, not real values.
+
+<RowJourney client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## Eight metrics you get without writing them
+
+You write one condition (`column_values.are_even`), but when the class is defined, `MapMetricProvider._register_metric_functions` registers several more for you. You can see them in `registry._registered_metrics` after the class is defined.
+
+| name under `column_values.are_even` | what it is for | pandas | SQL |
+|---|---|---|---|
+| `.condition` | your condition (after the wrapper) | yes | yes |
+| `.unexpected_count` | counts the bad rows | yes | yes |
+| `.unexpected_count.aggregate_fn` | a form that can be combined with other metrics into one SELECT | none | yes |
+| `.unexpected_values` | the bad values | yes | yes |
+| `.unexpected_value_counts` | the bad values with how many times each appears | yes | yes |
+| `.unexpected_index_list` | the positions of the bad rows | yes | yes |
+| `.unexpected_index_query` | code or SQL to pull out the bad rows | yes | yes |
+| `.unexpected_rows` | the whole rows of the bad rows | yes | yes |
+
+The role of `.aggregate_fn` above is a conclusion from its name and from the way metrics are combined in lesson 8. It was not tested separately.
+
+All of them are built from your one condition. This is why a column map expectation gets `mostly`, or examples of bad values, for free. It is also why, if your condition is wrong, all of them are wrong too.
+
+</Step>
+
+<Step>
+
+## At run time: metrics are computed in rounds
+
+`ColumnMapExpectation.get_validation_dependencies` says which metrics are needed, and then the GX graph (lesson 8) computes them round by round. A round is all the metrics whose dependencies have already been computed. The data is `[2, 4, None, 7]` on pandas at the `BASIC` level (tested in `11_custom_column_map.py` part 3b, which intercepts the calls to `resolve_metrics`).
+
+| round | metrics computed | why it is in this round |
+|---|---|---|
+| 0 | `table.column_types`, `table.row_count` | they depend on nothing |
+| 1 | `table.columns` | the column map wrapper must know the column names first |
+| 2 | `are_even.condition`, `nonnull.condition` | your condition, together with the "not null" condition that the expectation also asks for in order to count null |
+| 3 | `are_even.unexpected_count`, `are_even.unexpected_values`, `nonnull.unexpected_count` | the counters and the collectors have to wait for `condition` |
+
+At the `COMPLETE` level, round 3 adds `are_even.unexpected_index_list` and `are_even.unexpected_index_query`. Rounds 0 to 2 stay the same. The fifth call (round 4) that was intercepted was an empty list, with no metric to compute.
+
+Then `_validate` of `ColumnMapExpectation` decides. This data gives `element_count=4`, `missing_count=1` (null is not counted as bad), `unexpected_count=1` and `partial_unexpected_list=[7.0]`. The deciding step uses the number of non-null rows as the base, and compares the rate of correct rows with `mostly`. This was read from the source and not tested separately. What was tested is the effect of `mostly` in the table on the first page.
+
+All of this was tested on pandas. Spark was not tested.
+
+</Step>
+
+<Step>
+
+## The SQL that GX builds from that condition
+
+The condition `column % 2 == 0` that you wrote is inverted and a null filter is added by the time it reaches SQLite. This is the result from `unexpected_index_query` (table `numbers` that has `2, 4, NULL, 7, 10, 11`).
+
+```sql
+SELECT n
+FROM numbers
+WHERE n IS NOT NULL AND n % 2 != 0;
+```
+
+SQLite gives `unexpected_list: [7, 11]` and `missing_count: 1`. On the pandas side, the same value comes back as the code `df.filter(items=[3, 5], axis=0)` (the positions of the bad rows in the sample table `[2, 4, 6, 7, 10, 11]`).
+
+A condition in the form `column % 2 == 0` works on both engines, because a pandas Series and a SQLAlchemy expression both support the operators `%` and `==` in the same way. If your rule uses a specific function, for example `str.contains` of pandas, you have to write the SQL part separately as a SQLAlchemy function.
+
+</Step>
+
+<Step>
+
+## The COMPLETE result, field by field
+
+The data is `[2, 4, 6, 7, 10, 11]` with `result_format="COMPLETE"` on pandas.
+
+```python
+element_count: 6
+unexpected_count: 2
+unexpected_percent: 33.33333333333333
+unexpected_percent_nonmissing: 33.33333333333333
+partial_unexpected_list: [7, 11]
+partial_unexpected_index_list: [3, 5]
+partial_unexpected_counts: [{'value': 7, 'count': 1}, {'value': 11, 'count': 1}]
+unexpected_list: [7, 11]
+unexpected_index_list: [3, 5]
+unexpected_index_query: df.filter(items=[3, 5], axis=0)
+```
+
+The fields with `partial` in the name are cut short so they are quick to read. `unexpected_list` and `unexpected_index_list` hold everything. At the BASIC level there is no index list, because the expectation does not ask for that metric (see the table in the first step).
+
+</Step>
+
+<Step>
+
+## Edge case: an empty table and an all-null column
+
+The source of `ColumnMapExpectation._validate` has this line.
+
+```python
+if unexpected_count is None or total_count == 0 or nonnull_count == 0:
+    # Vacuously true
+    success = True
+```
+
+Vacuously true means it passes because there is nothing to judge. These are the tested results (`ExpectColumnValuesToBeEven` on a pandas table).
+
+| data | success | element_count | missing_count | unexpected_count |
+|---|---|---|---|---|
+| empty table | True | 0 | 0 | 0 |
+| 3 rows of only null | True | 3 | 3 | 0 |
+| only even numbers | True | 3 | 0 | 0 |
+| `[2, None, 7, None]` | False | 4 | 2 | 1 |
+
+The top two rows pass even though the data has nothing you can trust. If your rule needs "there must be data", add `ExpectTableRowCountToBeBetween` or `ExpectColumnValuesToNotBeNull` next to it. This custom expectation cannot catch it for you.
+
+</Step>
+
+<Step>
+
+## Trap: filter_column_isnull = False
+
+The wrapper has a switch that turns off the null filter. You set it as an attribute of the metric class.
+
+```python
+class ColumnValuesAreEvenNullsToo(ColumnMapMetricProvider):
+    condition_metric_name = "column_values.are_even_nulls_too"
+    filter_column_isnull = False
+
+    @column_condition_partial(engine=PandasExecutionEngine)
+    def _pandas(cls, column, **kwargs):
+        return column.notnull() & (column % 2 == 0)
+```
+
+The intention is that null counts as bad too. The tested result with `[2, None, 7, None]` on GX 1.24.1 is `success=False` and an empty `result`, with an `exception_info` that begins with `Invalid result values were found when trying to instantiate an ExpectationValidationResult`.
+
+The reason is in two places in the code. First, `_validate` always computes `nonnull_count = total_count - null_count`, and does not look at this switch. Second, the `unexpected_count` metric now counts null as well. So the sample data gets 3 unexpected rows (the value `7` and two null rows) out of only 2 non-null rows, and the percentage comes out as 150. GX cannot build a result with a percentage over 100.
+
+On GX 1.9.3 the same case also fails, but with the message `Object of type int64 is not JSON serializable`, which does not tell you the real cause at all.
+
+<Callout type="tip" title="If you want null to be a failure">
+Add `ExpectColumnValuesToNotBeNull` to the suite next to your expectation. Each one reports its own result, so you can tell whether a failure is because of null or because of the value, and the `mostly` formula of each stays correct.
+</Callout>
+
+</Step>
+
+<Step>
+
+## A condition with parameters
+
+A rule like "divisible by k" where k can change has to tell the metric the name of the parameter it takes (`condition_value_keys`), and tell the expectation that this parameter affects success (`success_keys`).
+
+```python
+class ColumnValuesDivisibleBy(ColumnMapMetricProvider):
+    condition_metric_name = "column_values.divisible_by"
+    condition_value_keys = ("divisor",)
+
+    @column_condition_partial(engine=PandasExecutionEngine)
+    def _pandas(cls, column, divisor, **kwargs):
+        return column % divisor == 0
+
+
+class ExpectColumnValuesToBeDivisibleBy(ColumnMapExpectation):
+    divisor: int
+    map_metric: ClassVar[str] = "column_values.divisible_by"
+    success_keys: ClassVar[tuple] = ("mostly", "divisor")
+    args_keys: ClassVar[tuple] = ("column", "divisor")
+```
+
+The data is `[5, 10, 15, 22, 30]` (tested).
+
+| setting | result |
+|---|---|
+| `divisor=5` | `success=False`, 1 bad row (`22`) |
+| `divisor=3` | `success=False`, 3 bad rows (`5`, `10`, `22`) |
+| `divisor=5` but `divisor` left out of `success_keys` | `success=False`, empty `result`, error `unsupported operand type(s) for %: 'int' and 'NoneType'` |
+
+The third case is dangerous because no exception comes up into your code. `run()` does not raise. The result just fails with an empty `result`, and the cause is hidden in `exception_info`. GX passes `divisor` to the metric from `success_keys`. If it is not in the list, the metric gets `None`. The field `divisor: int` in the expectation class is only there to check the type when the object is created. It does not pass the value on to the metric by itself.
+
+</Step>

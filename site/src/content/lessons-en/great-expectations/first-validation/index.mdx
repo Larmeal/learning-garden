@@ -1,0 +1,147 @@
+---
+title: Your first validation
+summary: Build every piece of GX in a few lines of code, validate one DataFrame, and learn to read the result
+order: 2
+phase: A
+level: 2
+stage: sprout
+format: steps
+requires: [core-concepts]
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import ResultLab from '../../../../components/labs/great-expectations/ResultLab';
+
+<Step>
+
+## The data to validate
+
+A small table of four rows, made to have problems on purpose: one empty `age`, one `age` with the value 400, and one empty `name`.
+
+```python
+import great_expectations as gx
+import great_expectations.expectations as gxe
+import pandas as pd
+
+df = pd.DataFrame({
+    "id": [1, 2, 3, 4],
+    "age": [10, None, 30, 400],
+    "name": ["a", "b", None, "d"],
+})
+```
+
+The full code is in `subjects/great-expectations/code/01_first_validation.py`. Open it next to this lesson and run it as you read.
+
+</Step>
+
+<Step>
+
+## 1. Context and data
+
+```python
+context = gx.get_context()
+```
+
+When there is no `gx/` folder and no GX Cloud settings, you get an ephemeral context that lives in memory ([lesson 5](/en/great-expectations/context-stores/) explains the other options).
+
+```python
+source = context.data_sources.add_pandas("my_source")
+asset = source.add_dataframe_asset("users")
+batch_definition = asset.add_batch_definition_whole_dataframe("all_users")
+```
+
+These three lines tell GX: "there is pandas data called `users`, and validate the whole DataFrame". No real DataFrame is involved yet.
+
+</Step>
+
+<Step>
+
+## 2. Expectations and a suite
+
+```python
+suite = context.suites.add(gx.ExpectationSuite(name="users_suite"))
+suite.add_expectation(gxe.ExpectColumnValuesToNotBeNull(column="id"))
+suite.add_expectation(gxe.ExpectColumnValuesToNotBeNull(column="age"))
+suite.add_expectation(gxe.ExpectColumnValuesToBeBetween(column="age", min_value=0, max_value=120))
+suite.add_expectation(gxe.ExpectTableRowCountToEqual(value=4))
+```
+
+`context.suites.add(...)` stores the suite in the context. Adding the suite first is a required step. Without it, the next step raises an error ([lesson 7](/en/great-expectations/validation-checkpoints/)).
+
+</Step>
+
+<Step>
+
+## 3. Validation Definition, then run
+
+```python
+vd = gx.ValidationDefinition(name="users_vd", data=batch_definition, suite=suite)
+result = vd.run(batch_parameters={"dataframe": df})
+```
+
+The DataFrame comes in here as a parameter at run time. It is not part of the setup. Before `run()`, `vd.id` is `None`. After the run it has an id, because `run()` adds the validation definition to the context for you (when the suite and the data source have already been added).
+
+</Step>
+
+<Step>
+
+## 4. Read the result
+
+```python
+print(result.success)        # False
+print(result.statistics)
+# {'evaluated_expectations': 4, 'successful_expectations': 2,
+#  'unsuccessful_expectations': 2, 'success_percent': 50.0}
+
+for r in result.results:
+    print(r.expectation_config.type, r.success, r.result)
+```
+
+Real results from the run:
+
+| expectation | success | What you see in `result` |
+|---|---|---|
+| not null `id` | True | unexpected_count = 0 |
+| not null `age` | False | unexpected_count = 1 (the row where `age` is null) |
+| between `age` 0..120 | False | unexpected_count = 1 (the value 400) |
+| row count = 4 | True | observed_value = 4 |
+
+`result.success` of the whole suite is True only if every expectation passes. Our data does not pass overall.
+
+</Step>
+
+<Step>
+
+## Try changing the data
+
+<ResultLab client:visible lang="en" initial="null" withRowCount={false} />
+
+Switch the data one case at a time and see which item changes. A pass does not yet mean the data is good. [Lesson 4](/en/great-expectations/reading-results/) has the case of an empty table that passes even though it holds no data at all.
+
+<Callout type="try" title="Try it in this repo">
+Open `01_first_validation.py` and edit the DataFrame so that every item passes. Then edit it so that there is only one problem at a time. Run it again each time with `uv run python 01_first_validation.py` and watch which line of the result changes.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- Before you call `run()`, has GX read the DataFrame yet? Why or why not?
+- `result.success` can be False for what reasons? (Think of at least two.)
+- If you want to validate a new DataFrame tomorrow, what do you have to create again, and what can you reuse?
+
+</Step>
+
+<Step>
+
+## Sub-pages of this lesson
+
+1. What is inside one result: open the result tree and look at each key
+2. Run again with the next day's data: one validation definition, two runs, where do the results go
+3. Four practice problems: try writing them yourself before you open the answers that were run
+
+</Step>

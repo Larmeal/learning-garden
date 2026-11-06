@@ -1,0 +1,79 @@
+---
+title: Check your understanding
+summary: Answer 5 questions to check how well you understand stages, shuffles and the numbers the Spark UI shows
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="You call filter, then select, then withColumn, then collect on a DataFrame with 8 partitions. How many stages and how many tasks are there?"
+  options={['3 stages because there are 3 operations', '1 stage with 8 tasks because narrow operations are pipelined in one job', '8 stages, the number of partitions']}
+  answer={1}
+  why="Narrow transformations do not move data across partitions, so they join into a single stage. There is one task per partition, which matches the measurement: 1 stage with 8 tasks."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="According to the measurements, how do you calculate the number of stages of an operation that has a shuffle?"
+  options={['The total number of operations', 'The number of Exchange nodes in the plan, plus 1', 'The number of partitions divided by 8']}
+  answer={1}
+  why="Every Exchange is a stage boundary, so groupBy (1 Exchange) gets 2 stages and a sort-merge join (2 Exchanges) gets 3 stages. The exception is orderBy, which has an extra stage that samples the data."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A groupBy on data with 8 partitions (AQE off). How many tasks does the reduce-side stage have, and are shuffle write and shuffle read different?"
+  options={['8 tasks, and shuffle read is larger than write', '200 tasks (spark.sql.shuffle.partitions), and the bytes written are exactly equal to the bytes read', '1 task, and shuffle read is zero']}
+  answer={1}
+  why="The stage after the shuffle has as many tasks as spark.sql.shuffle.partitions (200), and the bytes written by the first stage (3,496 B in the measurement) are exactly the bytes the next stage reads."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="How do df.coalesce(4) and df.repartition(4) differ in the plan?"
+  options={['They do not differ, both have an Exchange', 'coalesce has no Exchange (it merges neighboring partitions) and repartition has an Exchange (a shuffle)', 'coalesce is slower because it shuffles']}
+  answer={1}
+  why="coalesce reduces the number of partitions by merging neighboring ones without moving data, so it is narrow. repartition spreads the rows again, so it must shuffle. Both can change the number of partitions."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Two groupBy on the same key and then a join give stages [4, 4, 200], which is 3 stages and not 5. Why?"
+  options={['Spark skips the join', 'Both sides are already hash-partitioned by the same key with the same number of partitions, so the join needs no extra shuffle', 'AQE merges the stages']}
+  answer={1}
+  why="A join needs rows with the same key to be in the same partition, and the Exchange of the groupBy already did that. Spark sees that the existing partitioning is enough, so it adds no Exchange."
+/>
+
+</Step>

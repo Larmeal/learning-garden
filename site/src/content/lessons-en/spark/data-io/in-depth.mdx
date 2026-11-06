@@ -1,0 +1,139 @@
+---
+title: Data I/O in depth
+summary: Measured, how much less Parquet reads than CSV, when row groups and min/max can skip a filter, how partition pruning skips folders, how many files a write makes, how a read splits into partitions, what the write modes do, and what inferSchema costs
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import ParquetSkipLab from '../../../../components/labs/spark/ParquetSkipLab';
+
+Every number on this page comes from `exercises/04_data_io.py`, which writes real CSV and Parquet files with 600,000 rows and measures them. It runs in WSL because Windows cannot write Parquet (see the `hadoop.dll` part in chapter 9). The file sizes and bytes read belong to the author's machine, so look at the proportions.
+
+<Step>
+
+## How much less Parquet reads than CSV
+
+The test table has 9 columns: `id`, `country` (5 values), `status` (4 values), `user` (5,000 values), `amount`, `qty`, `ts`, and two random hash string columns (`token`, `note`). It was written as CSV (with a header) and as Parquet (snappy, the default), and then measured.
+
+| | CSV | Parquet |
+|---|---|---|
+| Size on disk | 71.7 MiB | 48.9 MiB |
+| Bytes read for `agg(sum("amount"))` | **73.3 MiB** (the whole file) | **0.10 MiB** |
+
+- **File size**: Parquet is only about one third smaller than CSV in this table, because the random hash strings cannot be compressed at all. If the data has many repeated values (country, status, numbers in a narrow range), the difference is larger. File size depends a lot on the data, so do not remember it as a multiplier.
+- **Bytes read**: this is the clearest difference. CSV must read every line from start to end to find one column, and it reads 73.3 MiB (a little more than the file because the header of every file is counted). Parquet stores data column by column, and Spark reads only the column chunk of `amount`: **0.10 MiB**, about one five-hundredth of the file.
+- The plan confirms that Spark knows this in advance: `ReadSchema: struct<amount:double>` (column pruning, chapter 6).
+
+"Bytes read" is the `inputBytes` that the Spark UI shows on the Stage page, read through the REST API (chapter 11). The "size of files read" of the `Scan` node in the SQL tab is the size of the files that were opened, not the bytes actually read, so it can give a different picture.
+
+</Step>
+
+<Step>
+
+## Inside a Parquet file: row groups and statistics
+
+A Parquet file splits its rows into blocks called **row groups**. Each row group stores data column by column (column chunks), and it records the **statistics of each column**, which are `min`, `max` and the number of nulls, in the footer of the file.
+
+In the experiment, `parquet.block.size` was set to 256 KiB so that the file of 600,000 rows has **290 row groups of 2,072 rows each** (the Parquet default is much larger, so a real file has fewer row groups). Reading the footer with `pyarrow` shows the `min`/`max` of `id` in each block.
+
+Spark passes the filter condition to the file reader (**predicate pushdown**). The reader compares it with the `min`/`max` of each row group and skips the blocks that cannot possibly contain a matching row. In the plan you see:
+
+```
+PushedFilters: [IsNotNull(id), GreaterThanOrEqual(id,1000), LessThanOrEqual(id,1999)]
+```
+
+and the **`Filter` is still above the scan as before**, because skipping works only at the row group level. The remaining rows must still be filtered again.
+
+The result depends on how the data is sorted. The experiment used two files with the same rows, different only in order (sorted by `id`, and sorted by another string column), with the same filter `id BETWEEN 1000 AND 1999`. It measured the number of rows that the file reader sends out (the `number of output rows` metric of the scan node).
+
+| File | Rows sent out by the reader |
+|---|---|
+| sorted by `id` | **2,072** (a single row group) |
+| sorted by another column | **597,928** (almost every row group) |
+
+<ParquetSkipLab client:visible lang="en" />
+
+The lesson: pushdown does not always help. The data must be sorted or grouped by the column that is often used in filters, so that the `min`/`max` of each block is narrow (this matches what table formats such as Delta do with OPTIMIZE and data skipping in chapter 10).
+
+<Callout type="note" title="Chapter 6 said this was not tested">
+Chapter 6 used CSV in its pushdown example, because at that time Parquet could not be written on Windows. Now it is checked that Parquet skips row groups as described, and that in the plan of a Parquet scan `PushedFilters` and `Filter` appear together, the same as with CSV.
+</Callout>
+
+</Step>
+
+<Step>
+
+## partitionBy and partition pruning
+
+`df.write.partitionBy("country").parquet(path)` gave the folders `country=id`, `country=jp`, `country=sg`, `country=th` and `country=vn` (measured), and **the value of `country` is not in the Parquet file**. Opening a file in the `country=th` folder with `pyarrow` does not show a `country` column. The value comes from the folder name. When it reads the whole folder, Spark adds the column back.
+
+A filter on the partition column is handled before any file is opened. In the plan you see `PartitionFilters: [isnotnull(country#..), (country#.. = th)]`, and the measured result (the `number of output rows` of the scan):
+
+| Query | Rows read |
+|---|---|
+| the whole table | 600,000 |
+| `country = 'th'` | **120,000** (one fifth) |
+
+This differs from the predicate pushdown above: partition pruning does not need to open the skipped files at all (it skips whole folders), while pushdown must open the file and read the footer before it can skip row groups.
+
+</Step>
+
+<Step>
+
+## How many files a write makes
+
+The number of files depends on **the number of partitions of the DataFrame at write time**. Each task writes one file (measured).
+
+| DataFrame | Parquet files |
+|---|---|
+| `range` with 16 partitions | 16 |
+| `.repartition(50)` | 50 |
+| `.coalesce(1)` | 1 |
+| 16 partitions and then `partitionBy("k")` with 5 values | **80** (16 tasks x 5 values) |
+
+The last row is the small-files trap: every task writes a separate file for every partition value it holds. If each task has data for many values, the number of files is the product. The fix is `repartition("k")` before writing, so that data of the same value is in the same task (this point is a principle taken from counting the files; the read time was not measured).
+
+Many small files are bad because each file has a cost when it is opened (reading the footer, creating a task), and reading them creates more tasks than needed.
+
+</Step>
+
+<Step>
+
+## How many partitions a read makes
+
+When it reads files, Spark splits the work into partitions by file size. `spark.sql.files.maxPartitionBytes` has a default of **128 MiB** (`134217728b`, read from `spark.conf`). A file larger than that is cut into ranges, and small files may be packed several to one partition, or stay one file per partition, depending on the number of cores and the cost of opening a file (the author did not read the full formula; the result seen in the lab is one file per partition).
+
+Measured with 16 small files: the default gives **16 partitions** (one per file). Setting `maxPartitionBytes` to 20,000 bytes gives **32 partitions** (the files are cut into ranges). This settles the question in chapter 7, which said that the splitting of partitions when reading files had not been tested.
+
+</Step>
+
+<Step>
+
+## Write modes
+
+Measured by writing again into the same folder.
+
+| mode | Behavior |
+|---|---|
+| `error` (the default) | `AnalysisException: [PATH_ALREADY_EXISTS]` |
+| `ignore` | Does nothing, and the old data stays complete (still 10 rows, even though 5 rows were written) |
+| `append` | Adds (10 becomes 20 rows) |
+| `overwrite` | Replaces the whole folder (3 rows remain) |
+
+`overwrite` deletes everything that was there before it writes. If the job fails halfway, the old data is already gone too. This is one reason table formats (chapter 10) have transactions.
+
+</Step>
+
+<Step>
+
+## What inferSchema does behind the scenes
+
+`option("inferSchema", True)` makes Spark read the data before you call any action, to guess the types. Measured with a job group: calling only `read.csv(..., inferSchema=True)` starts **2 jobs**, while giving the `schema` yourself starts **0 jobs** (it does not touch the data at all until an action comes).
+
+The guess was correct for this table (`qty` is int, `amount` is double), but guessing must read the sample data of the whole partition (all 4 files in the lab). On a large file, this cost is paid before everything else, and if a new file adds an unusual value, the guessed type may change by itself. So in real work, declare the schema in the code.
+
+</Step>

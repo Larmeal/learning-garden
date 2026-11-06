@@ -1,0 +1,79 @@
+---
+title: Check your understanding
+summary: Answer 5 questions to check how well you understand table formats
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="A Delta table was UPDATEd once. Reading the folder with spark.read.parquet(path) gives more rows than reading through Delta. Why?"
+  options={['Delta removes duplicate rows when it reads', 'UPDATE wrote a new file and the log removed the old file, but the old file is still on disk, and plain Parquet reads it too', 'spark.read.parquet also reads the _delta_log files as data']}
+  answer={1}
+  why="Parquet is immutable, so an existing file is never edited. UPDATE means add a new file and remove the old file in the log (copy-on-write). Reading through Delta replays the log and reads only the files still in the table, while plain Parquet reads every file in the folder. The measurement was 125 against 100."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Which one is the Delta table at version N?"
+  options={['The latest file that was written', 'The files that were added and not yet removed when you replay commits 0 to N', 'Every file in the folder that is not _delta_log']}
+  answer={1}
+  why="The table is the result of replaying the log. The files on disk may be more than that (files that were removed but not yet VACUUMed), so you cannot read the folder directly."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Two writers UPDATE different rows in the same file at the same time. What was the result of the experiment?"
+  options={['Both succeed and the data is merged', 'The first to commit succeeds, the second gets ConcurrentAppendException, and no data is damaged', 'Both fail']}
+  answer={1}
+  why="Optimistic concurrency: each one reads the same version, and the one that creates the file of the next version first wins. The other checks and finds that the file it read was changed, so it fails and has to retry itself."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="After VACUUM, what happens when you time travel to version 0?"
+  options={['You get the old data, because the log still keeps version 0', 'An error FILE_NOT_EXIST, because the data files that version 0 used were deleted', 'You get an empty table']}
+  answer={1}
+  why="The log still says which files make up version 0, but VACUUM deleted the files that the current version does not refer to and that are older than the retention, so they cannot be read. This is the price of time travel."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="In the experiment, what happened when you used an iceberg-spark-runtime built for Spark 4.1 with Spark 4.2.0?"
+  options={['It worked normally, because the minor versions are close', 'IncompatibleClassChangeError, because View in Spark 4.2 changed from an interface to a class', 'It worked but was slower']}
+  answer={1}
+  why="The jar of a table format is tied to internal APIs of Spark that can change in a minor release. In the 4.2 source, org.apache.spark.sql.connector.catalog.View is a class. Check for a release that matches your Spark before you upgrade."
+/>
+
+</Step>

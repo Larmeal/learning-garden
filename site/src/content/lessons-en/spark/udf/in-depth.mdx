@@ -1,0 +1,162 @@
+---
+title: UDF in depth
+summary: The order of the handshake between the JVM and the Python worker, the constants that separate data, what ExtractPythonUDFs does and when, the daemon and worker reuse, how the memory limit reaches the worker, and how an error comes back
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import HandshakeLab from '../../../../components/labs/spark/HandshakeLab';
+import WorkerReuseLab from '../../../../components/labs/spark/WorkerReuseLab';
+
+This page follows the source of Spark 4.2.0 (tag v4.2.0). The line numbers refer to the Spark repo. What is marked as run comes from `exercises/08_udf.py`, which was run with pandas 3.1.1 and pyarrow 26.0.1.
+
+<Step>
+
+## `ExtractPythonUDFs`: pulling a UDF out of the plan
+
+A Python UDF starts as only an expression hidden inside a `Project`, `Filter` or `Aggregate`. A rule must pull it out as an operator that can run separately. That rule is `ExtractPythonUDFs` (`ExtractPythonUDFs.scala`).
+
+- **When it runs**: it is the batch "Extract Python UDFs" (`Once`) in `SparkOptimizer` (`SparkOptimizer.scala:75-91`). The order of the rules in it is `ExtractPythonUDFFromJoinCondition`, `CheckCartesianProducts`, `ExtractPythonUDFFromAggregate`, `ExtractGroupingPythonUDFFromAggregate`, `ExtractPythonUDFs`, `ExtractPythonUDTFs`, followed by `ColumnPruning`, `LimitPushDown`, `PushPredicateThroughNonJoin` and others once more. The comment at lines 85-86 says an eval-python node may sit between a Project/Filter and the scan, which would break column pruning and filter pushdown, so those rules must run again.
+- **What it does** (lines 267-378): it goes from the bottom up, skips what is already a `BatchEvalPython`/`ArrowEvalPython`, names the result columns `pythonUDF0`, `pythonUDF1` (lines 322-324, matching what you see in explain), replaces the original expression with a reference to that column, and wraps a `Project` around it if extra output must be cut.
+- **Merging UDFs**: sibling UDFs and nested UDFs of the same eval type go into one node ("parallel chaining", lines 209-231), except the ITER kind of pandas/Arrow, which is not merged (lines 224, 243-245). If different eval types reach the same node, it throws (lines 326-331). Measured: `select(plus1(plus1("id")), plus1("v"))` gave a single `ArrowEvalPython`, while a mix of `useArrow=False` and `True` gave two nodes stacked.
+- **Choosing the node by eval type** (lines 333-347): `SQL_BATCHED_UDF` goes to `BatchEvalPython`; `SQL_SCALAR_PANDAS_UDF`, `PANDAS_ITER`, `SQL_ARROW_BATCHED_UDF`, `SQL_SCALAR_ARROW_UDF`, `ARROW_ITER` go to `ArrowEvalPython`.
+- **Limits** (comment at lines 152-161): it pulls out only a UDF whose input is a single UDF or an expression that the JVM can evaluate. If the input comes from several child operators, it cannot be used.
+- **The eval type numbers**: `SQL_BATCHED_UDF` = 100, `SQL_ARROW_BATCHED_UDF` = 101, `SQL_SCALAR_PANDAS_UDF` = 200, `SQL_GROUPED_AGG_PANDAS_UDF` = 202 (`PythonRunner.scala:52-57`).
+
+Why a filter can go below a UDF: `canPushThrough` in `Optimizer.scala` (lines 2285-2300) lists `BatchEvalPython` (2297) and `ArrowEvalPython` (2298) as nodes a filter can pass through, on the condition that `u.expressions.forall(_.deterministic)` (lines 2278-2279). This is why a non-deterministic UDF can block a filter.
+
+</Step>
+
+<Step>
+
+## The handshake: how the JVM talks to the worker
+
+For one task, `PythonRunner.compute` (`PythonRunner.scala:275-369`) asks for a worker with `env.createPythonWorker` (lines 329-330), opens a thread that writes data (line 337), and sets the environment variables `SPARK_REUSE_WORKER`, `PYSPARK_EXECUTOR_MEMORY_MB` and `PYTHON_UDF_BATCH_SIZE`. Then `Writer.open` (lines 418-543) writes in this order:
+
+| Order | What is sent | Line |
+|---|---|---|
+| 1 | The partition index | 426 |
+| 2 | The Python version | 428 |
+| 3 | TaskContext information (JSON) | 509-514 |
+| 4 | Spark files / includes | 516 |
+| 5 | Broadcast variables | 517 |
+| 6 | `evalType` | 519 |
+| 7 | `runnerConf` | 520 |
+| 8 | `evalConf` | 521 |
+| 9 | `writeCommand`, which is the pickled function (`PythonUDFRunner.scala:183-207`) | 522 |
+| 10 | Flush, then send the data, and end with `END_OF_STREAM` | 524, 545-548 |
+
+See this order as a diagram. Press play to see the messages one by one. The green label on the right is what the worker does with the value it has just read. Switch the scenario to see how an error in the function differs from a Python that dies by itself (the content about errors is in the section on how an error comes back, below).
+
+<HandshakeLab client:visible lang="en" />
+
+On the worker side, `main` in `worker.py` (lines 3562-3647) reads in the same order: `split_index`, `check_python_version`, the memory limit, the JSON of the task context, `setup_spark_files`, `setup_broadcasts`, `eval_type`, `RunnerConf`, `EvalConf`, and then `read_udfs` (line 3602), which unpickles the function. After that, `process()` (lines 3608-3615) does `deserializer.load_stream` → `func` → `serializer.dump_stream`. When it finishes it sends the timing, the spill counters, `END_OF_DATA_SECTION` and the accumulators, and then waits to receive `END_OF_STREAM`.
+
+The values that separate data are the same on both sides (`PythonRunner.scala:1080-1088`, `serializers.py:80-86`).
+
+| Value | Meaning |
+|---|---|
+| -1 | END_OF_DATA_SECTION |
+| -2 | PYTHON_EXCEPTION_THROWN |
+| -3 | TIMING_DATA |
+| -4 | END_OF_STREAM |
+| -5 | NULL |
+| -6 | START_ARROW_STREAM |
+
+The function is pickled with cloudpickle on the driver (`udf.py:50-70`) and sent with `writeCommand` for every task. The size of the command when the closure is big was not measured.
+
+</Step>
+
+<Step>
+
+## The data path of Pickle and Arrow
+
+**pickle (evalType 100)**
+- JVM: `BatchEvalPythonExec.getInputIterator` (lines 121-160) turns each `InternalRow` into a Java object array, then `.grouped(batchSize).map(pickle.dumps)` with the Pyrolite `Pickler`. The batch size is `spark.sql.execution.python.udf.maxRecordsPerBatch`, default **100** (`SQLConf.scala:4700-4708`).
+- Python: `BatchedSerializer(CPickleSerializer(), batch_size)` (`worker.py:2489-2491`) and `wrap_udf` (lines 371-378). The results are pickled back as batches, and the JVM does `unpickle.loads` and then `fromJava` one result at a time (`BatchEvalPythonExec.scala:103-112`). If the type does not match what was declared, the result is NULL (this is a conclusion from the run results. `EvaluatePython.makeFromJava` was not read to confirm it).
+
+**Arrow (evalType 101, 200 ...)**
+- JVM: `ArrowEvalPythonExec.scala:185-219` uses a runner of the `BatchedPythonArrowInput` kind, which writes rows as Arrow batches in `PythonArrowInput.scala:114-157`. The size comes from `spark.sql.execution.arrow.maxRecordsPerBatch`, default **10,000** (`SQLConf.scala:4580-4588`, a value of `0` or lower means no limit), and there is also a limit in bytes (`maxBytesPerBatch`, internal). The returned result is checked against the declared type (lines 211-216, error `arrowDataTypeMismatchError`).
+- Python: eval type 101 uses `ArrowStreamSerializer(write_start_stream=True)` (`worker.py:2460-2466`), turns the columns into lists, loops row by row, and turns the result back with `pa.array(..., type=...)` (lines 3049-3088, the loop at lines 3040-3043). The pandas kinds use `ArrowStreamPandasUDFSerializer` (lines 2467-2488).
+
+**Reading the kind from type hints**: `udf.py:127-135` calls `infer_eval_type_for_udf` when `useArrow` is not given. A function with a type hint such as `pd.Series` may become a pandas UDF (the docstring says "versionchanged 4.1.0"). This was not run.
+
+<Callout type="note" title="Outdated comments and docstrings in the source">
+`udf.py:99` still says that Arrow optimization is "disabled by default", and `builtin.py:30616` says a UDF "does not support keyword arguments on the caller side", even though `udf.py:428-437` (`__call__` takes `**kwargs`) and `worker.py:1064-1075` support them. For the second one, it was not run to confirm that calling with a keyword works in 4.2.0.
+</Callout>
+
+</Step>
+
+<Step>
+
+## The daemon and worker reuse
+
+- `spark.python.worker.reuse` defaults to true and `spark.python.use.daemon` defaults to true (`Python.scala:24-37`), but `PythonWorkerFactory.scala:96-99` computes `useDaemon = !Utils.isWindows && useDaemonEnabled` (the comment says it is skipped on Windows because fork is not possible).
+- On Linux/macOS: the daemon (`pyspark/daemon.py`) forks a worker per task. In the child it loops at `while True: code = worker(...)`. When the work finishes normally it goes back to wait for a new task, only when `reuse` is on (`daemon.py:165`, `259-274`: if `not reuse or code` then break), and then runs `gc.collect()`.
+- On the JVM side: a worker that has finished goes to an idle pool (`releaseWorker`, `PythonWorkerFactory.scala:512-526`), and the next task takes it in `create` (lines 132-156). It can be released back only if the worker answers `END_OF_STREAM` (`PythonRunner.scala:671-684`). If the worker writes `END_OF_DATA_SECTION` instead (`worker.py:3644-3647`), it is not reused.
+- On Windows a worker that is not a daemon is stopped in `releaseWorker` (lines 527-534), so nothing is reused. Evidence from a run: during a job you can see a `python.exe -m pyspark.worker` process as a child of the JVM and you do not see `pyspark.daemon`. The behavior of the daemon on Linux/macOS was not tested here.
+
+Look at eight jobs on two slots in three configurations. The number `n=` is a module-level counter that the UDF increases each time a task uses that worker, which shows the effect of reuse directly.
+
+<WorkerReuseLab client:visible lang="en" />
+
+What this means for your code: if a UDF keeps state at module level (a global, a cache), that state can survive across tasks when workers are reused. This means the result of a UDF should not depend on state that is shared in that way.
+
+</Step>
+
+<Step>
+
+## How Python memory reaches the worker
+
+`spark.executor.pyspark.memory` (`Python.scala:54-57`, `createOptional`, unit MiB) flows like this:
+
+`ResourceProfile.scala:433-434` → task local property → `PythonRunner.scala:271-273` divides by the number of cores of the executor ("each worker gets an equal share") → sets `PYSPARK_EXECUTOR_MEMORY_MB` (lines 307-311) → `worker.py:3571-3572` `setup_memory_limits` → `worker_util.py:95-127` sets `resource.RLIMIT_AS`.
+
+The docstring at line 100 of `worker_util.py` says Windows does not support the limit and macOS does not really enforce it. On YARN/Kubernetes this value is added to the container request (from `configuration.md`). If it is not set, Spark does not limit the memory of Python, and it must fit in the overhead memory.
+
+For `spark.python.worker.memory` (512m), a search of the source found it is read in only one place, `python/pyspark/core/rdd.py:3972` (`_memory_limit`, used by `groupByKey` and `combineByKey`). This search did not include the connect folder and pandas-on-spark separately.
+
+A `pandas_udf` holds a whole Arrow batch (10,000 rows by default) as pandas in memory (inferred from `PythonArrowInput.scala:119-122`). A function that works on a group holds the whole group. This is a general principle of Spark, and an OOM was not tested.
+
+</Step>
+
+<Step>
+
+## How an error comes back
+
+1. The worker catches the exception (`worker.py:3629-3631`: `except BaseException → handle_worker_exception(e, outfile); sys.exit(-1)`). `handle_worker_exception` (`util.py:505-545`) writes `PYTHON_EXCEPTION_THROWN` (-2) and then the text of the traceback (lines 537-538). The traceback can be hidden or shortened with `SPARK_HIDE_TRACEBACK` / `SPARK_SIMPLIFIED_TRACEBACK` (lines 524-535, set by `PythonRunner.scala:299-304`).
+2. The JVM sees -2 (`PythonArrowOutput.scala:142-143`, `PythonUDFRunner.scala:131-132`) and calls `handlePythonException` (`PythonRunner.scala:661-669`), which creates a `PythonException` with the error class `PYTHON_EXCEPTION` (`error-conditions.json:6123-6128`, SQLSTATE 38000).
+3. The executor logs the full Java stack, and the job fails with `Task N in stage 0.0 failed 1 times; aborting job` (in local mode it tries once. On a real cluster it can retry several times).
+4. The driver on the Python side gets `pyspark.errors.exceptions.captured.PythonException`, where `getCondition()` = `PYTHON_EXCEPTION`, `getSqlState()` = `38000`, and `str(e)` starts with `An exception was thrown from the Python worker:` followed by a traceback that points to your file (checked in the exercise: `08_udf.py` is in the traceback).
+
+A pandas UDF that returns the wrong shape (the length does not match, or it returns a single value) is also reported as a `PythonException` (checked at `worker.py:384-405`). In the case where Python dies by itself, there is no -2: the JVM finds EOF and throws `SparkException("Python worker exited unexpectedly (crashed)...")` (`PythonRunner.scala:686-712`).
+
+</Step>
+
+<Step>
+
+## Things to watch out for about determinism and repeated calls
+
+- Every UDF is deterministic by default. `asNondeterministic()` makes it non-deterministic (`udf.py:550-560`). Checked: `plus1.deterministic` is True, and `rnd.asNondeterministic().deterministic` is False.
+- The docstring (`builtin.py:30603-30606`) warns that a call may be removed as a duplicate or may be called more times than it appears in the command. Together with the case of a filter on the result of a UDF, where two `ArrowEvalPython` nodes appear, you should not put a side effect (counting, writing, calling an API) in a UDF and hope for "once per row". The unexpected part is that even for a deterministic UDF, Spark does not remove the repeated call in that case (this is seen from the plan. The real number of calls was not counted).
+- Arrow and pickle have different type coercion, as the comment at `udf.py:94-99` says, and there is a test suite at `python/pyspark/sql/tests/udf_type_tests` (not read yet). The table in the main lesson was run with ANSI mode on, the default. For the same test suite, the case of `1.5` as `int` gave the same result when ANSI is off. The other rows were not tested.
+
+</Step>
+
+<Step>
+
+## What is not proven yet
+
+- The effect of batch size on the speed per row of `pandas_udf` (it must be measured with one partition).
+- The cost of a worker per task on Linux/macOS with a daemon (on Windows what you see is a new process for every task).
+- The size of the pickled command when the closure is big.
+- A Python that dies by itself (segfault, OOM kill) with no traceback.
+- Pushdown through a UDF to a file data source (Parquet cannot be written on this machine).
+- That wrapping with `when(x.isNotNull(), udf(x))` does not protect the UDF (this is a statement in the docstring).
+- Spark on Windows: sometimes a DataFrame created with `createDataFrame` of a single row, split into 16 partitions, then running a UDF, gives the error "Python worker exited unexpectedly" from a cut socket connection. The author found it while preparing the exercise and avoided it with `coalesce(1)`. The cause was not investigated, so it is not treated as behavior of Spark itself.
+
+</Step>

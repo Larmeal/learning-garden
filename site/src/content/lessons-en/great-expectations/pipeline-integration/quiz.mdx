@@ -1,0 +1,92 @@
+---
+title: Check your understanding
+summary: Answer 6 questions to check how well you understand this lesson.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="A pipeline calls checkpoint.run(...) and then calls publish() right away without checking the result. What happens on a day when the data is bad?"
+  options={['checkpoint raises, so publish is never reached', 'publish keeps running and the bad data is published', 'GX quarantines the data by itself']}
+  answer={1}
+  why="Checkpoint.run does not raise when the data fails. It only returns a CheckpointResult whose success is False. You need code that reads the result and stops by itself."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A gate that checks only result.success gets False because the column amount was renamed. What should the alert say?"
+  options={['Bad data, send it to the data owner', 'An expectation could not be evaluated (the schema changed), send it to the pipeline owner', 'Say nothing, just stop']}
+  answer={1}
+  why="The result of an expectation that could not be evaluated has an exception_info that is an error, which differs from ordinary bad data. Separating the two groups sends the problem to the right person (09_pipeline_gate.py)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The table from upstream is empty. The suite has only not null and between rules on columns. What will the gate that checks result.success see?"
+  options={['It fails, because there is no data', 'It passes, because these expectations pass by default when there are no rows. You must add ExpectTableRowCountToBeBetween', 'An error']}
+  answer={1}
+  why="Measured: an empty table passes both not null and between. If there is no row-count expectation, the gate lets the empty table go to publish."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q={"The scheduler forgets to pass the date. The file for day 2 does not exist, but day 3 does. What is the result?"}
+  options={["NoAvailableBatchesError", "It fails because the file for day 2 is missing", "It checks the file of day 3 and reports a pass"]}
+  answer={2}
+  why={"29_pipeline_policies.py: with no parameters you quietly get the latest batch. Only when you pass the full date do you get NoAvailableBatchesError."}
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q={"The policy warn and continue, with data that fails only a rule at the warning level"}
+  options={["It is published with an alert", "It is stopped", "It is quarantined in a holding area"]}
+  answer={0}
+  why={"It uses get_max_severity_failure. If the level is critical it stops. If it is warning it publishes and sends an alert."}
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q={"You run run_for(date(2024,1,3)) twice. How much does the number of results in the results store grow?"}
+  options={["0 entries, because it is a duplicate", "2 entries, nothing is overwritten", "1 entry, the later run overwrites"]}
+  answer={1}
+  why={"Measured: the same day twice adds 2 stored results."}
+/>
+
+</Step>

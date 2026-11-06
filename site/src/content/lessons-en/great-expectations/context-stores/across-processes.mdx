@@ -1,0 +1,98 @@
+---
+title: A context that lives across processes
+summary: Create everything in one process, then load and run the same checkpoint in another process without creating it again. See how the results accumulate, and what to watch out for.
+order: 2
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import FlowFrames from '../../../../components/labs/great-expectations/FlowFrames';
+
+<Step>
+
+## Two processes
+
+The script `23_persistence_config.py` starts two Python processes that point at the same project folder (GX 1.24.1).
+
+Process A creates everything and runs once.
+
+```python
+ctx = gx.get_context(mode="file", project_root_dir=root)
+src = ctx.data_sources.add_pandas("people_src")
+bdef = src.add_dataframe_asset("people").add_batch_definition_whole_dataframe("whole")
+suite = ctx.suites.add(gx.ExpectationSuite(name="people_suite"))
+suite.add_expectation(gxe.ExpectColumnValuesToNotBeNull(column="id"))
+vd = ctx.validation_definitions.add(gx.ValidationDefinition(name="people_vd", data=bdef, suite=suite))
+cp = ctx.checkpoints.add(gx.Checkpoint(name="people_cp", validation_definitions=[vd]))
+cp.run(batch_parameters={"dataframe": pd.DataFrame({"id": [1, 2]})})
+```
+
+Process B creates nothing. It only loads the named checkpoint and runs it.
+
+```python
+ctx = gx.get_context(mode="file", project_root_dir=root)
+cp = ctx.checkpoints.get("people_cp")
+cp.run(batch_parameters={"dataframe": pd.DataFrame({"id": [1, None]})})
+```
+
+The printed output:
+
+```text
+PROCESS A: ran, success = True | results stored = 1
+PROCESS B: loaded; suites = ['people_suite'] | checkpoints = ['people_cp']
+PROCESS B: ran the stored checkpoint, success = False | results stored = 2
+```
+
+Process B sees the suite and the checkpoint that A created. It runs and gives a result based on B's own data (it has a null, so it fails). The number of stored results goes from 1 to 2.
+
+</Step>
+
+<Step>
+
+## See it as a picture
+
+<FlowFrames
+  client:visible
+  lang="en"
+  title="What is on disk can cross processes"
+  width={760}
+  height={260}
+  boxes={[
+    { id: 'a', label: 'Process A', sub: 'create + run', x: 10, y: 20 },
+    { id: 'disk', label: 'gx/ folder', sub: 'definitions + results', x: 300, y: 20, kind: 'store' },
+    { id: 'b', label: 'Process B', sub: 'load + run', x: 590, y: 20 },
+    { id: 'df1', label: 'DataFrame of A', sub: 'not stored', x: 10, y: 150, kind: 'data' },
+    { id: 'df2', label: 'DataFrame of B', sub: 'not stored', x: 590, y: 150, kind: 'data' },
+  ]}
+  arrows={[
+    { from: 'a', to: 'disk', label: 'write' },
+    { from: 'disk', to: 'b', label: 'read by name' },
+    { from: 'df1', to: 'a' },
+    { from: 'df2', to: 'b' },
+    { from: 'b', to: 'disk', label: 'add result' },
+  ]}
+  frames={[
+    { title: 'A creates and runs', text: 'The data source, suite, validation definition and checkpoint are written to disk. The result of the first run goes to uncommitted/validations.', on: ['a', 'disk', 'df1'], arrows: [0, 2] },
+    { title: 'B loads by name', text: 'get_context(mode="file") reads the same folder. ctx.checkpoints.get("people_cp") returns the checkpoint that A created.', on: ['disk', 'b'], arrows: [1] },
+    { title: 'B runs on its own data', text: 'The DataFrame belongs to B. The result is added as the second entry. The result of A is still there.', on: ['b', 'df2', 'disk'], arrows: [3, 4], tag: '23_persistence_config.py' },
+  ]}
+/>
+
+</Step>
+
+<Step>
+
+## What this pattern means
+
+- A script that runs on a schedule (cron, an orchestrator) does not need to create everything again each time. It loads by name and runs, and the definitions committed in git are what runs.
+- Code that creates with `context.suites.add(...)` directly cannot be run twice, because the name is a duplicate (see the page "References by name and id" of lesson 1). Split the "create the first time" script from the "regular run" script.
+- The results live in `uncommitted/` on the machine that ran. If two machines run in different places, the results are in different places. To combine them you need another store backend, which was not tested here.
+
+<Callout type="warn" title="Not tested">
+The two processes in the experiment ran one after the other, not at the same time. I do not know what happens if two processes write the same `gx/` folder at the same time.
+</Callout>
+
+</Step>

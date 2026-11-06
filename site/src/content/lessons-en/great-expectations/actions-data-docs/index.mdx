@@ -1,0 +1,144 @@
+---
+title: Actions and Data Docs
+summary: Who gets told after a validation, when, in what order the actions run, what happens if an action fails, and what Data Docs is
+order: 9
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [validation-checkpoints]
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import ActionsLab from '../../../../components/labs/great-expectations/ActionsLab';
+
+<Step>
+
+## What an action is
+
+An action is an automatic step that a checkpoint runs after it has validated every validation definition. It receives the `CheckpointResult` and can do anything with it, for example send a notification or update a report.
+
+These are the actions that GX 1.24.1 provides (see `great_expectations.checkpoint.actions`).
+
+| action | what it does |
+|---|---|
+| `SlackNotificationAction` | sends a message to Slack through a webhook |
+| `MicrosoftTeamsNotificationAction` | sends a message to Teams |
+| `PagerdutyAlertAction`, `OpsgenieAlertAction` | opens an incident |
+| `EmailAction` | sends an email |
+| `SNSNotificationAction` | sends a message to AWS SNS |
+| `APINotificationAction` | calls an HTTP endpoint that you set |
+| `UpdateDataDocsAction` | builds or updates the Data Docs pages |
+
+You put them in the checkpoint as a list: `gx.Checkpoint(name=..., validation_definitions=[vd], actions=[...])`. Secrets such as a webhook are written as `${SLACK_WEBHOOK}`, as in lesson 5.
+
+</Step>
+
+<Step>
+
+## Order and conditions
+
+<ActionsLab client:visible lang="en" />
+
+These rules were confirmed by running `06_actions_docs.py`.
+
+1. Actions run after all the validations are done, and the results have already been saved to the store.
+2. `UpdateDataDocsAction` is moved to run before the other actions, so that an action that wants a link to Data Docs can get the URL through `ActionContext`.
+3. The other actions run in the order they were declared. If one action raises, the run stops there: the remaining actions do not run, and `Checkpoint.run()` raises. (Experiment: with `[first, boom, third]`, only `first` and `boom` ran.)
+4. "Not sending" because a condition did not match is not an error. The action is still called, but it chooses to stay quiet.
+
+</Step>
+
+<Step>
+
+## When to notify: notify_on and severity
+
+Notification actions have a `notify_on` setting. These are the values it accepts (read from `should_notify()`).
+
+| value | notifies when |
+|---|---|
+| `all` | every time |
+| `success` | only when the validation passed |
+| `failure` | only when the validation failed |
+| `critical` / `warning` / `info` | the validation failed, and the most severe expectation that failed has this level |
+
+Severity is set on each expectation. The default is `critical`.
+
+```python
+suite.add_expectation(
+    gxe.ExpectColumnValuesToBeBetween(column="age", min_value=0, max_value=120, severity="warning")
+)
+result.get_max_severity_failure()   # FailureSeverity.CRITICAL if a critical expectation also failed
+```
+
+Tested: when an expectation set to `warning` failed and another one set to `critical` failed, the highest level reported was critical. Set PagerDuty to `critical` so that it calls a person only for serious problems, and set Slack to `all` or `failure` for the team.
+
+</Step>
+
+<Step>
+
+## Data Docs
+
+Data Docs is a set of HTML pages that GX builds from a suite and from validation results. `UpdateDataDocsAction` is what builds them. This is the result of a real run.
+
+```
+uncommitted/data_docs/local_site/
+  index.html                                  # front page: list of suites and results
+  expectations/<suite>.html                   # page that describes a suite
+  validations/<suite>/__none__/<run>/<batch>.html   # page for the result of each run
+```
+
+You can open `index.html` in a browser right away. Each result page says which expectations passed or failed, and shows examples of the bad values according to the `result_format` that was used (with `BOOLEAN_ONLY` the page has little detail).
+
+Data Docs built in `local_site` stays on the machine that ran it. If the team needs to open it, you have to keep it somewhere that can be shared (for example object storage, with the site set to use it as a backend; this path was not tested). GX Cloud, which used to be the other option, has been shut down.
+
+</Step>
+
+<Step>
+
+## Writing your own action
+
+When the built-in actions do not fit your team's systems, subclass `ValidationAction`.
+
+```python
+from great_expectations.checkpoint.actions import ValidationAction
+
+class WriteStatusFile(ValidationAction):
+    type: str = "write_status_file"
+    name: str = "write_status_file"
+
+    def run(self, checkpoint_result, action_context=None):
+        with open("last_status.txt", "w") as f:
+            f.write("ok" if checkpoint_result.success else "failed")
+        return {}
+```
+
+The class is registered automatically from its `type` field (a metaclass does this), the same way as an expectation. `06_actions_docs.py` has an example of an action that raises, so that you can see what happens when an action fails.
+
+<Callout type="warn" title="An optional action that fails drags the checkpoint down with it">
+An action that raises makes `Checkpoint.run()` raise, and the actions after it do not run. In the `run()` of an action that is only an extra notification (for example, writing a log), catch the error if you do not want a broken webhook to make the whole pipeline fail. Also remember that the validation result has always been saved before this point.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Check yourself
+
+- A checkpoint has `[SlackAction, UpdateDataDocsAction]`. In what order do they actually run, and why?
+- The Slack webhook is not working. Is the validation result of this run lost?
+- You want to be notified only when the data has a serious problem. What do you set on the expectation, and what do you set on the action?
+
+</Step>
+
+<Step>
+
+## Sub-pages of this lesson
+
+1. When does notify_on send: a table of 24 results from a fake Slack
+2. Write your own action, and an action that fails: does the validation result survive when an action raises
+3. Read Data Docs: the text on each page, and BOOLEAN_ONLY compared with COMPLETE
+
+</Step>

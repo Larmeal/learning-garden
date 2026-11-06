@@ -1,0 +1,79 @@
+---
+title: How 0.18 code and 1.x code differ
+summary: Run the same example on both versions, see how the way of thinking changed, and learn to read old examples on the web to know what you can still use
+order: 3
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Variants from '../../../../components/labs/great-expectations/Variants';
+
+<Step>
+
+## The same job, written for two versions
+
+The data is `age = [10, None, 30, 400]`. The rules are "age is not null" and "age is between 0 and 120". Switch tabs to compare. The results come from `08_legacy_018.py` (0.18.21 on Python 3.11) and `01_first_validation.py` (1.24.1).
+
+<Variants
+  lang="en"
+  client:visible
+  title="Checking age on two versions"
+  variants={[
+    {
+      label: 'GX 0.18.21',
+      code: `validator = context.sources.pandas_default.read_dataframe(df)\nfirst = validator.expect_column_values_to_not_be_null("age")\nsecond = validator.expect_column_values_to_be_between(\n    "age", min_value=0, max_value=120)\nlen(validator.get_expectation_suite().expectations)`,
+      output: `expectation result: ExpectationValidationResult success = False\nexpectation result: ExpectationValidationResult success = False\nexpectations kept in the suite: 0`,
+      reading: 'expect_* is a method that runs immediately. The result comes back when you call it, and an expectation that fails is not kept in the set of rules (the suite is empty, 0 expectations)',
+      bad: true,
+    },
+    {
+      label: 'GX 1.24.1',
+      code: `suite = context.suites.add(gx.ExpectationSuite(name="users_suite"))\nsuite.add_expectation(gxe.ExpectColumnValuesToNotBeNull(column="age"))\nsuite.add_expectation(gxe.ExpectColumnValuesToBeBetween(\n    column="age", min_value=0, max_value=120))\nvd = gx.ValidationDefinition(name="users_vd", data=batch_definition, suite=suite)\nresult = vd.run(batch_parameters={"dataframe": df})`,
+      output: `suite success: False\nstatistics: {'evaluated_expectations': 4, 'successful_expectations': 2,\n  'unsuccessful_expectations': 2, 'success_percent': 50.0}\nexpect_column_values_to_not_be_null  success=False  unexpected_count: 1\nexpect_column_values_to_be_between   success=False  unexpected_count: 1`,
+      reading: 'An expectation is an object. You add it to a suite first, then run the whole suite through a ValidationDefinition. An expectation that fails stays in the suite',
+    },
+  ]}
+/>
+
+(The 1.24.1 code in the box is shortened to two rules. The statistics come from the full script, which has four rules.)
+
+</Step>
+
+<Step>
+
+## The differences we saw in the runs
+
+| Topic | 0.18.21 | 1.24.1 |
+|---|---|---|
+| Where the data comes in | `read_dataframe(df)` gives a Validator immediately | The DataFrame is a parameter at `run(batch_parameters=...)` |
+| expectation | Method `validator.expect_*`, runs immediately | Class `gxe.Expect...`, stored in a suite, run later |
+| An expectation that fails when written | Not kept in the suite (0 kept after two failures) | Stays in the suite as before |
+| Checkpoint | Refers to a suite by name. If the name is not in the context you get `DataContextError` (`expectation_suite default not found`) | Takes a ValidationDefinition that was added to the context |
+
+Every row comes from running `08` and `01`. The 1.24.1 result lines in the box above are shortened. The numbers and the success values match what the script prints.
+
+</Step>
+
+<Step>
+
+## Tell which version a web example is for
+
+Look at what the code calls.
+
+| If you see | Version | What to do |
+|---|---|---|
+| `context.sources.pandas_default` or `context.sources.add_*` | 0.18 | Use `context.data_sources.add_*` in 1.x |
+| `validator.expect_column_...(...)` called as a method on a validator | 0.18 | Create a `gxe.Expect...` class and call `suite.add_expectation` |
+| `add_or_update_checkpoint(... validations=[...])` | 0.18 | Create a `ValidationDefinition` and pass it to `gx.Checkpoint` |
+| `gx.get_context()` followed by `context.suites.add(...)` | 1.x | You can use it |
+
+The first three rows are patterns that `08_legacy_018.py` really uses on 0.18.21. The YAML-file style of checkpoint was not tested.
+
+<Callout type="warn" title="The old version needs a separate environment">
+0.18.21 needs NumPy below 2 and pandas below 2.2. So script `08` is run with `uv run --no-project --python 3.11 --with great-expectations==0.18.21 --with "numpy<2" --with "pandas<2.2"`, not in the project's own environment.
+</Callout>
+
+</Step>

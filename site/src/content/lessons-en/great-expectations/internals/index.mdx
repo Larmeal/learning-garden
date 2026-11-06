@@ -1,0 +1,147 @@
+---
+title: "Internals (reading the GX code)"
+summary: A map of the GX code from the knowledge graph, the verified call path, and a way to read the source with the help of experiments.
+order: 13
+phase: E
+level: 5
+stage: sprout
+format: steps
+requires: [metrics-engines, actions-data-docs, context-stores]
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import SourceMap from '../../../../components/labs/great-expectations/SourceMap';
+
+<Step>
+
+## Why read the source
+
+The earlier lessons taught how to use GX from behavior you can observe. But many things in this path (an empty table passes, an empty suite when a custom expectation fails to load, the order of actions) are not in the documentation. They were found by opening the source and experimenting along with it. This lesson gives you the map to keep doing that. It is useful when:
+
+- the GX result is not what you expected and the documentation does not answer
+- you must write your own expectation, action or metric
+- you want to know what a new version changes before you upgrade
+
+</Step>
+
+<Step>
+
+## The map from the knowledge graph
+
+`subjects/great-expectations/graphs/gx-current/` is the graph of the package `great_expectations` version 1.9.3 (548 files, 1,664 nodes), divided into 9 layers.
+
+| Layer | Nodes | About | Read it when |
+|---|---|---|---|
+| Foundation and Compatibility | 43 | decorators, exceptions, shims for optional libraries (pandas, pyspark, sqlalchemy, pydantic) | strange errors at install time, or library version problems |
+| Core Domain Model | 39 | `ExpectationSuite`, `BatchDefinition`, `ValidationDefinition`, results | you want the structure of the objects you use every day |
+| Data Context and Stores | 41 | context, store, config | lesson 5 |
+| Datasources | 87 | fluent source, asset, batch | lesson 6 |
+| Execution Engines | 21 | pandas, SQLAlchemy, Spark engine | lessons 8 and 11 |
+| Expectations Library | 79 | the `Expectation` classes and the catalog | lessons 3 and 12 |
+| Metrics and Metric Providers | 136 | the metric calculators (the biggest layer) | lessons 8 and 12 |
+| Rendering and Data Docs | 73 | renderers, `SiteBuilder` | lesson 9 |
+| Validation and Orchestration | 29 | `Validator`, checkpoint, action | lessons 7 and 9 |
+
+A note: the metric layer is the biggest because one metric name is written again for each engine. The engine layer is very small because it only coordinates.
+
+<Callout type="warn" title="The graph shows structure, not the order of calls">
+Almost all the edges in the graph are `imports` (2,797), `contains` (1,116), `exports` (1,037) and `inherits` (416). There are only 44 `calls` edges. So the graph can tell you "which file is near which file", but it cannot tell you what `Checkpoint.run` calls next. For that order you must read the source or run an experiment.
+</Callout>
+
+</Step>
+
+<Step>
+
+## The real call path
+
+The path from the run command to the decision of an expectation, read from the source and confirmed by running (the same file and function names in both 1.9.3 and 1.24.1).
+
+<SourceMap client:visible lang="en" />
+
+When you get stuck, go back to `02_metric_rounds.py` and see which step matches the result you observe. The page "Tracing GX functions in one checkpoint run" records the same order from a real run.
+
+</Step>
+
+<Step>
+
+## A technique: source plus listening in
+
+Instead of only reading, wrap (monkeypatch) the function you care about to see what it is really called with. This technique built the metric lab in lesson 8.
+
+```python
+from great_expectations.execution_engine import ExecutionEngine
+
+calls = []
+original = ExecutionEngine.resolve_metrics
+
+def spy(self, metrics_to_resolve, metrics=None, runtime_configuration=None):
+    calls.append(sorted(m.metric_name for m in metrics_to_resolve))
+    return original(self, metrics_to_resolve, metrics, runtime_configuration)
+
+ExecutionEngine.resolve_metrics = spy
+```
+
+Use it the same way with `SqlAlchemyExecutionEngine.execute_query` to see the SQL that is sent (`05_sql_bundling.py`), or with a method of an action to see the order.
+
+</Step>
+
+<Step>
+
+## Read the differences between versions
+
+Before you upgrade GX, compare the code of the two versions directly. Do not wait for a changelog. Install both versions and compare the core files.
+
+```bash
+diff -u --strip-trailing-cr old/great_expectations/core/validation_definition.py \
+                            new/great_expectations/core/validation_definition.py
+```
+
+The result of comparing 1.9.3 with 1.24.1, which this path uses (the number of changed lines, from `32_version_diff.py`; the page "What changed from 1.9.3 to 1.24.1" has the full table):
+
+| File | Changed lines | What it is |
+|---|---|---|
+| `validator/validation_graph.py` | 0 | the core of the round-based computing did not change |
+| `validator/metrics_calculator.py` | 2 | |
+| `core/validation_definition.py` | 199 | the object remembers its owner context (`owner_resolution`) and has `get_unexpected_rows` |
+| `validator/v1_validator.py` | 35 | picks the context from the owner and builds the validator with a lock per instance |
+| `core/batch_definition.py` | 53 | finds the data source through the owner context and adds a description that numeric parameters should be integers |
+| `expectations/expectation.py` | 558 | the file that changed the most |
+
+The core of the system (the metric graph, the engine) is stable. What changed is how objects are tied to the context. This matches the behavior differences in lesson 5 (nested contexts) and lesson 6 (numeric parameters).
+
+</Step>
+
+<Step>
+
+## A suggested order for reading on your own
+
+1. `checkpoint/checkpoint.py`: `run`, `_run_validation_definitions`, `_run_actions`
+2. `core/validation_definition.py`: `run` and `is_fresh`
+3. `validator/validator.py`: `graph_validate` and the three `_generate_...`/`_resolve_...` methods
+4. `validator/validation_graph.py`: `_resolve` and `_parse` (short, and the most fun to read in this group)
+5. `execution_engine/execution_engine.py`: `resolve_metrics`, `_build_direct_and_bundled_...`
+6. `expectations/expectation.py`: `MetaExpectation`, `metrics_validate`, `ColumnMapExpectation`
+7. `expectations/metrics/column_aggregate_metrics/column_max.py` and `metric_provider.py`: registration
+8. `data_context/data_context/context_factory.py`: `ProjectManager` and `get_context`
+
+What this path did not read and did not check: the code of `render/` (only the text on the generated Data Docs pages was read), `experimental/`, and most of the expectations in the catalog (`profile/` no longer exists in 1.24.1, and GX Cloud has been shut down), and the behavior of Spark at run time.
+
+## Check yourself
+
+- The graph can tell you which layer `Checkpoint` and `ValidationDefinition` are in, but what does it not tell you, and where should you look for that answer?
+- You want to know how many SQL statements one expectation produces. Which function would you wrap?
+- A new version comes out. Which files should you compare first to know whether your pipeline is affected?
+
+</Step>
+
+<Step>
+
+## Sub-pages of this lesson
+
+1. Tracing GX functions in one checkpoint run: record with sys.setprofile and then play it back step by step
+2. Asking the knowledge graph questions: imports, inheritance, and what the graph cannot answer
+3. What changed from 1.9.3 to 1.24.1: file by file, plus the files that were added and removed
+
+</Step>

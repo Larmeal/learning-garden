@@ -1,0 +1,143 @@
+---
+title: DataFrame and SQL in depth
+summary: NULL as three-valued logic (a table of every pair), NOT IN that returns nothing when there is a NULL, joins on a NULL key, rank and dense_rank on ties, RANGE and ROWS frames, ANSI mode and the try_ functions, and traps with decimal numbers
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import NullLogicLab from '../../../../components/labs/spark/NullLogicLab';
+
+Every result on this page is checked with an `assert` in `exercises/03_dataframe_sql.py` (Spark 4.2.0, ANSI mode on, which is the default).
+
+<Step>
+
+## NULL means "unknown", not a value
+
+SQL has three-valued logic: TRUE, FALSE and NULL (unknown). Click each cell of the table.
+
+<NullLogicLab client:visible lang="en" />
+
+Checked results:
+
+| Expression | Result |
+|---|---|
+| `NULL = NULL` | NULL |
+| `NULL <=> NULL` (null-safe equal) | TRUE |
+| `1 = NULL` | NULL |
+| `NULL AND false` | FALSE |
+| `NULL OR true` | TRUE |
+| `NOT NULL` | NULL |
+
+The reason: if one value is unknown but the other value already makes the answer certain (`FALSE AND ...` must always be FALSE), the result is known. If not, the result is unknown. `WHERE` keeps only the rows where the condition is **TRUE**. A row that gives NULL is dropped, the same as FALSE. This means `!=` also drops the rows that are NULL (measured: in a table of 6 rows where one row has `sales` as NULL, `sales != 100` gives 5 rows, not 6).
+
+</Step>
+
+<Step>
+
+## NULL in aggregation and grouping
+
+On a table `country, city, sales` that has NULL in both `country` and `sales` (checked):
+
+- `sum` and `avg` skip NULL. `count(col)` counts only the non-NULL values and `count(*)` counts every row (group jp: total 200, n_sales 1, n_rows 2).
+- The sum of a group that has only NULL is **NULL**, not 0 (checked, and different from what people often guess).
+- `groupBy("country")` keeps NULL as **its own group** (one group). `distinct()` also keeps one NULL value. But `count(distinct country)` **does not count** NULL (it gives 3, not 4).
+- `F.col("sales") == None` finds no rows at all (0 rows), because the result is always NULL. Use `isNull()` (1 row) or `eqNullSafe(None)` (1 row).
+- Sorting: `asc` puts NULL **first** (nulls first) and `desc` puts NULL **last**. Use `asc_nulls_last()` when you want to change that.
+- `coalesce(NULL, NULL, 3)` gives 3 and `nullif(2, 2)` gives NULL.
+
+</Step>
+
+<Step>
+
+## The NOT IN trap
+
+```sql
+SELECT x FROM a WHERE x NOT IN (SELECT y FROM b)      -- b has the values 1 and NULL
+```
+
+With `a` = (1, 2, 3) and `b` = (1, NULL), the result is **empty, 0 rows** (measured), even though 2 and 3 are not in `b`. The reason: `2 NOT IN (1, NULL)` becomes `2 <> 1 AND 2 <> NULL`, which is `TRUE AND NULL`, which is NULL, so the row is dropped.
+
+The fix: `NOT EXISTS (SELECT 1 FROM b WHERE b.y = a.x)`, which gives 2 and 3 as expected (measured), or filter the NULL out of the subquery first.
+
+</Step>
+
+<Step>
+
+## Joins on a NULL key
+
+The left table has id (1, 2, NULL) and the right table has id (1, 3, NULL). Count the result rows of each join type.
+
+| join | rows | explanation |
+|---|---|---|
+| `inner` | 1 | Only id = 1 matches (NULL does not equal NULL) |
+| `left` | 3 | Every left row |
+| `right` | 3 | Every right row |
+| `full` | 5 | Every row of both sides (the two NULLs do not match each other, so they are two separate rows) |
+| `left_semi` | 1 | The left rows that have a match |
+| `left_anti` | 2 | The left rows that have **no match**, including the row whose key is NULL |
+| `cross` | 9 | 3 x 3 |
+
+If you want NULL to match NULL, use `left.id.eqNullSafe(right.id)` as the condition. You get 2 rows in the inner join (id = 1, and NULL with NULL).
+
+</Step>
+
+<Step>
+
+## Window: rank, dense_rank and frames
+
+The data of group a has the values 10, 20, 20, 30, ordered by `v`. The results of the ranking functions (checked):
+
+| v | `rank` | `dense_rank` | `row_number` |
+|---|---|---|---|
+| 10 | 1 | 1 | 1 |
+| 20 | 2 | 2 | 2 or 3 |
+| 20 | 2 | 2 | 3 or 2 |
+| 30 | **4** | **3** | 4 |
+
+- `rank` **skips numbers** after tied values (1, 2, 2, **4**).
+- `dense_rank` does not skip (1, 2, 2, **3**).
+- `row_number` is never repeated, but the order among tied values is not fixed (2 and 3 can swap). If you need a fixed result, add a column to `orderBy` that breaks the tie.
+
+About the **frame** of `sum(v).over(window with orderBy)`: the default is `RANGE`, which treats rows with equal values (peers) as one block. The running sum is 10, 50, 50, 80 (both rows with v = 20 get 50). With `rowsBetween(unboundedPreceding, currentRow)` each row is counted one at a time, and the rows with v = 20 get 30 and 50. If you want a "running total row by row", set the frame to `ROWS` yourself.
+
+</Step>
+
+<Step>
+
+## ANSI mode and the try_ functions
+
+Spark 4 turns on ANSI mode by default. Results that used to be a silent NULL become errors (checked).
+
+| Expression | Result |
+|---|---|
+| `1 / 0` | error `DIVIDE_BY_ZERO` |
+| `CAST('abc' AS INT)` | error `CAST_INVALID_INPUT` |
+| `2147483647 + 1` | error `ARITHMETIC_OVERFLOW` |
+| `try_divide(1, 0)` | NULL |
+| `try_cast('abc' AS INT)` | NULL |
+| `try_add(2147483647, 1)` | NULL |
+
+Use `try_` when you **intend** bad data to become NULL (and filter or count it later). ANSI errors are better for jobs where a wrong result is not acceptable, because they do not let wrong values flow on silently. Remember also that the mode is locked when the DataFrame is defined (see the Lazy evaluation in depth page).
+
+</Step>
+
+<Step>
+
+## Traps with decimal numbers
+
+- A number written as `0.1` in **SQL** is a **decimal**, not a double, so `SELECT 0.1 + 0.2 = 0.3` gives **TRUE** (measured).
+- But for a column of type `double` (for example created from a Python float), `0.1 + 0.2 == 0.3` gives **False**, and `CAST(0.1 AS DOUBLE) + CAST(0.2 AS DOUBLE)` = `0.30000000000000004`.
+- Literal types: `1` is `int`, `1L` is `bigint`, `1.0` is `decimal(2,1)`, `1D` is `double`, `'x'` is `string` (checked from `dtypes`).
+- `1 + 0.5` gives the decimal 1.5, and `7 / 2` gives `3.500000` (a decimal), not 3. If you want integer division, use `7 DIV 2`, which gives 3.
+
+Use decimal for money and for values that must be exactly equal. Double is good for scientific values where a small error is acceptable.
+
+<Callout type="note" title="The DataFrame API and SQL give the same result">
+`groupBy("country").agg(sum("sales"))` and `SELECT country, SUM(sales) ... GROUP BY country` give the same result in every row (checked) and the same optimized plan (chapter 6). `selectExpr` and `where("sales > 100 AND country = 'th'")` let you write SQL text inside the DataFrame API when SQL is easier to read.
+</Callout>
+
+</Step>

@@ -1,0 +1,122 @@
+---
+title: Write your own expectation
+summary: When the built-in expectations are not enough, first ask what kind of rule yours is, pick the matching parent class, write one condition, and learn how a saved suite finds your class
+order: 12
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [metrics-engines]
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import CustomAnatomy from '../../../../components/labs/great-expectations/CustomAnatomy';
+
+<Step>
+
+## Start by asking what your rule judges by
+
+Before writing code, answer one question: what does this rule look at to decide whether the data passes? The answer picks the parent class, and the parent class is the part that GX has already written for you, almost in full.
+
+| the rule judges by | parent class | example that GX provides | example of a rule you might have to write |
+|---|---|---|---|
+| the value in each row of one column | `ColumnMapExpectation` | `ExpectColumnValuesToMatchRegex` | values must be even numbers |
+| the values of two columns in the same row | `ColumnPairMapExpectation` | `ExpectColumnPairValuesAToBeGreaterThanB` | the discount must not be more than half of the price |
+| the values of several columns in the same row | `MulticolumnMapExpectation` | `ExpectMulticolumnSumToEqual` | a payment record must have a value in only one channel column |
+| one summary number of a column | `ColumnAggregateExpectation` | `ExpectColumnMaxToBeBetween` | the gap between the largest and the smallest value must be narrow |
+| one summary number of the whole table | `BatchExpectation` | `ExpectTableRowCountToEqual` | (this lesson did not try this class) |
+| the result of a SQL query that must return no rows | `UnexpectedRowsExpectation` | use it directly, no class to write | the total must not be negative compared with another table |
+
+All of them are in `expectations/expectation.py` of GX and they inherit from each other in layers (`ColumnMapExpectation` inherits from `BatchExpectation`, which inherits from `Expectation`). The first three rows of the table (column map, pair, multicolumn) are the "map" group, which can tell you which rows are bad. Aggregate and batch give only one summary value.
+
+</Step>
+
+<Step>
+
+## The shortest example that works
+
+The rule "values in column `n` must be even" is written as two classes.
+
+```python
+class ColumnValuesAreEven(ColumnMapMetricProvider):
+    condition_metric_name = "column_values.are_even"
+
+    @column_condition_partial(engine=PandasExecutionEngine)
+    def _pandas(cls, column, **kwargs):
+        return column % 2 == 0
+
+    @column_condition_partial(engine=SqlAlchemyExecutionEngine)
+    def _sqlalchemy(cls, column, **kwargs):
+        return column % 2 == 0
+
+
+class ExpectColumnValuesToBeEven(ColumnMapExpectation):
+    map_metric = "column_values.are_even"
+    args_keys = ("column",)
+```
+
+The first class answers "is this value normal?" one row at a time. The second class only says which metric to use. You use it like an expectation that GX provides.
+
+```python
+suite.add_expectation(ExpectColumnValuesToBeEven(column="n"))
+suite.add_expectation(ExpectColumnValuesToBeEven(column="n", mostly=0.6))
+```
+
+<CustomAnatomy client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## What you get back for writing only this
+
+The data is `[2, 4, 6, 7, 10, 11]` (tested in `07_custom_expectation.py`).
+
+| checked on | result |
+|---|---|
+| pandas | `success=False`, `unexpected_count=2`, bad values `[7, 11]` |
+| pandas, `mostly=0.6` | `success=True` (4 of 6 are correct, which is 0.667, not below 0.6) |
+| SQLite (table `numbers`) | `success=False`, `unexpected_count=2` |
+
+We did not write any code to count the bad rows, compute `mostly`, keep the bad values, or shape the result according to `result_format`. `ColumnMapExpectation` does all of it. SQLite also ran with the same class, because we had a condition for `SqlAlchemyExecutionEngine`.
+
+The type name that is saved in a suite is `expect_column_values_to_be_even`. GX converts it from the class name by itself, and there is no field to set a different name (the "Lifecycle" page has the details).
+
+</Step>
+
+<Step>
+
+## Three things that happen when the class is defined
+
+There is no `register(...)` line in the code above, but when Python reaches the word `class`, these three things have already happened (tested in `11_custom_column_map.py`).
+
+1. The expectation is registered: `MetaExpectation.__new__` sets `expectation_type` from the class name, then puts the class into a dict called `_registered_expectations` in the file `expectations/registry.py`. A class with no `map_metric` is treated as abstract and is not registered.
+2. The metrics are registered: the methods decorated with `@column_condition_partial` are registered per engine, and GX creates the remaining metrics for you (`.unexpected_count`, `.unexpected_values`, `.unexpected_index_list` and others), eight names in total under `column_values.are_even`.
+3. It becomes a model that checks its arguments: an expectation is a pydantic model. If you mistype `colum="n"` by one letter, you get a `ValidationError` at once (both `field required` and `extra fields not permitted`). `mostly=1.5` is rejected because `MostlyField` limits it to 1.0, and `severity="loud"` is rejected too.
+
+All three happen when the file that defines the class is imported. So a class that has not been imported does not exist for GX at all. This is the cause of the biggest trap of this lesson. The "Lifecycle" page walks through it step by step.
+
+</Step>
+
+<Step>
+
+## The reading path, and the traps that wait
+
+The sub-pages of this lesson are in the order you should read them.
+
+1. Try what exists first: `mostly`, `row_condition`, `severity`, and how to search for an existing expectation, so you do not write more than you need.
+2. Column map in depth: what your condition really receives, all eight metrics, the SQL that GX builds, empty tables, null, and `filter_column_isnull`.
+3. Other kinds of expectation: aggregate, pair, multicolumn and `UnexpectedRowsExpectation`, with a runnable example of each.
+4. Lifecycle: where the type name comes from, how the registry works, how a saved suite finds your class, and why it can load empty.
+5. Test and ship: a table of test cases, `run_diagnostics`, a checker in CI, and upgrades.
+
+<Callout type="warn" title="Four traps that we really ran into">
+1. If the process that loads a suite did not import the class, the suite is empty and `run()` gives `success=True`.
+2. The same condition can mean something different when the engine changes. For example, on a text column `"a" % 2 == 0` fails on pandas but passes quietly on SQLite.
+3. If you set `filter_column_isnull = False` and the data has null, GX cannot build the result.
+4. A class with the same name as an existing expectation replaces the old one in the registry, with only a warning.
+</Callout>
+
+</Step>

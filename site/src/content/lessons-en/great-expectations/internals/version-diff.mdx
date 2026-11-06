@@ -1,0 +1,97 @@
+---
+title: What changed from 1.9.3 to 1.24.1
+summary: "We compare the code of two versions file by file with a script: the core files that hardly move, the files that change a lot, and the files that were added or removed, together with the effect on what this path teaches."
+order: 3
+stage: sprout
+format: steps
+updated: 2026-10-29
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import BarList from '../../../../components/labs/great-expectations/BarList';
+
+<Step>
+
+## How the comparison works
+
+The script `32_version_diff.py` compares the `.py` files of the package `great_expectations` in the checkout of version 1.9.3 (the version that the knowledge graph analyzed) with version 1.24.1, which is installed in the project. It counts the lines added plus the lines removed with `difflib`, and ignores the difference in line endings (CRLF versus LF).
+
+| | Count |
+|---|---|
+| `.py` files in 1.9.3 | 482 |
+| `.py` files in 1.24.1 | 497 |
+| In both versions | 473 |
+| Identical in every line | 242 |
+| Different | 231 |
+| Only in 1.9.3 | 9 |
+| Only in 1.24.1 | 24 |
+
+The installed files come from PyPI, and 1.9.3 comes from a checkout of the repo. The differences may include packaging differences (for example the `_version.py` file).
+
+</Step>
+
+<Step>
+
+## The core files you learned
+
+The number of changed lines (added plus removed) of the files that are the heart of this path.
+
+<BarList
+  client:visible
+  lang="en"
+  title="Lines changed from 1.9.3 to 1.24.1"
+  unit=" lines"
+  items={[
+    { label: 'validator/validation_graph.py', value: 0, note: 'the round-based metric graph' },
+    { label: 'expectations/metrics/metric_provider.py', value: 0, note: 'metric registration' },
+    { label: 'validator/metrics_calculator.py', value: 2 },
+    { label: 'expectations/registry.py', value: 9 },
+    { label: 'execution_engine/execution_engine.py', value: 27 },
+    { label: 'validator/v1_validator.py', value: 35 },
+    { label: 'core/expectation_suite.py', value: 35 },
+    { label: 'checkpoint/checkpoint.py', value: 51 },
+    { label: 'core/batch_definition.py', value: 53 },
+    { label: 'checkpoint/actions.py', value: 61 },
+    { label: 'execution_engine/pandas_execution_engine.py', value: 64 },
+    { label: 'data_context/data_context/context_factory.py', value: 74 },
+    { label: 'validator/validator.py', value: 84 },
+    { label: 'execution_engine/sparkdf_execution_engine.py', value: 90 },
+    { label: 'core/validation_definition.py', value: 199 },
+    { label: 'execution_engine/sqlalchemy_execution_engine.py', value: 209 },
+    { label: 'expectations/expectation.py', value: 558 },
+    { label: 'data_context/data_context/cloud_data_context.py', value: 669, note: 'GX Cloud shut down' },
+  ]}
+  caption="The result of part 'key files' of 32_version_diff.py. Some numbers differ from what the old table of this lesson showed (for example validation_definition is 199, not 187), because the old table was counted last time with a different method or minor version. Use this set of numbers"
+/>
+
+Reading the picture: the two files that are the core of "call metrics in rounds" and "register metrics" did not change by even one line. So what you learned in lesson 8 holds for both versions. The big changes are `expectation.py` (558 lines), `cloud_data_context.py` (669 lines, which matches the shutdown of GX Cloud) and `sqlalchemy_execution_engine.py` (209 lines).
+
+</Step>
+
+<Step>
+
+## Files that were added and removed
+
+Examples from the script (not the full list).
+
+| Only in 1.24.1 | Only in 1.9.3 |
+|---|---|
+| `core/owner_resolution.py` | `data_context/store/database_store_backend.py` |
+| `datasource/fluent/batch_parameter_normalization.py` | `data_context/store/query_store.py` |
+| `datasource/fluent/fabric_datasource.py` | `expectations/regex_based_column_map_expectation.py` |
+| `agent_skills/installer.py` | `expectations/set_based_column_map_expectation.py` |
+| `compatibility/pyodbc.py` | `profile/` (the whole package) |
+
+What relates to what you have learned:
+
+- `owner_resolution.py` matches the behavior where the owner context is remembered inside the object (lesson 5: creating a second context does not break old objects in 1.24.1).
+- `batch_parameter_normalization.py` matches the topic of numeric parameters that should be integers, with a deprecation warning (lesson 6). This is a link between the file name and the behavior seen in experiments. The content of the file was not read.
+- `regex_based_column_map_expectation.py` and `set_based_column_map_expectation.py` are gone. They were template parent classes for writing regex-based or set-based expectations. These two files do not exist in 1.24.1. Lesson 12 uses `ColumnMapExpectation` directly, which still exists. So examples on the web that inherit from these two classes cannot run in 1.24.1 (this is concluded from the missing files; inheriting from those classes was not tried).
+- The whole `profile/` package is gone. Anyone who used the profiler of the old version must find another way.
+
+<Callout type="warn" title="Before you upgrade a real pipeline">
+This table tells you what changed. It does not tell you how your pipeline is affected. Compare the files that your pipeline calls, and run the test suite of your gate (lesson 10) on the new version before you release.
+</Callout>
+
+</Step>

@@ -1,0 +1,252 @@
+---
+title: Internals (RDD, scheduler, codegen)
+summary: "Open the lid and see what Spark really does behind the lines you write: RDDs and lineage, how the DAGScheduler cuts a job into stages, shuffle files on disk, the unified memory that storage and execution share, and the Java that whole-stage codegen generates. Every number was measured from a real run"
+order: 13
+phase: E
+level: 5
+stage: sprout
+format: steps
+requires: [execution-model, catalyst-aqe]
+updated: 2026-11-05
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import SchedulerLab from '../../../../components/labs/spark/SchedulerLab';
+import MemoryLab from '../../../../components/labs/spark/MemoryLab';
+
+<Step>
+
+## Who this chapter is for
+
+Chapters 1 to 12 are enough to use Spark well. This chapter is for people who want to know what happens under the surface, for example when they must read the scheduler log or fix a memory problem that does not match the textbook. Every section is backed by the source of Spark 4.2.0 (through the knowledge graph that is used in `subjects/spark/graphs/`), and every number comes from `exercises/13_internals.py`.
+
+The path of one piece of work, seen from the inside, has four layers:
+
+1. **RDD**: the data structure that everything is built on
+2. **DAGScheduler**: cuts the work into stages
+3. **TaskScheduler and Executor**: take the tasks and run them
+4. **Memory and codegen**: what a task uses while it runs
+
+</Step>
+
+<Step>
+
+## RDD and lineage
+
+The DataFrame you write is turned into a plan of operators ([chapter 6](/en/spark/catalyst-aqe/)) and in the end it always runs as an **RDD**. An RDD (`RDD.scala`) is an immutable collection split into partitions and defined by five things:
+
+| thing | meaning |
+|---|---|
+| partitions | the list of partitions |
+| `compute` | the function that computes one partition |
+| dependencies | the parent RDDs that it reads |
+| partitioner (optional) | how keys are divided among partitions |
+| preferred locations (optional) | the machines where the data is, used to choose where to run a task |
+
+A transformation (`map`, `filter`, `union`) only creates a new RDD that remembers where it came from. It runs nothing (this matches laziness in [chapter 2](/en/spark/lazy-evaluation/)). An action (`collect`, `count`) calls `sc.runJob`, and only then does work start.
+
+There are two kinds of dependency, and they decide everything about stages:
+
+- **NarrowDependency**: a child partition reads a few parent partitions that are known in advance. No data has to move, so it can be pipelined in the same task.
+- **ShuffleDependency** (`Dependency.scala`): it needs the output of **every** parent partition. This is the boundary of a stage. When it is created, it asks the SparkContext for a `shuffleId` and registers a handle with the `ShuffleManager`.
+
+You can see the lineage with `toDebugString()` (run: `exercises/13_internals.py`):
+
+```python
+base = sc.parallelize(range(100), 4)
+narrow  = base.map(...).filter(...).map(...)
+reduced = base.map(lambda x: (x % 5, 1)).reduceByKey(lambda a, b: a + b)
+
+narrow.toDebugString()    # no ShuffledRDD
+reduced.toDebugString()   # has a ShuffledRDD  <- the ShuffleDependency is here
+narrow.partitioner        # None
+reduced.partitioner       # has a value (reduceByKey sets a partitioner)
+```
+
+Remember: a pipeline of several narrow transformations is merged into one block. In PySpark, a `map` followed by a `filter` becomes a single `PythonRDD` that runs the functions one after another in one pass, while `reduceByKey` starts a shuffle.
+
+</Step>
+
+<Step>
+
+## DAGScheduler: cutting a job into stages
+
+When you call an action, the `DAGScheduler` (on the driver, `DAGScheduler.scala:124`) builds stages by walking back from the last RDD along the dependencies.
+
+- The last RDD lives in a **`ResultStage`** (the final stage of the job), which holds the function that must run on each partition.
+- When it meets a narrow dependency, it puts the parent RDD in the same stage.
+- When it meets a shuffle dependency, it creates a **`ShuffleMapStage`** for the parent side. This stage ends by writing shuffle files. Then it repeats.
+- A stage can be submitted when every parent stage it needs has all its output. The missing partitions are wrapped in a `TaskSet` and given to the TaskScheduler.
+
+See a job with two shuffles (two `reduceByKey` in a row).
+
+<SchedulerLab client:visible lang="en" />
+
+The measured result from `statusTracker` (tasks per stage):
+
+| job | stages (tasks) |
+|---|---|
+| `map().filter().map()` then `collect` | 1 stage (4) |
+| `reduceByKey` then `collect` | 2 stages (4, 4) |
+| two `reduceByKey` in a row | **3 stages (4, 4, 4)** |
+| `pairs.join(other)` of RDDs in PySpark | 2 stages (6, 6) |
+
+The last row is interesting. A join of two RDDs would be expected to have 3 stages (two parent sides and one result), but PySpark implements `join` by a union of the two sides (4 + 2 = 6 partitions) and then a single shuffle, so it gets 2 stages. The conclusion is that the number of stages comes from the dependencies of the RDDs that are really built, not from the name of the command.
+
+**When an executor is lost**, the shuffle files on its disk are lost too. A reduce task that tries to read them gets a `FetchFailedException`. The DAGScheduler responds by resubmitting the parent stage that lost its output (the next stage attempt), and then returning to run the stage that failed, without restarting the whole job (read from the source, not forced to happen in this experiment).
+
+</Step>
+
+<Step>
+
+## TaskScheduler and Executor
+
+The DAGScheduler decides "what to run". **TaskSchedulerImpl** decides "who runs it".
+
+- `submitTasks` creates one **`TaskSetManager`** per TaskSet and then asks the backend to offer resources.
+- `resourceOffers` orders the TaskSetManagers through a **`Pool`** that uses FIFO or FAIR (by `spark.scheduler.mode`), and hands out tasks by locality level (see [chapter 7](/en/spark/performance-tuning/)).
+- The `TaskSetManager` keeps the history of each task: if a task fails it retries up to `maxTaskFailures` and then **cancels the whole TaskSet**, and when all tasks succeed it becomes a zombie.
+
+On the executor side (`Executor.scala`): it uses a thread pool that launches one **`TaskRunner`** per task. The order inside `TaskRunner.run` is:
+
+1. Create the `TaskMemoryManager` of this task (which shares memory among the operators in the task).
+2. Download dependencies (jars and files) if they are missing.
+3. Deserialize the `Task` that the driver sent, and run it.
+4. Serialize the result, record the metrics, and send the status back to the driver.
+
+There is also a `Heartbeater` that sends a signal back to the driver from time to time. This lets the driver know the executor is still alive, and collects the metrics of running tasks to show in the Spark UI ([chapter 11](/en/spark/deployment-spark-ui/)).
+
+</Step>
+
+<Step>
+
+## Shuffle files on disk
+
+A shuffle does not send data over the network directly. It goes through files: the map side writes files and the reduce side reads them (the data is written by a writer chosen as in [chapter 7](/en/spark/performance-tuning/)). Measured on a `groupBy` with 8 map tasks (with `spark.local.dir` set to a folder we could inspect):
+
+```
+blockmgr-<uuid>/<hash>/shuffle_0_0_0.data
+                       shuffle_0_0_0.index
+                       shuffle_0_0_0.checksum.ADLER32
+                       shuffle_0_1_0.data ...
+```
+
+In total **24 files = 8 map tasks x 3 kinds**, named `shuffle_<shuffleId>_<mapId>_0`.
+
+- **`.data`**: the data of **every reduce partition** from that map task, placed one after another in a single file (`IndexShuffleBlockResolver`: the data of all the reduce blocks of one map task is in a single `.data` file).
+- **`.index`**: offsets that say where each reduce partition starts and ends in the `.data`.
+- **`.checksum.ADLER32`**: a checksum value for checking whether the file is damaged.
+
+Why one file per map task instead of one file per reduce partition: with M maps and R reduces you would get M x R files, which is too many. One file plus an index brings it down to M.
+
+On the reduce side: the `MapOutputTracker` on the driver knows which executor holds each map output. A reduce task asks for the locations and then uses `ShuffleBlockFetcherIterator` to fetch the blocks. It splits the blocks into local and remote groups, and sends remote requests only up to `maxBytesInFlight`, `maxReqsInFlight` and `maxBlocksInFlightPerAddress`, so it does not flood the network or memory. If a block is damaged or lost, the `FetchFailedException` described above happens.
+
+</Step>
+
+<Step>
+
+## Unified memory: storage and execution share
+
+An executor (or the driver in local mode) divides its heap by a formula that was measured and confirmed exactly (heap 600 MiB):
+
+```
+unified = (heap - 300 MiB reserved) x spark.memory.fraction (0.6)
+        = (629,145,600 - 314,572,800) x 0.6 = 188,743,680 B = 180 MiB
+storage region = unified x spark.memory.storageFraction (0.5) = 90 MiB
+```
+
+The remaining 120 MiB is user memory, for JVM objects that Spark does not manage (for example the internal data structures of libraries). See how storage and execution borrow from each other.
+
+<MemoryLab client:visible lang="en" />
+
+The rules of `UnifiedMemoryManager` (from line 58) come down to three points:
+
+1. There is a **soft boundary**: storage can borrow free space from execution, and execution can borrow free space from storage.
+2. **Execution can take it back** by evicting storage blocks that use more than their own region (`MemoryStore` uses LRU and does not evict blocks of the same RDD that is coming in).
+3. **Storage cannot take it back from execution**, because a task is using that memory right now. The result is that if execution holds almost everything, a new cache may not fit.
+
+The measured result (`MEMORY_ONLY`): caching data of 4 blocks made storage use **153.9 MiB, over the 90 MiB line**. Then we ran a sort of 6 million rows that needs execution memory, and storage dropped to **77.0 MiB** and the cache kept 2 of the 4 partitions. This is why `MEMORY_ONLY` does not guarantee that the cache stays complete.
+
+**At the task level**: `TaskMemoryManager` (`TaskMemoryManager.java`) manages the Tungsten-style memory of one task. It has a page table of 8192 slots, and it encodes the page number and the offset into a single 64-bit number, so a record pointer works the same for on-heap and off-heap. When the pool does not give enough memory, it tells the consumers (sorters, hash maps) to **spill**, as in [chapter 7](/en/spark/performance-tuning/).
+
+</Step>
+
+<Step>
+
+## Whole-stage codegen: Java that Spark writes for you
+
+[Chapter 6](/en/spark/catalyst-aqe/) said that `*(1)` marks operators that are merged in codegen. Look at the real code from `explain("codegen")` of `range(1000).filter("id % 3 = 0").selectExpr("id * 2")` (cut down to the important parts):
+
+```java
+final class GeneratedIteratorForCodegenStage1 extends BufferedRowIterator {
+  protected void processNext() throws java.io.IOException {
+    ...
+    while (true) {
+      ...                                       // ask for a range of numbers from Range, 1000 at a time
+      for (int range_localIdx_0 = 0; range_localIdx_0 < range_localEnd_0; range_localIdx_0++) {
+        long range_value_0 = ((long)range_localIdx_0 * 1L) + range_nextIndex_0;
+
+        // --- Filter: id % 3 = 0 ---
+        filter_value_1 = (long)(range_value_0 % 3L);
+        filter_value_0 = filter_value_1 == 0L;
+        if (filter_isNull_0 || !filter_value_0) continue;
+
+        // --- Project: id * 2 ---
+        project_value_0 = MathUtils.multiplyExact(range_value_0, 2L, ...);
+        range_mutableStateArray_0[2].write(0, project_value_0);
+        append((range_mutableStateArray_0[2].getRow()));
+        ...
+      }
+    }
+  }
+}
+```
+
+Notice three things:
+
+1. **`Range`, `Filter` and `Project` are all in one loop.** The variable `range_value_0` is passed straight to the filter and the project. No object is created per row, and there is no call to the `next()` of an iterator for each operator as in the interpreted mode (volcano).
+2. `MathUtils.multiplyExact` appears because ANSI mode is on ([chapter 6](/en/spark/catalyst-aqe/)). A multiplication that overflows raises an error instead of wrapping around.
+3. The output row is written as an `UnsafeRow` through `UnsafeRowWriter` (raw bytes, not an object).
+
+The related structure (read from the source):
+
+| part | job |
+|---|---|
+| `CollapseCodegenStages` (`WholeStageCodegenExec.scala:914`) | a rule in `preparations` that picks the operators that can be code-generated, wraps the operators that cannot with `InputAdapter`, and adds `WholeStageCodegenExec` with a stage number |
+| `WholeStageCodegenExec` (line 643) | merges a subtree into one Java class, compiles it with Janino, and runs it. **If the compile fails, it falls back to running interpreted** |
+| `CodeGenerator` | the code generator and the cache of compiled classes. It has JVM limits, for example a method longer than 8000 bytes of bytecode is not easily JIT-compiled, so methods are split |
+
+`Exchange` is never inside codegen: in the plan of a `groupBy` there is `*(1)` on the side before the shuffle and `*(2)` on the side after, and the `Exchange` between them has no `*` because it is a stage boundary (checked). When you turn off `spark.sql.codegen.wholeStage`, the `*(n)` disappears from every operator.
+
+**How much faster**: measured on the author's machine, `range(30 million rows).filter(...).agg(sum)` took about 0.09 seconds with whole-stage codegen on and 0.23 seconds with it off (about 2.5 times faster). This is a small example where the CPU does all the work. Real work with I/O or a shuffle will show a smaller difference. This number depends on the machine and the job, so it is not a multiplier you can use everywhere.
+
+<Callout type="note" title="Not everything is in codegen">
+Operators that are not code-generated (such as `Exchange`) and expressions that are implemented by interpretation (CodegenFallback) cut the codegen chain into two pieces. A Python UDF cuts it too, for a different reason (the data must be sent outside the JVM, see [chapter 8](/en/spark/udf/)). The different `*(n)` numbers you see in a plan are these boundaries.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Try it and check yourself
+
+```bash
+cd subjects/spark/code
+uv run python exercises/13_internals.py
+```
+
+It takes about 1 to 2 minutes (the memory part starts a separate JVM with a 600 MiB heap). Try changing it:
+
+1. Change the number of partitions of the source data and count the shuffle files (it must equal the number of map tasks x 3).
+2. Change `spark.driver.memory` to another value and check the unified memory formula against `SparkEnv.get.memoryManager.maxHeapMemory`.
+3. Open `explain("codegen")` of a query with `groupBy` and find how many classes are generated.
+
+Check yourself:
+
+- Why do two `reduceByKey` in a row give 3 stages and not 2?
+- What is the `.index` file for, and why is there only one `.data` file per map task?
+- Why can storage borrow from execution, while only execution can take it back?
+- Why is there no object per row in the codegen code?
+
+</Step>
