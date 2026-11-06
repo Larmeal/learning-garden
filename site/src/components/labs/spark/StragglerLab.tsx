@@ -189,8 +189,8 @@ export default function StragglerLab({ lang = 'th' }: { lang?: Lang }) {
           })}
 
           {/* clock needle */}
-          <line x1={px(Math.min(t, DURATION))} x2={px(Math.min(t, DURATION))} y1={74} y2={326} stroke="var(--accent)" strokeWidth="2" />
-          <text className="s b acc m" x={px(Math.min(t, DURATION))} y={72} textAnchor="middle">{running.toFixed(1)}</text>
+          <line x1={px(Math.min(t, DURATION))} x2={px(Math.min(t, DURATION))} y1={80} y2={326} stroke="var(--accent)" strokeWidth="2" />
+          <text className="s b acc m" x={px(Math.min(t, DURATION))} y={77} textAnchor="middle">{running.toFixed(1)}</text>
 
           {t >= sim.wall && (
             <g>

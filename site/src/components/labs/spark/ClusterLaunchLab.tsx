@@ -211,7 +211,7 @@ function k8s(del: boolean, lang: Lang): Scenario {
     { id: 'tk1', from: 'driver', to: 'p1', at: 10.1, tone: 'k1', p0: [537, 338], p1: [660, 338] },
     ...(del
       ? [
-          { id: 'gc0', from: 'api', to: 'p0', at: 12.2, n: 7, tone: 'acc', dashed: true, dur: 0.6, p0: [380, 138], p1: [123, 260] } as SMsg,
+          { id: 'gc0', from: 'api', to: 'p0', at: 12.2, n: 7, tone: 'acc', dashed: true, dur: 0.6, p0: [380, 138], p1: [123, 260], offset: 16 } as SMsg,
           { id: 'gc1', from: 'api', to: 'p1', at: 12.3, tone: 'acc', dashed: true, dur: 0.6, p0: [570, 138], p1: [757, 260] } as SMsg,
         ]
       : []),

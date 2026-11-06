@@ -130,7 +130,8 @@ export default function LazyLab({ lang = 'th' }: { lang?: Lang }) {
           </div>
           <label className="check">
             <input type="checkbox" checked={cache} disabled={busy} onChange={(e) => { setCache(e.target.checked); setCached(false); }} />
-            {T.cacheBefore}<code>cache()</code>{T.cacheAfter}
+            {/* one text item, so the label wraps as a sentence instead of as separate flex items */}
+            <span>{T.cacheBefore}<code>cache()</code>{T.cacheAfter}</span>
           </label>
           <button type="button" className="btn" onClick={reset} style={{ alignSelf: 'flex-start' }}>{T.reset}</button>
         </div>

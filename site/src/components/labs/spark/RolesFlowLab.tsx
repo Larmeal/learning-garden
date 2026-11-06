@@ -25,7 +25,7 @@ const TEXT: Record<Lang, {
     distributing: 'กำลังแจก task', inMemory: 'ผลอยู่ใน memory', noData: 'ไม่เห็นข้อมูลเลย', backedOff: 'ถอยออกแล้ว',
     executors: 'Executors (JVM บนเครื่องของมันเอง)', storageSub: 'S3 / HDFS / ไฟล์', execLine: 'รับ task ไปทำกับ partition',
     ask: 'ขอ executor 3 ตัว', launch: 'เปิด executor', register: 'ลงทะเบียน', task: 'task', readPart: 'อ่าน partition', allResults: 'ผลทั้งหมด', writeOwn: 'เขียนไฟล์เอง',
-    merge: 'รวมแถวเป็นผลย่อย',
+    merge: 'รวมเป็นผลย่อย',
     title: 'Driver, executor และ cluster manager: ใครทำอะไร ตามลำดับเวลา', groupLabel: 'คำสั่งตอนท้าย', endCollect: 'จบด้วย collect()', endWrite: 'จบด้วย write',
     svgLabel: 'driver ขอ executor จาก cluster manager แล้ว executor อ่านข้อมูลจาก storage',
     caption: 'ลำดับเหตุการณ์อ่านจากซอร์ส Spark 4.2.0 และตรวจกับ standalone cluster ที่เปิดเองในบทที่ 11 ใช้ได้กับทุก cluster manager ส่วนที่ต่างกันอยู่ในหน้าย่อยของ standalone, YARN และ Kubernetes จำนวน executor (3 ตัว) และ partition (6 อัน) เป็นตัวอย่าง',
@@ -46,7 +46,7 @@ const TEXT: Record<Lang, {
     distributing: 'Sending tasks', inMemory: 'Result in memory', noData: 'Never sees the data', backedOff: 'Stepped back',
     executors: 'Executors (a JVM on its own machine)', storageSub: 'S3 / HDFS / files', execLine: 'Takes tasks, works on partitions',
     ask: 'Ask for 3 executors', launch: 'Start executors', register: 'Register', task: 'task', readPart: 'Read partition', allResults: 'All results', writeOwn: 'Write files itself',
-    merge: 'Merge into partial results',
+    merge: 'Merge rows',
     title: 'Driver, executor and cluster manager: who does what, in time order', groupLabel: 'Final action', endCollect: 'Ends with collect()', endWrite: 'Ends with write',
     svgLabel: 'The driver asks the cluster manager for executors, then the executors read data from storage',
     caption: 'The order of events is read from the Spark 4.2.0 source and was checked on a standalone cluster that we started ourselves in lesson 11. It holds for every cluster manager. What differs is on the sub-pages for standalone, YARN and Kubernetes. The number of executors (3) and partitions (6) is an example.',
@@ -163,7 +163,8 @@ export default function RolesFlowLab({ lang = 'th' }: { lang?: Lang }) {
         if (land <= 0) return null;
         return <rect key={`file${i}`} x={696} y={EY[i] + 26} width="20" height="26" rx="4" fill="var(--accent)" opacity={land} />;
       })}
-      {t >= 7.7 && t < 9.2 && <text className="s b" x="470" y={EY[0] - 6} textAnchor="middle" style={{ fill: 'var(--k2)' }}>{T.merge}</text>}
+      {/* the label sits beside the merged dot, inside the first executor, so it never covers the group title */}
+      {t >= 7.7 && t < 9.2 && <text className="s b" x="488" y={EY[0] + 70} style={{ fill: 'var(--k2)' }}>{T.merge}</text>}
     </g>
   );
 

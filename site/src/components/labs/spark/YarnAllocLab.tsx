@@ -149,9 +149,10 @@ export default function YarnAllocLab({ lang = 'th' }: { lang?: Lang }) {
                 )}
                 {isGrant && seen && (
                   <g opacity={fresh}>
-                    {[0, 1, 2].map((k) => <rect key={k} x={x(i) - 31 + k * 22} y={BASE - 150} width="18" height="18" rx="4" fill="var(--k2)" />)}
-                    <line x1={x(i)} x2={x(i)} y1={BASE - 130} y2={BASE - 12} stroke="var(--k2)" strokeWidth="3" />
-                    <text className="s b" x={x(i)} y={BASE - 158} textAnchor="middle" style={{ fill: 'var(--k2)' }}>container x3</text>
+                    {/* kept below the title and the status line, which sit at the top left, where an early grant would cover them */}
+                    {[0, 1, 2].map((k) => <rect key={k} x={x(i) - 31 + k * 22} y={BASE - 110} width="18" height="18" rx="4" fill="var(--k2)" />)}
+                    <line x1={x(i)} x2={x(i)} y1={BASE - 90} y2={BASE - 12} stroke="var(--k2)" strokeWidth="3" />
+                    <text className="s b" x={x(i)} y={BASE - 118} textAnchor="middle" style={{ fill: 'var(--k2)' }}>container x3</text>
                   </g>
                 )}
               </g>

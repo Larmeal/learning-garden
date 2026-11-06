@@ -291,7 +291,12 @@ function JoinScene({ t, lang }: { t: number; lang: Lang }) {
       {[0, 1, 2].map((e) =>
         Array.from({ length: 8 }, (_, i) => {
           const f = smooth(prog(t, 0.3 + (e * 8 + i) * 0.05, 1.5 + (e * 8 + i) * 0.05));
-          return <D key={`${e}-${i}`} x={bigX(e, i)} y={mix(120, BIG_Y, f)} k={bigKey(e, i)} r={9} label={String(bigKey(e, i))} ring={matchP > 0.5} />;
+          // fades in just above its place: starting higher would run the dots across the executor title and the table caption
+          return (
+            <g key={`${e}-${i}`} opacity={f}>
+              <D x={bigX(e, i)} y={mix(BIG_Y - 10, BIG_Y, f)} k={bigKey(e, i)} r={9} label={String(bigKey(e, i))} ring={matchP > 0.5} />
+            </g>
+          );
         }),
       )}
 
