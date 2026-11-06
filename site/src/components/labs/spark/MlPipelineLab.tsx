@@ -1,5 +1,5 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { StepControls, useStepper, type StepInfo } from './stepper';
+import { StepControls, useStepper, type Lang, type StepInfo } from './stepper';
 
 // Pipeline(stages=[StringIndexer, OneHotEncoder, VectorAssembler, LogisticRegression]) on a made-up dataset of 2,000 rows
 // (exercises/12_mllib.py, Spark 4.2.0). The three sample rows are real output rows of PipelineModel.transform(test),
@@ -31,7 +31,7 @@ interface S extends StepInfo {
   phase: 'fit' | 'transform';
 }
 
-const STEPS: S[] = [
+const STEPS_TH: S[] = [
   { name: 'ข้อมูล', title: 'ข้อมูลฝึก: x1, x2, c, label', text: 'ตัวเลขสองคอลัมน์ ข้อความหนึ่งคอลัมน์ (a, b, c) และ label 0 หรือ 1 เรียก pipeline.fit(train) ซึ่งเป็น action: Spark เริ่มรัน job (วัดจริง: 14 job)', stage: -1, fitted: 0, phase: 'fit' },
   { name: 'StringIndexer', title: 'Estimator: fit ได้ StringIndexerModel', text: 'fit อ่านข้อมูลนับว่ามีค่า a, b, c อะไรบ้าง ได้ model ที่จำลำดับ [a, b, c] จากนั้น model.transform เติม c_idx (a เป็น 0.0, c เป็น 2.0) pipeline เอาผลนี้ส่งต่อให้ขั้นถัดไป', stage: 0, fitted: 1, phase: 'fit' },
   { name: 'OneHotEncoder', title: 'Estimator: fit ได้ OneHotEncoderModel', text: 'fit หาจำนวน category (3) แล้ว model แปลง c_idx เป็นเวกเตอร์ sparse ค่าเริ่มต้นตัด category สุดท้ายทิ้ง (dropLast) จึงมีขนาด 2: c ได้ (2,[],[]) ที่เป็นศูนย์ทั้งหมด', stage: 1, fitted: 2, phase: 'fit' },
@@ -41,16 +41,45 @@ const STEPS: S[] = [
   { name: 'transform(test)', title: 'model.transform(test): ใช้ทุก stage ตามลำดับ', text: 'เติม rawPrediction, probability, prediction ท้ายตาราง ขั้นนี้ไม่เกิด job เลย (วัดจริง: 0 job) เพราะ transform แค่ต่อแผน plan จริงเป็น Project ซ้อนกันที่เรียก UDF ของแต่ละ stage การรันเกิดตอนเรียก action เช่น evaluate (AUC บน test = 0.981)', stage: -1, fitted: 4, phase: 'transform' },
 ];
 
-export default function MlPipelineLab() {
-  const { step, go, playing, toggle } = useStepper(STEPS.length, 4200);
+const STEPS_EN: S[] = [
+  { name: 'Data', title: 'Training data: x1, x2, c, label', text: 'Two numeric columns, one text column (a, b, c) and a label of 0 or 1. Calling pipeline.fit(train) is an action: Spark starts running jobs (measured: 14 jobs).', stage: -1, fitted: 0, phase: 'fit' },
+  { name: 'StringIndexer', title: 'Estimator: fit returns a StringIndexerModel', text: 'fit reads the data and counts which values a, b, c exist. The model remembers the order [a, b, c]. Then model.transform adds c_idx (a becomes 0.0, c becomes 2.0). The pipeline passes this result to the next stage.', stage: 0, fitted: 1, phase: 'fit' },
+  { name: 'OneHotEncoder', title: 'Estimator: fit returns an OneHotEncoderModel', text: 'fit finds the number of categories (3). The model turns c_idx into a sparse vector. By default the last category is dropped (dropLast), so the size is 2: c gets (2,[],[]), which is all zeros.', stage: 1, fitted: 2, phase: 'fit' },
+  { name: 'VectorAssembler', title: 'Transformer: nothing to fit', text: 'VectorAssembler joins x1, x2 and c_vec into one vector column named features. There is nothing to learn from the data, so it is a Transformer and stays in the PipelineModel as it is.', stage: 2, fitted: 3, phase: 'fit' },
+  { name: 'LogisticRegression', title: 'The last Estimator: the heaviest stage', text: 'fit adjusts the weights again and again over the data, and this is the part that creates many jobs. The model holds coefficients [2.71, -1.87, 1.50, -0.14] and intercept 0.118, which match how the data was made (x1 pushes toward 1, x2 pushes away).', stage: 3, fitted: 4, phase: 'fit' },
+  { name: 'PipelineModel', title: 'The result is a PipelineModel: 3 models and 1 transformer', text: 'pipeline.fit returns a PipelineModel with stages = [StringIndexerModel, OneHotEncoderModel, VectorAssembler, LogisticRegressionModel]. From here on there is nothing left to learn.', stage: -1, fitted: 4, phase: 'fit' },
+  { name: 'transform(test)', title: 'model.transform(test): applies every stage in order', text: 'It adds rawPrediction, probability and prediction at the end of the table. This step creates no job at all (measured: 0 jobs) because transform only extends the plan. The real plan is nested Projects that call the UDF of each stage. The run happens when you call an action such as evaluate (AUC on test = 0.981).', stage: -1, fitted: 4, phase: 'transform' },
+];
+
+const STEPS: Record<Lang, S[]> = { th: STEPS_TH, en: STEPS_EN };
+
+const TEXT: Record<Lang, { title: string; chain: string; notFitted: string; caption: string }> = {
+  th: {
+    title: 'Pipeline.fit แล้ว PipelineModel.transform: ข้อมูลเดินผ่านทีละ stage',
+    chain: 'stage ของ pipeline',
+    notFitted: 'ยังไม่ fit',
+    caption: 'ตัวอย่างแถวเป็น 3 แถวจริงของผล transform บน test set (ปัดเศษ) ในการ fit จริง Spark ใช้ train set แต่หน้าตา column เหมือนกัน',
+  },
+  en: {
+    title: 'Pipeline.fit, then PipelineModel.transform: the data moves through one stage at a time',
+    chain: 'pipeline stages',
+    notFitted: 'not fitted yet',
+    caption: 'The sample rows are 3 real rows of the transform result on the test set (rounded). In the real fit, Spark uses the train set, but the columns look the same.',
+  },
+};
+
+export default function MlPipelineLab({ lang = 'th' }: { lang?: Lang }) {
+  const steps = STEPS[lang];
+  const T = TEXT[lang];
+  const { step, go, playing, toggle } = useStepper(steps.length, 4200);
   const reduce = useReducedMotion();
-  const s = STEPS[step];
+  const s = steps[step];
   const t = reduce ? { duration: 0 } : { duration: 0.45 };
   const visible = COLS.filter((c) => c.from <= step);
   return (
     <figure className="viz">
-      <div className="viz-title">Pipeline.fit แล้ว PipelineModel.transform: ข้อมูลเดินผ่านทีละ stage</div>
-      <div className="ml-chain" aria-label="stage ของ pipeline">
+      <div className="viz-title">{T.title}</div>
+      <div className="ml-chain" aria-label={T.chain}>
         {STAGES.map((st, i) => {
           const done = i < s.fitted;
           const active = i === s.stage;
@@ -58,7 +87,7 @@ export default function MlPipelineLab() {
             <motion.div key={st.name} className="ml-stage" data-active={active ? '' : undefined} data-done={done ? '' : undefined} layout transition={t}>
               <strong>{st.name}</strong>
               <span>{st.kind}</span>
-              <em>{done ? `-> ${st.model}` : 'ยังไม่ fit'}</em>
+              <em>{done ? `-> ${st.model}` : T.notFitted}</em>
             </motion.div>
           );
         })}
@@ -89,8 +118,8 @@ export default function MlPipelineLab() {
           </tbody>
         </table>
       </div>
-      <StepControls steps={STEPS} step={step} playing={playing} go={go} toggle={toggle} />
-      <figcaption className="viz-caption">ตัวอย่างแถวเป็น 3 แถวจริงของผล transform บน test set (ปัดเศษ) ในการ fit จริง Spark ใช้ train set แต่หน้าตา column เหมือนกัน</figcaption>
+      <StepControls steps={steps} step={step} playing={playing} go={go} toggle={toggle} lang={lang} />
+      <figcaption className="viz-caption">{T.caption}</figcaption>
     </figure>
   );
 }

@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react';
 
+export type Lang = 'th' | 'en';
+const CTRL = {
+  th: { prev: '← ก่อนหน้า', next: 'ถัดไป →', stop: 'หยุด', again: 'เล่นใหม่', play: 'เล่นต่อเนื่อง' },
+  en: { prev: '← Previous', next: 'Next →', stop: 'Stop', again: 'Play again', play: 'Autoplay' },
+};
+
 // Shared by the Spark labs that walk through a process one step at a time.
 export interface StepInfo {
   name: string;
@@ -42,11 +48,13 @@ interface ControlsProps {
   playing: boolean;
   go: (n: number) => void;
   toggle: () => void;
+  lang?: Lang;
 }
 
 // The "now" box and the button row that every step lab shows under its picture.
-export function StepControls({ steps, step, playing, go, toggle }: ControlsProps) {
+export function StepControls({ steps, step, playing, go, toggle, lang = 'th' }: ControlsProps) {
   const last = steps.length - 1;
+  const c = CTRL[lang];
   return (
     <>
       <div className="viz-now" aria-live="polite">
@@ -54,9 +62,9 @@ export function StepControls({ steps, step, playing, go, toggle }: ControlsProps
         <span>{steps[step].text}</span>
       </div>
       <div className="viz-controls">
-        <button type="button" className="btn" onClick={() => go(step - 1)} disabled={step === 0}>← ก่อนหน้า</button>
-        <button type="button" className="btn primary" onClick={toggle}>{playing ? 'หยุด' : step >= last ? 'เล่นใหม่' : 'เล่นต่อเนื่อง'}</button>
-        <button type="button" className="btn" onClick={() => go(step + 1)} disabled={step === last}>ถัดไป →</button>
+        <button type="button" className="btn" onClick={() => go(step - 1)} disabled={step === 0}>{c.prev}</button>
+        <button type="button" className="btn primary" onClick={toggle}>{playing ? c.stop : step >= last ? c.again : c.play}</button>
+        <button type="button" className="btn" onClick={() => go(step + 1)} disabled={step === last}>{c.next}</button>
         <div className="viz-steps">
           {steps.map((s, i) => (
             <button key={s.name} type="button" aria-pressed={i === step} onClick={() => go(i)}>

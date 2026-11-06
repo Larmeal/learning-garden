@@ -1,5 +1,5 @@
 import { motion, useReducedMotion } from 'motion/react';
-import { StepControls, useStepper, type StepInfo } from './stepper';
+import { StepControls, useStepper, type StepInfo, type Lang } from './stepper';
 
 // The watermark demo of subjects/spark/code/exercises/09_streaming.py (Spark 4.2.0, append mode, UTC):
 //   withWatermark("ts", "10 minutes").groupBy(window("ts", "5 minutes")).count()
@@ -44,18 +44,64 @@ const WINDOWS: Win[] = [
 // watermark applied while running each batch (from the progress table)
 const WM = [null, m(11, 53), m(11, 53), m(11, 56), m(11, 56), m(12, 10), m(12, 10)];
 
-const STEPS: StepInfo[] = [
-  { name: 'batch 0', title: 'batch 0: ไฟล์แรก (12:00:01 และ 12:03:00)', text: 'สอง event เข้า window 12:00 ถึง 12:05 นับได้ 2 ตอนนี้ยังไม่มี watermark (เริ่มจากศูนย์) พออ่านจบ Spark คำนวณ watermark ใหม่ = เวลา event ที่ใหม่สุด (12:03) ลบ 10 นาที = 11:53 เพื่อใช้ใน batch ถัดไป' },
-  { name: 'batch 1', title: 'batch 1: ไม่มีข้อมูลใหม่ แต่ยังรัน', text: 'watermark เปลี่ยนจาก 0 เป็น 11:53 Spark เลยรัน batch ที่ numInputRows = 0 เพื่อนำค่าไปใช้ (spark.sql.streaming.noDataMicroBatches.enabled เป็น true) ยังไม่มี window ไหนจบก่อน 11:53 จึงไม่ส่งอะไรออก' },
-  { name: 'batch 2', title: 'batch 2: ไฟล์ที่สอง (12:06:00)', text: 'event เข้า window 12:05 ถึง 12:10 ตอนนี้ state มีสอง window ในโหมด append ผลของ window ยังไม่ถูกเขียนออก เพราะอาจมี event ที่มาช้าเข้ามาเพิ่มได้ watermark ถัดไป = 12:06 ลบ 10 = 11:56' },
-  { name: 'batch 3', title: 'batch 3: รันเพื่อนำ watermark 11:56 ไปใช้', text: 'ยังไม่มี window ที่ปลายช่วงเกิน 11:56 จึงยังไม่ส่งอะไรออก (วัดจริง: ผลลัพธ์ของ memory sink ยังว่างหลังไฟล์ที่ 1 และ 2)' },
-  { name: 'batch 4', title: 'batch 4: ไฟล์ที่สาม (12:20:00)', text: 'event ที่ใหม่มากเข้ามา สร้าง window 12:20 ถึง 12:25 และเลื่อนเวลา event ที่ใหม่สุดเป็น 12:20 watermark ถัดไป = 12:20 ลบ 10 = 12:10' },
-  { name: 'batch 5', title: 'batch 5: watermark 12:10 ปิด window และส่งผลออก', text: 'window ที่ปลายช่วงไม่เกิน 12:10 ถือว่าจบ: 12:00 ถึง 12:05 (2) และ 12:05 ถึง 12:10 (1) ถูกเขียนลง sink และลบออกจาก state (วัดจริง: numRowsRemoved = 2) นี่คือครั้งแรกที่ append mode ปล่อยผลออกมา' },
-  { name: 'batch 6', title: 'batch 6: event ที่มาช้า (12:01:00) ถูกทิ้ง', text: 'event นี้เก่ากว่า watermark 12:10 Spark ไม่เปิด window เก่ากลับมา จึงทิ้งทันที (วัดจริง: numRowsDroppedByWatermark อย่างน้อย 1) ผลที่ส่งไปแล้วไม่เปลี่ยน' },
-];
+const STEPS: Record<Lang, StepInfo[]> = {
+  th: [
+    { name: 'batch 0', title: 'batch 0: ไฟล์แรก (12:00:01 และ 12:03:00)', text: 'สอง event เข้า window 12:00 ถึง 12:05 นับได้ 2 ตอนนี้ยังไม่มี watermark (เริ่มจากศูนย์) พออ่านจบ Spark คำนวณ watermark ใหม่ = เวลา event ที่ใหม่สุด (12:03) ลบ 10 นาที = 11:53 เพื่อใช้ใน batch ถัดไป' },
+    { name: 'batch 1', title: 'batch 1: ไม่มีข้อมูลใหม่ แต่ยังรัน', text: 'watermark เปลี่ยนจาก 0 เป็น 11:53 Spark เลยรัน batch ที่ numInputRows = 0 เพื่อนำค่าไปใช้ (spark.sql.streaming.noDataMicroBatches.enabled เป็น true) ยังไม่มี window ไหนจบก่อน 11:53 จึงไม่ส่งอะไรออก' },
+    { name: 'batch 2', title: 'batch 2: ไฟล์ที่สอง (12:06:00)', text: 'event เข้า window 12:05 ถึง 12:10 ตอนนี้ state มีสอง window ในโหมด append ผลของ window ยังไม่ถูกเขียนออก เพราะอาจมี event ที่มาช้าเข้ามาเพิ่มได้ watermark ถัดไป = 12:06 ลบ 10 = 11:56' },
+    { name: 'batch 3', title: 'batch 3: รันเพื่อนำ watermark 11:56 ไปใช้', text: 'ยังไม่มี window ที่ปลายช่วงเกิน 11:56 จึงยังไม่ส่งอะไรออก (วัดจริง: ผลลัพธ์ของ memory sink ยังว่างหลังไฟล์ที่ 1 และ 2)' },
+    { name: 'batch 4', title: 'batch 4: ไฟล์ที่สาม (12:20:00)', text: 'event ที่ใหม่มากเข้ามา สร้าง window 12:20 ถึง 12:25 และเลื่อนเวลา event ที่ใหม่สุดเป็น 12:20 watermark ถัดไป = 12:20 ลบ 10 = 12:10' },
+    { name: 'batch 5', title: 'batch 5: watermark 12:10 ปิด window และส่งผลออก', text: 'window ที่ปลายช่วงไม่เกิน 12:10 ถือว่าจบ: 12:00 ถึง 12:05 (2) และ 12:05 ถึง 12:10 (1) ถูกเขียนลง sink และลบออกจาก state (วัดจริง: numRowsRemoved = 2) นี่คือครั้งแรกที่ append mode ปล่อยผลออกมา' },
+    { name: 'batch 6', title: 'batch 6: event ที่มาช้า (12:01:00) ถูกทิ้ง', text: 'event นี้เก่ากว่า watermark 12:10 Spark ไม่เปิด window เก่ากลับมา จึงทิ้งทันที (วัดจริง: numRowsDroppedByWatermark อย่างน้อย 1) ผลที่ส่งไปแล้วไม่เปลี่ยน' },
+  ],
+  en: [
+    { name: 'batch 0', title: 'batch 0: the first file (12:00:01 and 12:03:00)', text: 'Two events fall into the window 12:00 to 12:05, so the count is 2. There is no watermark yet (it starts at zero). When the read ends, Spark computes the new watermark = the newest event time (12:03) minus 10 minutes = 11:53, to use in the next batch.' },
+    { name: 'batch 1', title: 'batch 1: no new data, but it still runs', text: 'The watermark changed from 0 to 11:53, so Spark runs a batch with numInputRows = 0 to apply the value (spark.sql.streaming.noDataMicroBatches.enabled is true). No window ends before 11:53, so nothing is sent out.' },
+    { name: 'batch 2', title: 'batch 2: the second file (12:06:00)', text: 'The event falls into the window 12:05 to 12:10. Now the state holds two windows. In append mode the result of a window is not written yet, because a late event could still arrive and change it. The next watermark = 12:06 minus 10 = 11:56.' },
+    { name: 'batch 3', title: 'batch 3: runs to apply the watermark 11:56', text: 'No window ends after 11:56 yet, so nothing is sent out (measured: the memory sink result is still empty after files 1 and 2).' },
+    { name: 'batch 4', title: 'batch 4: the third file (12:20:00)', text: 'A much newer event arrives. It creates the window 12:20 to 12:25 and moves the newest event time to 12:20. The next watermark = 12:20 minus 10 = 12:10.' },
+    { name: 'batch 5', title: 'batch 5: watermark 12:10 closes windows and sends the results out', text: 'Windows that end at or before 12:10 are finished: 12:00 to 12:05 (2) and 12:05 to 12:10 (1) are written to the sink and removed from the state (measured: numRowsRemoved = 2). This is the first time append mode releases a result.' },
+    { name: 'batch 6', title: 'batch 6: the late event (12:01:00) is dropped', text: 'This event is older than the watermark 12:10. Spark does not reopen an old window, so it drops the event at once (measured: numRowsDroppedByWatermark is at least 1). Results already sent do not change.' },
+  ],
+};
 
-export default function WatermarkLab() {
-  const { step, go, playing, toggle } = useStepper(STEPS.length, 4200);
+const TEXT = {
+  th: {
+    title: 'Watermark: Spark รู้ได้อย่างไรว่า window ไหนปิดแล้ว',
+    aria: (n: number, title: string) => `ขั้นที่ ${n}: ${title}`,
+    axis: 'เวลาของ event (event time)',
+    to: 'ถึง',
+    emitted: (n: number) => `ส่งออกแล้ว (${n})`,
+    inState: (n: number) => `ใน state: ${n}`,
+    dropped: 'ทิ้ง (ช้าเกิน)',
+    rule: 'watermark = event time ที่ใหม่สุดที่เคยเห็น ลบ 10 นาที (ใช้ใน batch ถัดไป)',
+    sink: 'ผลที่ sink ได้รับ (append)',
+    nothing: 'ยังไม่มีอะไร',
+    checkpoint: 'checkpoint ตอนนี้',
+    stateWindows: (n: number) => `state: ${n} window`,
+    caption: 'ทุก batch และเลข watermark มาจาก recentProgress ของการรันจริงใน exercises/09_streaming.py ขนาด window 5 นาที watermark 10 นาที โหมด append',
+  },
+  en: {
+    title: 'Watermark: how Spark knows which window is closed',
+    aria: (n: number, title: string) => `Step ${n}: ${title}`,
+    axis: 'Event time',
+    to: 'to',
+    emitted: (n: number) => `emitted (${n})`,
+    inState: (n: number) => `in state: ${n}`,
+    dropped: 'dropped (too late)',
+    rule: 'watermark = the newest event time seen, minus 10 minutes (used in the next batch)',
+    sink: 'Result the sink received (append)',
+    nothing: 'Nothing yet',
+    checkpoint: 'Checkpoint now',
+    stateWindows: (n: number) => `state: ${n} ${n === 1 ? 'window' : 'windows'}`,
+    caption: 'Every batch and watermark value comes from recentProgress of the real run in exercises/09_streaming.py. Window size is 5 minutes, watermark is 10 minutes, append mode.',
+  },
+};
+
+export default function WatermarkLab({ lang = 'th' }: { lang?: Lang }) {
+  const T = TEXT[lang];
+  const steps = STEPS[lang];
+  const { step, go, playing, toggle } = useStepper(steps.length, 4200);
   const reduce = useReducedMotion();
   const t = reduce ? { duration: 0 } : { duration: 0.7, ease: 'easeInOut' as const };
   const wm = WM[step];
@@ -63,11 +109,11 @@ export default function WatermarkLab() {
   const emittedRows = WINDOWS.filter((w) => w.emitted <= step);
   return (
     <figure className="viz">
-      <div className="viz-title">Watermark: Spark รู้ได้อย่างไรว่า window ไหนปิดแล้ว</div>
+      <div className="viz-title">{T.title}</div>
       <div className="viz-box">
-        <svg viewBox="0 0 880 360" role="img" aria-label={`ขั้นที่ ${step + 1}: ${STEPS[step].title}`}>
+        <svg viewBox="0 0 880 360" role="img" aria-label={T.aria(step + 1, steps[step].title)}>
           <rect className="band" x="10" y="10" width="860" height="340" rx="12" />
-          <text className="b" x="28" y="36">เวลาของ event (event time)</text>
+          <text className="b" x="28" y="36">{T.axis}</text>
 
           {/* axis */}
           <line className="ln" x1={X0} x2={X0 + W} y1={150} y2={150} />
@@ -93,8 +139,8 @@ export default function WatermarkLab() {
                   rx="6"
                   strokeDasharray={done ? '5 4' : undefined}
                 />
-                <text className="s b" x={px(w.s) + 8} y={80}>{label(w.s)} ถึง {label(w.e)}</text>
-                <text className="m s" x={px(w.s) + 8} y={100}>{done ? `ส่งออกแล้ว (${w.count})` : inState ? `ใน state: ${w.count}` : ''}</text>
+                <text className="s b" x={px(w.s) + 8} y={80}>{label(w.s)} {T.to} {label(w.e)}</text>
+                <text className="m s" x={px(w.s) + 8} y={100}>{done ? T.emitted(w.count) : inState ? T.inState(w.count) : ''}</text>
               </motion.g>
             );
           })}
@@ -109,7 +155,7 @@ export default function WatermarkLab() {
                   <>
                     <line x1={px(e.t) - 7} y1={121} x2={px(e.t) + 7} y2={135} stroke="var(--accent)" strokeWidth="2.5" />
                     <line x1={px(e.t) - 7} y1={135} x2={px(e.t) + 7} y2={121} stroke="var(--accent)" strokeWidth="2.5" />
-                    <text className="s b acc" x={px(e.t) + 12} y={142}>ทิ้ง (ช้าเกิน)</text>
+                    <text className="s b acc" x={px(e.t) + 12} y={142}>{T.dropped}</text>
                   </>
                 )}
               </motion.g>
@@ -123,23 +169,23 @@ export default function WatermarkLab() {
               watermark {wm == null ? '' : label(wm)}
             </motion.text>
           </motion.g>
-          <text className="s" x={X0} y={216}>watermark = event time ที่ใหม่สุดที่เคยเห็น ลบ 10 นาที (ใช้ใน batch ถัดไป)</text>
+          <text className="s" x={X0} y={216}>{T.rule}</text>
 
           {/* output table */}
           <rect className="box" x="40" y="232" width="360" height="102" rx="8" />
-          <text className="b" x="56" y="254">ผลที่ sink ได้รับ (append)</text>
-          {emittedRows.length === 0 && <text className="s" x="56" y="282">ยังไม่มีอะไร</text>}
+          <text className="b" x="56" y="254">{T.sink}</text>
+          {emittedRows.length === 0 && <text className="s" x="56" y="282">{T.nothing}</text>}
           {emittedRows.map((w, i) => (
-            <text key={i} className="m s" x="56" y={278 + i * 20}>{label(w.s)} ถึง {label(w.e)}   count = {w.count}</text>
+            <text key={i} className="m s" x="56" y={278 + i * 20}>{label(w.s)} {T.to} {label(w.e)}   count = {w.count}</text>
           ))}
           <rect className="box" x="430" y="232" width="410" height="102" rx="8" />
-          <text className="b" x="446" y="254">checkpoint ตอนนี้</text>
-          <text className="m s" x="446" y="278">offsets/0 ถึง offsets/{step}   commits/0 ถึง commits/{step}</text>
-          <text className="m s" x="446" y="300">state: {WINDOWS.filter((w) => w.from <= step && w.emitted > step).length} window</text>
+          <text className="b" x="446" y="254">{T.checkpoint}</text>
+          <text className="m s" x="446" y="278">offsets/0 {T.to} offsets/{step}   commits/0 {T.to} commits/{step}</text>
+          <text className="m s" x="446" y="300">{T.stateWindows(WINDOWS.filter((w) => w.from <= step && w.emitted > step).length)}</text>
         </svg>
       </div>
-      <StepControls steps={STEPS} step={step} playing={playing} go={go} toggle={toggle} />
-      <figcaption className="viz-caption">ทุก batch และเลข watermark มาจาก recentProgress ของการรันจริงใน exercises/09_streaming.py ขนาด window 5 นาที watermark 10 นาที โหมด append</figcaption>
+      <StepControls steps={steps} step={step} playing={playing} go={go} toggle={toggle} lang={lang} />
+      <figcaption className="viz-caption">{T.caption}</figcaption>
     </figure>
   );
 }

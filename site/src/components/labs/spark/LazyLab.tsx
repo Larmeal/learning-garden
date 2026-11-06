@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
+import type { Lang } from './stepper';
 
 interface Step {
   id: number;
@@ -10,13 +11,59 @@ const TRANSFORMS = ['filter(...)', 'select(...)', 'groupBy(...).agg(...)'];
 const ACTIONS = ['show()', 'count()'];
 const READ: Step = { id: 0, label: 'read.csv(...)' };
 
-export default function LazyLab() {
+const TEXT = {
+  th: {
+    start: 'เริ่มจากอ่านไฟล์ (ยังไม่ได้อ่านจริง)',
+    noted: (label: string) => `จดแผน: ${label} (ยังไม่ประมวลผลอะไร)`,
+    called: (action: string, n: number) => `เรียก ${action}: เริ่มรันทั้งแผน ${n} ขั้น`,
+    cacheHit: 'ข้อมูลอยู่ใน cache แล้ว ไม่ต้องอ่านไฟล์ซ้ำ',
+    readDisk: 'อ่านไฟล์จาก disk',
+    result: (action: string) => `${action} ได้ผลลัพธ์`,
+    title: 'เพิ่มคำสั่งลงแผน แล้วดูว่า Spark เริ่มทำงานเมื่อไร',
+    transformation: 'transformation (แค่จดแผน)',
+    action: 'action (เริ่มทำงานจริง)',
+    cacheBefore: 'เรียก ',
+    cacheAfter: ' ไว้หลังอ่านไฟล์',
+    reset: 'เริ่มใหม่',
+    plan: 'แผนที่ Spark จดไว้',
+    busy: 'executor กำลังประมวลผล',
+    idle: 'executor ว่างอยู่',
+    readsBefore: 'อ่านไฟล์จาก disk แล้ว ',
+    readsAfter: ' ครั้ง',
+    events: 'บันทึกเหตุการณ์',
+    caption: 'ลองเพิ่มคำสั่งหลายตัวแล้วสังเกตว่าไฟสถานะไม่ติดเลย พอกด action ไฟถึงติดและไล่ทำทุกขั้นในแผน กด action ซ้ำจะอ่านไฟล์ใหม่ทุกครั้ง ยกเว้นเปิด cache',
+  },
+  en: {
+    start: 'Start by reading the file (not actually read yet)',
+    noted: (label: string) => `Noted in the plan: ${label} (nothing is processed yet)`,
+    called: (action: string, n: number) => `Called ${action}: run the whole plan of ${n} steps`,
+    cacheHit: 'The data is already in the cache, so the file is not read again',
+    readDisk: 'Read the file from disk',
+    result: (action: string) => `${action} returned a result`,
+    title: 'Add commands to the plan and see when Spark starts working',
+    transformation: 'transformation (only noted in the plan)',
+    action: 'action (really starts work)',
+    cacheBefore: 'Call ',
+    cacheAfter: ' after reading the file',
+    reset: 'Start over',
+    plan: 'The plan Spark has noted',
+    busy: 'The executor is processing',
+    idle: 'The executor is idle',
+    readsBefore: 'Read the file from disk ',
+    readsAfter: ' times',
+    events: 'Event log',
+    caption: 'Add several commands and notice that the status lamp never lights up. When you press an action, the lamp lights up and every step of the plan runs. Pressing an action again reads the file again each time, unless you turn on cache.',
+  },
+};
+
+export default function LazyLab({ lang = 'th' }: { lang?: Lang }) {
+  const T = TEXT[lang];
   const [plan, setPlan] = useState<Step[]>([READ]);
   const [cache, setCache] = useState(false);
   const [cached, setCached] = useState(false);
   const [reads, setReads] = useState(0);
   const [running, setRunning] = useState<number | null>(null); // index of the step being executed
-  const [log, setLog] = useState<string[]>(['เริ่มจากอ่านไฟล์ (ยังไม่ได้อ่านจริง)']);
+  const [log, setLog] = useState<string[]>([T.start]);
   const nextId = useRef(1);
   const timer = useRef<ReturnType<typeof setTimeout>>();
   const reduce = useReducedMotion();
@@ -27,16 +74,16 @@ export default function LazyLab() {
 
   const add = (label: string) => {
     setPlan((p) => [...p, { id: nextId.current++, label }]);
-    push(`จดแผน: ${label} (ยังไม่ประมวลผลอะไร)`);
+    push(T.noted(label));
   };
 
   const run = (action: string) => {
     const useCache = cache && cached;
-    push(`เรียก ${action}: เริ่มรันทั้งแผน ${plan.length} ขั้น`);
-    if (useCache) push('ข้อมูลอยู่ใน cache แล้ว ไม่ต้องอ่านไฟล์ซ้ำ');
+    push(T.called(action, plan.length));
+    if (useCache) push(T.cacheHit);
     else {
       setReads((n) => n + 1);
-      push('อ่านไฟล์จาก disk');
+      push(T.readDisk);
     }
     if (cache) setCached(true);
     const stepMs = reduce ? 0 : 450;
@@ -48,7 +95,7 @@ export default function LazyLab() {
         timer.current = setTimeout(tick, stepMs);
       } else {
         setRunning(null);
-        push(`${action} ได้ผลลัพธ์`);
+        push(T.result(action));
       }
     };
     tick();
@@ -60,22 +107,22 @@ export default function LazyLab() {
     setReads(0);
     setCached(false);
     setRunning(null);
-    setLog(['เริ่มจากอ่านไฟล์ (ยังไม่ได้อ่านจริง)']);
+    setLog([T.start]);
   };
 
   return (
     <figure className="viz">
-      <div className="viz-title">เพิ่มคำสั่งลงแผน แล้วดูว่า Spark เริ่มทำงานเมื่อไร</div>
+      <div className="viz-title">{T.title}</div>
 
       <div className="lazy-grid">
         <div className="lazy-col">
-          <div className="lab-label">transformation (แค่จดแผน)</div>
+          <div className="lab-label">{T.transformation}</div>
           <div className="lazy-btns">
             {TRANSFORMS.map((t) => (
               <button key={t} type="button" className="btn" disabled={busy} onClick={() => add(t)}>+ {t}</button>
             ))}
           </div>
-          <div className="lab-label" style={{ marginTop: 14 }}>action (เริ่มทำงานจริง)</div>
+          <div className="lab-label" style={{ marginTop: 14 }}>{T.action}</div>
           <div className="lazy-btns">
             {ACTIONS.map((a) => (
               <button key={a} type="button" className="btn primary" disabled={busy} onClick={() => run(a)}>{a}</button>
@@ -83,13 +130,13 @@ export default function LazyLab() {
           </div>
           <label className="check">
             <input type="checkbox" checked={cache} disabled={busy} onChange={(e) => { setCache(e.target.checked); setCached(false); }} />
-            เรียก <code>cache()</code> ไว้หลังอ่านไฟล์
+            {T.cacheBefore}<code>cache()</code>{T.cacheAfter}
           </label>
-          <button type="button" className="btn" onClick={reset} style={{ alignSelf: 'flex-start' }}>เริ่มใหม่</button>
+          <button type="button" className="btn" onClick={reset} style={{ alignSelf: 'flex-start' }}>{T.reset}</button>
         </div>
 
         <div className="lazy-col">
-          <div className="lab-label">แผนที่ Spark จดไว้</div>
+          <div className="lab-label">{T.plan}</div>
           <ol className="plan">
             {plan.map((s, i) => (
               <motion.li
@@ -105,15 +152,15 @@ export default function LazyLab() {
           </ol>
           <div className="lamp-row">
             <span className={`lamp${busy ? ' on' : ''}`} aria-hidden="true" />
-            <span>{busy ? 'executor กำลังประมวลผล' : 'executor ว่างอยู่'}</span>
+            <span>{busy ? T.busy : T.idle}</span>
           </div>
           <div className="readout">
-            <span>อ่านไฟล์จาก disk แล้ว <b>{reads}</b> ครั้ง</span>
+            <span>{T.readsBefore}<b>{reads}</b>{T.readsAfter}</span>
           </div>
         </div>
 
         <div className="lazy-col">
-          <div className="lab-label">บันทึกเหตุการณ์</div>
+          <div className="lab-label">{T.events}</div>
           <ul className="log" aria-live="polite">
             {log.map((l, i) => (
               <li key={`${i}-${l}`}>{l}</li>
@@ -122,9 +169,7 @@ export default function LazyLab() {
         </div>
       </div>
 
-      <p className="viz-caption">
-        ลองเพิ่มคำสั่งหลายตัวแล้วสังเกตว่าไฟสถานะไม่ติดเลย พอกด action ไฟถึงติดและไล่ทำทุกขั้นในแผน กด action ซ้ำจะอ่านไฟล์ใหม่ทุกครั้ง ยกเว้นเปิด cache
-      </p>
+      <p className="viz-caption">{T.caption}</p>
     </figure>
   );
 }
