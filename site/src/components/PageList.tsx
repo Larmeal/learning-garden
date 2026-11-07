@@ -15,9 +15,9 @@ export default function PageList({ pages, currentId, lang = 'th' }: { pages: Pag
   const count = pages.filter((p) => done[p.id]).length;
   return (
     <nav className="pagelist" aria-label={t.pages.label}>
-      <h4>
+      <h2>
         {t.pages.label} <span>{t.pages.readCount(count, pages.length)}</span>
-      </h4>
+      </h2>
       <ol>
         {pages.map((p) => (
           <li key={p.id}>

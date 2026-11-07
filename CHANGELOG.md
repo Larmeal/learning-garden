@@ -2,6 +2,28 @@
 
 Notable changes to the learning garden, newest first. Dates are when the change was made.
 
+## 2026-11-08
+
+### Changed
+- Checked with the impeccable detector (`npx impeccable detect <url>`, run from outside the repo, nothing installed) and by eye on
+  desktop, phone and dark mode. The detector no longer reports low contrast, skipped headings or undersized text on the pages
+  it was run on.
+- Dark mode: the gold marker behind the highlighted word of the home title is weaker (`--hl`), so light text on it is readable.
+- Headings: the "pages in this lesson", "on this page" and lesson list blocks and the phase and plant titles of a subject page are
+  `<h2>` instead of `<h4>` or `<h3>`, so no level is skipped. Their look is unchanged.
+- Text of 10.5px (tile tags, page tags, fretboard labels) is 11px. The numbers under the plants of the subject scene are larger,
+  and hidden on a phone where the tiles show them.
+- Home page: the footer of each subject card sits at the bottom and the taglines reserve two lines, so the plant beds and buttons
+  line up across a row.
+- Tables in lessons on a phone: inline code in a cell (`spark://host:7077`) is no longer broken at every letter, which had made
+  that column one letter wide and the rows hundreds of pixels tall. Cells and text are tighter, and a table wider than the screen
+  scrolls sideways with a soft shadow on the side that has more.
+- Home page: each subject card has a ledge and a plant bed tinted with that subject's own accent (the lighter variant in dark
+  mode), the hover ledge uses it too, and tagline text uses `text-wrap: pretty` so a single word is not left on the last line.
+- Phone: the site name no longer wraps in the header, lesson tiles are two to a row, the bottom bar of the subject page stacks its
+  title above the two buttons instead of squeezing the title, and diagrams that scroll sideways show a soft shadow on the side that
+  has more.
+
 ## 2026-11-07
 
 ### Added

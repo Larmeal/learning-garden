@@ -106,7 +106,7 @@ export default function TopicMap({ lessons, phases, initial, lang = 'th' }: { le
             <div className="phase-head">
               <span className="phase-badge">{p.id}</span>
               <div>
-                <h3>{p.title}</h3>
+                <h2>{p.title}</h2>
                 <span className="check">{t.selfCheck} {p.check}</span>
               </div>
             </div>
@@ -154,7 +154,7 @@ export default function TopicMap({ lessons, phases, initial, lang = 'th' }: { le
             <div className="head">
               <Plant stage={plantStage(cur.stage, finished(done, cur))} size={56} sway />
               <div>
-                <h3>{cur.title}</h3>
+                <h2>{cur.title}</h2>
                 <span className="sub">
                   {t.topic(pad(cur.order), cur.phase, STATE_LABEL[plantStage(cur.stage, finished(done, cur))])}
                 </span>
