@@ -6,6 +6,7 @@ import { createSync } from './tools/translation-sync.mjs';
 
 import react from '@astrojs/react';
 import mdx from '@astrojs/mdx';
+import gardenNotes from './dev-notes/integration.mjs';
 
 // Dev only (`astro dev`): the View | Edit switch on a lesson page reads and writes that lesson's .mdx file through
 // /__edit. It is never part of a build. Safeguards:
@@ -233,6 +234,7 @@ function devEditor() {
 export default defineConfig({
   site: process.env.SITE_URL,
   base: process.env.BASE_PATH,
-  integrations: [react(), mdx()],
+  // gardenNotes adds the "Notes" app to the dev toolbar and does nothing in a build.
+  integrations: [react(), mdx(), gardenNotes()],
   vite: { plugins: [devEditor()] },
 });
