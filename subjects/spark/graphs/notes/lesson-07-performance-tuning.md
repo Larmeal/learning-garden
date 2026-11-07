@@ -326,7 +326,7 @@ Spare questions if the author wants a sixth:
 - Windows: no parquet writes; the `noop` format (`df.write.format("noop").mode("overwrite").save()`) works for forcing execution without output.
 - Startup prints `WARN Utils: Service 'SparkUI' could not bind on port 4040` when another session is alive; UI URL is in `sc.uiWebUrl` (host name `Larmeal`).
 - Python-side arrow: pyarrow/pandas are not installed in the venv; Arrow-optimized UDF and `toPandas` examples cannot run here.
-- Scripts used live in the session scratchpad (not in the repo): `join1.py, join2.py, join3.py, aqe1.py, aqe2.py, skew2.py, skew3.py, skew4.py, salt1.py, salt2.py, cache1.py, cache2.py, part1.py, shufflew.py, spill1.py, anti1.py, misc1.py` under `C:\Users\armlo\AppData\Local\Temp\claude\e--Development-Project-open-source-spark\3e6bb945-00c7-46b0-9436-b239ee6c3a51\scratchpad\`.
+- Scripts used live in the session scratchpad (not in the repo): `join1.py, join2.py, join3.py, aqe1.py, aqe2.py, skew2.py, skew3.py, skew4.py, salt1.py, salt2.py, cache1.py, cache2.py, part1.py, shufflew.py, spill1.py, anti1.py, misc1.py` under `<scratchpad>\`.
 
 ## 6. UNVERIFIED list (do not state as fact)
 

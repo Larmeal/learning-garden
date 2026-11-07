@@ -2,7 +2,7 @@
 # Usage: startwave.sh N   (N = wave number from core-waves.json, 1-based). Appends files to ignore, runs prep_stage, prints agent plan.
 set -e
 N=$1
-export S="/c/Users/armlo/AppData/Local/Temp/claude/e--Development-Project-open-source-spark/3e6bb945-00c7-46b0-9436-b239ee6c3a51/scratchpad"
+export S="${SCRATCH:?set SCRATCH to the scratchpad folder}"
 cd /e/Development/Project/open-source/spark
 S="$S" node -e '
 const w=require(process.env.S+"/core-waves.json")[+process.argv[1]-1];

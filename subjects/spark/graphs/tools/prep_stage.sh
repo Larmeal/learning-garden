@@ -3,7 +3,7 @@
 # Assumes the stage's files were already appended (uncommented) to .ua/.understandignore.
 set -e
 ROOT="/e/Development/Project/open-source/spark"
-S="/c/Users/armlo/AppData/Local/Temp/claude/e--Development-Project-open-source-spark/3e6bb945-00c7-46b0-9436-b239ee6c3a51/scratchpad"
+S="${SCRATCH:?set SCRATCH to the scratchpad folder}"
 SK="$HOME/.claude/skills/understand"
 cd "$ROOT"
 SNAP="$S/repair/snap-$1"; rm -rf "$SNAP"; mkdir -p "$SNAP"

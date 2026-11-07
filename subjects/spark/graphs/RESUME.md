@@ -8,6 +8,9 @@ State lives in files, not in the chat:
 - `notes/`: audit of lessons 00-05, and evidence notes for later lessons.
 - `tools/`: helper scripts (see below).
 
+Paths in `tools/` and the notes are placeholders: `<scratchpad>` is the session scratchpad folder of the run (the `tools/*.sh` scripts read it from the
+`SCRATCH` environment variable) and `<home>` is the user's home folder. Replace them with the real paths of your machine before running anything.
+
 The live graph is `<spark repo>/.ua/` (E:\Development\Project\open-source\spark\.ua), excluded from git through
 `.git/info/exclude`. The Spark checkout is v4.2.0 (commit 32f72996). Do not edit Spark sources, do not commit or push,
 do not edit `site/` unless the user asks.
@@ -32,7 +35,7 @@ must point at it) and `ROOT` = the Spark repo.
    stale intermediate files, runs prepare-incremental and compute-batches, prints the batches. FULL_UPDATE or SKIP
    means stop and fix or split.
 3. Dispatch general-purpose subagents (about 2,000-4,500 lines each). Each reads
-   `C:\Users\armlo\.understand-anything-plugin\agents\file-analyzer.md` and writes `.ua/intermediate/batch-<N>.json`
+   `<home>\.understand-anything-plugin\agents\file-analyzer.md` and writes `.ua/intermediate/batch-<N>.json`
    or `batch-<N>-part-<K>.json` for a split batch. Instructions that worked: read the files fully, check line ranges,
    at most about 30-70 nodes per big file, edges only when the source text supports them, ids for cross-agent targets
    by convention (`class:<path>:<Name>`, `function:<path>:Class.method`, `file:<path>`), nothing outside ASCII.
