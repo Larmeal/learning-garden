@@ -13,7 +13,16 @@ Notable changes to the learning garden, newest first. Dates are when the change 
 - The dev editor (`astro dev` only) shows the result of that check: a warning panel with the units that are behind, a dot on the
   Edit button, a button that copies what has to be translated, a link to the other language, and a button to mark a page as in step.
 
+- A "Notes" app in the Astro dev toolbar (`astro dev` only, code in `site/dev-notes/`). In comment mode a click on an element, a
+  right click or a drag over text opens a small form (category and text); the arrow keys change which level is picked. The note is
+  saved to `.audit/comments.json` (git-ignored, the repo is public) with the quoted text or the element path, the component and
+  lesson file, the viewport, the theme, the language and the step. Saved notes show as numbered badges and highlights, in a panel
+  per page, with replies, Resolve and delete. The file is read again when the window gets focus, so replies written into it show
+  up. It is wired in `astro.config.mjs` as the `gardenNotes()` integration and does nothing in a build.
+
 ### Changed
+- README: lists all seven subjects with their lesson counts, says that every subject has an English version, and describes the
+  dev-only tools.
 - The dev editor now replaces only the lesson text, in the same column as the page, and grows with its text, so the header, the
   lesson list and the title stay where they were. In step-by-step mode it uses the long layout while editing.
 - Spark `FormatLab` is redone: pick the columns a query needs and see CSV (stored row by row) and Parquet (stored column by column)
