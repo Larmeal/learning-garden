@@ -4,7 +4,18 @@ Notable changes to the learning garden, newest first. Dates are when the change 
 
 ## 2026-11-08
 
+### Added
+- `site/tools/lesson-refs.mjs` (`npm run check:refs`, also a step of the deploy workflow): every mention of another lesson must be a
+  link. It finds "บทที่ 5", "บท 5", "lesson 5", "บทถัดไป", "the next lesson", a page named by its title and "lesson 5, page
+  \"Title\"", links them with `--fix`, and fails on a mention that is not linked and on a link that points at no page. A number after
+  a book name in Data Quality ("Ten Steps บทที่ 3 หน้า 42") is a book chapter and is left alone.
+- The `q` and `why` of a `<Question>` and the `title` of a `<Callout>` render `[text](/path/)` links (`src/lib/inline-links.ts`). The
+  key under which a question's answer is stored is the text without the link, so saved answers still match.
+
 ### Changed
+- About 440 mentions of other lessons in the Thai and English lessons of every subject were plain text and are now links (the
+  tool links the lesson, not a heading). The four frontmatter summaries that named lesson numbers say "the earlier lessons".
+- Thai and English: link-only differences were marked as in step (`npm run sync -- --accept`).
 - Checked with the impeccable detector (`npx impeccable detect <url>`, run from outside the repo, nothing installed) and by eye on
   desktop, phone and dark mode. The detector no longer reports low contrast, skipped headings or undersized text on the pages
   it was run on.

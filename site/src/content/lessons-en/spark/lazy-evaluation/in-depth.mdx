@@ -29,7 +29,7 @@ The results to remember:
 | `count()` (an action) | at least 1 |
 | `groupBy(...).count().collect()` the first time | **2** |
 
-Why `groupBy` is two jobs: with AQE on, Spark cuts the plan at the shuffle. It first runs the stage that writes the shuffle to the end, as the first job, and only then decides how to run the result stage, as the second job (lesson 6). With AQE off it is one job (measured both ways).
+Why `groupBy` is two jobs: with AQE on, Spark cuts the plan at the shuffle. It first runs the stage that writes the shuffle to the end, as the first job, and only then decides how to run the result stage, as the second job ([lesson 6](/en/spark/catalyst-aqe/)). With AQE off it is one job (measured both ways).
 
 </Step>
 
@@ -71,7 +71,7 @@ If Spark read everything, it would take many hours. It starts from the first par
 
 ## `cache()` is lazy too
 
-`c = df.filter(...).cache()` does not start a job (measured: 0 jobs). `c.is_cached` is `True` right away, but Spark's storage tracker is still empty (`getRDDStorageInfo()` has no entries). Only after the first action (`c.count()`) is there one entry. See lesson 7 for other traps of cache (which partitions are stored, whether it is worth it).
+`c = df.filter(...).cache()` does not start a job (measured: 0 jobs). `c.is_cached` is `True` right away, but Spark's storage tracker is still empty (`getRDDStorageInfo()` has no entries). Only after the first action (`c.count()`) is there one entry. See [lesson 7](/en/spark/performance-tuning/) for other traps of cache (which partitions are stored, whether it is worth it).
 
 </Step>
 
@@ -106,10 +106,10 @@ on.collect()    # still an error: CAST_INVALID_INPUT  (turning it off later does
 off.collect()   # [Row(i=None)]  you get NULL
 ```
 
-The main lesson says "If you turn this mode off, you get NULL". That is true when you turn it off **before** you define the DataFrame. Turning it off after the definition has no effect. A learner who tries the opposite order will be confused. Lesson 6 explains the deeper reason (the analyzer picks rules by the mode when it analyzes).
+The main lesson says "If you turn this mode off, you get NULL". That is true when you turn it off **before** you define the DataFrame. Turning it off after the definition has no effect. A learner who tries the opposite order will be confused. [Lesson 6](/en/spark/catalyst-aqe/) explains the deeper reason (the analyzer picks rules by the mode when it analyzes).
 
 <Callout type="tip" title="How to check what Spark really did">
-Use the Spark UI Jobs tab (or `statusTracker` in Python) and see which line adds a job. If it does not add one, it only wrote down the plan. If you find an unexpected job (for example `read.csv` with `inferSchema` starts 2 jobs before any action, see lesson 4), suspect an option that makes Spark read the data ahead of time.
+Use the Spark UI Jobs tab (or `statusTracker` in Python) and see which line adds a job. If it does not add one, it only wrote down the plan. If you find an unexpected job (for example `read.csv` with `inferSchema` starts 2 jobs before any action, see [lesson 4](/en/spark/data-io/)), suspect an option that makes Spark read the data ahead of time.
 </Callout>
 
 </Step>

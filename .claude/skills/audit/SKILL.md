@@ -54,6 +54,7 @@ Work on notes with `status: "open"`. A note whose last reply is from `you` is a 
 - A lesson that exists in Thai and English: change both, or say in the reply which one is still behind. `npm run sync` (from
   `site/`) lists what is out of step.
 - Do not rename a heading without searching the lessons for links to its old id (CLAUDE.md, "Links between lessons").
+- Every mention of another lesson must be a link: `npm run check:refs` (from `site/`) must print 0 references that are not links (see CLAUDE.md, "Links between lessons").
 - `npm run build` from `site/` must pass. Add a line to `CHANGELOG.md` for a change a reader can see.
 - Do not commit or push unless the owner asks in that turn.
 

@@ -11,7 +11,7 @@ import Step from '../../../../components/Step.astro';
 import Callout from '../../../../components/Callout.astro';
 import ParquetSkipLab from '../../../../components/labs/spark/ParquetSkipLab';
 
-ทุกตัวเลขในหน้านี้มาจาก `exercises/04_data_io.py` ที่เขียนไฟล์ CSV และ Parquet จริง 600,000 แถวแล้ววัด รันใน WSL เพราะ Windows เขียน Parquet ไม่ได้ (ดูบทที่ 9 หัวข้อ `hadoop.dll`) ตัวเลขขนาดไฟล์และไบต์ที่อ่านเป็นของเครื่องผู้เขียน จึงดูที่สัดส่วน
+ทุกตัวเลขในหน้านี้มาจาก `exercises/04_data_io.py` ที่เขียนไฟล์ CSV และ Parquet จริง 600,000 แถวแล้ววัด รันใน WSL เพราะ Windows เขียน Parquet ไม่ได้ (ดู[บทที่ 9](/spark/structured-streaming/) หัวข้อ `hadoop.dll`) ตัวเลขขนาดไฟล์และไบต์ที่อ่านเป็นของเครื่องผู้เขียน จึงดูที่สัดส่วน
 
 <Step>
 
@@ -26,9 +26,9 @@ import ParquetSkipLab from '../../../../components/labs/spark/ParquetSkipLab';
 
 - **ขนาดไฟล์**: Parquet เล็กกว่า CSV เพียงราวหนึ่งในสามในตารางนี้ เพราะสตริง hash สุ่มบีบอัดไม่ได้เลย ถ้าข้อมูลมีค่าซ้ำเยอะ (country, status, ตัวเลขช่วงแคบ) ส่วนต่างจะมากกว่านี้ ตัวเลขขนาดไฟล์ขึ้นกับข้อมูลมาก จึงอย่าจำเป็นตัวคูณ
 - **ไบต์ที่อ่าน**: นี่คือความต่างที่ชัดที่สุด CSV ต้องอ่านทุกบรรทัดตั้งแต่ต้นจนจบเพื่อหาคอลัมน์เดียว ได้ 73.3 MiB (มากกว่าไฟล์นิดหน่อยเพราะนับ header ของทุกไฟล์) Parquet เก็บข้อมูลทีละคอลัมน์ Spark อ่านเฉพาะ column chunk ของ `amount` ได้ **0.10 MiB** ราวหนึ่งในห้าร้อยของไฟล์
-- แผนยืนยันว่า Spark รู้ล่วงหน้า: `ReadSchema: struct<amount:double>` (column pruning ของบทที่ 6)
+- แผนยืนยันว่า Spark รู้ล่วงหน้า: `ReadSchema: struct<amount:double>` (column pruning ของ[บทที่ 6](/spark/catalyst-aqe/))
 
-"ไบต์ที่อ่าน" คือ `inputBytes` ที่ Spark UI แสดงในหน้า Stage อ่านผ่าน REST API (บทที่ 11) ส่วน "size of files read" ของ node `Scan` ใน SQL tab เป็นขนาดไฟล์ที่เปิด ไม่ใช่ไบต์ที่อ่านจริง ซึ่งให้ภาพที่ต่างกันได้
+"ไบต์ที่อ่าน" คือ `inputBytes` ที่ Spark UI แสดงในหน้า Stage อ่านผ่าน REST API ([บทที่ 11](/spark/deployment-spark-ui/)) ส่วน "size of files read" ของ node `Scan` ใน SQL tab เป็นขนาดไฟล์ที่เปิด ไม่ใช่ไบต์ที่อ่านจริง ซึ่งให้ภาพที่ต่างกันได้
 
 </Step>
 
@@ -57,10 +57,10 @@ PushedFilters: [IsNotNull(id), GreaterThanOrEqual(id,1000), LessThanOrEqual(id,1
 
 <ParquetSkipLab client:visible />
 
-บทเรียน: pushdown ไม่ได้ช่วยเสมอ ต้องให้ข้อมูลเรียงหรือจัดกลุ่มตามคอลัมน์ที่ใช้ filter บ่อย เพื่อให้ `min`/`max` ของแต่ละก้อนแคบ (ตรงกับที่ table format อย่าง Delta ทำด้วย OPTIMIZE และ data skipping ในบทที่ 10)
+บทเรียน: pushdown ไม่ได้ช่วยเสมอ ต้องให้ข้อมูลเรียงหรือจัดกลุ่มตามคอลัมน์ที่ใช้ filter บ่อย เพื่อให้ `min`/`max` ของแต่ละก้อนแคบ (ตรงกับที่ table format อย่าง Delta ทำด้วย OPTIMIZE และ data skipping ใน[บทที่ 10](/spark/table-formats/))
 
-<Callout type="note" title="บทที่ 6 เคยบอกว่ายังไม่ได้ทดสอบ">
-บทที่ 6 ใช้ CSV ในตัวอย่าง pushdown เพราะตอนนั้นเขียน Parquet บน Windows ไม่ได้ ตอนนี้ตรวจแล้วว่า Parquet ข้าม row group ได้ตามที่เขียน และใน plan ของ Parquet `PushedFilters` กับ `Filter` อยู่คู่กันเหมือน CSV
+<Callout type="note" title="[บทที่ 6](/spark/catalyst-aqe/) เคยบอกว่ายังไม่ได้ทดสอบ">
+[บทที่ 6](/spark/catalyst-aqe/) ใช้ CSV ในตัวอย่าง pushdown เพราะตอนนั้นเขียน Parquet บน Windows ไม่ได้ ตอนนี้ตรวจแล้วว่า Parquet ข้าม row group ได้ตามที่เขียน และใน plan ของ Parquet `PushedFilters` กับ `Filter` อยู่คู่กันเหมือน CSV
 </Callout>
 
 </Step>
@@ -107,7 +107,7 @@ filter ด้วยคอลัมน์ partition ถูกจัดการ�
 
 ตอนอ่านไฟล์ Spark แบ่งงานเป็น partition ตามขนาดไฟล์ `spark.sql.files.maxPartitionBytes` มีค่าเริ่มต้น **128 MiB** (`134217728b` ที่อ่านจาก `spark.conf`) ไฟล์ที่ใหญ่กว่านั้นถูกหั่นเป็นช่วง ส่วนไฟล์เล็กอาจถูกรวมหลายไฟล์ต่อ partition หรืออยู่ partition ละไฟล์ ขึ้นกับจำนวน core และต้นทุนการเปิดไฟล์ (ผู้เขียนไม่ได้อ่านสูตรเต็ม ผลที่เห็นในแล็บคือหนึ่งไฟล์ต่อหนึ่ง partition)
 
-วัดจริงกับ 16 ไฟล์เล็ก: ค่าเริ่มต้นได้ **16 partition** (หนึ่งต่อไฟล์) ตั้ง `maxPartitionBytes` เป็น 20,000 ไบต์ได้ **32 partition** (ไฟล์ถูกหั่นเป็นช่วง) ข้อนี้ปิดข้อสงสัยในบทที่ 7 ที่เคยบอกว่ายังไม่ได้ทดสอบการแบ่ง partition ตอนอ่านไฟล์
+วัดจริงกับ 16 ไฟล์เล็ก: ค่าเริ่มต้นได้ **16 partition** (หนึ่งต่อไฟล์) ตั้ง `maxPartitionBytes` เป็น 20,000 ไบต์ได้ **32 partition** (ไฟล์ถูกหั่นเป็นช่วง) ข้อนี้ปิดข้อสงสัยใน[บทที่ 7](/spark/performance-tuning/) ที่เคยบอกว่ายังไม่ได้ทดสอบการแบ่ง partition ตอนอ่านไฟล์
 
 </Step>
 
@@ -124,7 +124,7 @@ filter ด้วยคอลัมน์ partition ถูกจัดการ�
 | `append` | เพิ่ม (10 เป็น 20 แถว) |
 | `overwrite` | แทนที่ทั้งโฟลเดอร์ (เหลือ 3 แถว) |
 
-`overwrite` ลบของเดิมทั้งหมดก่อนเขียน ถ้า job ล้มกลางทาง ข้อมูลเดิมก็หายไปแล้วด้วย นี่คือเหตุผลหนึ่งที่ table format (บทที่ 10) มี transaction
+`overwrite` ลบของเดิมทั้งหมดก่อนเขียน ถ้า job ล้มกลางทาง ข้อมูลเดิมก็หายไปแล้วด้วย นี่คือเหตุผลหนึ่งที่ table format ([บทที่ 10](/spark/table-formats/)) มี transaction
 
 </Step>
 

@@ -11,7 +11,7 @@ import Step from '../../../../components/Step.astro';
 import Callout from '../../../../components/Callout.astro';
 import ParquetSkipLab from '../../../../components/labs/spark/ParquetSkipLab';
 
-Every number on this page comes from `exercises/04_data_io.py`, which writes real CSV and Parquet files with 600,000 rows and measures them. It runs in WSL because Windows cannot write Parquet (see the `hadoop.dll` part in lesson 9). The file sizes and bytes read belong to the author's machine, so look at the proportions.
+Every number on this page comes from `exercises/04_data_io.py`, which writes real CSV and Parquet files with 600,000 rows and measures them. It runs in WSL because Windows cannot write Parquet (see the `hadoop.dll` part in [lesson 9](/en/spark/structured-streaming/)). The file sizes and bytes read belong to the author's machine, so look at the proportions.
 
 <Step>
 
@@ -26,9 +26,9 @@ The test table has 9 columns: `id`, `country` (5 values), `status` (4 values), `
 
 - **File size**: Parquet is only about one third smaller than CSV in this table, because the random hash strings cannot be compressed at all. If the data has many repeated values (country, status, numbers in a narrow range), the difference is larger. File size depends a lot on the data, so do not remember it as a multiplier.
 - **Bytes read**: this is the clearest difference. CSV must read every line from start to end to find one column, and it reads 73.3 MiB (a little more than the file because the header of every file is counted). Parquet stores data column by column, and Spark reads only the column chunk of `amount`: **0.10 MiB**, about one five-hundredth of the file.
-- The plan confirms that Spark knows this in advance: `ReadSchema: struct<amount:double>` (column pruning, lesson 6).
+- The plan confirms that Spark knows this in advance: `ReadSchema: struct<amount:double>` (column pruning, [lesson 6](/en/spark/catalyst-aqe/)).
 
-"Bytes read" is the `inputBytes` that the Spark UI shows on the Stage page, read through the REST API (lesson 11). The "size of files read" of the `Scan` node in the SQL tab is the size of the files that were opened, not the bytes actually read, so it can give a different picture.
+"Bytes read" is the `inputBytes` that the Spark UI shows on the Stage page, read through the REST API ([lesson 11](/en/spark/deployment-spark-ui/)). The "size of files read" of the `Scan` node in the SQL tab is the size of the files that were opened, not the bytes actually read, so it can give a different picture.
 
 </Step>
 
@@ -57,10 +57,10 @@ The result depends on how the data is sorted. The experiment used two files with
 
 <ParquetSkipLab client:visible lang="en" />
 
-The lesson: pushdown does not always help. The data must be sorted or grouped by the column that is often used in filters, so that the `min`/`max` of each block is narrow (this matches what table formats such as Delta do with OPTIMIZE and data skipping in lesson 10).
+The lesson: pushdown does not always help. The data must be sorted or grouped by the column that is often used in filters, so that the `min`/`max` of each block is narrow (this matches what table formats such as Delta do with OPTIMIZE and data skipping in [lesson 10](/en/spark/table-formats/)).
 
-<Callout type="note" title="Lesson 6 said this was not tested">
-Lesson 6 used CSV in its pushdown example, because at that time Parquet could not be written on Windows. Now it is checked that Parquet skips row groups as described, and that in the plan of a Parquet scan `PushedFilters` and `Filter` appear together, the same as with CSV.
+<Callout type="note" title="[Lesson 6](/en/spark/catalyst-aqe/) said this was not tested">
+[Lesson 6](/en/spark/catalyst-aqe/) used CSV in its pushdown example, because at that time Parquet could not be written on Windows. Now it is checked that Parquet skips row groups as described, and that in the plan of a Parquet scan `PushedFilters` and `Filter` appear together, the same as with CSV.
 </Callout>
 
 </Step>
@@ -107,7 +107,7 @@ Many small files are bad because each file has a cost when it is opened (reading
 
 When it reads files, Spark splits the work into partitions by file size. `spark.sql.files.maxPartitionBytes` has a default of **128 MiB** (`134217728b`, read from `spark.conf`). A file larger than that is cut into ranges, and small files may be packed several to one partition, or stay one file per partition, depending on the number of cores and the cost of opening a file (the author did not read the full formula; the result seen in the lab is one file per partition).
 
-Measured with 16 small files: the default gives **16 partitions** (one per file). Setting `maxPartitionBytes` to 20,000 bytes gives **32 partitions** (the files are cut into ranges). This settles the question in lesson 7, which said that the splitting of partitions when reading files had not been tested.
+Measured with 16 small files: the default gives **16 partitions** (one per file). Setting `maxPartitionBytes` to 20,000 bytes gives **32 partitions** (the files are cut into ranges). This settles the question in [lesson 7](/en/spark/performance-tuning/), which said that the splitting of partitions when reading files had not been tested.
 
 </Step>
 
@@ -124,7 +124,7 @@ Measured by writing again into the same folder.
 | `append` | Adds (10 becomes 20 rows) |
 | `overwrite` | Replaces the whole folder (3 rows remain) |
 
-`overwrite` deletes everything that was there before it writes. If the job fails halfway, the old data is already gone too. This is one reason table formats (lesson 10) have transactions.
+`overwrite` deletes everything that was there before it writes. If the job fails halfway, the old data is already gone too. This is one reason table formats ([lesson 10](/en/spark/table-formats/)) have transactions.
 
 </Step>
 

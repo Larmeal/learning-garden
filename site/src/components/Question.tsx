@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { questionKey, recordAnswer } from './useProgress';
 import { ui, type Lang } from '../i18n';
+import { splitLinks, stripLinks } from '../lib/inline-links';
 
 interface Props {
   q: string;
@@ -13,6 +14,9 @@ interface Props {
 
 const KEYS = ['A', 'B', 'C', 'D'];
 
+// q and why may hold [text](/path/) links to other lessons; options sit inside buttons, so they never show links
+const rich = (s: string) => splitLinks(s).map((p, i) => (typeof p === 'string' ? p : <a key={i} href={p.href}>{p.text}</a>));
+
 // One multiple-choice question. Announces the answer with a bubbling "garden:answered" event so the lesson player can unlock "next".
 export default function Question({ q, code, options, answer, why, lang = 'th' }: Props) {
   const t = ui[lang].question;
@@ -20,7 +24,7 @@ export default function Question({ q, code, options, answer, why, lang = 'th' }:
   const root = useRef<HTMLDivElement>(null);
   const done = pick !== null;
   const right = pick === answer;
-  const key = questionKey(q);
+  const key = questionKey(stripLinks(q)); // the key stays what it was before a link was added, so saved answers still match
 
   const choose = (n: number) => {
     if (done) return;
@@ -32,7 +36,7 @@ export default function Question({ q, code, options, answer, why, lang = 'th' }:
 
   return (
     <div className="qcard" ref={root} data-q={key}>
-      <p className="q-text">{q}</p>
+      <p className="q-text">{rich(q)}</p>
       {code && <pre className="q-code">{code}</pre>}
       <div className="q-opts" role="group" aria-label={t.options}>
         {options.map((o, n) => {
@@ -40,7 +44,7 @@ export default function Question({ q, code, options, answer, why, lang = 'th' }:
           return (
             <button key={o} type="button" className="q-opt" data-state={state} aria-disabled={done} onClick={() => choose(n)}>
               <span className="q-key" aria-hidden="true">{KEYS[n]}</span>
-              <span>{o}</span>
+              <span>{stripLinks(o)}</span>
             </button>
           );
         })}
@@ -48,7 +52,7 @@ export default function Question({ q, code, options, answer, why, lang = 'th' }:
       {done && (
         <div className={`q-feedback ${right ? 'right' : 'wrong'}`} role="status">
           <strong>{right ? t.right : t.wrong}</strong>
-          <p>{why}</p>
+          <p>{rich(why)}</p>
         </div>
       )}
     </div>

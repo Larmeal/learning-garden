@@ -4,7 +4,10 @@ interface Props {
   type?: 'tip' | 'warn' | 'try' | 'note';
   title?: string;
 }
+import { splitLinks } from '../lib/inline-links';
 const { type = 'note', title } = Astro.props;
+// the title may hold [text](/path/) links to other lessons
+const titleParts = title ? splitLinks(title) : [];
 ---
 
 <aside class={`callout callout-${type}`}>
@@ -17,7 +20,7 @@ const { type = 'note', title } = Astro.props;
     </svg>
   </span>
   <div class="callout-body">
-    {title && <strong class="callout-title">{title}</strong>}
+    {title && <strong class="callout-title">{titleParts.map((p) => (typeof p === 'string' ? p : <a href={p.href}>{p.text}</a>))}</strong>}
     <slot />
   </div>
 </aside>

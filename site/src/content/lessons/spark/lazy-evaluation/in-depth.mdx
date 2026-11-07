@@ -29,7 +29,7 @@ import JobCounterLab from '../../../../components/labs/spark/JobCounterLab';
 | `count()` (action) | อย่างน้อย 1 |
 | `groupBy(...).count().collect()` ครั้งแรก | **2** |
 
-ทำไม `groupBy` เป็นสอง job: เปิด AQE แล้ว Spark ตัดแผนที่ shuffle เป็นช่วง รัน stage ที่เขียน shuffle ให้เสร็จก่อนเป็น job แรก แล้วค่อยตัดสินใจรัน stage ผลลัพธ์เป็น job ที่สอง (บทที่ 6) ถ้าปิด AQE จะเป็น job เดียว (วัดจริงทั้งสองแบบ)
+ทำไม `groupBy` เป็นสอง job: เปิด AQE แล้ว Spark ตัดแผนที่ shuffle เป็นช่วง รัน stage ที่เขียน shuffle ให้เสร็จก่อนเป็น job แรก แล้วค่อยตัดสินใจรัน stage ผลลัพธ์เป็น job ที่สอง ([บทที่ 6](/spark/catalyst-aqe/)) ถ้าปิด AQE จะเป็น job เดียว (วัดจริงทั้งสองแบบ)
 
 </Step>
 
@@ -71,7 +71,7 @@ import JobCounterLab from '../../../../components/labs/spark/JobCounterLab';
 
 ## `cache()` เองก็ Lazy
 
-`c = df.filter(...).cache()` ไม่เริ่ม job (วัด 0 job) `c.is_cached` เป็น `True` ทันที แต่ตัวติดตามพื้นที่เก็บของ Spark ยังว่าง (`getRDDStorageInfo()` ไม่มีรายการ) หลัง action แรก (`c.count()`) ถึงมีรายการหนึ่งรายการ ดูบทที่ 7 สำหรับกับดักอื่นของ cache (partition ที่ถูกเก็บ, ความคุ้มค่า)
+`c = df.filter(...).cache()` ไม่เริ่ม job (วัด 0 job) `c.is_cached` เป็น `True` ทันที แต่ตัวติดตามพื้นที่เก็บของ Spark ยังว่าง (`getRDDStorageInfo()` ไม่มีรายการ) หลัง action แรก (`c.count()`) ถึงมีรายการหนึ่งรายการ ดู[บทที่ 7](/spark/performance-tuning/) สำหรับกับดักอื่นของ cache (partition ที่ถูกเก็บ, ความคุ้มค่า)
 
 </Step>
 
@@ -106,10 +106,10 @@ on.collect()    # ยัง error: CAST_INVALID_INPUT  (ปิดทีหลั
 off.collect()   # [Row(i=None)]  ได้ NULL
 ```
 
-บทหลักเขียนว่า "ถ้าปิดโหมดนี้ ผลที่ได้จะเป็น NULL" ซึ่งจริงเมื่อปิด **ก่อน** นิยาม DataFrame ถ้าปิดหลังนิยามแล้วไม่มีผล ผู้เรียนที่ลองสลับลำดับจะงง บทที่ 6 อธิบายเหตุผลลึกกว่านี้ (analyzer เลือก rule ตาม mode ตอนวิเคราะห์)
+บทหลักเขียนว่า "ถ้าปิดโหมดนี้ ผลที่ได้จะเป็น NULL" ซึ่งจริงเมื่อปิด **ก่อน** นิยาม DataFrame ถ้าปิดหลังนิยามแล้วไม่มีผล ผู้เรียนที่ลองสลับลำดับจะงง [บทที่ 6](/spark/catalyst-aqe/) อธิบายเหตุผลลึกกว่านี้ (analyzer เลือก rule ตาม mode ตอนวิเคราะห์)
 
 <Callout type="tip" title="วิธีเช็กว่า Spark ทำอะไรจริง">
-ใช้ Spark UI แท็บ Jobs (หรือ `statusTracker` ใน Python) ดูว่าบรรทัดไหนเพิ่ม job ถ้าไม่เพิ่ม แปลว่าแค่จดแผน เจอ job ที่ไม่คาดคิด (เช่น `read.csv` ที่ใช้ `inferSchema` เริ่ม 2 job ก่อน action ใดๆ ตามบทที่ 4) ให้สงสัยตัวเลือกที่ทำให้ Spark ต้องอ่านข้อมูลล่วงหน้า
+ใช้ Spark UI แท็บ Jobs (หรือ `statusTracker` ใน Python) ดูว่าบรรทัดไหนเพิ่ม job ถ้าไม่เพิ่ม แปลว่าแค่จดแผน เจอ job ที่ไม่คาดคิด (เช่น `read.csv` ที่ใช้ `inferSchema` เริ่ม 2 job ก่อน action ใดๆ ตาม[บทที่ 4](/spark/data-io/)) ให้สงสัยตัวเลือกที่ทำให้ Spark ต้องอ่านข้อมูลล่วงหน้า
 </Callout>
 
 </Step>
