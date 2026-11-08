@@ -5,6 +5,14 @@ Notable changes to the learning garden, newest first. Dates are when the change 
 ## 2026-11-08
 
 ### Added
+- Spark: a page "Spark คืออะไร ประวัติ และปัญหาที่มันแก้" ("What Spark is, its history, and the problems it solves", Thai and English,
+  `foundations/overview`) in lesson 0: what Spark is, Google MapReduce and Hadoop, where MapReduce got stuck (reusing data between jobs),
+  the RDD idea (lineage), what the paper's speedups depend on (first iteration against later ones, the 2014 sort that ran on disk), a
+  timeline from 2009 to 4.2 and where this path answers each problem. Every fact links to its source (papers, Apache release pages,
+  Databricks blog); nothing on the page was run. Lesson 0 points to it from the top.
+- Spark overview page: the timeline is an interactive lab (`SparkTimelineLab`): the line fills as you move down it, every period opens a card
+  with what happened, where this path covers it and the source, and a play button walks through the periods. Thai and English.
+- The Thai text of that page was rewritten after the owner's own edits to the first section (see "Thai prose" in `claude.md`).
 - Links between lessons point at the heading the sentence is about, not only at the lesson (about 420 links in each language, chosen
   one by one; where no heading is clearly the one the link stays on the lesson). Thai and English point at the same heading.
 - `npm run check:refs` also fails on a link to a heading that no longer exists (ids made with `github-slugger` the way the build
