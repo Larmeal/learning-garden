@@ -1,0 +1,184 @@
+---
+title: Spark คืออะไร
+summary: Spark เกิดจากอะไร ก่อนหน้านั้นพวกเราใช้อะไรในการจัดการข้อมูล แล้ว MapReduce มีปัญหาตรงไหน ไอเดียของ Spark คืออะไร และแต่ละเวอร์ชันใหญ่เพิ่มอะไรเข้ามา หน้านี้เล่าจาก paper และเอกสารของโปรเจกต์
+order: 1
+stage: sprout
+format: steps
+updated: 2026-11-08
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import SparkTimelineLab from '../../../../components/labs/spark/SparkTimelineLab';
+
+<Callout type="warn" title="หน้านี้เล่าเฉพาะประวัติความเป็นมา">
+ข้อความภายในหน้านี้มีลิงก์ไปยังต้นทางท้ายหน้า (paper ของ Google และ Berkeley, หน้า release ของ Apache Spark, บล็อกของ Databricks) ตัวเลขความเร็วทุกตัวเป็นของผู้เขียน paper หรือของผู้ประกาศผล ผู้เขียนบทเรียนไม่ได้วัดเองนะ
+
+</Callout>
+
+<Step>
+
+## Spark คืออะไร ในสามประโยค
+
+Spark เป็นเครื่องคำนวณข้อมูลแบบกระจาย (distributed compute engine) มันเองไม่ใช่ database สำหรับข้อมูลจะถูกเก็บเอาไว้ในรูปแบบอื่น เช่น ไฟล์ Parquet บน S3 หรือ HDFS Spark มาอ่าน แบ่งเป็นก้อน (partition) ให้คอมพิวเตอร์หลายเครื่องสามารถช่วยกันประมวลผลข้อมูลได้ แล้วถึงรวมผลลัพธ์กลับมาตอบคำถาม
+
+คุณเป็นคนเขียนโค้ด Python, SQL, Scala หรือ Java ส่วนการกระจายงาน การส่งข้อมูลกันระหว่างคอมพิวเตอร์และการรับมือกับปัญหาระหว่างทางไม่ว่าจะเป็น Networking, Technical Error กลางทางเป็นหน้าที่ของ Spark
+
+
+</Step>
+
+<Step>
+
+## ก่อนมี Spark: ข้อมูลโตเกินคอมพิวเตอร์เครื่องเดียว
+
+เรื่องนี้เริ่มที่ Google ในช่วงต้นทศวรรษ 2000 ตอนนั้นข้อมูลของเว็บใหญ่จนคอมพิวเตอร์เครื่องเดียวประมวลผลไม่ไหว Google เลยออกแบบระบบเก็บไฟล์แบบกระจายชื่อ GFS (ตีพิมพ์ปี 2003) และวิธีเขียนงานที่เรียกว่า MapReduce (ตีพิมพ์ปี 2004, [Dean และ Ghemawat, OSDI 2004](https://research.google/pubs/mapreduce-simplified-data-processing-on-large-clusters/))
+
+ถ้ามองจากฝั่งคนเขียนโค้ด MapReduce เล็กมาก เพราะเราเขียนแค่สองฟังก์ชัน ฟังก์ชัน `map` สร้างคู่ key/value ชั่วคราวออกมา ส่วน `reduce` เอาค่าทั้งหมดที่มี key เดียวกันมารวมกัน ที่เหลือเป็นหน้าที่ของระบบ ทั้งการแบ่งงานไปให้คอมพิวเตอร์หลายเครื่อง และการรับมือกับคอมพิวเตอร์ที่เสียระหว่างทาง เราจึงไม่ต้องเขียนโค้ดเรื่องเครือข่ายหรือการกู้งานเองเลย
+
+ทางฝั่ง open source มี Doug Cutting กับ Mike Cafarella กำลังสร้าง Nutch ซึ่งเป็นเครื่องมือค้นหา แล้วพบว่าโครงสร้างเดิมของมันรองรับเว็บที่ใหญ่ขนาดนั้นไม่ไหว พวกเขาเลยทำระบบแนวเดียวกับ GFS และ MapReduce ขึ้นมา แล้วแยกออกมาเป็น Hadoop ราวปี 2006 โดยมี Yahoo ช่วยทั้งทีมและคอมพิวเตอร์ (แต่ละแหล่งข้อมูลให้เดือนไม่ตรงกัน ที่ตรงกันคือปี 2006 และแหล่งที่ใช้คือ [BigDATAwire](https://bigdatawire.com/2015/04/15/from-spiders-to-elephants-the-history-of-hadoop)) จากจุดนี้เอง บริษัททั่วไปก็เริ่มใช้ cluster ที่ทำจากคอมพิวเตอร์ธรรมดาประมวลผลข้อมูลก้อนใหญ่ได้ ไม่ใช่แค่ Google
+
+</Step>
+
+<Step>
+
+## MapReduce ติดตรงไหน
+
+MapReduce ทำงานโดยอ่านจาก disk แล้วประมวลผล จากนั้นก็เขียนผลกลับลง disk ทีละ job ถ้างานของเราจบได้ใน job เดียวก็ไม่มีปัญหาอะไร แต่งานจริงหลายแบบต้องเอาผลของ job หนึ่งไปใช้ต่อใน job ถัดไป
+
+paper ของ Spark ที่ตีพิมพ์ปี 2012 อธิบายปัญหานี้ไว้ตรงๆ ว่า framework ส่วนใหญ่ในตอนนั้นไม่มีวิธีเอาข้อมูลมาใช้ซ้ำระหว่างสองการคำนวณ นอกจากต้องเขียนลง distributed file system ก่อน ซึ่ง paper บอกว่า "incurs substantial overheads due to data replication, disk I/O, and serialization" ([Zaharia และคณะ, NSDI 2012](https://www.usenix.org/conference/nsdi12/technical-sessions/presentation/zaharia)) งานที่เจอปัญหานี้หนักที่สุดมีสองแบบ
+
+แบบแรกคืออัลกอริทึมที่วนซ้ำ เช่น PageRank, K-means และ logistic regression ซึ่งต้องอ่านชุดข้อมูลเดิมซ้ำสิบหรือหลายสิบรอบ ถ้าแต่ละรอบเป็นหนึ่ง job ข้อมูลก็จะถูกอ่านจาก disk แล้วเขียนกลับทุกรอบ
+
+แบบที่สองคือการสำรวจข้อมูลแบบโต้ตอบ (interactive data mining) ที่เราถามคำถามต่อเนื่องกับข้อมูลชุดเดียวกัน ถ้าทุกคำถามต้องเริ่มอ่านจาก disk ใหม่ เราก็ต้องรอนานจนคิดต่อเนื่องไม่ได้
+
+ก่อนจะมี Spark ก็มีคนแก้ปัญหานี้เป็นกรณีๆ ไปบ้าง เช่น Pregel สำหรับกราฟที่ต้องวนซ้ำ และ HaLoop ที่เพิ่ม interface แบบวนซ้ำให้ MapReduce แต่ paper บอกว่าแต่ละตัวรองรับการคำนวณแค่รูปแบบเดียว ไม่ได้ให้วิธีเอาข้อมูลกลับมาใช้ซ้ำที่ใช้ได้ทั่วไป เช่นการโหลดหลาย dataset ไว้ใน memory แล้วถามอะไรข้ามกันก็ได้
+
+</Step>
+
+<Step>
+
+## ไอเดียของ Spark
+
+Spark เริ่มเป็นงานวิจัยที่ UC Berkeley AMPLab ในปี 2009 ([หน้าประวัติของโปรเจกต์](https://spark.apache.org/history.html)) ไอเดียหลักอยู่ใน paper เรื่อง RDD ซึ่งย่อมาจาก **Resilient Distributed Dataset** หมายถึงชุดข้อมูลที่แบ่งเป็น partition แล้วกระจายอยู่ในคอมพิวเตอร์หลายเครื่อง เราสั่งให้มันเก็บผลระหว่างทางไว้ใน memory ได้ และกำหนดวิธีแบ่ง partition เองได้ด้วย
+
+ส่วนที่ยากที่สุดคือจะทำให้ระบบรับมือกับคอมพิวเตอร์ที่ล้มได้อย่างไร โดยไม่ต้องทำสำเนาข้อมูลไปไว้ทั่ว cluster เพราะการทำสำเนาต้องส่งข้อมูลก้อนใหญ่ผ่านเครือข่าย ซึ่งช้ากว่า RAM มาก คำตอบของ paper คือแทนที่จะเก็บ "ข้อมูล" ให้เก็บ "สูตร" ที่ใช้สร้างข้อมูลนั้นไว้ RDD จะจำลำดับของ transformation (เช่น `map`, `filter`, `join`) ที่ใช้สร้างมันขึ้นมา เรียกว่า **lineage** พอ partition ไหนหายไป Spark ก็เอาสูตรนี้มาคำนวณใหม่เฉพาะ partition นั้นเท่านั้น
+
+วิธีคิดนี้ส่งผลต่อการเขียนโค้ดสองอย่าง ซึ่งเราจะเจอไปตลอดเส้นทางนี้
+
+อย่างแรก คำสั่งของ Spark แบ่งเป็น transformation ที่แค่บอกสูตรแต่ยังไม่ลงมือทำ กับ action ที่ลงมือคำนวณจริง นี่คือที่มาของ lazy evaluation ใน[บทที่ 2](/spark/lazy-evaluation/#สองประเภทของคำสั่ง)
+
+อย่างที่สอง เมื่อ Spark รู้สูตรของทั้งสาย มันก็วางแผนทั้งสายได้ก่อนเริ่มรัน และถ้า RDD ไหนหายไปก็คำนวณใหม่ได้ทุกเมื่อ รายละเอียดอยู่ใน[บทที่ 13](/spark/internals/#rdd-และ-lineage)
+
+</Step>
+
+<Step>
+
+## เร็วขึ้นเท่าไร และเพราะอะไร
+
+paper รายงานว่า Spark เร็วกว่า Hadoop ได้ถึง 20 เท่าในงานที่วนซ้ำ เร็วขึ้น 40 เท่าในรายงานวิเคราะห์ข้อมูลจริงของผู้ใช้รายหนึ่ง และใช้ถามข้อมูลขนาด 1 TB แบบโต้ตอบได้ โดยตอบกลับภายใน 5 ถึง 7 วินาที
+
+ตัวเลข 20 เท่ามีเงื่อนไขที่ควรอ่านให้ครบก่อนนะ ในส่วนทดลองของ paper (ข้อมูล 100 GB บน cluster ที่มีคอมพิวเตอร์ 100 เครื่อง) ผลเป็นแบบนี้
+
+ในรอบแรก ทุกระบบต้องอ่านไฟล์ข้อความจาก HDFS เหมือนกัน Spark จึงเร็วกว่า Hadoop แค่เล็กน้อย (paper ใช้คำว่า "moderately") เพราะ Hadoop เสียเวลาไปกับ heartbeat protocol ระหว่าง master กับ worker
+
+ในรอบถัดไป Spark เร็วกว่า Hadoop 25.3 เท่าใน logistic regression แต่ใน k-means ซึ่งใช้ CPU คำนวณหนักกว่า เร็วกว่าแค่ 1.9 ถึง 3.2 เท่า
+
+ผู้เขียน paper ยังลองให้ Hadoop เก็บข้อมูลแบบไบนารีไว้ใน memory ด้วย (เรียกว่า HadoopBinMem) ปรากฏว่า Spark ก็ยังเร็วกว่าราว 20 เท่า เพราะ Hadoop ยังเสีย overhead จากตัว software เอง จาก HDFS ตอนส่งข้อมูล และจากการแปลงข้อมูลไบนารีกลับเป็น object
+
+เหตุผลที่ Spark เร็วจึงมีหลายอย่างรวมกัน การเก็บข้อมูลไว้ใน memory เป็นแค่อย่างหนึ่ง อีกอย่างที่ช่วยมากคือข้อมูลที่ใช้ซ้ำไม่ต้องกลับไปผ่านชั้น disk, replication และ serialization ทุกรอบอีก
+
+นอกจากนี้ยังมีหลักฐานอีกชิ้นจากปี 2014 ในการแข่ง Daytona GraySort ซึ่งเป็นการเรียงข้อมูล 100 TB Databricks รายงานว่า Spark ใช้คอมพิวเตอร์ 206 เครื่อง เสร็จใน 23 นาที ขณะที่สถิติเดิมของ Hadoop MapReduce ใช้คอมพิวเตอร์ 2,100 เครื่อง 72 นาที (Spark ชนะร่วมกับทีม Themis ของ UCSD) ([ประกาศผลจาก Apache Spark](https://spark.apache.org/news/spark-wins-daytona-gray-sort-100tb-benchmark), [รายละเอียดจาก Databricks](https://www.databricks.com/blog/2014/10/10/spark-petabyte-sort.html)) คิดเป็นเร็วกว่าราว 3 เท่า โดยใช้คอมพิวเตอร์น้อยกว่าราว 10 เท่า
+
+ที่น่าสนใจคือการเรียงรอบนั้นทำบน disk และไม่ได้ใช้ cache ใน memory ของ Spark เลย ผลนี้จึงมาจากการออกแบบ engine เองโดยเฉพาะส่วน shuffle ไม่ได้มาจาก memory อย่างเดียว และอย่าลืมว่าเป็นตัวเลขของฝ่ายที่ส่งเข้าแข่งเองนะ
+
+</Step>
+
+<Step>
+
+## เส้นเวลา
+
+ลองกดดูทีละช่วงเวลาได้เลย หรือกดเล่นต่อเนื่องให้มันไล่ไปเองก็ได้ วันที่ทั้งหมดมาจากหน้า[ข่าวและ release ของ Apache Spark](https://spark.apache.org/news/index.html)
+
+<SparkTimelineLab client:visible lang="th" />
+
+ถ้าสังเกตเส้นเวลานี้ จะเห็นว่าความเร็วที่เพิ่มขึ้นมาจากสองทางสลับกัน ทางแรกคือปรับวิธีที่ข้อมูลเดินทาง (RDD, shuffle) ทางที่สองคือทำให้ Spark เข้าใจว่าเราถามอะไร (DataFrame, Catalyst, AQE) มันจะได้เลือกวิธีทำเองได้
+
+</Step>
+
+<Step>
+
+## ปัญหาแต่ละข้อ Spark ตอบที่ไหนในเส้นทางนี้
+
+- ถ้าอยากใช้ข้อมูลซ้ำโดยไม่ต้องเขียน disk ทุกรอบ ให้ดู[บทที่ 7](/spark/performance-tuning/#cache-ช่วยเมื่อไร) ว่า `cache` ช่วยตอนไหน และ[บทที่ 2](/spark/lazy-evaluation/#action-ซ้ำคือคำนวณซ้ำ) ว่าถ้าไม่ cache เราต้องจ่ายอะไร
+- ถ้าอยากรู้ว่าคอมพิวเตอร์ล้มแล้วทำไมงานไม่ต้องเริ่มใหม่ ให้ดู lineage ใน[บทที่ 13](/spark/internals/#rdd-และ-lineage)
+- ถ้าอยากเขียนให้ง่ายกว่า map/reduce ให้ดู[บทที่ 3](/spark/dataframe-sql/) ที่เขียนเป็น DataFrame หรือ SQL และ[บทที่ 6](/spark/catalyst-aqe/#spark-ไม่ได้รันสิ่งที่คุณเขียน) ที่ Spark ปรับแผนให้เอง
+- ถ้าข้อมูลไม่ได้อยู่นิ่ง แต่ไหลเข้ามาตลอด ให้ดู[บทที่ 9](/spark/structured-streaming/#streaming-คือ-dataframe-ที่ไม่มีวันจบ)
+- ถ้าอยากทำ machine learning กับข้อมูลชุดเดียวกัน ให้ดู[บทที่ 12](/spark/mllib/#mllib-คืออะไร-และมีสองชุด)
+- ถ้าข้อมูลเป็นโฟลเดอร์ของไฟล์ แต่อยากได้ความน่าเชื่อถือแบบตาราง ให้ดู[บทที่ 10](/spark/table-formats/#ปัญหาของ-โฟลเดอร์ที่เต็มไปด้วย-parquet)
+- ถ้าไม่อยากให้โค้ดผูกกับ cluster ที่รันอยู่ ให้ดู[บทที่ 11](/spark/deployment-spark-ui/#spark-connect-client-กับ-server-แยกกัน)
+
+</Step>
+
+<Step>
+
+## Spark ไม่ได้ทำอะไร
+
+ส่วนนี้เป็นความเห็นของผู้เขียนบทเรียนเอง ไม่ได้มาจาก paper นะ
+
+- Spark ไม่ได้เก็บข้อมูลให้เรา ข้างหลังมันต้องมี storage อื่นอยู่เสมอ
+- ถ้าข้อมูลเล็กพอที่คอมพิวเตอร์เครื่องเดียวทำได้สบายๆ ก็ไม่จำเป็นต้องใช้ Spark เพราะการเริ่ม session และการแบ่งงานมีต้นทุนของมัน ซึ่งจะคุ้มก็ต่อเมื่อข้อมูลใหญ่พอ (ถ้าคุณมาจาก pandas ดูสิ่งที่ต้องปรับใน[บทที่ 0](/spark/foundations/#เริ่มจากอะไรได้บ้าง))
+- Spark ไม่ได้ถูกออกแบบมาให้ตอบทีละ request ภายในไม่กี่มิลลิวินาทีแบบ database ที่ต่อกับแอป หน้าที่ของมันคือประมวลผลข้อมูลก้อนใหญ่ แล้วเขียนผลลัพธ์ออกไปให้ระบบอื่นอ่านต่อ
+
+</Step>
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="ปัญหาหลักที่ MapReduce แก้ได้ไม่ดี จนเป็นเหตุให้เกิด Spark คืออะไร"
+  options={['เขียนโค้ดบน cluster ไม่ได้', 'ใช้ข้อมูลซ้ำระหว่างหลาย job ได้ต่อเมื่อเขียนลง distributed file system ทุกครั้ง', 'ไม่รองรับข้อมูลใหญ่กว่า 1 TB']}
+  answer={1}
+  why="paper ของ Spark บอกว่างานที่วนซ้ำและงานสำรวจข้อมูลแบบโต้ตอบต้องใช้ผลระหว่างทางซ้ำ แต่ใน framework ยุคนั้นทำได้ทางเดียวคือเขียนลง storage ภายนอก ซึ่งเสียเวลากับ replication, disk I/O และ serialization ส่วนการเขียนโค้ดบน cluster กับการรองรับข้อมูลใหญ่ MapReduce ทำได้อยู่แล้ว"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Spark รับมือกับคอมพิวเตอร์ที่ล้มได้อย่างไร โดยไม่ต้องทำสำเนาข้อมูลทั้งหมด"
+  options={['เก็บสำเนาข้อมูลสามชุดไว้ในคอมพิวเตอร์ทุกเครื่อง', 'จำลำดับ transformation ที่สร้าง RDD (lineage) แล้วคำนวณ partition ที่หายใหม่', 'รันทุก task สองรอบแล้วเลือกผลที่ตรงกัน']}
+  answer={1}
+  why="RDD ไม่ได้เก็บแค่ข้อมูล แต่จำด้วยว่าได้มาจาก RDD ไหนและผ่านการทำอะไรมาบ้าง พอ partition ไหนหาย เราก็คำนวณใหม่ได้เฉพาะก้อนนั้น ไม่ต้องเริ่มงานทั้งหมดใหม่ และไม่ต้องส่งสำเนาข้อมูลก้อนใหญ่ผ่านเครือข่าย"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ในปี 2014 Spark เรียงข้อมูล 100 TB ได้เร็วกว่า Hadoop แบบนี้แปลว่า Spark เร็วเพราะเก็บทุกอย่างไว้ใน memory ใช่ไหม"
+  options={['ใช่ เพราะ Spark เก็บข้อมูลทั้งหมดไว้ใน memory', 'ไม่ใช่ เพราะการเรียงรอบนั้นทำบน disk และไม่ได้ใช้ cache ใน memory']}
+  answer={1}
+  why="Databricks ระบุว่าการเรียงรอบนั้นทำบน disk (HDFS) โดยไม่ใช้ cache ของ Spark ความเร็วจึงมาจากการออกแบบ engine เช่น shuffle ไม่ใช่แค่การเก็บข้อมูลไว้ใน memory"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของหน้านี้
+
+- Google: [MapReduce: Simplified Data Processing on Large Clusters](https://research.google/pubs/mapreduce-simplified-data-processing-on-large-clusters/) (Dean และ Ghemawat, OSDI 2004)
+- Berkeley: [Resilient Distributed Datasets: A Fault-Tolerant Abstraction for In-Memory Cluster Computing](https://www.usenix.org/conference/nsdi12/technical-sessions/presentation/zaharia) (Zaharia และคณะ, NSDI 2012) ตัวเลขในหัวข้อ "เร็วขึ้นเท่าไร และเพราะอะไร" อ่านจากส่วน Introduction และ section 6.1
+- Apache Spark: [History](https://spark.apache.org/history.html), [News](https://spark.apache.org/news/index.html), release notes ของ [1.3](https://spark.apache.org/releases/spark-release-1-3-0.html), [2.0](https://spark.apache.org/releases/spark-release-2-0-0.html), [3.0](https://spark.apache.org/releases/spark-release-3-0-0.html) และ [4.0](https://spark.apache.org/releases/spark-release-4-0-0.html)
+- Databricks: [Spark Petabyte Sort](https://www.databricks.com/blog/2014/10/10/spark-petabyte-sort.html) และ [ประกาศของ Apache Spark](https://spark.apache.org/news/spark-wins-daytona-gray-sort-100tb-benchmark)
+- ประวัติ Hadoop: [BigDATAwire, From Spiders to Elephants](https://bigdatawire.com/2015/04/15/from-spiders-to-elephants-the-history-of-hadoop) (เป็นแหล่งรอง และเดือนที่แยกจาก Nutch ไม่ตรงกันในแต่ละแหล่ง)
+- วันที่ของ 1.0, 1.3, 2.0, 3.0, 4.0, 4.1, 4.2, 4.3 และวันที่จบ incubator ตรวจกับหน้า News ของโปรเจกต์แล้ว ส่วนปี 2013 ที่ย้ายเข้า ASF มาจากหน้า History ซึ่งไม่ได้ระบุเดือน
+
+</Step>

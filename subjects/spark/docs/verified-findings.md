@@ -78,6 +78,9 @@ once, which is why the data-frame exercises that create small DataFrames also ru
 - Stream-stream joins, `flatMapGroupsWithState`, Kafka, real-time mode (**source** only).
 - OOM behaviour (broadcasting too much, a huge group in `applyInPandas`).
 - Speed claims: only the order of costs and the single measurements printed by the exercises. Never a multiplier.
+  One exception, named as such on the page: `foundations/overview` (history) quotes the multipliers of the RDD paper (20x, 25.3x, 40x),
+  the 2014 GraySort result and the TPC-DS 2x of the 3.0 release notes. They are **source** (paper, Databricks blog, release notes, linked from
+  the page), were not re-measured here, and the page says so.
 - Locality on a real cluster, speculation, fair scheduler pools.
 - Whether adding `hadoop.dll` fixes writes on Windows.
 - The pages were built and the animations were opened in headless Chrome (Playwright), clicking through the steps, but not

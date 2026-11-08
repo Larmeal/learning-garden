@@ -1,0 +1,185 @@
+---
+title: What Spark is
+summary: Where Spark came from, what people used before it, where MapReduce got stuck, what Spark's idea was, and what each major version added. This page is told from the papers and the project's own release pages.
+order: 1
+stage: sprout
+format: steps
+updated: 2026-11-08
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import SparkTimelineLab from '../../../../components/labs/spark/SparkTimelineLab';
+
+<Callout type="warn" title="This page covers history only">
+Every fact on this page links to its source at the bottom (the Google and Berkeley papers, the Apache Spark release pages, the Databricks blog). The speed figures all belong to the authors of the paper or to whoever announced the result. The author of this lesson did not measure any of them.
+</Callout>
+
+<Step>
+
+## What Spark is, in short
+
+Spark is a distributed compute engine. It is not a database: the data is stored somewhere else, for example as Parquet files on S3 or HDFS. Spark reads it, splits it into pieces (partitions) so that many machines can work on it together, and then puts the results back together to answer your question.
+
+You write the code, in Python, SQL, Scala or Java. Spark takes care of handing out the work, moving data between machines, and coping with whatever goes wrong on the way, such as network problems and failed machines.
+
+</Step>
+
+<Step>
+
+## Before Spark: data bigger than one machine
+
+The story starts at Google in the early 2000s. The data of the web had grown too big for one machine to process, so Google designed a distributed file system called GFS (published in 2003) and a way of writing jobs called MapReduce (published in 2004, [Dean and Ghemawat, OSDI 2004](https://research.google/pubs/mapreduce-simplified-data-processing-on-large-clusters/)).
+
+From the programmer's side, MapReduce is tiny. You write two functions. `map` produces intermediate key/value pairs, and `reduce` merges all the values that share a key. The system does the rest: it splits the work over many machines and copes with machines that fail, so you never write network code or recovery code yourself.
+
+On the open source side, Doug Cutting and Mike Cafarella were building the search engine Nutch and found that its design could not handle a web that large. They built a system in the style of GFS and MapReduce and split it out as Hadoop around 2006, with Yahoo providing a team and machines. (The sources disagree on the month and agree on the year. The one used here is [BigDATAwire](https://bigdatawire.com/2015/04/15/from-spiders-to-elephants-the-history-of-hadoop).) From then on, ordinary companies could process big data on a cluster of ordinary machines, not only Google.
+
+</Step>
+
+<Step>
+
+## Where MapReduce got stuck
+
+MapReduce reads from disk, computes, and writes the result back to disk, one job at a time. That is fine when one job does all the work. A lot of real work needs the result of one job inside the next.
+
+The 2012 Spark paper states the problem directly. In most frameworks of the time, the only way to reuse data between two computations was to write it to a distributed file system first, which the paper says "incurs substantial overheads due to data replication, disk I/O, and serialization" ([Zaharia et al., NSDI 2012](https://www.usenix.org/conference/nsdi12/technical-sessions/presentation/zaharia)). Two kinds of work suffered most.
+
+The first is iterative algorithms such as PageRank, K-means and logistic regression, which read the same dataset ten or fifty times. If each round is its own job, the data is read from disk and written back every round.
+
+The second is interactive data mining, where you ask one question after another about the same dataset. If every question starts by reading from disk again, the wait is too long to keep a train of thought.
+
+Before Spark, people patched this case by case. Pregel handled iterative graph work, and HaLoop added an iterative interface to MapReduce. The paper says each of them supports only one pattern of computation and gives no general way to reuse data, for example loading several datasets into memory and running ad-hoc queries across them.
+
+</Step>
+
+<Step>
+
+## Spark's idea
+
+Spark started as research at the UC Berkeley AMPLab in 2009 ([the project's history page](https://spark.apache.org/history.html)). The core idea is in the RDD paper. RDD stands for **Resilient Distributed Dataset**: a dataset split into partitions across many machines. You can ask it to keep intermediate results in memory, and you can control how it is partitioned.
+
+The hard part was surviving a dead machine without making copies of the data all over the cluster. Copying means sending large amounts of data over a network that is far slower than RAM. The paper's answer is to keep the recipe for the data instead of the data itself. An RDD remembers the sequence of transformations (`map`, `filter`, `join`) that built it, which is called its **lineage**. When a partition is lost, Spark runs the recipe again for that partition only.
+
+This idea affects how you write code in two ways, and you will meet both all along this path.
+
+First, operations split into transformations, which only describe the recipe, and actions, which actually compute. That is where lazy evaluation in [lesson 2](/en/spark/lazy-evaluation/#two-kinds-of-commands) comes from.
+
+Second, because Spark knows the whole recipe, it can plan the whole chain before running it, and it can rebuild a lost RDD whenever it needs to. Details are in [lesson 13](/en/spark/internals/#rdd-and-lineage).
+
+</Step>
+
+<Step>
+
+## How much faster, and why
+
+The paper reports that Spark was up to 20 times faster than Hadoop on iterative jobs and 40 times faster on one real analytics report from a user. It could also scan a 1 TB dataset interactively, with answers in 5 to 7 seconds.
+
+The 20 times comes with conditions, so read them before you quote it. This is what the paper's experiments showed (100 GB of data on a 100-machine cluster).
+
+In the first round, every system had to read text input from HDFS. Spark was only "moderately" faster than Hadoop there, because Hadoop lost time in the heartbeat protocol between master and workers.
+
+In later rounds, Spark was 25.3 times faster than Hadoop on logistic regression. On k-means, which spends more of its time computing, it was only 1.9 to 3.2 times faster.
+
+The authors also let Hadoop keep binary data in memory (HadoopBinMem). Spark was still about 20 times faster, because Hadoop kept paying for its own software stack, for HDFS serving the data, and for turning binary records back into objects.
+
+So several things add up to Spark's speed. Keeping data in memory is one. Another is that data you reuse does not go back through the disk, replication and serialization layers on every round.
+
+There is one more piece of evidence, from 2014, in the Daytona GraySort contest, which sorts 100 TB. Databricks reported that Spark finished in 23 minutes on 206 machines, while the earlier Hadoop MapReduce record used 2,100 machines and took 72 minutes (Spark tied with the Themis team from UCSD) ([the Apache Spark announcement](https://spark.apache.org/news/spark-wins-daytona-gray-sort-100tb-benchmark), [details from Databricks](https://www.databricks.com/blog/2014/10/10/spark-petabyte-sort.html)). That is about 3 times faster with about 10 times fewer machines.
+
+The sort ran on disk and did not use Spark's in-memory cache at all. The result therefore comes from the design of the engine, the shuffle above all, and not only from memory. It is also a figure from the team that entered the contest.
+
+</Step>
+
+<Step>
+
+## Timeline
+
+Click any period to see what happened, or press play and let it walk through them. All the dates come from the [Apache Spark news and release pages](https://spark.apache.org/news/index.html).
+
+<SparkTimelineLab client:visible lang="en" />
+
+Looking at the timeline, you can see that the speedups come from two directions in turn. One changes how data travels (RDD, shuffle). The other lets Spark understand what you are asking (DataFrame, Catalyst, AQE) so it can pick the method itself.
+
+</Step>
+
+<Step>
+
+## Where this path answers each problem
+
+- To reuse data without writing to disk every round, see [lesson 7](/en/spark/performance-tuning/#when-cache-helps) for when `cache` helps, and [lesson 2](/en/spark/lazy-evaluation/#a-repeated-action-means-repeated-work) for what you pay when you do not cache.
+- To see why a machine can die without restarting the job, read about lineage in [lesson 13](/en/spark/internals/#rdd-and-lineage).
+- To write something simpler than map/reduce, see [lesson 3](/en/spark/dataframe-sql/) for DataFrame and SQL, and [lesson 6](/en/spark/catalyst-aqe/#spark-does-not-run-what-you-wrote) for how Spark rewrites the plan for you.
+- If your data never stops arriving, see [lesson 9](/en/spark/structured-streaming/#streaming-is-a-dataframe-that-never-ends).
+- For machine learning on the same data, see [lesson 12](/en/spark/mllib/#what-mllib-is-and-its-two-sets).
+- If your data is a folder of files but you want the reliability of a table, see [lesson 10](/en/spark/table-formats/#the-problem-with-a-folder-full-of-parquet).
+- If you do not want your code tied to the cluster it runs on, see [lesson 11](/en/spark/deployment-spark-ui/#spark-connect-the-client-and-the-server-are-separate).
+
+</Step>
+
+<Step>
+
+## What Spark does not do
+
+This part is the lesson author's own opinion and does not come from a paper.
+
+- Spark does not store your data. There is always another storage system behind it.
+- Data that one machine handles comfortably does not need Spark. Starting a session and splitting the work has a cost, and it only pays off when the data is large enough (if you come from pandas, see what to adjust in [lesson 0](/en/spark/foundations/#what-you-can-start-from)).
+- Spark is not built to answer one request in a few milliseconds, the way a database behind an application does. It processes large batches of data, and the result is usually written out for another system to read.
+
+</Step>
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="What was the main problem that MapReduce handled poorly, and that led to Spark?"
+  options={['You could not write code for a cluster', 'Reusing data between jobs meant writing it to a distributed file system every time', 'It could not handle data larger than 1 TB']}
+  answer={1}
+  why="The Spark paper points out that iterative work and interactive data mining need to reuse intermediate results, but in the frameworks of the time the only way was to write them to external storage, which pays for replication, disk I/O and serialization. MapReduce could already run code on a cluster and already handled very large data."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="How does Spark survive a dead machine without copying all the data?"
+  options={['It keeps three copies of the data on every machine', 'It remembers the sequence of transformations that built the RDD (its lineage) and recomputes the lost partition', 'It runs every task twice and keeps the matching result']}
+  answer={1}
+  why="An RDD stores more than data. It also remembers which RDD it came from and what was done to get it. When a partition is lost, only that partition is recomputed, so the whole job does not restart and no copies of large data cross the network."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="In 2014 Spark sorted 100 TB faster than Hadoop. Does that mean Spark is fast because it keeps everything in memory?"
+  options={['Yes, because Spark keeps all its data in memory', 'No, because that sort ran on disk and did not use the in-memory cache']}
+  answer={1}
+  why="Databricks states that the sort ran on disk (HDFS) without Spark's cache. The speed came from how the engine is designed, the shuffle for example, and not only from keeping data in memory."
+/>
+
+</Step>
+
+<Step>
+
+## Sources for this page
+
+- Google: [MapReduce: Simplified Data Processing on Large Clusters](https://research.google/pubs/mapreduce-simplified-data-processing-on-large-clusters/) (Dean and Ghemawat, OSDI 2004)
+- Berkeley: [Resilient Distributed Datasets: A Fault-Tolerant Abstraction for In-Memory Cluster Computing](https://www.usenix.org/conference/nsdi12/technical-sessions/presentation/zaharia) (Zaharia et al., NSDI 2012). The figures in "How much faster, and why" are from the Introduction and section 6.1.
+- Apache Spark: [History](https://spark.apache.org/history.html), [News](https://spark.apache.org/news/index.html), and the release notes of [1.3](https://spark.apache.org/releases/spark-release-1-3-0.html), [2.0](https://spark.apache.org/releases/spark-release-2-0-0.html), [3.0](https://spark.apache.org/releases/spark-release-3-0-0.html) and [4.0](https://spark.apache.org/releases/spark-release-4-0-0.html)
+- Databricks: [Spark Petabyte Sort](https://www.databricks.com/blog/2014/10/10/spark-petabyte-sort.html) and [the Apache Spark announcement](https://spark.apache.org/news/spark-wins-daytona-gray-sort-100tb-benchmark)
+- Hadoop history: [BigDATAwire, From Spiders to Elephants](https://bigdatawire.com/2015/04/15/from-spiders-to-elephants-the-history-of-hadoop) (a secondary source; the month of the split from Nutch differs between sources)
+- The dates of 1.0, 1.3, 2.0, 3.0, 4.0, 4.1, 4.2, 4.3 and the end of incubation were checked against the project's News page. The year 2013, when it moved to the ASF, comes from the History page, which gives no month.
+
+</Step>
