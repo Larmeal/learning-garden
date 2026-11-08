@@ -151,7 +151,7 @@ const otherName = file.includes('lessons-en') ? (en ? 'Thai' : 'ไทย') : en
     function refreshSync() {
       return fetch('/__edit?sync=1&file=' + encodeURIComponent(file), { headers: H })
         .then(parse)
-        .then(function (r) { showSync(r.j.ok ? r.j.sync : null); })
+        .then(function (r) { keepPlace(function () { showSync(r.j.ok ? r.j.sync : null); }); })
         .catch(function () { showSync(null); });
     }
     // ---- What links here (the server runs tools/lesson-refs.mjs --graph) ----
@@ -176,7 +176,7 @@ const otherName = file.includes('lessons-en') ? (en ? 'Thai' : 'ไทย') : en
     function refreshLinks() {
       return fetch('/__edit?links=1&file=' + encodeURIComponent(file), { headers: H })
         .then(parse)
-        .then(function (r) { showLinks(r.j.ok ? r.j : null); })
+        .then(function (r) { keepPlace(function () { showLinks(r.j.ok ? r.j : null); }); })
         .catch(function () { showLinks(null); });
     }
     ed.querySelector('[data-sync-copy]').addEventListener('click', function (e) {
@@ -193,13 +193,168 @@ const otherName = file.includes('lessons-en') ? (en ? 'Thai' : 'ไทย') : en
         .then(function (r) { showSync(r.j.ok ? r.j.sync : null); });
     });
 
+
+    // ---- Keep your place: Edit opens at the text you were reading, and View goes back to the text you were editing ----
+    var RETURN = KEY + '-return'; // a few words of the line the caret was on, to find that spot again in the page
+    function norm(t) {
+      return String(t).replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/\s+/g, ' ').trim();
+    }
+    // The source with the markup that the page does not show taken out (links, bold, code, list marks, heading marks),
+    // and for every character of it the index in the source, so that text seen on the page can be found in the source.
+    function plainOf(src) {
+      var out = [];
+      var map = [];
+      var i = 0;
+      if (src.slice(0, 3) === '---') {
+        var end = src.indexOf('\n---', 3);
+        if (end > 0) i = end + 4;
+      }
+      var lineStart = true;
+      while (i < src.length) {
+        var c = src.charAt(i);
+        if (lineStart) {
+          var m = /^(#{1,6} |[-*+] |\d+\. |> )/.exec(src.slice(i, i + 9));
+          if (m) { i += m[0].length; continue; }
+          lineStart = false;
+        }
+        if (c === '\n') { lineStart = true; c = ' '; }
+        else if (c === '`' || c === '*') { i++; continue; }
+        else if (c === '[') { i++; continue; }
+        else if (c === ']' && src.charAt(i + 1) === '(') {
+          var close = src.indexOf(')', i);
+          i = close < 0 ? i + 1 : close + 1;
+          continue;
+        } else if (c === '|') c = ' ';
+        if (/\s/.test(c)) {
+          if (!out.length || out[out.length - 1] === ' ') { i++; continue; }
+          c = ' ';
+        }
+        out.push(c);
+        map.push(i);
+        i++;
+      }
+      return { text: out.join(''), map: map };
+    }
+    // Index in the source for text that the page shows, or -1. `near` (0 to 1) picks between several equal matches.
+    function findInSource(text, near) {
+      var n = norm(text);
+      if (n.length < 4) return -1;
+      var p = plainOf(area.value);
+      var cands = [n.slice(0, 32), n.slice(0, 16), n.slice(0, 8)];
+      for (var k = 0; k < cands.length; k++) {
+        var needle = cands[k];
+        if (needle.length < 4) continue;
+        var hits = [];
+        var at = p.text.indexOf(needle);
+        while (at >= 0 && hits.length < 50) { hits.push(at); at = p.text.indexOf(needle, at + 1); }
+        if (!hits.length) continue;
+        var want = near * p.text.length;
+        hits.sort(function (a, b) { return Math.abs(a - want) - Math.abs(b - want); });
+        return p.map[hits[0]];
+      }
+      return -1;
+    }
+    // What the reader is looking at: the selected text if it is on screen, otherwise the first block of text under the header.
+    var lastRange = null;
+    document.addEventListener('selectionchange', function () {
+      var sel = window.getSelection();
+      var prose = document.querySelector('.prose');
+      if (sel && sel.rangeCount && !sel.isCollapsed && sel.anchorNode && prose && prose.contains(sel.anchorNode)) lastRange = sel.getRangeAt(0).cloneRange();
+    });
+    function pageAnchor() {
+      var prose = document.querySelector('.prose');
+      if (!prose || root.hasAttribute('data-edit')) return null;
+      var pr = prose.getBoundingClientRect();
+      var near = pr.height > 0 ? Math.min(1, Math.max(0, (120 - pr.top) / pr.height)) : 0;
+      if (lastRange) {
+        var r = lastRange.getBoundingClientRect();
+        var seen = r.height > 0 && r.bottom > 100 && r.top < window.innerHeight;
+        var text = lastRange.toString();
+        lastRange = null;
+        if (seen && norm(text).length >= 4) return { text: text, near: near };
+      }
+      var blocks = prose.querySelectorAll('h2, h3, h4, p, li, td, th, summary, blockquote');
+      for (var i = 0; i < blocks.length; i++) {
+        var b = blocks[i].getBoundingClientRect();
+        if (b.height > 0 && b.bottom > 130 && b.top < window.innerHeight && norm(blocks[i].textContent).length >= 4) {
+          return { text: blocks[i].textContent, near: Math.min(1, Math.max(0, (b.top - pr.top) / pr.height)) };
+        }
+      }
+      return null;
+    }
+    // Height from the top of the box to the line that holds `idx`, measured on a hidden copy of the box.
+    function offsetOf(idx) {
+      var cs = getComputedStyle(area);
+      var m = document.createElement('div');
+      ['boxSizing', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth', 'borderStyle', 'fontFamily', 'fontSize', 'lineHeight', 'letterSpacing', 'tabSize'].forEach(function (k) { m.style[k] = cs[k]; });
+      m.style.cssText += ';position:absolute;visibility:hidden;left:-9999px;top:0;white-space:pre-wrap;overflow-wrap:anywhere;width:' + area.offsetWidth + 'px';
+      m.textContent = area.value.slice(0, idx);
+      var mark = document.createElement('span');
+      mark.textContent = '\u200b';
+      m.appendChild(mark);
+      document.body.appendChild(m);
+      var top = mark.offsetTop;
+      document.body.removeChild(m);
+      return top;
+    }
+    // Put the line that holds `idx` a third of the way down the window, so the text before and after it can be read.
+    function showCaret(idx) {
+      area.setSelectionRange(idx, idx);
+      var y = area.getBoundingClientRect().top + window.scrollY + offsetOf(idx) - window.innerHeight * 0.33;
+      window.scrollTo(0, Math.max(0, y));
+    }
+    // Boxes above the text (the twin check, the links) appear after the fetch answers and push the text down: scroll by the same amount.
+    function keepPlace(change) {
+      if (!root.hasAttribute('data-edit')) { change(); return; }
+      var before = area.getBoundingClientRect().top;
+      change();
+      var delta = area.getBoundingClientRect().top - before;
+      if (delta) window.scrollBy(0, delta);
+    }
+    // The words at the caret (or on the next line that has words), for finding the spot in the page again.
+    function returnSnippet() {
+      var v = area.value;
+      var at = area.selectionStart;
+      for (var n = 0; n < 6 && at < v.length; n++) {
+        var end = v.indexOf('\n', at);
+        if (end < 0) end = v.length;
+        var line = plainOf(v.slice(at, end)).text;
+        if (/[^\s<>/=:"{}]{4}/.test(line) && !/^\s*</.test(v.slice(at, end))) return norm(line).slice(0, 40);
+        at = end + 1;
+      }
+      return '';
+    }
+    function restoreSpot() {
+      var snippet = sessionStorage.getItem(RETURN);
+      if (!snippet) { sessionStorage.removeItem(RETURN); return; }
+      sessionStorage.removeItem(RETURN);
+      var go = function () {
+        var blocks = document.querySelectorAll('.prose h2, .prose h3, .prose h4, .prose p, .prose li, .prose td, .prose th, .prose blockquote');
+        for (var i = 0; i < blocks.length; i++) {
+          if (norm(blocks[i].textContent).indexOf(snippet.slice(0, 16).trim()) >= 0 && blocks[i].getClientRects().length) {
+            blocks[i].scrollIntoView({ block: 'center' });
+            return;
+          }
+        }
+      };
+      if (document.readyState === 'complete') setTimeout(go, 100);
+      else window.addEventListener('load', function () { setTimeout(go, 100); });
+    }
+
     function blocked(on) {
       views.forEach(function (b) { b.dataset.blocked = on ? '1' : ''; });
     }
     // The text box takes the height of its text, so the page scrolls like the page it replaces.
+    // Measuring needs height:auto, which makes the page shorter for a moment and the browser then clamps the scroll position
+    // (it jumped to the top while typing). So the box keeps its old height as a minimum while it is measured, and the scroll is put back.
     function grow() {
+      var y = window.scrollY;
+      area.style.minHeight = area.offsetHeight + 'px';
       area.style.height = 'auto';
-      area.style.height = area.scrollHeight + 2 + 'px';
+      var h = area.scrollHeight + 2;
+      area.style.height = h + 'px';
+      area.style.minHeight = '';
+      if (window.scrollY !== y) window.scrollTo(0, y);
     }
     function setMode(on) {
       if (on) {
@@ -236,6 +391,7 @@ const otherName = file.includes('lessons-en') ? (en ? 'Thai' : 'ไทย') : en
     }
     // Back to the page. The dev server does not reload the page when this editor saves, so do it here, once.
     function leave() {
+      try { sessionStorage.setItem(RETURN, returnSnippet()); } catch (e) { /* nothing to remember */ }
       sessionStorage.removeItem(KEY);
       sessionStorage.removeItem(CARET);
       dropDraft();
@@ -281,7 +437,7 @@ const otherName = file.includes('lessons-en') ? (en ? 'Thai' : 'ไทย') : en
           return false;
         });
     }
-    function enter() {
+    function enter(anchor) {
       setMode(true);
       sessionStorage.setItem(KEY, '1');
       return load().then(function () {
@@ -301,14 +457,18 @@ const otherName = file.includes('lessons-en') ? (en ? 'Thai' : 'ไทย') : en
           area.setSelectionRange(back.s, back.s);
           window.scrollTo(0, back.y || 0);
         } else {
-          // coming from the page: show the top of the editor, just under the header
-          var top = ed.getBoundingClientRect().top + window.scrollY - 90;
-          window.scrollTo(0, Math.max(0, top));
+          // coming from the page: open at the text that was on screen, so it is where the reader was looking
+          var at = anchor ? findInSource(anchor.text, anchor.near) : -1;
+          if (at >= 0) showCaret(at);
+          else {
+            var top = ed.getBoundingClientRect().top + window.scrollY - 90;
+            window.scrollTo(0, Math.max(0, top));
+          }
         }
       });
     }
 
-    edits.forEach(function (b) { b.addEventListener('click', function () { if (!root.hasAttribute('data-edit')) enter(); }); });
+    edits.forEach(function (b) { b.addEventListener('click', function () { if (!root.hasAttribute('data-edit')) enter(pageAnchor()); }); });
     views.forEach(function (b) {
       b.addEventListener('click', function () {
         if (!root.hasAttribute('data-edit')) return;
@@ -339,5 +499,6 @@ const otherName = file.includes('lessons-en') ? (en ? 'Thai' : 'ไทย') : en
     refreshSync();
     refreshLinks();
     if (sessionStorage.getItem(KEY) === '1') enter();
+    else restoreSpot();
   })();
 </script>
