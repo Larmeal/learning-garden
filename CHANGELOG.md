@@ -10,6 +10,7 @@ Notable changes to the learning garden, newest first. Dates are when the change 
 - `npm run check:refs` also fails on a link to a heading that no longer exists (ids made with `github-slugger` the way the build
   makes them; checked against all 506 pages of the built site), and `node tools/lesson-refs.mjs --backlinks <page or page#heading>`
   lists everything that links to a page or heading, so a heading is not renamed blind. `--graph` prints every link as JSON.
+- The dev editor (View | Edit) lists, above the text, every link to the lesson page being edited and to its headings.
 - References to pages of another subject by title (the guitar and music-theory lessons name each other, Data Quality names the
   Great Expectations lesson) and page names written without quotes ("the page on data contracts in practice") are links too.
 - `site/tools/lesson-refs.mjs` (`npm run check:refs`, also a step of the deploy workflow): every mention of another lesson must be a

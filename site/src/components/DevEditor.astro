@@ -37,6 +37,9 @@ const otherName = file.includes('lessons-en') ? (en ? 'Thai' : 'ไทย') : en
   data-t-sync-copied={en ? 'Copied' : 'คัดลอกแล้ว'}
   data-t-sync-today={en ? 'today' : 'วันนี้'}
   data-t-sync-days={en ? 'days ago' : 'วันก่อน'}
+  data-t-links-none={en ? 'No lesson links to this page' : 'ยังไม่มีบทไหนลิงก์มาหน้านี้'}
+  data-t-links-some={en ? 'links to this page or its headings (rename a heading only after changing these)' : 'ลิงก์มาที่หน้านี้หรือหัวข้อในหน้านี้ (ถ้าจะเปลี่ยนชื่อหัวข้อ ให้แก้ลิงก์เหล่านี้ก่อน)'}
+  data-t-links-whole={en ? 'the page' : 'ทั้งหน้า'}
 >
   <div class="dev-editor-head">
     <strong>{file}</strong>
@@ -56,6 +59,10 @@ const otherName = file.includes('lessons-en') ? (en ? 'Thai' : 'ไทย') : en
       <button type="button" class="btn sm" data-sync-accept>{en ? 'Mark as in step' : 'ถือว่าตรงกันแล้ว'}</button>
     </div>
   </div>
+  <details class="dev-links" data-links hidden>
+    <summary data-links-title></summary>
+    <ul class="dev-links-list" data-links-list></ul>
+  </details>
   <textarea spellcheck="false" aria-label={file} rows="12"></textarea>
   <div class="dev-editor-foot">
     <span class="dev-editor-status" data-edit-status aria-live="polite"></span>
@@ -146,6 +153,31 @@ const otherName = file.includes('lessons-en') ? (en ? 'Thai' : 'ไทย') : en
         .then(parse)
         .then(function (r) { showSync(r.j.ok ? r.j.sync : null); })
         .catch(function () { showSync(null); });
+    }
+    // ---- What links here (the server runs tools/lesson-refs.mjs --graph) ----
+    var linksBox = ed.querySelector('[data-links]');
+    var linksTitle = ed.querySelector('[data-links-title]');
+    var linksList = ed.querySelector('[data-links-list]');
+    function showLinks(r) {
+      if (!r || r.error) { linksBox.hidden = true; return; }
+      linksBox.hidden = false;
+      linksList.textContent = '';
+      if (!r.links.length) { linksTitle.textContent = ed.dataset.tLinksNone; return; }
+      linksTitle.textContent = r.links.length + ' ' + ed.dataset.tLinksSome;
+      r.links.forEach(function (l) {
+        var li = document.createElement('li');
+        var c = document.createElement('code');
+        c.textContent = l.from.replace(/^src\/content\/lessons(-en)?\//, '') + ':' + l.line;
+        li.appendChild(c);
+        li.appendChild(document.createTextNode(' ' + (l.frag ? '#' + l.frag : ed.dataset.tLinksWhole)));
+        linksList.appendChild(li);
+      });
+    }
+    function refreshLinks() {
+      return fetch('/__edit?links=1&file=' + encodeURIComponent(file), { headers: H })
+        .then(parse)
+        .then(function (r) { showLinks(r.j.ok ? r.j : null); })
+        .catch(function () { showLinks(null); });
     }
     ed.querySelector('[data-sync-copy]').addEventListener('click', function (e) {
       var btn = e.currentTarget;
@@ -305,6 +337,7 @@ const otherName = file.includes('lessons-en') ? (en ? 'Thai' : 'ไทย') : en
       if (root.hasAttribute('data-edit') && dirty()) { e.preventDefault(); e.returnValue = ed.dataset.tLeave; }
     });
     refreshSync();
+    refreshLinks();
     if (sessionStorage.getItem(KEY) === '1') enter();
   })();
 </script>

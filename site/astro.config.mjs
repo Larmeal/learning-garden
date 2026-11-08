@@ -2,6 +2,7 @@
 import { defineConfig } from 'astro/config';
 import { access, readFile, writeFile } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
+import { execFile } from 'node:child_process';
 import { createSync } from './tools/translation-sync.mjs';
 
 import react from '@astrojs/react';
@@ -100,6 +101,24 @@ function devEditor() {
         return null;
       }
 
+      // What links to this lesson page: every link to it and to its headings, from tools/lesson-refs.mjs --graph.
+      const backlinksOf = (/** @type {string} */ abs) =>
+        new Promise((done) => {
+          const rel = abs.slice(resolve(root, 'src/content').length + 1).split(sep);
+          const en = rel[0] === 'lessons-en';
+          const child = rel.length > 3 && rel[3] !== 'index.mdx' ? rel[3].replace(/\.mdx$/, '') + '/' : '';
+          const route = `${en ? '/en' : ''}/${rel[1]}/${rel[2].replace(/\.mdx$/, '')}/${child}`;
+          execFile(process.execPath, [resolve(root, 'tools/lesson-refs.mjs'), '--graph'], { cwd: root, maxBuffer: 50_000_000 }, (err, out) => {
+            if (err && !out) return done({ route, links: [], error: plain(err) });
+            try {
+              const g = JSON.parse(out);
+              done({ route, headings: g.headings[route] ?? [], links: g.links.filter((/** @type {any} */ l) => l.route === route) });
+            } catch (e) {
+              done({ route, links: [], error: plain(e) });
+            }
+          });
+        });
+
       async function getPage(/** @type {string} */ host, /** @type {string} */ page) {
         try {
           const r = await fetch(`http://${host}${page}`, { redirect: 'manual' });
@@ -160,6 +179,7 @@ function devEditor() {
             const abs = pick(q.get('file'));
             if (!abs) return send(400, { ok: false, error: 'bad file' });
             if (q.has('sync')) return send(200, { ok: true, sync: syncOf(abs) });
+            if (q.has('links')) return send(200, { ok: true, ...(await backlinksOf(abs)) });
             return send(200, { ok: true, text: await readFile(abs, 'utf8') });
           }
 

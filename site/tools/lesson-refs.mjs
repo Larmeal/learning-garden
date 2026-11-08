@@ -399,7 +399,9 @@ if (GRAPH) {
 }
 if (BACKLINKS !== null) {
   const [route, frag] = BACKLINKS.split('#');
-  const page = route.endsWith('/') ? route : route + '/';
+  // a leading slash is optional (Git Bash rewrites an argument that starts with one into a Windows path)
+  const lead = route.startsWith('/') ? route : '/' + route;
+  const page = lead.endsWith('/') ? lead : lead + '/';
   if (!routes.has(page)) {
     console.log(`no such page: ${page}`);
     process.exit(1);
