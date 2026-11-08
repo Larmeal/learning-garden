@@ -39,7 +39,7 @@ node มีสองชนิด (source: `_pytest/nodes.py`)
 
 node แต่ละตัวมี `parent` และ `listchain()` คืนสายจากรากลงมาถึงตัวมันเอง ในตัวอย่าง `test_drop` ได้ `Session > Dir > Package > Module > Class > Function` (รัน: `internals/03_collection_tree.py`) ส่วน `nodeid` ที่เราคุ้นอย่าง `shop/test_cart.py::TestRemove::test_drop` คือที่อยู่ของ node ในต้นไม้ คั่นด้วย `::`
 
-สายนี้สำคัญกับ[บทถัดไป](/pytest/fixture-engine/): fixture ระดับ module, class และ session ผูกกับ node ในสายนี้ ([บท 11](/pytest/fixture-engine/))
+สายนี้สำคัญกับ[บทถัดไป](/pytest/fixture-engine/#กฎของ-scope): fixture ระดับ module, class และ session ผูกกับ node ในสายนี้ ([บท 11](/pytest/fixture-engine/#กฎของ-scope))
 
 </Step>
 
@@ -61,7 +61,7 @@ node แต่ละตัวมี `parent` และ `listchain()` คืน�
 
 ## โฟลเดอร์และไฟล์: Hook สองตัวที่ตัดสิน
 
-เมื่อเจอโฟลเดอร์ pytest ถาม hook `pytest_collect_directory` ถ้าโฟลเดอร์มี `__init__.py` ผลคือ `Package` ถ้าไม่มีก็เป็น `Dir` ธรรมดา (source: `pytest_collect_directory` ใน `python.py`) เมื่อเจอไฟล์ถาม `pytest_collect_file` ซึ่งยอมรับเฉพาะ `.py` ที่ชื่อเข้ากับ `python_files` ยกเว้นไฟล์ที่ระบุตรงๆ บนบรรทัดคำสั่งซึ่งไม่ต้องเช็กชื่อ (source: `isinitpath` ในฟังก์ชันเดียวกัน ตรงกับที่บท [First Test](/pytest/first-test/) แสดงด้วย `cart_extra.py`)
+เมื่อเจอโฟลเดอร์ pytest ถาม hook `pytest_collect_directory` ถ้าโฟลเดอร์มี `__init__.py` ผลคือ `Package` ถ้าไม่มีก็เป็น `Dir` ธรรมดา (source: `pytest_collect_directory` ใน `python.py`) เมื่อเจอไฟล์ถาม `pytest_collect_file` ซึ่งยอมรับเฉพาะ `.py` ที่ชื่อเข้ากับ `python_files` ยกเว้นไฟล์ที่ระบุตรงๆ บนบรรทัดคำสั่งซึ่งไม่ต้องเช็กชื่อ (source: `isinitpath` ในฟังก์ชันเดียวกัน ตรงกับที่บท [First Test](/pytest/first-test/#pytest-หา-test-เจอได้อย่างไร) แสดงด้วย `cart_extra.py`)
 
 การเดินโฟลเดอร์ข้ามบางโฟลเดอร์ตามค่า `norecursedirs` ในแบบฝึก `build/` และ `node_modules/` ไม่ถูกเดินตอนรัน `pytest` เฉยๆ แต่ถ้าระบุ path ในโฟลเดอร์นั้นบนบรรทัดคำสั่ง ก็ถูก collect (รัน: `internals/12_collection_options.py`) ตัวเลือกที่ใช้บ่อย
 
@@ -113,7 +113,7 @@ python_functions = ["check_*"]
 2. สร้าง `Metafunc` แล้วเรียก hook `pytest_generate_tests` สำหรับ plugin ทุกตัว, ฟังก์ชัน `pytest_generate_tests` ใน module และใน class
 3. ถ้าไม่มีใครเรียก `metafunc.parametrize` ผลคือ `Function` ตัวเดียว ถ้ามี ผลคือหนึ่ง `Function` ต่อหนึ่ง callspec ชื่อ `name[id]`
 
-`@pytest.mark.parametrize` เป็นแค่ marker ที่ `pytest_generate_tests` ของ pytest เองอ่านแล้วเรียก `metafunc.parametrize` ให้ ผลคือ `test_qty[1]` กับ `test_qty[2]` เป็น node คนละตัวในต้นไม้ มี nodeid ของตัวเอง และล้มแยกกันได้ ([บท 4](/pytest/parametrize/in-depth/) ใช้ hook นี้เขียนเอง)
+`@pytest.mark.parametrize` เป็นแค่ marker ที่ `pytest_generate_tests` ของ pytest เองอ่านแล้วเรียก `metafunc.parametrize` ให้ ผลคือ `test_qty[1]` กับ `test_qty[2]` เป็น node คนละตัวในต้นไม้ มี nodeid ของตัวเอง และล้มแยกกันได้ ([บท 4](/pytest/parametrize/in-depth/#pytest_generate_tests-เขียนตัวสร้างเอง) ใช้ hook นี้เขียนเอง)
 
 </Step>
 
@@ -128,7 +128,7 @@ python_functions = ["check_*"]
 | `pytest` | `Interrupted: 1 error during collection` ไม่รัน test เลย | 2 |
 | `pytest --continue-on-collection-errors` | รัน test ที่เหลือ สรุป `4 passed, 1 warning, 1 error` | 1 |
 
-ค่าเริ่มต้นหยุดทั้งหมดโดยตั้งใจ: ถ้ารันต่อ test ที่หายไปเงียบๆ จะไม่ถูกสังเกต CI ที่เขียว 200 test โดยไม่มีไฟล์หนึ่งเลยเป็นสิ่งที่ผิด ([บท 1](/pytest/first-test/) เรื่อง exit code 5)
+ค่าเริ่มต้นหยุดทั้งหมดโดยตั้งใจ: ถ้ารันต่อ test ที่หายไปเงียบๆ จะไม่ถูกสังเกต CI ที่เขียว 200 test โดยไม่มีไฟล์หนึ่งเลยเป็นสิ่งที่ผิด ([บท 1](/pytest/first-test/#exit-code-สิ่งที่-ci-อ่าน) เรื่อง exit code 5)
 
 อีกกรณีของ import คือชื่อไฟล์ซ้ำในโฟลเดอร์ที่ไม่มี `__init__.py` ด้วย import mode ค่าเริ่มต้น (`prepend`) `a/test_same.py` กับ `b/test_same.py` ชนกันและ pytest ฟ้อง `import file mismatch` แก้ได้ด้วย `__init__.py` ในทั้งสองโฟลเดอร์ หรือ `--import-mode=importlib` ทั้งสองวิธีผ่าน 2 tests (รัน: `internals/09_config_layout.py`)
 

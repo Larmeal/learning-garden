@@ -95,10 +95,10 @@ The default mode is called **lax**. It accepts a value of a different type when 
 | `"no"`, `"off"` | `False` |
 | `"maybe"` | error `bool_parsing` |
 
-The rule is that Pydantic converts when the original value has one clear meaning in the target type. `3.0` is exactly three. `3.5` would silently lose data if it became `3`, so it is rejected. [Lesson 3](/en/pydantic/types/) covers this table in full and shows how to switch conversion off with strict mode.
+The rule is that Pydantic converts when the original value has one clear meaning in the target type. `3.0` is exactly three. `3.5` would silently lose data if it became `3`, so it is rejected. [Lesson 3](/en/pydantic/types/#the-lax-conversion-table) covers this table in full and shows how to switch conversion off with strict mode.
 
 <Callout type="warn" title="Numbers are not converted to strings">
-A `str` field does not accept a number. Passing `123` gives the error `string_type`. V1 used to convert it. If your old code relied on that, you will hit the error when you migrate ([lesson 11](/en/pydantic/migration/)).
+A `str` field does not accept a number. Passing `123` gives the error `string_type`. V1 used to convert it. If your old code relied on that, you will hit the error when you migrate ([lesson 11](/en/pydantic/migration/#group-3-silent-changes)).
 </Callout>
 
 </Step>
@@ -127,7 +127,7 @@ is_vip
 
 Two things to notice. First, Pydantic **reports every problem in one go** and does not stop at the first, so a form user can fix everything in one round. Second, each entry has a `type` (for example `int_from_float`), a code your program can act on. The `msg` text may change between versions, while `type` is steadier.
 
-`ValidationError` is a subclass of `ValueError`, so `except ValueError` catches it. Use `e.error_count()` for the number and `e.errors()` for a list of dicts ([lesson 6](/en/pydantic/errors/) goes deeper).
+`ValidationError` is a subclass of `ValueError`, so `except ValueError` catches it. Use `e.error_count()` for the number and `e.errors()` for a list of dicts ([lesson 6](/en/pydantic/errors/#errors-json-and-str-are-used-differently) goes deeper).
 
 </Step>
 
@@ -143,7 +143,7 @@ Customer.model_validate({"id": 1, "name": "Ann", "email": "a@x"})   # a dict or 
 Customer.model_validate_json('{"id": 1, "name": "Ann", "email": "a@x"}')   # JSON text
 ```
 
-All three give the same result (the exercise confirms it with `==`). The difference is that `model_validate_json` lets the JSON parser hand values straight to the validator, with no Python `dict` in between, and it has strict rules that differ from Python input ([lesson 3](/en/pydantic/types/) and [lesson 10](/en/pydantic/under-the-hood/)).
+All three give the same result (the exercise confirms it with `==`). The difference is that `model_validate_json` lets the JSON parser hand values straight to the validator, with no Python `dict` in between, and it has strict rules that differ from Python input ([lesson 3](/en/pydantic/types/#strict-is-different-for-json-input-and-python-input) and [lesson 10](/en/pydantic/under-the-hood/#input-why-python-data-and-json-differ-in-strict-mode)).
 
 There are two ways out as well:
 
@@ -162,11 +162,11 @@ The first returns a `dict`, the second a JSON string with no spaces. [Lesson 7](
 
 Four default behaviors that the exercise confirms, and that often surprise newcomers.
 
-**Unknown keys are dropped.** `Customer(id=1, name="a", email="e", nickname="x")` succeeds, and the object has no `nickname` at all. To get an error or to keep the key, set `extra` in the config ([lesson 8](/en/pydantic/models-config/)).
+**Unknown keys are dropped.** `Customer(id=1, name="a", email="e", nickname="x")` succeeds, and the object has no `nickname` at all. To get an error or to keep the key, set `extra` in the config ([lesson 8](/en/pydantic/models-config/#configdict-settings-for-the-whole-model)).
 
 **Fields are keyword-only.** `Customer(1, "a", "e")` raises `TypeError` because `BaseModel.__init__()` takes one positional argument, `self`. This lets you reorder fields in the class without breaking callers.
 
-**Assignment is not checked.** After you build `c`, `c.id = "oops"` succeeds and `c.id` is `"oops"`. Checking happens at construction only. To check every assignment, turn on `validate_assignment` ([lesson 8](/en/pydantic/models-config/)).
+**Assignment is not checked.** After you build `c`, `c.id = "oops"` succeeds and `c.id` is `"oops"`. Checking happens at construction only. To check every assignment, turn on `validate_assignment` ([lesson 8](/en/pydantic/models-config/#configdict-settings-for-the-whole-model)).
 
 **A model remembers which fields the caller passed.** `model_fields_set` is the set of field names that were actually given.
 
@@ -177,7 +177,7 @@ Customer(id=1, name="a", email="e", is_vip=False).model_fields_set
 # {'id', 'name', 'email', 'is_vip'}
 ```
 
-This separates "not sent" from "sent as the default value", which matters for a PATCH request: if the user sent only `name`, you should change only `name` and not reset the other fields to their defaults. [Lesson 7](/en/pydantic/serialization/) uses it with `exclude_unset`.
+This separates "not sent" from "sent as the default value", which matters for a PATCH request: if the user sent only `name`, you should change only `name` and not reset the other fields to their defaults. [Lesson 7](/en/pydantic/serialization/#choosing-fields-include-exclude-and-exclude_) uses it with `exclude_unset`.
 
 <Callout type="try" title="Try it in this repo">
 Open `subjects/pydantic/code/exercises/01_first_model.py` and run `uv run python exercises/01_first_model.py`. Try passing `id="  7  "` (with spaces around it) and `id="7_000"`, and guess before you run whether each one passes.
@@ -207,7 +207,7 @@ Open `subjects/pydantic/code/exercises/01_first_model.py` and run `uv run python
 | the result of `Customer(id=3.5, name=None, is_vip="maybe")` (four errors and the type of each) | ran: `exercises/01_first_model.py` |
 | the three ways in give the same result, `model_dump` and `model_dump_json` | ran: `exercises/01_first_model.py` |
 | unknown keys dropped, keyword-only, no check on assignment, `model_fields_set` | ran: `exercises/01_first_model.py` |
-| `model_validate_json` lets the JSON parser feed the validator directly | source: `input_json.rs` in the knowledge graph ([lesson 10](/en/pydantic/under-the-hood/)) |
+| `model_validate_json` lets the JSON parser feed the validator directly | source: `input_json.rs` in the knowledge graph ([lesson 10](/en/pydantic/under-the-hood/#input-why-python-data-and-json-differ-in-strict-mode)) |
 | the PATCH use of `model_fields_set` | author |
 
 </Step>

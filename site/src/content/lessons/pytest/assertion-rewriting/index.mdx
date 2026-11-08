@@ -17,7 +17,7 @@ import Callout from '../../../../components/Callout.astro';
 
 ## คำถามที่[บท 2](/pytest/assertions/) ทิ้งไว้
 
-[บท 2](/pytest/assertions/) บอกว่า pytest "เขียน assert ใหม่" ก่อนรัน บทนี้ดูของจริง ทั้งโค้ดที่ได้ กติกาว่าไฟล์ใดถูกแก้ และผลที่ตามมาเมื่อกติกาไม่ครอบคลุม ซึ่งเป็นต้นเหตุของอาการที่งงบ่อย: `assert` ใน test บอกค่าให้หมด แต่ `assert` ในฟังก์ชันช่วยที่เรียกจาก test กลับมีแค่คำว่า `AssertionError`
+[บท 2](/pytest/assertions/#assert-ธรรมดา-แต่ได้ข้อมูลมากกว่าที่คิด) บอกว่า pytest "เขียน assert ใหม่" ก่อนรัน บทนี้ดูของจริง ทั้งโค้ดที่ได้ กติกาว่าไฟล์ใดถูกแก้ และผลที่ตามมาเมื่อกติกาไม่ครอบคลุม ซึ่งเป็นต้นเหตุของอาการที่งงบ่อย: `assert` ใน test บอกค่าให้หมด แต่ `assert` ในฟังก์ชันช่วยที่เรียกจาก test กลับมีแค่คำว่า `AssertionError`
 
 ส่วนที่ทำงานอยู่ใน `_pytest/assertion/rewrite.py` (source) มีสามชิ้น
 
@@ -57,7 +57,7 @@ def test_total(cart):
 
 - **ทุกนิพจน์ย่อยถูกเก็บในตัวแปรชั่วคราว** (`@py_assert1`, `@py_assert3`, ...) `cart.total` กับผลของ `total()` กับ `31` ต่างมีตัวแปร ค่าจึงยังอยู่ให้พิมพ์ตอนล้ม
 - **คำสั่ง `if not ...: raise AssertionError(...)`** แทน `assert` เดิม ข้อความ `assert 30 == 31` ที่เห็นถูกประกอบใน `_format_explanation` เฉพาะตอนล้ม ตอนผ่านไม่มีงานเพิ่มนอกจากเก็บค่า
-- **`_call_reprcompare`** คือจุดที่ hook `pytest_assertrepr_compare` ถูกเรียก เพื่อสร้าง diff ของ dict, list, string ([บท 14](/pytest/plugins/) เขียน hook นี้เอง)
+- **`_call_reprcompare`** คือจุดที่ hook `pytest_assertrepr_compare` ถูกเรียก เพื่อสร้าง diff ของ dict, list, string ([บท 14](/pytest/plugins/#ส่วนสรุปและข้อความ-assert) เขียน hook นี้เอง)
 - **ตัวแปรชั่วคราวถูกตั้งเป็น `None` ท้ายคำสั่ง** เพื่อไม่ให้ object ค้างอยู่ในหน่วยความจำ
 
 ที่ตัวแปรชื่อมี `@` นำหน้าเพราะ Python เองสร้างชื่อแบบนั้นไม่ได้ จึงไม่มีทางชนกับตัวแปรของผู้ใช้
@@ -131,9 +131,9 @@ test_modes.cpython-314-pytest-9.2.0.pyc    ← ฉบับที่ถูกเ
 
 **`assert (a, b)`** วงเล็บทำให้เป็น tuple ที่ไม่ว่างเสมอ ซึ่งเป็นจริงเสมอ pytest ตรวจกรณีนี้ใน `visit_Assert` และออก warning `assertion is always true, perhaps remove parentheses?` แบบฝึกยืนยันว่า `assert (1 == 2, 'message')` ผ่านพร้อม warning นี้ (รัน: `exercises/08_design/test_smells.py`)
 
-**diff ที่ถูกย่อ** ความยาวสูงสุดของค่าที่พิมพ์ขึ้นกับระดับ verbosity ของ assertion: ระดับ 0 ใช้ค่าเริ่มต้น ระดับ 1 (`-v`) ยาวขึ้นสิบเท่า และระดับ 2 ขึ้นไป (`-vv`) ไม่ตัด (source: `_get_maxsize_for_saferepr` ใน `rewrite.py`) ตรงกับข้อความ `Use -v to get more diff` ใน [บท 2](/pytest/assertions/)
+**diff ที่ถูกย่อ** ความยาวสูงสุดของค่าที่พิมพ์ขึ้นกับระดับ verbosity ของ assertion: ระดับ 0 ใช้ค่าเริ่มต้น ระดับ 1 (`-v`) ยาวขึ้นสิบเท่า และระดับ 2 ขึ้นไป (`-vv`) ไม่ตัด (source: `_get_maxsize_for_saferepr` ใน `rewrite.py`) ตรงกับข้อความ `Use -v to get more diff` ใน [บท 2](/pytest/assertions/#อ่าน-diff)
 
-**ข้อความของเราเอง** hook `pytest_assertrepr_compare(op, left, right)` ให้ plugin หรือ `conftest.py` เขียนคำอธิบายสำหรับชนิดของตัวเอง ถ้าคืน list ของบรรทัด pytest ใช้แทน diff มาตรฐาน ซึ่งสร้างใน `_pytest/assertion/util.py` (`assertrepr_compare` แยกกรณี text, sequence, mapping และ set) ตัวอย่างที่รันได้อยู่ใน [บท 14](/pytest/plugins/)
+**ข้อความของเราเอง** hook `pytest_assertrepr_compare(op, left, right)` ให้ plugin หรือ `conftest.py` เขียนคำอธิบายสำหรับชนิดของตัวเอง ถ้าคืน list ของบรรทัด pytest ใช้แทน diff มาตรฐาน ซึ่งสร้างใน `_pytest/assertion/util.py` (`assertrepr_compare` แยกกรณี text, sequence, mapping และ set) ตัวอย่างที่รันได้อยู่ใน [บท 14](/pytest/plugins/#ส่วนสรุปและข้อความ-assert)
 
 **hook ตอนผ่าน** `pytest_assertion_pass` มีอยู่แต่ปิดไว้ ต้องตั้ง `enable_assertion_pass_hook` ใน config เพราะการเก็บข้อความตอนผ่านมีต้นทุน (source: `enable_assertion_pass_hook` ใน `visit_Assert`)
 

@@ -97,7 +97,7 @@ class Line(BaseModel):
 
 ส่ง `Line(sku="ab", qty=0, price=-1)` ได้สามจุดตามลำดับ `string_too_short`, `greater_than`, `greater_than_equal` และ error แต่ละตัวพก `ctx` ที่บอกเงื่อนไขมาด้วย เช่น `{'gt': 0}` กับข้อความ `Input should be greater than 0`
 
-`pattern` ใช้ regex engine ของ Rust เป็นค่าเริ่มต้น ซึ่งไม่รองรับ lookahead ถ้าเขียน `(?=a)` ใน pattern จะได้ `SchemaError` **ตอนสร้างคลาส** ไม่ต้องรอถึงตอน validate มีสองทางออก ตั้ง `regex_engine="python-re"` ใน config เพื่อใช้ `re` ของ Python หรือเขียน validator ([บท 5](/pydantic/validators/)) แทน
+`pattern` ใช้ regex engine ของ Rust เป็นค่าเริ่มต้น ซึ่งไม่รองรับ lookahead ถ้าเขียน `(?=a)` ใน pattern จะได้ `SchemaError` **ตอนสร้างคลาส** ไม่ต้องรอถึงตอน validate มีสองทางออก ตั้ง `regex_engine="python-re"` ใน config เพื่อใช้ `re` ของ Python หรือเขียน validator ([บท 5](/pydantic/validators/#เมื่อเงื่อนไขของ-field-ไม่พอ)) แทน
 
 </Step>
 
@@ -122,7 +122,7 @@ class Line2(BaseModel):
 
 เงื่อนไขของ `Qty` ทำงานกับสมาชิกของ list ด้วย `Line2(sku="X-1", qty=5, parts=[1, 0, 101])` ได้สอง error ที่ตำแหน่ง `parts.1` (`greater_than`) และ `parts.2` (`less_than_equal`) ตำแหน่งในรายงานชี้ถึงสมาชิกที่ผิดพอดี
 
-รูปแบบนี้ใช้กับ validator ได้เหมือนกัน ([บท 5](/pydantic/validators/)) และเป็นวิธีที่ Pydantic เองใช้สร้างชนิดสำเร็จรูปอย่าง `PositiveInt` ([บท 3](/pydantic/types/))
+รูปแบบนี้ใช้กับ validator ได้เหมือนกัน ([บท 5](/pydantic/validators/#validator-แบบ-annotated-ใช้ซ้ำและซ้อนกันได้)) และเป็นวิธีที่ Pydantic เองใช้สร้างชนิดสำเร็จรูปอย่าง `PositiveInt` ([บท 3](/pydantic/types/#ชนิดสำเร็จรูป-ตัวเลขที่มีเงื่อนไข-url-email-secretstr))
 
 </Step>
 
@@ -140,7 +140,7 @@ Alias(userId=1).user_id    # 1
 Alias(user_id=1)           # error: field "userId" missing
 ```
 
-เมื่อมี `alias` Pydantic รับ input ด้วยชื่อ alias เท่านั้น ถ้าอยากให้รับชื่อจริงด้วย เปิด `populate_by_name=True` ใน config ([บท 8](/pydantic/models-config/))
+เมื่อมี `alias` Pydantic รับ input ด้วยชื่อ alias เท่านั้น ถ้าอยากให้รับชื่อจริงด้วย เปิด `populate_by_name=True` ใน config ([บท 8](/pydantic/models-config/#configdict-ตั้งค่าทั้ง-model))
 
 ตอน dump ตามค่าเริ่มต้นจะใช้ชื่อ field จริง ส่ง `by_alias=True` เมื่ออยากได้ชื่อ alias กลับไป
 
@@ -179,12 +179,12 @@ class Account(BaseModel):
 - `exclude=True` ทำให้ field ไม่ออกมาใน `model_dump()` และ `model_dump_json()` ผลของ `Account(user="u", password="p").model_dump()` คือ `{'user': 'u', 'token': 't'}`
 - `repr=False` ซ่อน field จาก `repr` ตัว `password` จึงไม่ปรากฏเวลา log object
 - `frozen=True` ห้ามแก้ field นั้นหลังสร้าง `acc.token = "new"` ได้ `ValidationError` ชนิด `frozen_field`
-- `description`, `examples`, `title` ไปอยู่ใน JSON Schema ([บท 9](/pydantic/adapters/))
+- `description`, `examples`, `title` ไปอยู่ใน JSON Schema ([บท 9](/pydantic/adapters/#json-schema-จาก-model))
 
 ข้อมูลของแต่ละ field เก็บไว้ที่ `Model.model_fields` เป็น dict ของ `FieldInfo` เช่น `Account.model_fields["user"]` พิมพ์ออกมาเป็น `annotation=str required=True` และเรียก `.is_required()` ได้
 
 <Callout type="warn" title="exclude ไม่ได้ทำให้ค่าปลอดภัยทั้งหมด">
-`exclude=True` กับ `repr=False` ซ่อนค่าจากการ dump และจาก `repr` เท่านั้น ค่ายังอยู่ใน `acc.password` และใน error ถ้า validation ล้ม (error แสดง `input_value`) ถ้าเป็นความลับจริง ให้ดู `SecretStr` ([บท 3](/pydantic/types/)) และ `hide_input_in_errors` ([บท 6](/pydantic/errors/))
+`exclude=True` กับ `repr=False` ซ่อนค่าจากการ dump และจาก `repr` เท่านั้น ค่ายังอยู่ใน `acc.password` และใน error ถ้า validation ล้ม (error แสดง `input_value`) ถ้าเป็นความลับจริง ให้ดู `SecretStr` ([บท 3](/pydantic/types/#ชนิดสำเร็จรูป-ตัวเลขที่มีเงื่อนไข-url-email-secretstr)) และ `hide_input_in_errors` ([บท 6](/pydantic/errors/#ซ่อนค่าที่ผิด-อย่าให้-password-หลุดเข้า-log))
 </Callout>
 
 </Step>

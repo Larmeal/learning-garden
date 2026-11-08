@@ -30,7 +30,7 @@ ta.json_schema()                   # {'type': 'array', 'items': {'type': 'intege
 
 ชื่อเมธอดต่างจาก model เล็กน้อย `validate_python` แทน `model_validate`, `dump_python` แทน `model_dump` ข้อควรระวังอย่างเดียวคือ `dump_json` คืน `bytes`
 
-เงื่อนไขจาก [บท 2](/pydantic/fields/) ใช้ได้ภายในชนิด
+เงื่อนไขจาก [บท 2](/pydantic/fields/#annotated-เอาเงื่อนไขไปติดกับชนิด-แล้วใช้ซ้ำ) ใช้ได้ภายในชนิด
 
 ```python
 Users = TypeAdapter(dict[str, Annotated[int, Field(ge=0)]])
@@ -38,7 +38,7 @@ Users.validate_python({"a": "1"})     # {'a': 1}
 Users.validate_python({"a": -1})      # error ที่ loc ('a',) ชนิด greater_than_equal
 ```
 
-**สร้างครั้งเดียว ใช้ซ้ำ** การสร้าง `TypeAdapter` คือขั้นแพง เพราะต้องเดินชนิดและสร้าง core schema ([บท 10](/pydantic/under-the-hood/)) การเรียก `validate_python` เป็นขั้นถูก แบบฝึกวัด 200 ครั้งของ `[1, 2, 3]` บนเครื่องที่รัน
+**สร้างครั้งเดียว ใช้ซ้ำ** การสร้าง `TypeAdapter` คือขั้นแพง เพราะต้องเดินชนิดและสร้าง core schema ([บท 10](/pydantic/under-the-hood/#ต้นทุนอยู่ตอนสร้างคลาส-ไม่ใช่ตอน-validate)) การเรียก `validate_python` เป็นขั้นถูก แบบฝึกวัด 200 ครั้งของ `[1, 2, 3]` บนเครื่องที่รัน
 
 ```text
 build each call 6.9 ms, reuse 0.09 ms for 200 calls, ratio 77x
@@ -172,7 +172,7 @@ class Basket(BaseModel):
 schema["properties"]["items"]["items"]   # {'$ref': '#/$defs/Product'}
 ```
 
-**สองโหมด** `model_json_schema(mode="validation")` (ค่าเริ่มต้น) อธิบายสิ่งที่ model **รับ** ส่วน `mode="serialization"` อธิบายสิ่งที่ **ส่งออก** ต่างกันตรงที่ computed field ([บท 7](/pydantic/serialization/)) อยู่ในแบบ serialization เท่านั้น ใน serialization `required` ยังเป็น `["sku", "price"]` เพราะ field ที่มี default ยังไม่บังคับ ถ้าอยากให้ field ที่มี default ถือว่ามีเสมอในผลที่ส่ง ตั้ง `json_schema_serialization_defaults_required` เป็น `True` แล้ว `required` จะได้ครบสี่ field
+**สองโหมด** `model_json_schema(mode="validation")` (ค่าเริ่มต้น) อธิบายสิ่งที่ model **รับ** ส่วน `mode="serialization"` อธิบายสิ่งที่ **ส่งออก** ต่างกันตรงที่ computed field ([บท 7](/pydantic/serialization/#computed_field-เอา-property-เข้าไปในผลลัพธ์)) อยู่ในแบบ serialization เท่านั้น ใน serialization `required` ยังเป็น `["sku", "price"]` เพราะ field ที่มี default ยังไม่บังคับ ถ้าอยากให้ field ที่มี default ถือว่ามีเสมอในผลที่ส่ง ตั้ง `json_schema_serialization_defaults_required` เป็น `True` แล้ว `required` จะได้ครบสี่ field
 
 <Callout type="warn" title="validator ที่เป็นโค้ด Python มองไม่เห็นใน JSON Schema">
 `field_validator` ที่ตรวจว่าเลขเป็นเลขคู่ ไม่ปรากฏใน schema เลย แบบฝึกยืนยัน: `n` ยังเป็น `{"title": "N", "type": "integer"}` เท่านั้น JSON Schema ที่สร้างจึงบอกได้เฉพาะเงื่อนไขที่ Pydantic เข้าใจ (ชนิด `Field(...)` `Annotated`) ถ้ามี validator ที่สำคัญ ต้องบอกใน `description` เอง ไม่เช่นนั้น client ที่เชื่อ schema จะส่งค่าที่ server ปฏิเสธ

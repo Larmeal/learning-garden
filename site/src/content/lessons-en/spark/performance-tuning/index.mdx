@@ -21,17 +21,17 @@ import JoinFlowLab from '../../../../components/labs/spark/JoinFlowLab';
 
 ## Tuning means finding where the time goes
 
-Most performance problems in Spark are shuffle problems (see the lesson on the [Execution model](/en/spark/execution-model/)). So this lesson follows the questions you should ask when a job is slow.
+Most performance problems in Spark are shuffle problems (see the lesson on the [Execution model](/en/spark/execution-model/#why-a-shuffle-is-expensive)). So this lesson follows the questions you should ask when a job is slow.
 
 1. How many `Exchange` nodes are in the plan, and how much data does each one send?
 2. How many partitions are there after the shuffle, and are they the same size?
 3. Which join method is used, and was it chosen well?
 4. Is there a task that is much bigger than the others (skew), or one that writes to disk (spill)?
 
-There is one important rule: **change one thing at a time, then measure again.** The tools for measuring are `explain()` (see [Catalyst and AQE](/en/spark/catalyst-aqe/)) and the Spark UI. Every number in this lesson was run on a 16-core machine with Spark 4.2.0, through the file `exercises/07_performance_tuning.py`. The times it prints depend on the machine, so look at the trend, not the number.
+There is one important rule: **change one thing at a time, then measure again.** The tools for measuring are `explain()` (see [Catalyst and AQE](/en/spark/catalyst-aqe/#the-modes-of-explain)) and the Spark UI. Every number in this lesson was run on a 16-core machine with Spark 4.2.0, through the file `exercises/07_performance_tuning.py`. The times it prints depend on the machine, so look at the trend, not the number.
 
 <Callout type="note" title="This lesson does not repeat [lesson 6](/en/spark/catalyst-aqe/)">
-[Lesson 6](/en/spark/catalyst-aqe/) explains how AQE works. This lesson uses AQE as a tool: which setting to change to get which result, and how to see from the plan that it worked.
+[Lesson 6](/en/spark/catalyst-aqe/#aqe-does-three-things) explains how AQE works. This lesson uses AQE as a tool: which setting to change to get which result, and how to see from the plan that it worked.
 </Callout>
 
 </Step>
@@ -117,7 +117,7 @@ rows       22,936 29,112 25,328 28,713 22,726 1,821,935  22,334 26,916
 
 Idle machines cannot help, because partition 6 belongs to one task.
 
-**Way 1: let AQE handle it (joins only).** `OptimizeSkewedJoin` splits a partition that is too big into small pieces. To count as skewed, a partition must be "bigger than 256 MB **and** bigger than 5 times the median", both conditions. So with small test data it does not work by itself. Measured: with the defaults no skew join happens. The threshold had to be lowered before `SortMergeJoin(skew=true)` appeared (in the lab of [lesson 6](/en/spark/catalyst-aqe/) it was lowered to 50 KB). This rule looks only at joins. It does not help a skewed `groupBy`.
+**Way 1: let AQE handle it (joins only).** `OptimizeSkewedJoin` splits a partition that is too big into small pieces. To count as skewed, a partition must be "bigger than 256 MB **and** bigger than 5 times the median", both conditions. So with small test data it does not work by itself. Measured: with the defaults no skew join happens. The threshold had to be lowered before `SortMergeJoin(skew=true)` appeared (in the lab of [lesson 6](/en/spark/catalyst-aqe/#aqe-does-three-things) it was lowered to 50 KB). This rule looks only at joins. It does not help a skewed `groupBy`.
 
 **Way 2: salting.** Add a random column into the key so that the big key breaks into many groups.
 
@@ -191,7 +191,7 @@ Where to see it:
 - In the SQL tab: the metric `spill size` of `Sort`, `HashAggregate`, `SortMergeJoin`.
 - The "memory" number is usually bigger than the "disk" number (280 against 232 in the measurement above), because the memory number is counted in blocks of pages and includes the pointer array, as the comment in the source of `UnsafeExternalSorter` says.
 
-The ways to reduce spill come from reasoning, not from a measurement: let each task hold less data (more partitions), add executor memory, or reduce the data before sort or aggregate. The detailed formula for how task memory is divided is in the [Internals](/en/spark/internals/) lesson (the memory part).
+The ways to reduce spill come from reasoning, not from a measurement: let each task hold less data (more partitions), add executor memory, or reduce the data before sort or aggregate. The detailed formula for how task memory is divided is in the [Internals](/en/spark/internals/#unified-memory-storage-and-execution-share) lesson (the memory part).
 
 </Step>
 
@@ -214,7 +214,7 @@ Measured from the handle of the Exchange: `shuffle.partitions` = 8 and 200 give 
 ## Warnings with evidence
 
 - **`collect()` on big data**: all the results must go into the one driver. The limit is `spark.driver.maxResultSize` (1 GB). Set it to 1 MB and `collect()` of 2 million rows raises `Total size of serialized results ... is bigger than spark.driver.maxResultSize`.
-- **A Python UDF instead of a built-in**: the plan of `select(plus1("id"))` has `BatchEvalPython` between two codegen blocks, while `select(id + 1)` is one `Project` in one codegen. A UDF breaks whole-stage codegen and sends data to the Python process (this is the topic of [lesson 8](/en/spark/udf/), which measures the speed in a systematic way).
+- **A Python UDF instead of a built-in**: the plan of `select(plus1("id"))` has `BatchEvalPython` between two codegen blocks, while `select(id + 1)` is one `Project` in one codegen. A UDF breaks whole-stage codegen and sends data to the Python process (this is the topic of [lesson 8](/en/spark/udf/#how-much-slower-than-a-built-in), which measures the speed in a systematic way).
 - **Thousands of small partitions**: the time grows with the number of tasks (see the table above).
 - **Several `countDistinct` in one aggregation**: Catalyst rewrites it with an `Expand` that multiplies the rows by the number of distinct aggregates (measured from the plan: a single `countDistinct("a")` has 2 Exchanges, while two of them have an `Expand`). If you can accept an estimate, use `approx_count_distinct`, which has only one Exchange and no `Expand` (the error that is acceptable was not tested).
 

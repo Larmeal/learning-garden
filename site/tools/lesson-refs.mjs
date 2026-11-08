@@ -15,6 +15,7 @@
 import { readFileSync, readdirSync, statSync, writeFileSync, existsSync } from 'node:fs';
 import { join, relative, sep, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import GithubSlugger from 'github-slugger';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CONTENT = join(ROOT, 'src', 'content');
@@ -22,6 +23,9 @@ const args = new Set(process.argv.slice(2));
 const FIX = args.has('--fix');
 const DRY = args.has('--dry-run');
 const WHY = args.has('--why');
+const argv = process.argv.slice(2);
+const BACKLINKS = argv.includes('--backlinks') ? argv[argv.indexOf('--backlinks') + 1] ?? '' : null;
+const GRAPH = args.has('--graph');
 
 // a book's name right before the number ("Ten Steps บทที่ 3", "หนังสือ: DDIA บทที่ 13", "book: DDIA chapter 13"), with no comma, full stop or
 // bracket between them
@@ -51,6 +55,37 @@ const routes = new Set();
 // "<prefix>/<subject>" -> Map(lower case title -> route, or null when two pages share it); "<route of a lesson>" -> its sub-pages
 const titlesOf = {};
 const subPagesOf = {};
+const everyTitle = { th: new Map(), en: new Map() };
+// route -> the ids of its headings, made the way the built page makes them (github-slugger over the text of each ## to ###### line)
+const idsOf = new Map();
+function headingIds(text) {
+  const slugger = new GithubSlugger();
+  const ids = new Set();
+  const lines = text.split(/\r?\n/);
+  let front = lines[0] === '---';
+  let fence = false;
+  lines.forEach((l, i) => {
+    if (front) {
+      if (i > 0 && l === '---') front = false;
+      return;
+    }
+    if (/^\s*```/.test(l)) fence = !fence;
+    if (fence) return;
+    const m = /^#{2,6}\s+(.*?)\s*#*\s*$/.exec(l);
+    if (!m) return;
+    const plain = m[1]
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/`([^`]*)`/g, '$1')
+      .replace(/<[^>]+>/g, '')
+      .replace(/\*\*/g, '')
+      // the typography of the build: __x__ is strong text, and smartypants turns --- and -- into dashes, which the slug then drops
+      .replace(/__([^_]+)__/g, '$1')
+      .replace(/---/g, '\u2014')
+      .replace(/--/g, '\u2013');
+    ids.add(slugger.slug(plain));
+  });
+  return ids;
+}
 const titleOf = (text) => {
   const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
   const t = m && /^title:\s*(.+?)\s*$/m.exec(m[1]);
@@ -71,15 +106,20 @@ for (const coll of ['lessons', 'lessons-en']) {
     const addTitle = (route) => {
       const map = (titlesOf[`${prefix}/${subject}`] ??= new Map());
       if (title) map.set(title, map.has(title) ? null : route);
+      // for the lookup across subjects: a title used by two pages is ambiguous and links nowhere
+      const all = everyTitle[coll === 'lessons-en' ? 'en' : 'th'];
+      if (title) all.set(title, all.has(title) ? null : route);
     };
     if (rel.length === 2 || (rel.length === 3 && isIndex)) {
       routes.add(`${prefix}/${subject}/${slug}/`);
+      idsOf.set(`${prefix}/${subject}/${slug}/`, headingIds(text));
       addTitle(`${prefix}/${subject}/${slug}/`);
       const o = m && /^order:\s*(\d+)/m.exec(m[1]);
       if (o && coll === 'lessons') (orders[subject] ??= new Map()).set(Number(o[1]), slug);
     } else if (rel.length === 3) {
       const route = `${prefix}/${subject}/${slug}/${rel[2].replace(/\.mdx$/, '')}/`;
       routes.add(route);
+      idsOf.set(route, headingIds(text));
       addTitle(route);
       const subs = (subPagesOf[`${prefix}/${subject}/${slug}/`] ??= new Map());
       if (title) subs.set(title, route);
@@ -96,7 +136,7 @@ const urlOf = (subject, order, en) => {
 // and, after it, the title of one of that lesson's pages in quotes: lesson 5, page "Walking the folders"
 const REF = /(บทที่|บท|\b[Ll]essons?\b|\b[Cc]hapters?\b)(\s*)(\d+)((?:\s*(?:และ|ถึง|กับ|หรือ|,|and|to|or|-|–)\s*\d+)*)(?![\d.]\d)((?:,?\s*(?:หน้า|page)\s*[“"]([^”"\n]{2,100})[”"])?)/g;
 // a page of the same subject named by its title in quotes: the page "Reasonability", หน้า "ความสมเหตุสมผล"
-const TITLE_BEFORE = /((?:ในหน้า|หน้า|บทเรื่อง|บท|\bpages?|\blessons?|\bthe)\s*)(["“'‘])([^"”'’\n]{3,100})(["”'’])/g;
+const TITLE_BEFORE = /((?:ในหน้า|หน้าย่อย|หน้า|บทเรื่อง|บท|\bpages?|\blessons?|\bthe)\s*)(["“'‘])([^"”'’\n]{3,100})(["”'’])/g;
 const TITLE_AFTER = /(["“'‘])([^"”'’\n]{3,100})(["”'’])(\s*(?:หน้า|บท|\bpage\b|\blesson\b))/g;
 const NUM = /(\s*(?:และ|ถึง|กับ|หรือ|,|and|to|or|-|–)\s*)(\d+)/g;
 const TOKEN = /(\[[^\]]*\]\([^)]*\)|`[^`]*`|<\/?[A-Za-z][^>]*>)/;
@@ -120,7 +160,7 @@ function plainTitleRx(ctx, pages) {
   if (!plainRx.has(key)) {
     const titles = [...pages.keys()].filter((t) => t.length >= 5).sort((a, b) => b.length - a.length);
     const alt = titles.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
-    plainRx.set(key, new RegExp(`((?:ในหน้า|หน้า|บทเรื่อง|บท|\\bpages?|\\blessons?)\\s+)(${alt})(?![\\w\\u0E00-\\u0E7F])`, 'gi'));
+    plainRx.set(key, new RegExp(`((?:ในหน้า|หน้าย่อย|หน้า|บทเรื่อง|บท|\\bpages?|\\blessons?)\\s+(?:(?:on|about|called|named|titled|เรื่อง)\\s+)?)(${alt})(?![\\w\\u0E00-\\u0E7F])`, 'gi'));
   }
   const rx = plainRx.get(key);
   rx.lastIndex = 0;
@@ -193,27 +233,32 @@ function linkLine(text, ctx) {
     parts[i] = out + seg.slice(last);
   }
   let result = parts.join('');
-  // a page of this subject named by its title alone
+  // a page named by its title alone: a page of this subject first, then a page of another subject when the title is unique
   const pages = titlesOf[`${ctx.en ? '/en' : ''}/${ctx.subject}`];
-  if (pages) {
+  const lookup = (t) => {
+    const k = t.trim().toLowerCase();
+    const own = pages?.get(k);
+    return own !== undefined ? own : (everyTitle[ctx.en ? 'en' : 'th'].get(k) ?? null);
+  };
+  {
     const again = result.split(ctx.inProps ? TOKEN_PROPS : TOKEN);
     for (let i = 0; i < again.length; i += 2) {
       again[i] = again[i]
         .replace(TITLE_BEFORE, (all, lead, q1, title, q2) => {
-          const url = pages.get(title.trim().toLowerCase());
+          const url = lookup(title);
           if (!url || url === ctx.self) return all;
           linked++;
           return `${lead}${q1}[${title}](${url})${q2}`;
         })
         .replace(TITLE_AFTER, (all, q1, title, q2, tail) => {
-          const url = pages.get(title.trim().toLowerCase());
+          const url = lookup(title);
           if (!url || url === ctx.self) return all;
           linked++;
           return `${q1}[${title}](${url})${q2}${tail}`;
         })
         // a title with no quotes after the word lesson or page: "บท ซ้อมอย่างมีหลัก", "the lesson Execution model"
-        .replace(plainTitleRx(ctx, pages), (all, lead, title) => {
-          const url = pages.get(title.trim().toLowerCase());
+        .replace(pages ? plainTitleRx(ctx, pages) : /(?!)/g, (all, lead, title) => {
+          const url = lookup(title);
           if (!url || url === ctx.self) return all;
           linked++;
           return `${lead}[${title}](${url})`;
@@ -256,6 +301,16 @@ function linkLine(text, ctx) {
 let totalLinked = 0;
 const problems = [];
 const brokenLinks = [];
+const brokenFragments = [];
+// every link between lesson pages: where it is written, which page it points at, and which heading (empty: the whole page)
+const links = [];
+const safeDecode = (t) => {
+  try {
+    return decodeURIComponent(t);
+  } catch {
+    return t;
+  }
+};
 let changedFiles = 0;
 
 for (const coll of ['lessons', 'lessons-en']) {
@@ -294,6 +349,12 @@ for (const coll of ['lessons', 'lessons-en']) {
       for (const lm of line.matchAll(/\]\((\/[^)#\s]*)(#[^)\s]*)?\)/g)) {
         const path = lm[1].endsWith('/') ? lm[1] : lm[1] + '/';
         if (!routes.has(path)) brokenLinks.push(`${relative(ROOT, file)}:${n + 1} ${lm[1]}`);
+        else {
+          const frag = lm[2] ? safeDecode(lm[2].slice(1)) : '';
+          links.push({ from: relative(ROOT, file).split(sep).join('/'), line: n + 1, route: path, frag });
+          // a heading that was renamed or removed: the link still opens the page but no longer reaches the heading
+          if (frag && !idsOf.get(path)?.has(frag)) brokenFragments.push(`${relative(ROOT, file)}:${n + 1} ${path}#${frag}`);
+        }
       }
       if (/ref-ok/.test(line)) continue;
       if (/^\s*<Question\b/.test(line)) inQuestion = true;
@@ -330,6 +391,33 @@ for (const coll of ['lessons', 'lessons-en']) {
   }
 }
 
+// What links here? `--backlinks /spark/execution-model/` lists every link to that page and to each of its headings;
+// `--backlinks /spark/execution-model/#narrow-กับ-wide` only the links to that heading; `--graph` prints all links as JSON.
+if (GRAPH) {
+  console.log(JSON.stringify({ routes: [...routes], headings: Object.fromEntries([...idsOf].map(([r, s]) => [r, [...s]])), links }));
+  process.exit(0);
+}
+if (BACKLINKS !== null) {
+  const [route, frag] = BACKLINKS.split('#');
+  const page = route.endsWith('/') ? route : route + '/';
+  if (!routes.has(page)) {
+    console.log(`no such page: ${page}`);
+    process.exit(1);
+  }
+  const into = links.filter((l) => l.route === page && (!frag || l.frag === safeDecode(frag)));
+  console.log(`${into.length} links to ${page}${frag ? '#' + safeDecode(frag) : ''}`);
+  const byHeading = new Map();
+  for (const l of into) (byHeading.get(l.frag) ?? byHeading.set(l.frag, []).get(l.frag)).push(l);
+  const order = [...(idsOf.get(page) ?? [])];
+  for (const h of ['', ...order, ...[...byHeading.keys()].filter((k) => k && !order.includes(k))]) {
+    const list = byHeading.get(h);
+    if (!list && !(frag === undefined && h)) continue;
+    if (!list && h) continue;
+    console.log(`\n${h ? '#' + h : '(the whole page)'}`);
+    for (const l of list) console.log(`  ${l.from}:${l.line}`);
+  }
+  process.exit(0);
+}
 if (FIX) console.log(`${DRY ? 'would link' : 'linked'} ${totalLinked} references in ${changedFiles} files`);
 else console.log(`${totalLinked} references are not links`);
 for (const p of problems) console.log(p);
@@ -337,5 +425,9 @@ if (brokenLinks.length) {
   console.log(`\n${brokenLinks.length} links point to a page that does not exist:`);
   for (const b of brokenLinks) console.log(b);
 }
-// a check fails on any reference that is not a link (or that cannot be linked) and on a link that points nowhere
-process.exit(brokenLinks.length || (!FIX && (totalLinked || problems.length)) ? 1 : 0);
+if (brokenFragments.length) {
+  console.log(`\n${brokenFragments.length} links point to a heading that does not exist (it was renamed or removed; \`--backlinks <page>\` shows who links where):`);
+  for (const b of brokenFragments) console.log(b);
+}
+// a check fails on any reference that is not a link (or that cannot be linked), on a link that points nowhere and on a link to a heading that is gone
+process.exit(brokenLinks.length || brokenFragments.length || (!FIX && (totalLinked || problems.length)) ? 1 : 0);

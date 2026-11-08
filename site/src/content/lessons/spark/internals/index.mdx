@@ -34,7 +34,7 @@ import MemoryLab from '../../../../components/labs/spark/MemoryLab';
 
 ## RDD และ Lineage
 
-DataFrame ที่คุณเขียน ถูกแปลงเป็นแผนของ operator ([บทที่ 6](/spark/catalyst-aqe/)) แล้วสุดท้ายรันเป็น **RDD** เสมอ RDD (`RDD.scala`) คือคอลเลกชัน immutable ที่แบ่งเป็น partition และนิยามด้วยห้าอย่าง
+DataFrame ที่คุณเขียน ถูกแปลงเป็นแผนของ operator ([บทที่ 6](/spark/catalyst-aqe/#query-ผ่านห้าขั้น)) แล้วสุดท้ายรันเป็น **RDD** เสมอ RDD (`RDD.scala`) คือคอลเลกชัน immutable ที่แบ่งเป็น partition และนิยามด้วยห้าอย่าง
 
 | อย่าง | ความหมาย |
 |---|---|
@@ -44,7 +44,7 @@ DataFrame ที่คุณเขียน ถูกแปลงเป็นแ
 | partitioner (ไม่บังคับ) | วิธีแบ่ง key ไป partition |
 | preferred locations (ไม่บังคับ) | เครื่องที่ข้อมูลอยู่ ใช้เลือกว่าจะรัน task ที่ไหน |
 
-transformation (`map`, `filter`, `union`) แค่สร้าง RDD ใหม่ที่จำว่ามาจากใคร ไม่รันอะไร (ตรงกับ lazy ใน[บทที่ 2](/spark/lazy-evaluation/)) action (`collect`, `count`) เรียก `sc.runJob` ถึงเริ่มทำงาน
+transformation (`map`, `filter`, `union`) แค่สร้าง RDD ใหม่ที่จำว่ามาจากใคร ไม่รันอะไร (ตรงกับ lazy ใน[บทที่ 2](/spark/lazy-evaluation/#สองประเภทของคำสั่ง)) action (`collect`, `count`) เรียก `sc.runJob` ถึงเริ่มทำงาน
 
 dependency มีสองแบบที่กำหนดทุกอย่างของ stage
 
@@ -115,7 +115,7 @@ DAGScheduler ตัดสินใจว่า "รันอะไร" ส่ว
 3. deserialize `Task` ที่ driver ส่งมา แล้วรัน
 4. serialize ผล บันทึก metrics แล้วส่งสถานะกลับ driver
 
-และมี `Heartbeater` ส่งสัญญาณกลับ driver เป็นระยะ ทำให้ driver รู้ว่า executor ยังอยู่ และรวบรวม metric ของ task ที่กำลังรันมาแสดงใน Spark UI ([บทที่ 11](/spark/deployment-spark-ui/))
+และมี `Heartbeater` ส่งสัญญาณกลับ driver เป็นระยะ ทำให้ driver รู้ว่า executor ยังอยู่ และรวบรวม metric ของ task ที่กำลังรันมาแสดงใน Spark UI ([บทที่ 11](/spark/deployment-spark-ui/#ทักษะที่สำคัญที่สุดคืออ่าน-spark-ui))
 
 </Step>
 
@@ -123,7 +123,7 @@ DAGScheduler ตัดสินใจว่า "รันอะไร" ส่ว
 
 ## ไฟล์ Shuffle บน Disk
 
-shuffle ไม่ใช่การส่งข้อมูลผ่านเครือข่ายตรงๆ แต่ผ่านไฟล์ ฝั่ง map เขียนไฟล์แล้วฝั่ง reduce ไปอ่าน (ข้อมูลเขียนด้วย writer ที่เลือกตาม[บทที่ 7](/spark/performance-tuning/)) วัดจริงบน `groupBy` ที่มี 8 map task (ตั้ง `spark.local.dir` ให้ชี้โฟลเดอร์ที่ตรวจได้)
+shuffle ไม่ใช่การส่งข้อมูลผ่านเครือข่ายตรงๆ แต่ผ่านไฟล์ ฝั่ง map เขียนไฟล์แล้วฝั่ง reduce ไปอ่าน (ข้อมูลเขียนด้วย writer ที่เลือกตาม[บทที่ 7](/spark/performance-tuning/#ที่ซ่อนอยู่-shuffle-writer-และค่า-200)) วัดจริงบน `groupBy` ที่มี 8 map task (ตั้ง `spark.local.dir` ให้ชี้โฟลเดอร์ที่ตรวจได้)
 
 ```
 blockmgr-<uuid>/<hash>/shuffle_0_0_0.data
@@ -168,7 +168,7 @@ storage region = unified x spark.memory.storageFraction (0.5) = 90 MiB
 
 ผลวัด (`MEMORY_ONLY`): cache ข้อมูล 4 block ได้ storage ใช้ **153.9 MiB เกินเส้น 90 MiB** แล้วรัน sort 6 ล้านแถวที่ต้องการ memory ของ execution พบ storage ลดเหลือ **77.0 MiB** และ cache เหลือ 2 จาก 4 partition นี่คือเหตุผลที่ `MEMORY_ONLY` ไม่รับประกันว่า cache อยู่ครบ
 
-**ระดับ task**: `TaskMemoryManager` (`TaskMemoryManager.java`) ดูแล memory แบบ Tungsten ของ task หนึ่ง มี page table 8192 ช่อง และเข้ารหัสเลข page กับ offset เป็นเลข 64 บิตตัวเดียว เพื่อให้ pointer ของ record ใช้ได้เหมือนกันทั้ง on-heap และ off-heap เมื่อ pool ให้ memory ไม่พอ มันสั่ง consumer (sorter, hash map) ให้ **spill** ตามที่เรียนใน[บทที่ 7](/spark/performance-tuning/)
+**ระดับ task**: `TaskMemoryManager` (`TaskMemoryManager.java`) ดูแล memory แบบ Tungsten ของ task หนึ่ง มี page table 8192 ช่อง และเข้ารหัสเลข page กับ offset เป็นเลข 64 บิตตัวเดียว เพื่อให้ pointer ของ record ใช้ได้เหมือนกันทั้ง on-heap และ off-heap เมื่อ pool ให้ memory ไม่พอ มันสั่ง consumer (sorter, hash map) ให้ **spill** ตามที่เรียนใน[บทที่ 7](/spark/performance-tuning/#spill-เมื่อ-memory-ไม่พอ)
 
 </Step>
 
@@ -176,7 +176,7 @@ storage region = unified x spark.memory.storageFraction (0.5) = 90 MiB
 
 ## Whole-Stage Codegen: Java ที่ Spark เขียนให้
 
-[บทที่ 6](/spark/catalyst-aqe/) บอกว่า `*(1)` คือ operator ที่ถูกรวมใน codegen ลองดูโค้ดที่ได้จริงจาก `explain("codegen")` ของ `range(1000).filter("id % 3 = 0").selectExpr("id * 2")` (ตัดเหลือส่วนสำคัญ)
+[บทที่ 6](/spark/catalyst-aqe/#tungsten-แบบย่อ) บอกว่า `*(1)` คือ operator ที่ถูกรวมใน codegen ลองดูโค้ดที่ได้จริงจาก `explain("codegen")` ของ `range(1000).filter("id % 3 = 0").selectExpr("id * 2")` (ตัดเหลือส่วนสำคัญ)
 
 ```java
 final class GeneratedIteratorForCodegenStage1 extends BufferedRowIterator {
@@ -206,7 +206,7 @@ final class GeneratedIteratorForCodegenStage1 extends BufferedRowIterator {
 สังเกตสามอย่าง
 
 1. **ทั้ง `Range`, `Filter`, `Project` อยู่ใน loop เดียว** ตัวแปร `range_value_0` ส่งต่อให้ filter และ project ตรงๆ ไม่มีการสร้าง object ต่อแถวและไม่มีการเรียก `next()` ของ iterator ทีละ operator เหมือนโหมดตีความ (volcano)
-2. `MathUtils.multiplyExact` ปรากฏเพราะ ANSI mode เปิด ([บทที่ 6](/spark/catalyst-aqe/)) การคูณที่ล้นจึง error แทนที่จะวนค่า
+2. `MathUtils.multiplyExact` ปรากฏเพราะ ANSI mode เปิด ([บทที่ 6](/spark/catalyst-aqe/in-depth/#analyzer-และ-ansi-mode-ที่ถูกล็อกตอน-analyze)) การคูณที่ล้นจึง error แทนที่จะวนค่า
 3. แถวผลลัพธ์ถูกเขียนเป็น `UnsafeRow` ผ่าน `UnsafeRowWriter` (ไบต์ดิบ ไม่ใช่ object)
 
 โครงที่เกี่ยวข้อง (จาก source)
@@ -222,7 +222,7 @@ final class GeneratedIteratorForCodegenStage1 extends BufferedRowIterator {
 **เร็วขึ้นเท่าไร**: วัดบนเครื่องผู้เขียน `range(30 ล้านแถว).filter(...).agg(sum)` ใช้เวลาราว 0.09 วินาทีเมื่อเปิด whole-stage codegen และ 0.23 วินาทีเมื่อปิด (เร็วขึ้นราว 2.5 เท่า) เป็นตัวอย่างเล็กที่ CPU ทำงานล้วนๆ งานจริงที่มี I/O หรือ shuffle จะเห็นส่วนต่างน้อยกว่านี้ ตัวเลขนี้ขึ้นกับเครื่องและงาน จึงไม่ใช่ตัวคูณที่ใช้ทั่วไปได้
 
 <Callout type="note" title="ไม่ใช่ทุกอย่างอยู่ใน codegen">
-operator ที่ไม่ codegen (เช่น `Exchange`) และ expression ที่ implement ด้วยการตีความ (CodegenFallback) ตัดสาย codegen ออกเป็นสองก้อน Python UDF ก็ตัดด้วยเหตุผลต่างกัน (ต้องส่งข้อมูลไปนอก JVM ดู[บทที่ 8](/spark/udf/)) ใน plan คุณเห็นเลข `*(n)` ต่างกันคือขอบเขตเหล่านี้
+operator ที่ไม่ codegen (เช่น `Exchange`) และ expression ที่ implement ด้วยการตีความ (CodegenFallback) ตัดสาย codegen ออกเป็นสองก้อน Python UDF ก็ตัดด้วยเหตุผลต่างกัน (ต้องส่งข้อมูลไปนอก JVM ดู[บทที่ 8](/spark/udf/#ข้อมูลเดินทางอย่างไร)) ใน plan คุณเห็นเลข `*(n)` ต่างกันคือขอบเขตเหล่านี้
 </Callout>
 
 </Step>

@@ -17,7 +17,7 @@ import Callout from '../../../../components/Callout.astro';
 
 ## สามเฟส สามรายงาน
 
-บท [Pytest ทำงานอย่างไร](/pytest/how-pytest-runs/) เห็นว่าแต่ละ test มี `makereport` สามครั้ง บทนี้ดูว่ามันมาจากไหน ตัวที่ควบคุมคือ `runtestprotocol` ใน `_pytest/runner.py` (source) ที่ย่อได้ดังนี้
+บท [Pytest ทำงานอย่างไร](/pytest/how-pytest-runs/#ลำดับ-hook-จริงสำหรับ-test-สองตัว) เห็นว่าแต่ละ test มี `makereport` สามครั้ง บทนี้ดูว่ามันมาจากไหน ตัวที่ควบคุมคือ `runtestprotocol` ใน `_pytest/runner.py` (source) ที่ย่อได้ดังนี้
 
 ```python
 rep = call_and_report(item, "setup", log)
@@ -60,7 +60,7 @@ exception ส่วนใหญ่ถูกจับ เหตุผลคือ
 
 | เฟส | ทำอะไร |
 |---|---|
-| setup | `SetupState.setup(item)` เรียก `setup()` ของ node ในสายตั้งแต่ Session ลงมา ตัว `Function.setup` เติม fixture ที่ test ขอ (บท [Fixture Engine](/pytest/fixture-engine/)) |
+| setup | `SetupState.setup(item)` เรียก `setup()` ของ node ในสายตั้งแต่ Session ลงมา ตัว `Function.setup` เติม fixture ที่ test ขอ (บท [Fixture Engine](/pytest/fixture-engine/#รัน-fixture-หนึ่งตัว)) |
 | call | `item.runtest()` ซึ่งเรียก hook `pytest_pyfunc_call` ฟังก์ชันของเราถูกเรียกด้วย fixture ที่ได้เป็น keyword argument |
 | teardown | `SetupState.teardown_exact(nextitem)` ปิด node ที่หมดหน้าที่ตามกฎของ `nextitem` |
 
@@ -105,7 +105,7 @@ exception ส่วนใหญ่ถูกจับ เหตุผลคือ
   - ผ่านและไม่ strict เป็น `passed` พร้อม `wasxfail` นี่คือ XPASS
   - ผ่านและ strict เป็น `failed` พร้อมข้อความ `[XPASS(strict)] เหตุผล`
 
-ตารางด้านบนยืนยันทุกแถว และตรงกับสิ่งที่บท [Marker](/pytest/markers/) บรรยายจากภายนอก จุดสำคัญคือ **skipped ของ xfail เกิดจากการเปลี่ยน outcome ทีหลัง** ไม่ใช่ pytest ข้าม test ตัว test ถูกรันจริงในเฟส call
+ตารางด้านบนยืนยันทุกแถว และตรงกับสิ่งที่บท [Marker](/pytest/markers/#xfail-รู้ว่าล้ม-แต่ยังรันอยู่) บรรยายจากภายนอก จุดสำคัญคือ **skipped ของ xfail เกิดจากการเปลี่ยน outcome ทีหลัง** ไม่ใช่ pytest ข้าม test ตัว test ถูกรันจริงในเฟส call
 
 `--runxfail` ทำให้ตัวครอบนี้ไม่ยุ่ง (source: เงื่อนไข `item.config.option.runxfail`) test ที่ทำเครื่องหมาย xfail จึงรายงานผลจริง ใช้ตอนอยากรู้ว่า bug ที่รู้แล้วยังอยู่ไหม
 

@@ -97,7 +97,7 @@ class Line(BaseModel):
 
 Passing `Line(sku="ab", qty=0, price=-1)` gives three errors, in order `string_too_short`, `greater_than`, `greater_than_equal`. Each error carries a `ctx` that names the constraint, for example `{'gt': 0}` with the message `Input should be greater than 0`.
 
-`pattern` uses the Rust regex engine by default, which does not support lookahead. Writing `(?=a)` in a pattern gives a `SchemaError` **when the class is created**, not later when you validate. There are two ways out: set `regex_engine="python-re"` in the config to use Python's `re`, or write a validator instead ([lesson 5](/en/pydantic/validators/)).
+`pattern` uses the Rust regex engine by default, which does not support lookahead. Writing `(?=a)` in a pattern gives a `SchemaError` **when the class is created**, not later when you validate. There are two ways out: set `regex_engine="python-re"` in the config to use Python's `re`, or write a validator instead ([lesson 5](/en/pydantic/validators/#when-field-constraints-are-not-enough)).
 
 </Step>
 
@@ -122,7 +122,7 @@ class Line2(BaseModel):
 
 The constraints of `Qty` also apply to the members of the list. `Line2(sku="X-1", qty=5, parts=[1, 0, 101])` gives two errors, at `parts.1` (`greater_than`) and `parts.2` (`less_than_equal`). The location in the report points at exactly the member that failed.
 
-The same pattern works for validators ([lesson 5](/en/pydantic/validators/)), and it is how Pydantic itself builds ready-made types such as `PositiveInt` ([lesson 3](/en/pydantic/types/)).
+The same pattern works for validators ([lesson 5](/en/pydantic/validators/#annotated-validators-reusable-and-stackable)), and it is how Pydantic itself builds ready-made types such as `PositiveInt` ([lesson 3](/en/pydantic/types/#ready-made-types-constrained-numbers-url-email-secretstr)).
 
 </Step>
 
@@ -140,7 +140,7 @@ Alias(userId=1).user_id    # 1
 Alias(user_id=1)           # error: field "userId" missing
 ```
 
-Once there is an `alias`, Pydantic accepts input under the alias name only. To accept the real name too, turn on `populate_by_name=True` in the config ([lesson 8](/en/pydantic/models-config/)).
+Once there is an `alias`, Pydantic accepts input under the alias name only. To accept the real name too, turn on `populate_by_name=True` in the config ([lesson 8](/en/pydantic/models-config/#configdict-settings-for-the-whole-model)).
 
 When you dump, the default is the real field name. Pass `by_alias=True` to get the alias back.
 
@@ -179,12 +179,12 @@ class Account(BaseModel):
 - `exclude=True` keeps the field out of `model_dump()` and `model_dump_json()`. The result of `Account(user="u", password="p").model_dump()` is `{'user': 'u', 'token': 't'}`.
 - `repr=False` hides the field from `repr`, so `password` does not show up when you log the object.
 - `frozen=True` forbids changing that field after creation. `acc.token = "new"` gives a `ValidationError` of type `frozen_field`.
-- `description`, `examples` and `title` go into the JSON Schema ([lesson 9](/en/pydantic/adapters/)).
+- `description`, `examples` and `title` go into the JSON Schema ([lesson 9](/en/pydantic/adapters/#json-schema-from-a-model)).
 
 Per-field information is kept in `Model.model_fields`, a dict of `FieldInfo`. For example `Account.model_fields["user"]` prints `annotation=str required=True`, and you can call `.is_required()` on it.
 
 <Callout type="warn" title="exclude does not make a value fully safe">
-`exclude=True` and `repr=False` hide the value from dumps and from `repr` only. The value is still in `acc.password`, and in the error if validation fails (errors show `input_value`). For a real secret, look at `SecretStr` ([lesson 3](/en/pydantic/types/)) and `hide_input_in_errors` ([lesson 6](/en/pydantic/errors/)).
+`exclude=True` and `repr=False` hide the value from dumps and from `repr` only. The value is still in `acc.password`, and in the error if validation fails (errors show `input_value`). For a real secret, look at `SecretStr` ([lesson 3](/en/pydantic/types/#ready-made-types-constrained-numbers-url-email-secretstr)) and `hide_input_in_errors` ([lesson 6](/en/pydantic/errors/#hiding-the-bad-value-keep-passwords-out-of-logs)).
 </Callout>
 
 </Step>

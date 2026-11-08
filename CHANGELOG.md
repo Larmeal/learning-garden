@@ -5,6 +5,13 @@ Notable changes to the learning garden, newest first. Dates are when the change 
 ## 2026-11-08
 
 ### Added
+- Links between lessons point at the heading the sentence is about, not only at the lesson (about 420 links in each language, chosen
+  one by one; where no heading is clearly the one the link stays on the lesson). Thai and English point at the same heading.
+- `npm run check:refs` also fails on a link to a heading that no longer exists (ids made with `github-slugger` the way the build
+  makes them; checked against all 506 pages of the built site), and `node tools/lesson-refs.mjs --backlinks <page or page#heading>`
+  lists everything that links to a page or heading, so a heading is not renamed blind. `--graph` prints every link as JSON.
+- References to pages of another subject by title (the guitar and music-theory lessons name each other, Data Quality names the
+  Great Expectations lesson) and page names written without quotes ("the page on data contracts in practice") are links too.
 - `site/tools/lesson-refs.mjs` (`npm run check:refs`, also a step of the deploy workflow): every mention of another lesson must be a
   link. It finds "บทที่ 5", "บท 5", "lesson 5", "บทถัดไป", "the next lesson", a page named by its title and "lesson 5, page
   \"Title\"", links them with `--fix`, and fails on a mention that is not linked and on a link that points at no page. A number after
@@ -12,9 +19,15 @@ Notable changes to the learning garden, newest first. Dates are when the change 
 - The `q` and `why` of a `<Question>` and the `title` of a `<Callout>` render `[text](/path/)` links (`src/lib/inline-links.ts`). The
   key under which a question's answer is stored is the text without the link, so saved answers still match.
 
+### Fixed
+- Links to the wrong lesson: in music-theory the text counted lessons from 1 while the pages are numbered from 0, so six references
+  now say the number the page shows and point at the right lesson (for example slash chords are in lesson 5, chords). Three
+  Great Expectations references to a lesson of the Spark path pointed at a Great Expectations lesson, and "the next lesson" in the
+  guitar fretboard lesson pointed at open chords where it means barre chords.
+
 ### Changed
-- About 440 mentions of other lessons in the Thai and English lessons of every subject were plain text and are now links (the
-  tool links the lesson, not a heading). The four frontmatter summaries that named lesson numbers say "the earlier lessons".
+- About 440 mentions of other lessons in the Thai and English lessons of every subject were plain text and are now links, and the
+  four frontmatter summaries that named lesson numbers say "the earlier lessons".
 - Thai and English: link-only differences were marked as in step (`npm run sync -- --accept`).
 - Checked with the impeccable detector (`npx impeccable detect <url>`, run from outside the repo, nothing installed) and by eye on
   desktop, phone and dark mode. The detector no longer reports low contrast, skipped headings or undersized text on the pages

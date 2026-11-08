@@ -10,7 +10,7 @@ updated: 2026-11-05
 import Step from '../../../../components/Step.astro';
 import Callout from '../../../../components/Callout.astro';
 
-ตัวเลขทั้งหมดมาจาก `exercises/05_execution_model.py` (Spark 4.2.0, 16 core, ปิด AQE เพื่อดูแผนตั้งต้นของบทนี้ [บทที่ 6](/spark/catalyst-aqe/) อธิบาย AQE) task และไบต์อ่านจาก REST API ของ Spark UI ([บทที่ 11](/spark/deployment-spark-ui/))
+ตัวเลขทั้งหมดมาจาก `exercises/05_execution_model.py` (Spark 4.2.0, 16 core, ปิด AQE เพื่อดูแผนตั้งต้นของบทนี้ [บทที่ 6](/spark/catalyst-aqe/#aqe-ทำสามอย่าง) อธิบาย AQE) task และไบต์อ่านจาก REST API ของ Spark UI ([บทที่ 11](/spark/deployment-spark-ui/#ทักษะที่สำคัญที่สุดคืออ่าน-spark-ui))
 
 <Step>
 
@@ -49,7 +49,7 @@ import Callout from '../../../../components/Callout.astro';
 
 - **`coalesce` ไม่ shuffle แต่ `repartition` shuffle** แม้ทั้งคู่ปรับจำนวน partition
 - **aggregate ที่ไม่มี `groupBy`** ยังมี Exchange เพราะผลรวมจาก partial aggregate ทุก partition ต้องมารวมใน partition เดียว (`SinglePartition`) แปลว่า task สุดท้ายนั้นเป็นจุดคอขวดของการรวมทั้งหมด แต่ข้อมูลที่ส่งมีขนาดเล็กมาก (ผลบางส่วนของแต่ละ partition)
-- **`join` ปกติมี Exchange สองตัว** แต่ถ้าฝั่งหนึ่งเล็กพอถูก broadcast จะไม่มี Exchange ของแถวทั้งสองฝั่งเลย มีเพียง `BroadcastExchange` (ตรวจแล้ว ตาม[บทที่ 6](/spark/catalyst-aqe/) และ [7](/spark/performance-tuning/))
+- **`join` ปกติมี Exchange สองตัว** แต่ถ้าฝั่งหนึ่งเล็กพอถูก broadcast จะไม่มี Exchange ของแถวทั้งสองฝั่งเลย มีเพียง `BroadcastExchange` (ตรวจแล้ว ตาม[บทที่ 6](/spark/catalyst-aqe/#join-ตัวไหน-และใครเลือก) และ [7](/spark/performance-tuning/#spark-เลือก-join-อย่างไร))
 
 </Step>
 
@@ -94,7 +94,7 @@ import Callout from '../../../../components/Callout.astro';
 
 - จำนวน task ของ stage แรกเท่ากับจำนวน partition ของข้อมูลต้นทาง (8) ส่วน stage หลัง shuffle เท่ากับ `spark.sql.shuffle.partitions` (200)
 - **ไบต์ที่ stage 0 เขียน เท่ากับที่ stage 1 อ่านเป๊ะ** (3,496 ไบต์) ข้อมูลถูกย่อด้วย partial aggregate ก่อนส่ง: เหลือแค่ 7 กลุ่มจาก 8 partition ไม่ใช่ 2 ล้านแถว นี่คือเหตุผลที่ `groupBy` ที่ aggregate ได้ shuffle น้อยกว่า `distinct` หรือ `repartition` ซึ่งส่งทุกแถว
-- ที่เหลือจาก 200 task ส่วนใหญ่ได้ข้อมูลว่างหรือน้อยมาก (7 key กระจายไปแค่ไม่เกิน 7 partition) ซึ่งเป็นเหตุผลที่ AQE รวมให้ใน[บทที่ 6](/spark/catalyst-aqe/)
+- ที่เหลือจาก 200 task ส่วนใหญ่ได้ข้อมูลว่างหรือน้อยมาก (7 key กระจายไปแค่ไม่เกิน 7 partition) ซึ่งเป็นเหตุผลที่ AQE รวมให้ใน[บทที่ 6](/spark/catalyst-aqe/#aqe-ทำสามอย่าง)
 
 งาน narrow ล้วน `range(8 partition).filter().select().collect()` ได้ **1 stage 8 task** ตรงกับที่บทหลักบอกว่า narrow ต่อกันกี่ตัวก็อยู่ใน stage เดียว
 
@@ -111,10 +111,10 @@ import Callout from '../../../../components/Callout.astro';
 | `groupBy(...)` ผลลัพธ์ เปิด AQE (ข้อมูลเล็ก) | **1** (AQE รวม) |
 | `coalesce(4)` | 4 |
 
-และเมื่อเปิด AQE การเรียก `explain()` ก่อน action ขึ้นต้นด้วย `AdaptiveSparkPlan isFinalPlan=false` ซึ่งบอกว่าแผนยังเปลี่ยนได้ (ดูอธิบายใน[บทที่ 6](/spark/catalyst-aqe/)) ตัวเลข 1 กับ 200 ข้างบนเป็นที่มาของคำถามที่ผู้เรียนมักสงสัยว่า "ทำไม `explain` เห็น 200 แต่ UI เห็นน้อยกว่า" ซึ่งก็คือ AQE นั่นเอง
+และเมื่อเปิด AQE การเรียก `explain()` ก่อน action ขึ้นต้นด้วย `AdaptiveSparkPlan isFinalPlan=false` ซึ่งบอกว่าแผนยังเปลี่ยนได้ (ดูอธิบายใน[บทที่ 6](/spark/catalyst-aqe/#เปิดอยู่แล้ว-adaptivesparkplan)) ตัวเลข 1 กับ 200 ข้างบนเป็นที่มาของคำถามที่ผู้เรียนมักสงสัยว่า "ทำไม `explain` เห็น 200 แต่ UI เห็นน้อยกว่า" ซึ่งก็คือ AQE นั่นเอง
 
 <Callout type="tip" title="ใช้ตัวเลขเหล่านี้ตอนไหน">
-เจอ job ช้า: เปิด Spark UI นับ stage แล้วเทียบกับจำนวน Exchange ใน `explain()` ถ้า stage มากกว่า Exchange + 1 เกินกว่าที่คาด อาจมี job เสริม (เช่นการสุ่มของ `orderBy`) หรือ stage ซ้ำจากการลองใหม่ จากนั้นดูไบต์ shuffle ของ stage ที่ใหญ่ที่สุด นั่นคือที่ที่ควรลดก่อน ([บทที่ 7](/spark/performance-tuning/))
+เจอ job ช้า: เปิด Spark UI นับ stage แล้วเทียบกับจำนวน Exchange ใน `explain()` ถ้า stage มากกว่า Exchange + 1 เกินกว่าที่คาด อาจมี job เสริม (เช่นการสุ่มของ `orderBy`) หรือ stage ซ้ำจากการลองใหม่ จากนั้นดูไบต์ shuffle ของ stage ที่ใหญ่ที่สุด นั่นคือที่ที่ควรลดก่อน ([บทที่ 7](/spark/performance-tuning/#จูนคือการหาว่าเสียเวลาที่ไหน))
 </Callout>
 
 </Step>

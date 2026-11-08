@@ -17,7 +17,7 @@ import Callout from '../../../../components/Callout.astro';
 
 ## The question [lesson 2](/en/pytest/assertions/) left open
 
-[Lesson 2](/en/pytest/assertions/) said that pytest "rewrites the assert" before running. This lesson looks at the real thing: the code that results, the rules for which files are changed, and what follows when the rules do not cover a file. That is the cause of a very confusing symptom: an `assert` in a test gives every value, but an `assert` in a helper function the test calls gives only the word `AssertionError`.
+[Lesson 2](/en/pytest/assertions/#a-plain-assert-that-gives-more-than-you-expect) said that pytest "rewrites the assert" before running. This lesson looks at the real thing: the code that results, the rules for which files are changed, and what follows when the rules do not cover a file. That is the cause of a very confusing symptom: an `assert` in a test gives every value, but an `assert` in a helper function the test calls gives only the word `AssertionError`.
 
 The parts that do the work are in `_pytest/assertion/rewrite.py` (source). There are three:
 
@@ -57,7 +57,7 @@ You can read four things from it:
 
 - **Every sub-expression is kept in a temporary variable** (`@py_assert1`, `@py_assert3`, ...). `cart.total`, the result of `total()` and `31` each have a variable, so the values are still there to print on failure.
 - **An `if not ...: raise AssertionError(...)` statement** replaces the original `assert`. The text `assert 30 == 31` that you see is put together in `_format_explanation` only on failure. When the assert passes there is no extra work beyond keeping the values.
-- **`_call_reprcompare`** is where the hook `pytest_assertrepr_compare` is called, to build the diff of a dict, list or string ([lesson 14](/en/pytest/plugins/) writes this hook by hand).
+- **`_call_reprcompare`** is where the hook `pytest_assertrepr_compare` is called, to build the diff of a dict, list or string ([lesson 14](/en/pytest/plugins/#the-summary-and-the-assert-message) writes this hook by hand).
 - **The temporaries are set to `None` at the end of the statement**, so objects do not stay alive in memory.
 
 The variable names start with `@` because Python itself cannot create names like that, so they can never collide with a user's variable.
@@ -131,9 +131,9 @@ The file name carries the pytest version because the shape of the changed code d
 
 **`assert (a, b)`.** The parentheses make a tuple that is never empty, which is always true. pytest checks for this in `visit_Assert` and issues the warning `assertion is always true, perhaps remove parentheses?`. The exercise confirms that `assert (1 == 2, 'message')` passes with this warning (ran: `exercises/08_design/test_smells.py`).
 
-**A truncated diff.** The maximum length of a printed value depends on the assertion verbosity: level 0 uses the default, level 1 (`-v`) is ten times longer, and level 2 and above (`-vv`) does not cut (source: `_get_maxsize_for_saferepr` in `rewrite.py`). That matches the message `Use -v to get more diff` in [lesson 2](/en/pytest/assertions/).
+**A truncated diff.** The maximum length of a printed value depends on the assertion verbosity: level 0 uses the default, level 1 (`-v`) is ten times longer, and level 2 and above (`-vv`) does not cut (source: `_get_maxsize_for_saferepr` in `rewrite.py`). That matches the message `Use -v to get more diff` in [lesson 2](/en/pytest/assertions/#reading-a-diff).
 
-**Your own message.** The hook `pytest_assertrepr_compare(op, left, right)` lets a plugin or `conftest.py` write the explanation for its own types. If it returns a list of lines, pytest uses them instead of the standard diff, which is built in `_pytest/assertion/util.py` (`assertrepr_compare` handles text, sequences, mappings and sets). A working example is in [lesson 14](/en/pytest/plugins/).
+**Your own message.** The hook `pytest_assertrepr_compare(op, left, right)` lets a plugin or `conftest.py` write the explanation for its own types. If it returns a list of lines, pytest uses them instead of the standard diff, which is built in `_pytest/assertion/util.py` (`assertrepr_compare` handles text, sequences, mappings and sets). A working example is in [lesson 14](/en/pytest/plugins/#the-summary-and-the-assert-message).
 
 **A hook for passing asserts.** `pytest_assertion_pass` exists but is switched off. You have to set `enable_assertion_pass_hook` in the config, because keeping the messages for passing asserts has a cost (source: `enable_assertion_pass_hook` in `visit_Assert`).
 

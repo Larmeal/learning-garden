@@ -48,7 +48,7 @@ class Line(BaseModel):
         return self.unit_price * self.qty
 ```
 
-This uses material from [lesson 2](/en/pydantic/fields/#annotated-attach-constraints-to-a-type-and-reuse-them) (`Annotated` carrying `Field`), [lesson 3](/en/pydantic/types/) (`Decimal` for money), [lesson 8](/en/pydantic/models-config/) (`extra="forbid"` so a misspelled key is caught, and `frozen` so a line cannot change after creation) and [lesson 7](/en/pydantic/serialization/) (`computed_field` so `subtotal` goes out in the result).
+This uses material from [lesson 2](/en/pydantic/fields/#annotated-attach-constraints-to-a-type-and-reuse-them) (`Annotated` carrying `Field`), [lesson 3](/en/pydantic/types/#decimal-uuid-path-enum-and-literal) (`Decimal` for money), [lesson 8](/en/pydantic/models-config/#configdict-settings-for-the-whole-model) (`extra="forbid"` so a misspelled key is caught, and `frozen` so a line cannot change after creation) and [lesson 7](/en/pydantic/serialization/#computed_field-putting-a-property-into-the-output) (`computed_field` so `subtotal` goes out in the result).
 
 `unit_price="1.999"` is rejected with `decimal_max_places` because of `decimal_places=2`, while `5` (an integer) passes and becomes `Decimal("5")`.
 
@@ -80,11 +80,11 @@ Payment = Annotated[Union[Card, Transfer], Field(discriminator="method")]
 
 Three deliberate choices.
 
-**A discriminated union** ([lesson 4](/en/pydantic/unions/)) so that `{"method": "cash"}` gives `union_tag_invalid` directly instead of a report for every member.
+**A discriminated union** ([lesson 4](/en/pydantic/unions/#discriminated-union-look-at-one-field-and-choose-exactly)) so that `{"method": "cash"}` gives `union_tag_invalid` directly instead of a report for every member.
 
-**The card number is a `SecretStr`** ([lesson 3](/en/pydantic/types/)). The exercise confirms that `"4111"` appears neither in `repr(order)` nor in `order.model_dump_json()`.
+**The card number is a `SecretStr`** ([lesson 3](/en/pydantic/types/#ready-made-types-constrained-numbers-url-email-secretstr)). The exercise confirms that `"4111"` appears neither in `repr(order)` nor in `order.model_dump_json()`.
 
-**The card format is checked in a validator, not with `Field(pattern=...)`**, because `Field(pattern=...)` on a `SecretStr` does not work. The author tried it in the first draft and got `TypeError: Unable to apply constraint 'pattern' ... for schema of type 'lax-or-strict'` (that case was not kept in the exercise). The validator raises a `PydanticCustomError` whose message does not include the digits ([lesson 6](/en/pydantic/errors/)). Had it used `ValueError(f"bad card {digits}")`, the card number would end up in the error and in logs.
+**The card format is checked in a validator, not with `Field(pattern=...)`**, because `Field(pattern=...)` on a `SecretStr` does not work. The author tried it in the first draft and got `TypeError: Unable to apply constraint 'pattern' ... for schema of type 'lax-or-strict'` (that case was not kept in the exercise). The validator raises a `PydanticCustomError` whose message does not include the digits ([lesson 6](/en/pydantic/errors/#making-your-own-errors)). Had it used `ValueError(f"bad card {digits}")`, the card number would end up in the error and in logs.
 
 </Step>
 
@@ -135,9 +135,9 @@ Valid data (`GOOD` in the exercise) passes every gate, with conversions:
 | `channel` not sent | `Channel.WEB` |
 | `payment.method == "card"` | a `Card` |
 
-`order.total == Decimal("44.80")` (19.90 × 2 + 5), and the dumped JSON has `"total": "44.80"` and `"subtotal": "39.80"` for the first line, as strings because that is how a `Decimal` goes to JSON ([lesson 7](/en/pydantic/serialization/)).
+`order.total == Decimal("44.80")` (19.90 × 2 + 5), and the dumped JSON has `"total": "44.80"` and `"subtotal": "39.80"` for the first line, as strings because that is how a `Decimal` goes to JSON ([lesson 7](/en/pydantic/serialization/#two-modes-on-the-way-out)).
 
-The rules that span values sit in a list-level validator (duplicate sku) and a model-level validator (store with callback), as [lesson 5](/en/pydantic/validators/) taught.
+The rules that span values sit in a list-level validator (duplicate sku) and a model-level validator (store with callback), as [lesson 5](/en/pydantic/validators/#model_validator-rules-that-span-fields) taught.
 
 </Step>
 
@@ -175,9 +175,9 @@ Send an order with nine mistakes at once. The result the exercise confirms (in t
 
 Notice the order: extra keys come before the normal fields of the same model (`surprise` before `id`, `lines.0.color` before `lines.0.sku`). Do not write code that expects the error order to match the field order in the class. If a client needs a sorted list, sort it yourself.
 
-None of the user's values are in the list (because of `include_input=False`), and `placed_at` gets `date_too_old`, a code of our own, from the `PydanticCustomError` in `not_in_past` ([lesson 6](/en/pydantic/errors/)).
+None of the user's values are in the list (because of `include_input=False`), and `placed_at` gets `date_too_old`, a code of our own, from the `PydanticCustomError` in `not_in_past` ([lesson 6](/en/pydantic/errors/#making-your-own-errors)).
 
-Rules that span values run only after the basic values pass ([lesson 5](/en/pydantic/validators/)), so:
+Rules that span values run only after the basic values pass ([lesson 5](/en/pydantic/validators/#model_validator-rules-that-span-fields)), so:
 
 - two duplicate lines (with every field valid) give a single `value_error`
 - `channel="store"` with a `callback` gives the message `Value error, store orders cannot have a callback`
@@ -198,7 +198,7 @@ schema["additionalProperties"]                       # False
 set(schema["$defs"])                                 # {'Card', 'Channel', 'Line', 'Transfer'}
 ```
 
-The schema tells the client which fields must be sent, that extra keys are not allowed (`additionalProperties: False` comes from `extra="forbid"`), and that `payment` chooses its type with `method`, as [lesson 9](/en/pydantic/adapters/) explains.
+The schema tells the client which fields must be sent, that extra keys are not allowed (`additionalProperties: False` comes from `extra="forbid"`), and that `payment` chooses its type with `method`, as [lesson 9](/en/pydantic/adapters/#json-schema-from-a-model) explains.
 
 But the validators we wrote ourselves (duplicate sku, `placed_at` must be after 2020, the card number must be 16 digits, a store order cannot have a callback) are **not in the schema**. Put them in `description` or in separate documentation, or senders will only find out when they get rejected.
 
@@ -220,16 +220,16 @@ The `loc` starts with the index of the order in the batch, so the sender knows t
 
 | part of the gate | lesson |
 |---|---|
-| the model, lax converts `"1001"` to `1001` | [1](/en/pydantic/first-model/) |
-| `Annotated` plus `Field`, `min_length`, `gt`, `max_digits` | [2](/en/pydantic/fields/) |
+| the model, lax converts `"1001"` to `1001` | [1](/en/pydantic/first-model/#lax-mode-convert-when-it-is-safe) |
+| `Annotated` plus `Field`, `min_length`, `gt`, `max_digits` | [2](/en/pydantic/fields/#annotated-attach-constraints-to-a-type-and-reuse-them) |
 | `Decimal`, `EmailStr`, `HttpUrl`, `SecretStr`, `datetime` | [3](/en/pydantic/types/) |
-| `Payment` as a discriminated union | [4](/en/pydantic/unions/) |
+| `Payment` as a discriminated union | [4](/en/pydantic/unions/#discriminated-union-look-at-one-field-and-choose-exactly) |
 | `AfterValidator`, `field_validator`, `model_validator` | [5](/en/pydantic/validators/) |
 | `problems()`, `PydanticCustomError`, not echoing input | [6](/en/pydantic/errors/) |
 | `computed_field`, how `Decimal` dumps, secrets not leaking in JSON | [7](/en/pydantic/serialization/) |
-| `extra="forbid"`, `frozen`, `str_strip_whitespace` | [8](/en/pydantic/models-config/) |
+| `extra="forbid"`, `frozen`, `str_strip_whitespace` | [8](/en/pydantic/models-config/#configdict-settings-for-the-whole-model) |
 | `TypeAdapter(list[Order])`, JSON Schema | [9](/en/pydantic/adapters/) |
-| declare models once at module level, the cost of building | [10](/en/pydantic/under-the-hood/) |
+| declare models once at module level, the cost of building | [10](/en/pydantic/under-the-hood/#the-cost-is-in-creating-the-class-not-in-validating) |
 | when you inherit V1 code, what `Optional` and `Config` change | [11](/en/pydantic/migration/) |
 
 <Callout type="try" title="Try it in this repo">

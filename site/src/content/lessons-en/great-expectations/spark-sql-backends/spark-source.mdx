@@ -15,7 +15,7 @@ import FlowFrames from '../../../../components/labs/great-expectations/FlowFrame
 
 ## The evidence level of this page
 
-Everything on this page is at the level "read from the source". Not one point was run on Spark. The source we read is `execution_engine/sparkdf_execution_engine.py` of GX 1.24.1. The method `resolve_metric_bundle` (lines 966 to 1038) has the same name as the SQL method that [lesson 8](/en/great-expectations/metrics-engines/) measured. The difference is how the statements are combined.
+Everything on this page is at the level "read from the source". Not one point was run on Spark. The source we read is `execution_engine/sparkdf_execution_engine.py` of GX 1.24.1. The method `resolve_metric_bundle` (lines 966 to 1038) has the same name as the SQL method that [lesson 8](/en/great-expectations/metrics-engines/#watch-it-compute) measured. The difference is how the statements are combined.
 
 </Step>
 
@@ -63,7 +63,7 @@ for aggregate in aggregates.values():
   arrows={[ { from: 'in', to: 'g' }, { from: 'g', to: 'agg', label: 'per domain' }, { from: 'agg', to: 'row' }, { from: 'row', to: 'out', label: 'split by order' } ]}
   frames={[
     { title: 'Receive the deferred aggregate metrics', text: 'These metrics are still Spark expressions (for example F.max(column)). They have no value yet', on: ['in'], arrows: [] },
-    { title: 'Group by domain', text: 'domain_kwargs is the key. Metrics with the same domain go in the same group (like the SQL side, which the page "The domain of a metric" in [lesson 8](/en/great-expectations/metrics-engines/) tried)', on: ['in', 'g'], arrows: [0], tag: 'sparkdf_execution_engine.py ~lines 994-1012' },
+    { title: 'Group by domain', text: 'domain_kwargs is the key. Metrics with the same domain go in the same group (like the SQL side, which the page "The domain of a metric" in [lesson 8](/en/great-expectations/metrics-engines/#watch-it-compute) tried)', on: ['in', 'g'], arrows: [0], tag: 'sparkdf_execution_engine.py ~lines 994-1012' },
     { title: 'One agg per domain', text: 'df.agg(*list of expressions).collect() once per group. From the Spark point of view: agg is a transformation and collect is an action, so it is one job per group, unless Spark splits it into several jobs by itself (this must be measured)', on: ['g', 'agg'], arrows: [1], tag: 'lines 1014-1020' },
     { title: 'Get one row', text: 'The code asserts that it gets one row. If a metric is not a single value, it fails here. So only aggregates that return a single value take this path', on: ['agg', 'row'], arrows: [2], tag: 'line 1026' },
     { title: 'Split the result back into metrics', text: 'The value at index idx of the row is converted to a type that can be serialized, then stored under the id of the metric', on: ['row', 'out'], arrows: [3], tag: 'lines 1031-1036' },

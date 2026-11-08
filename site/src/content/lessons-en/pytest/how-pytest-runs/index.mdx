@@ -70,7 +70,7 @@ You can prove it by switching them off (ran: `internals/01_startup.py`):
 - `-p no:main` cannot be done: pytest ends with exit code 4 and the message `plugin main cannot be disabled`.
 - `--trace-config` prints a `PLUGIN registered` line for every registration, saying who registered what.
 
-In practice, features such as `--lf` (the `cacheprovider` plugin) or `--setup-show` (the `setuponly` plugin) are ordinary plugins. You can switch them off, and write your own in the same way ([lesson 14](/en/pytest/plugins/)).
+In practice, features such as `--lf` (the `cacheprovider` plugin) or `--setup-show` (the `setuponly` plugin) are ordinary plugins. You can switch them off, and write your own in the same way ([lesson 14](/en/pytest/plugins/#a-plugin-is-a-file-with-hooks)).
 
 </Step>
 
@@ -86,7 +86,7 @@ Three rules you will use often:
 - **Every implementation is called.** Most hooks are called on every plugin that implements them.
 - **`firstresult`.** A hook that makes a decision (such as `pytest_runtest_protocol`, `pytest_collect_directory`, `pytest_fixture_setup`) stops at the first implementation that returns something other than `None`.
 
-Two more kinds appear in the [Plugins lesson](/en/pytest/plugins/): wrapper hooks (they surround other implementations) and `historic` hooks such as `pytest_configure`, which are still called for plugins that register late.
+Two more kinds appear in the [Plugins lesson](/en/pytest/plugins/#a-wrapper-work-before-and-after-the-other-hooks): wrapper hooks (they surround other implementations) and `historic` hooks such as `pytest_configure`, which are still called for plugins that register late.
 
 </Step>
 
@@ -124,9 +124,9 @@ Two more kinds appear in the [Plugins lesson](/en/pytest/plugins/): wrapper hook
 
 What this shows:
 
-- **Collection finishes for the whole tree before the first test runs** (line 14 before line 17). The [Collection lesson](/en/pytest/collection/) explains how the tree is built.
-- **Each test has three reports**: setup, call and teardown, one each (`makereport` six times for two tests). That is why a fixture that breaks in teardown is an error separate from a passing test ([lesson 12](/en/pytest/run-protocol/)).
-- **`nextitem`** during the teardown of test_one is test_two, and for test_two it is `None`. pytest uses this to decide whether a module or session fixture should be closed now ([lesson 11](/en/pytest/fixture-engine/)).
+- **Collection finishes for the whole tree before the first test runs** (line 14 before line 17). The [Collection lesson](/en/pytest/collection/#collection-builds-a-tree) explains how the tree is built.
+- **Each test has three reports**: setup, call and teardown, one each (`makereport` six times for two tests). That is why a fixture that breaks in teardown is an error separate from a passing test ([lesson 12](/en/pytest/run-protocol/#three-phases-three-reports)).
+- **`nextitem`** during the teardown of test_one is test_two, and for test_two it is `None`. pytest uses this to decide whether a module or session fixture should be closed now ([lesson 11](/en/pytest/fixture-engine/#when-teardown-happens-and-who-does-it)).
 - **The summary at the end of the report is printed after `sessionfinish`** (line 39 after line 38), because `terminal` wraps that hook and calls `pytest_terminal_summary` itself (source: `pytest_sessionfinish` in `terminal.py`).
 
 </Step>
@@ -146,7 +146,7 @@ What this shows:
 | `UsageError`, such as an unknown option | `USAGE_ERROR` | 4 |
 | no tests found | `NO_TESTS_COLLECTED` | 5 |
 
-`--no-such-option` ends with 4 and the message `unrecognized arguments: --no-such-option` (ran: `internals/01_startup.py`). The number 5 is what the [First Test lesson](/en/pytest/first-test/) shows with a `-k` that matches nothing.
+`--no-such-option` ends with 4 and the message `unrecognized arguments: --no-such-option` (ran: `internals/01_startup.py`). The number 5 is what the [First Test lesson](/en/pytest/first-test/#exit-codes-what-ci-reads) shows with a `-k` that matches nothing.
 
 `pytest_sessionfinish` is called even when the session is interrupted, as long as the session had started (the `initstate >= 2` variable in `wrap_session`), so plugins always get a place to clean up.
 
@@ -164,7 +164,7 @@ The values a plugin sees through `config` come from several layers, and a later 
 | `PYTEST_ADDOPTS` | `PYTEST_ADDOPTS=-v` | adds options, as if you had typed them |
 | command line | `-o minversion=9.0` | wins over the value in the file |
 
-More about finding the config file and the rootdir is in [lesson 7](/en/pytest/project/in-depth/). The conftest files pytest loads during startup are plugins registered at folder level ([lesson 14](/en/pytest/plugins/)).
+More about finding the config file and the rootdir is in [lesson 7](/en/pytest/project/in-depth/#which-config-file-wins). The conftest files pytest loads during startup are plugins registered at folder level ([lesson 14](/en/pytest/plugins/#how-it-gets-registered)).
 
 <Callout type="try" title="Try it in this repo">
 Run `uv run python internals/02_hook_order.py` from `subjects/pytest/code/`, then add a method `pytest_runtest_logstart(self, nodeid, location)` to `Recorder` and see what `location` looks like. After that run `uv run pytest --trace-config -q --co` to see the whole list of `PLUGIN registered` lines.

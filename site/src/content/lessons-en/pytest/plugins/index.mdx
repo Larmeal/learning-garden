@@ -48,9 +48,9 @@ def pytest_addoption(parser):
 
 `addoption` uses argparse. `addini` registers a value that can be set in `pytest.ini` or `pyproject.toml`. Read them with `config.getini("shop_slow_limit")` and `config.getoption("--run-slow")`.
 
-**The marker** is registered in `pytest_configure` with `config.addinivalue_line("markers", "slow: ...")`. The reason is that it then passes `--strict-markers` (the [Markers lesson](/en/pytest/markers/)). The exercise confirms that running `--strict-markers` with this plugin passes (ran: `exercises/09_plugins`).
+**The marker** is registered in `pytest_configure` with `config.addinivalue_line("markers", "slow: ...")`. The reason is that it then passes `--strict-markers` (the [Markers lesson](/en/pytest/markers/#register-markers-so-typos-get-caught)). The exercise confirms that running `--strict-markers` with this plugin passes (ran: `exercises/09_plugins`).
 
-**Selecting tests** happens in `pytest_collection_modifyitems(config, items)`, which is called after collection, as seen in the lesson [How Pytest runs](/en/pytest/how-pytest-runs/). A test with `slow` in `item.keywords` gets a `skip` marker:
+**Selecting tests** happens in `pytest_collection_modifyitems(config, items)`, which is called after collection, as seen in the lesson [How Pytest runs](/en/pytest/how-pytest-runs/#the-real-hook-order-for-two-tests). A test with `slow` in `item.keywords` gets a `skip` marker:
 
 ```python
 skip = pytest.mark.skip(reason="need --run-slow to run")
@@ -79,7 +79,7 @@ def pytest_runtest_makereport(item, call):
     return report             # you must return it, or the result is lost
 ```
 
-This is the same pattern the `skipping` plugin uses to change the outcome of an xfail ([lesson 12](/en/pytest/run-protocol/)). The exercise checks that the report of a test gets the property `duration_ms` (ran: `exercises/09_plugins`).
+This is the same pattern the `skipping` plugin uses to change the outcome of an xfail ([lesson 12](/en/pytest/run-protocol/#skip-and-xfail-are-hooks-not-magic)). The exercise checks that the report of a test gets the property `duration_ms` (ran: `exercises/09_plugins`).
 
 To keep data between hooks use `config.stash` with a `StashKey` (`pytest.StashKey`). It is typed and does not collide with other people's attributes, which beats a global variable or attaching an attribute to `config`.
 
@@ -100,7 +100,7 @@ A `firstresult` hook stops at the first implementation that returns something ot
 
 ## The summary and the assert message
 
-`pytest_terminal_summary(terminalreporter, config)` prints your own section at the end of the report (it is called after `sessionfinish`, as seen in the lesson [How Pytest runs](/en/pytest/how-pytest-runs/)).
+`pytest_terminal_summary(terminalreporter, config)` prints your own section at the end of the report (it is called after `sessionfinish`, as seen in the lesson [How Pytest runs](/en/pytest/how-pytest-runs/#the-real-hook-order-for-two-tests)).
 
 ```python
 def pytest_terminal_summary(terminalreporter, config):
@@ -115,7 +115,7 @@ def pytest_terminal_summary(terminalreporter, config):
 
 A test that sleeps 0.08 seconds appears in the `slow tests` section, a fast one does not, and if you set `shop_slow_limit = 5` in an ini file the section disappears (ran: `exercises/09_plugins`).
 
-`pytest_assertrepr_compare(op, left, right)`, called from the rewritten code ([lesson 13](/en/pytest/assertion-rewriting/)), lets us return a list of lines for our own types. In the exercise two carts that differ show (ran: `exercises/09_plugins`):
+`pytest_assertrepr_compare(op, left, right)`, called from the rewritten code ([lesson 13](/en/pytest/assertion-rewriting/#what-the-rewritten-code-looks-like)), lets us return a list of lines for our own types. In the exercise two carts that differ show (ran: `exercises/09_plugins`):
 
 ```text
 E       AssertionError: assert Cart == Cart
@@ -138,7 +138,7 @@ A plugin can be loaded six ways (source: `consider_*`, `import_plugin` in `confi
 | Way | Use it when | Confirmed |
 |---|---|---|
 | `-p shop_plugin` | trying it, or using it once; the module must be found on `sys.path` | ran: `exercises/09_plugins`, `internals/07_entry_point.py` |
-| `conftest.py` | for one folder (and its children) | the [Fixtures lesson](/en/pytest/fixtures/) |
+| `conftest.py` | for one folder (and its children) | the [Fixtures lesson](/en/pytest/fixtures/#conftestpy-share-without-importing) |
 | `pytest_plugins = ["shop_plugin"]` in the top-level conftest | for the whole project without typing `-p` | the exercise uses `pytest_plugins = ["pytester"]` in the root `conftest.py` |
 | an entry point in the group `pytest11` of a package installed with pip | to ship to others: install it and it loads by itself | ran: `internals/07_entry_point.py` |
 | `PYTEST_PLUGINS=shop_plugin` | setting it through the environment | source: `consider_env` |

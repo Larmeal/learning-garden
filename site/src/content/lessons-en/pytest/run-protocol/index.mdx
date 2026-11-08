@@ -17,7 +17,7 @@ import Callout from '../../../../components/Callout.astro';
 
 ## Three phases, three reports
 
-The lesson [How Pytest runs](/en/pytest/how-pytest-runs/) showed that each test has three `makereport` calls. This one looks at where they come from. The controller is `runtestprotocol` in `_pytest/runner.py` (source), which shortens to:
+The lesson [How Pytest runs](/en/pytest/how-pytest-runs/#the-real-hook-order-for-two-tests) showed that each test has three `makereport` calls. This one looks at where they come from. The controller is `runtestprotocol` in `_pytest/runner.py` (source), which shortens to:
 
 ```python
 rep = call_and_report(item, "setup", log)
@@ -60,7 +60,7 @@ For a test that is a `Function`, the three phases are (source: `pytest_runtest_s
 
 | Phase | What it does |
 |---|---|
-| setup | `SetupState.setup(item)` calls `setup()` on the nodes of the chain from the Session down. `Function.setup` fills in the fixtures the test asks for (the [Fixture Engine lesson](/en/pytest/fixture-engine/)). |
+| setup | `SetupState.setup(item)` calls `setup()` on the nodes of the chain from the Session down. `Function.setup` fills in the fixtures the test asks for (the [Fixture Engine lesson](/en/pytest/fixture-engine/#running-one-fixture)). |
 | call | `item.runtest()`, which calls the hook `pytest_pyfunc_call`. Our function is called with the fixtures as keyword arguments. |
 | teardown | `SetupState.teardown_exact(nextitem)` closes the nodes that are done, by the rule of `nextitem`. |
 
@@ -105,7 +105,7 @@ Both live in the `skipping` plugin (source: `_pytest/skipping.py`) and attach at
   - passes and not strict: `passed` with `wasxfail`, which is XPASS
   - passes and strict: `failed` with the text `[XPASS(strict)] reason`
 
-The table above confirms every row, and it matches what the [Markers lesson](/en/pytest/markers/) describes from the outside. The key point is that **the skipped of an xfail comes from changing the outcome afterwards**. pytest did not skip the test. It really ran in the call phase.
+The table above confirms every row, and it matches what the [Markers lesson](/en/pytest/markers/#xfail-known-to-fail-still-run) describes from the outside. The key point is that **the skipped of an xfail comes from changing the outcome afterwards**. pytest did not skip the test. It really ran in the call phase.
 
 `--runxfail` makes this wrapper keep out of the way (source: the `item.config.option.runxfail` condition), so tests marked xfail report their real result. Use it when you want to know whether a known bug is still there.
 

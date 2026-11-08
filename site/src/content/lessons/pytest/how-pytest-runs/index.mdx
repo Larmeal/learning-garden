@@ -70,7 +70,7 @@ pytest ไม่ได้เป็นก้อนเดียว มันเป
 - `-p no:main` ปิดไม่ได้: pytest จบด้วย exit code 4 และข้อความ `plugin main cannot be disabled`
 - `--trace-config` พิมพ์ทุกบรรทัด `PLUGIN registered` ว่าใครลงทะเบียนอะไร
 
-ผลเชิงปฏิบัติ: ฟีเจอร์อย่าง `--lf` (plugin `cacheprovider`) หรือ `--setup-show` (plugin `setuponly`) เป็น plugin ธรรมดา ปิดได้ และเขียนของตัวเองในแบบเดียวกันได้ ([บท 14](/pytest/plugins/))
+ผลเชิงปฏิบัติ: ฟีเจอร์อย่าง `--lf` (plugin `cacheprovider`) หรือ `--setup-show` (plugin `setuponly`) เป็น plugin ธรรมดา ปิดได้ และเขียนของตัวเองในแบบเดียวกันได้ ([บท 14](/pytest/plugins/#plugin-คือไฟล์ที่มี-hook))
 
 </Step>
 
@@ -86,7 +86,7 @@ plugin คุยกับแกนผ่าน **hook** เป็นฟังก
 - **เรียกทุกตัว** hook ส่วนใหญ่ถูกเรียกกับทุก plugin ที่ implement เอาไว้
 - **`firstresult`** hook ที่ตัดสินใจบางอย่าง (เช่น `pytest_runtest_protocol`, `pytest_collect_directory`, `pytest_fixture_setup`) หยุดที่ implementation แรกที่คืนค่าไม่ใช่ `None`
 
-อีกสองชนิดเจอในบท [Plugin](/pytest/plugins/): hook แบบ wrapper (ครอบ hook ตัวอื่น) และ hook แบบ `historic` เช่น `pytest_configure` ที่ plugin ซึ่งมาทีหลังก็ยังถูกเรียกย้อนหลัง
+อีกสองชนิดเจอในบท [Plugin](/pytest/plugins/#ตัวครอบ-ทำงานก่อนและหลัง-hook-ตัวอื่น): hook แบบ wrapper (ครอบ hook ตัวอื่น) และ hook แบบ `historic` เช่น `pytest_configure` ที่ plugin ซึ่งมาทีหลังก็ยังถูกเรียกย้อนหลัง
 
 </Step>
 
@@ -124,9 +124,9 @@ plugin คุยกับแกนผ่าน **hook** เป็นฟังก
 
 สิ่งที่ตารางนี้บอก
 
-- **collection เสร็จทั้งต้นไม้ก่อนรันตัวแรก** (บรรทัด 14 ก่อน 17) บท [Collection](/pytest/collection/) อธิบายว่าต้นไม้สร้างอย่างไร
-- **แต่ละ test มีรายงานสามใบ** คือ setup, call, teardown ใบละหนึ่ง (`makereport` หกครั้งสำหรับสอง test) ตัวเลขนี้ตอบว่าทำไม fixture ที่พังตอน teardown ถึงเป็น error แยกจาก test ที่ผ่าน ([บท 12](/pytest/run-protocol/))
-- **`nextitem`** ตอน teardown ของ test_one คือ test_two และของ test_two คือ `None` pytest ใช้ค่านี้ตัดสินว่า fixture ระดับ module หรือ session ควรปิดตอนนี้ไหม ([บท 11](/pytest/fixture-engine/))
+- **collection เสร็จทั้งต้นไม้ก่อนรันตัวแรก** (บรรทัด 14 ก่อน 17) บท [Collection](/pytest/collection/#collection-คือการสร้างต้นไม้) อธิบายว่าต้นไม้สร้างอย่างไร
+- **แต่ละ test มีรายงานสามใบ** คือ setup, call, teardown ใบละหนึ่ง (`makereport` หกครั้งสำหรับสอง test) ตัวเลขนี้ตอบว่าทำไม fixture ที่พังตอน teardown ถึงเป็น error แยกจาก test ที่ผ่าน ([บท 12](/pytest/run-protocol/#สามเฟส-สามรายงาน))
+- **`nextitem`** ตอน teardown ของ test_one คือ test_two และของ test_two คือ `None` pytest ใช้ค่านี้ตัดสินว่า fixture ระดับ module หรือ session ควรปิดตอนนี้ไหม ([บท 11](/pytest/fixture-engine/#teardown-ปิดเมื่อไรและโดยใคร))
 - **สรุปท้ายรายงานพิมพ์หลัง `sessionfinish`** (บรรทัด 39 หลัง 38) เพราะ `terminal` ครอบ hook นั้นด้วย wrapper แล้วเรียก `pytest_terminal_summary` เอง (source: `pytest_sessionfinish` ใน `terminal.py`)
 
 </Step>
@@ -146,7 +146,7 @@ plugin คุยกับแกนผ่าน **hook** เป็นฟังก
 | `UsageError` เช่น option ที่ไม่รู้จัก | `USAGE_ERROR` | 4 |
 | ไม่เจอ test เลย | `NO_TESTS_COLLECTED` | 5 |
 
-`--no-such-option` จบด้วย 4 และข้อความ `unrecognized arguments: --no-such-option` (รัน: `internals/01_startup.py`) ส่วนเลข 5 เป็นสิ่งที่บท [First Test](/pytest/first-test/) แสดงด้วย `-k` ที่ไม่ตรงอะไร
+`--no-such-option` จบด้วย 4 และข้อความ `unrecognized arguments: --no-such-option` (รัน: `internals/01_startup.py`) ส่วนเลข 5 เป็นสิ่งที่บท [First Test](/pytest/first-test/#exit-code-สิ่งที่-ci-อ่าน) แสดงด้วย `-k` ที่ไม่ตรงอะไร
 
 `pytest_sessionfinish` ถูกเรียกแม้ session ถูกขัด ตราบที่เริ่ม session แล้ว (ตัวแปร `initstate >= 2` ใน `wrap_session`) จึงมีที่ให้ plugin เก็บกวาดเสมอ
 
@@ -164,7 +164,7 @@ plugin คุยกับแกนผ่าน **hook** เป็นฟังก
 | `PYTEST_ADDOPTS` | `PYTEST_ADDOPTS=-v` | เติม option เข้าไป เหมือนพิมพ์เอง |
 | บรรทัดคำสั่ง | `-o minversion=9.0` | ชนะค่าในไฟล์ |
 
-รายละเอียดอื่นของการหาไฟล์ config และ rootdir อยู่ใน [บท 7](/pytest/project/in-depth/) ส่วน conftest ที่ pytest โหลดระหว่างเริ่มต้นเป็น plugin ที่ลงทะเบียนในระดับโฟลเดอร์ ([บท 14](/pytest/plugins/))
+รายละเอียดอื่นของการหาไฟล์ config และ rootdir อยู่ใน [บท 7](/pytest/project/in-depth/#ไฟล์-config-ไหนชนะ) ส่วน conftest ที่ pytest โหลดระหว่างเริ่มต้นเป็น plugin ที่ลงทะเบียนในระดับโฟลเดอร์ ([บท 14](/pytest/plugins/#ลงทะเบียนอย่างไร))
 
 <Callout type="try" title="ลองทำใน repo นี้">
 รัน `uv run python internals/02_hook_order.py` จาก `subjects/pytest/code/` แล้วเพิ่ม method `pytest_runtest_logstart(self, nodeid, location)` เข้าไปใน `Recorder` ดูว่า `location` หน้าตาอย่างไร จากนั้นรัน `uv run pytest --trace-config -q --co` เพื่อดูรายการ `PLUGIN registered` ทั้งหมด

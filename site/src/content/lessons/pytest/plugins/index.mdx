@@ -48,9 +48,9 @@ def pytest_addoption(parser):
 
 `addoption` ใช้ argparse ส่วน `addini` ลงทะเบียนค่าที่ตั้งได้ใน `pytest.ini` หรือ `pyproject.toml` อ่านด้วย `config.getini("shop_slow_limit")` และ `config.getoption("--run-slow")`
 
-**Marker** ลงทะเบียนใน `pytest_configure` ด้วย `config.addinivalue_line("markers", "slow: ...")` เหตุผลคือจะได้ผ่าน `--strict-markers` (บท [Marker](/pytest/markers/)) แบบฝึกยืนยันว่ารัน `--strict-markers` กับ plugin นี้ผ่าน (รัน: `exercises/09_plugins`)
+**Marker** ลงทะเบียนใน `pytest_configure` ด้วย `config.addinivalue_line("markers", "slow: ...")` เหตุผลคือจะได้ผ่าน `--strict-markers` (บท [Marker](/pytest/markers/#ลงทะเบียน-marker-กันพิมพ์ผิด)) แบบฝึกยืนยันว่ารัน `--strict-markers` กับ plugin นี้ผ่าน (รัน: `exercises/09_plugins`)
 
-**เลือก test** ใน `pytest_collection_modifyitems(config, items)` ซึ่งถูกเรียกหลัง collection ตามที่เห็นในบท [Pytest ทำงานอย่างไร](/pytest/how-pytest-runs/) test ที่มี `slow` ใน `item.keywords` ได้ marker `skip`
+**เลือก test** ใน `pytest_collection_modifyitems(config, items)` ซึ่งถูกเรียกหลัง collection ตามที่เห็นในบท [Pytest ทำงานอย่างไร](/pytest/how-pytest-runs/#ลำดับ-hook-จริงสำหรับ-test-สองตัว) test ที่มี `slow` ใน `item.keywords` ได้ marker `skip`
 
 ```python
 skip = pytest.mark.skip(reason="need --run-slow to run")
@@ -79,7 +79,7 @@ def pytest_runtest_makereport(item, call):
     return report             # ต้องคืนค่า ไม่เช่นนั้นผลหาย
 ```
 
-นี่คือรูปแบบเดียวกับที่ plugin `skipping` ใช้เปลี่ยน outcome ของ xfail ([บท 12](/pytest/run-protocol/)) แบบฝึกตรวจว่า report ของ test ได้ property `duration_ms` (รัน: `exercises/09_plugins`)
+นี่คือรูปแบบเดียวกับที่ plugin `skipping` ใช้เปลี่ยน outcome ของ xfail ([บท 12](/pytest/run-protocol/#skip-และ-xfail-เป็น-hook-ไม่ใช่เวทมนตร์)) แบบฝึกตรวจว่า report ของ test ได้ property `duration_ms` (รัน: `exercises/09_plugins`)
 
 ที่เก็บข้อมูลระหว่าง hook ใช้ `config.stash` กับ `StashKey` (`pytest.StashKey`) ซึ่งมีชนิดกำกับและไม่ชนกับ attribute ของคนอื่น ดีกว่าตัวแปร global หรือการแปะ attribute บน `config`
 
@@ -100,7 +100,7 @@ hook แบบ `firstresult` หยุดที่ตัวแรกที่ค
 
 ## ส่วนสรุปและข้อความ Assert
 
-`pytest_terminal_summary(terminalreporter, config)` พิมพ์ส่วนของตัวเองท้ายรายงาน (ถูกเรียกหลัง `sessionfinish` ตามที่เห็นในบท [Pytest ทำงานอย่างไร](/pytest/how-pytest-runs/))
+`pytest_terminal_summary(terminalreporter, config)` พิมพ์ส่วนของตัวเองท้ายรายงาน (ถูกเรียกหลัง `sessionfinish` ตามที่เห็นในบท [Pytest ทำงานอย่างไร](/pytest/how-pytest-runs/#ลำดับ-hook-จริงสำหรับ-test-สองตัว))
 
 ```python
 def pytest_terminal_summary(terminalreporter, config):
@@ -115,7 +115,7 @@ def pytest_terminal_summary(terminalreporter, config):
 
 test ที่หลับ 0.08 วินาทีขึ้นในส่วน `slow tests` ส่วน test ที่เร็วไม่ขึ้น และถ้าตั้ง `shop_slow_limit = 5` ใน ini ส่วนนี้หายไป (รัน: `exercises/09_plugins`)
 
-`pytest_assertrepr_compare(op, left, right)` ที่เรียกจากโค้ดที่ถูกเขียนใหม่ ([บท 13](/pytest/assertion-rewriting/)) ให้เราคืน list ของบรรทัดสำหรับชนิดของเราเอง ในแบบฝึก `Cart == Cart` ที่ไม่เท่ากันแสดง (รัน: `exercises/09_plugins`)
+`pytest_assertrepr_compare(op, left, right)` ที่เรียกจากโค้ดที่ถูกเขียนใหม่ ([บท 13](/pytest/assertion-rewriting/#โค้ดที่ถูกเขียนใหม่หน้าตาอย่างไร)) ให้เราคืน list ของบรรทัดสำหรับชนิดของเราเอง ในแบบฝึก `Cart == Cart` ที่ไม่เท่ากันแสดง (รัน: `exercises/09_plugins`)
 
 ```text
 E       AssertionError: assert Cart == Cart
@@ -138,7 +138,7 @@ plugin ถูกโหลดได้หกทาง (source: `consider_*`, `imp
 | ทาง | ใช้เมื่อ | ยืนยัน |
 |---|---|---|
 | `-p shop_plugin` | ลองหรือใช้ครั้งเดียว module ต้องหาเจอใน `sys.path` | รัน: `exercises/09_plugins`, `internals/07_entry_point.py` |
-| `conftest.py` | ใช้กับโฟลเดอร์หนึ่ง (และลูก) | บท [Fixture](/pytest/fixtures/) |
+| `conftest.py` | ใช้กับโฟลเดอร์หนึ่ง (และลูก) | บท [Fixture](/pytest/fixtures/#conftestpy-ใช้ร่วมกันโดยไม่ต้อง-import) |
 | `pytest_plugins = ["shop_plugin"]` ใน conftest ชั้นบนสุด | ใช้กับทั้งโปรเจกต์โดยไม่ต้องพิมพ์ `-p` | แบบฝึกใช้ `pytest_plugins = ["pytester"]` ใน `conftest.py` ราก |
 | entry point กลุ่ม `pytest11` ของ package ที่ลงด้วย pip | แจกจ่ายให้คนอื่น: ลงแล้วโหลดเอง | รัน: `internals/07_entry_point.py` |
 | `PYTEST_PLUGINS=shop_plugin` | ตั้งผ่าน environment | source: `consider_env` |

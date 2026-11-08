@@ -30,7 +30,7 @@ ta.json_schema()                   # {'type': 'array', 'items': {'type': 'intege
 
 The method names differ slightly from a model: `validate_python` instead of `model_validate`, `dump_python` instead of `model_dump`. The one thing to watch is that `dump_json` returns `bytes`.
 
-The constraints of [lesson 2](/en/pydantic/fields/) work inside the type:
+The constraints of [lesson 2](/en/pydantic/fields/#annotated-attach-constraints-to-a-type-and-reuse-them) work inside the type:
 
 ```python
 Users = TypeAdapter(dict[str, Annotated[int, Field(ge=0)]])
@@ -38,7 +38,7 @@ Users.validate_python({"a": "1"})     # {'a': 1}
 Users.validate_python({"a": -1})      # error at loc ('a',) of type greater_than_equal
 ```
 
-**Build once, reuse.** Creating a `TypeAdapter` is the expensive step, because it walks the type and builds a core schema ([lesson 10](/en/pydantic/under-the-hood/)). Calling `validate_python` is the cheap step. The exercise measures 200 calls on `[1, 2, 3]` on the machine that ran it:
+**Build once, reuse.** Creating a `TypeAdapter` is the expensive step, because it walks the type and builds a core schema ([lesson 10](/en/pydantic/under-the-hood/#the-cost-is-in-creating-the-class-not-in-validating)). Calling `validate_python` is the cheap step. The exercise measures 200 calls on `[1, 2, 3]` on the machine that ran it:
 
 ```text
 build each call 6.9 ms, reuse 0.09 ms for 200 calls, ratio 77x
@@ -172,7 +172,7 @@ class Basket(BaseModel):
 schema["properties"]["items"]["items"]   # {'$ref': '#/$defs/Product'}
 ```
 
-**Two modes.** `model_json_schema(mode="validation")` (the default) describes what the model **accepts**, and `mode="serialization"` describes what it **sends out**. They differ in that computed fields ([lesson 7](/en/pydantic/serialization/)) appear only in the serialization form. In serialization, `required` is still `["sku", "price"]`, because fields with a default are still not mandatory. If you want fields with a default to count as always present in the output, set `json_schema_serialization_defaults_required` to `True` and `required` then lists all four fields.
+**Two modes.** `model_json_schema(mode="validation")` (the default) describes what the model **accepts**, and `mode="serialization"` describes what it **sends out**. They differ in that computed fields ([lesson 7](/en/pydantic/serialization/#computed_field-putting-a-property-into-the-output)) appear only in the serialization form. In serialization, `required` is still `["sku", "price"]`, because fields with a default are still not mandatory. If you want fields with a default to count as always present in the output, set `json_schema_serialization_defaults_required` to `True` and `required` then lists all four fields.
 
 <Callout type="warn" title="A validator written in Python code is invisible to JSON Schema">
 A `field_validator` that checks a number is even does not appear in the schema at all. The exercise confirms that `n` is just `{"title": "N", "type": "integer"}`. The generated JSON Schema can describe only the conditions Pydantic understands (types, `Field(...)`, `Annotated`). If an important validator exists, say so in `description` yourself, or a client that trusts the schema will send values the server rejects.

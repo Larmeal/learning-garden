@@ -10,7 +10,7 @@ updated: 2026-11-05
 import Step from '../../../../components/Step.astro';
 import Callout from '../../../../components/Callout.astro';
 
-All numbers come from `exercises/05_execution_model.py` (Spark 4.2.0, 16 cores, AQE off to see the baseline plan of this lesson; [lesson 6](/en/spark/catalyst-aqe/) explains AQE). Tasks and bytes are read from the Spark UI REST API ([lesson 11](/en/spark/deployment-spark-ui/)).
+All numbers come from `exercises/05_execution_model.py` (Spark 4.2.0, 16 cores, AQE off to see the baseline plan of this lesson; [lesson 6](/en/spark/catalyst-aqe/#aqe-does-three-things) explains AQE). Tasks and bytes are read from the Spark UI REST API ([lesson 11](/en/spark/deployment-spark-ui/#the-most-important-skill-is-reading-the-spark-ui)).
 
 <Step>
 
@@ -49,7 +49,7 @@ Three things to notice:
 
 - **`coalesce` does not shuffle but `repartition` does**, even though both change the number of partitions.
 - **An aggregate with no `groupBy`** still has an Exchange, because the partial results from every partition must be combined in a single partition (`SinglePartition`). This means that last task is a bottleneck for the whole aggregation, but the data it receives is very small (a partial result from each partition).
-- **A normal `join` has two Exchanges**, but if one side is small enough to be broadcast, there is no Exchange of the rows of either side at all. There is only a `BroadcastExchange` (checked, see [lessons 6](/en/spark/catalyst-aqe/) and [7](/en/spark/performance-tuning/)).
+- **A normal `join` has two Exchanges**, but if one side is small enough to be broadcast, there is no Exchange of the rows of either side at all. There is only a `BroadcastExchange` (checked, see [lessons 6](/en/spark/catalyst-aqe/#which-join-and-who-chooses) and [7](/en/spark/performance-tuning/#how-spark-chooses-a-join)).
 
 </Step>
 
@@ -94,7 +94,7 @@ Run `range(0, 2_000_000, 1, 8).groupBy(id % 7).count()` (AQE off) and read from 
 
 - The number of tasks of the first stage equals the number of partitions of the source data (8). The stage after the shuffle has `spark.sql.shuffle.partitions` tasks (200).
 - **The bytes that stage 0 writes are exactly the bytes that stage 1 reads** (3,496 bytes). The data is shrunk by a partial aggregate before it is sent: only 7 groups from 8 partitions remain, not 2 million rows. This is why a `groupBy` that can aggregate shuffles less than `distinct` or `repartition`, which send every row.
-- Most of the 200 tasks get empty or very little data (7 keys spread over at most 7 partitions). This is the reason AQE merges them in [lesson 6](/en/spark/catalyst-aqe/).
+- Most of the 200 tasks get empty or very little data (7 keys spread over at most 7 partitions). This is the reason AQE merges them in [lesson 6](/en/spark/catalyst-aqe/#aqe-does-three-things).
 
 A purely narrow job `range(8 partitions).filter().select().collect()` gives **1 stage with 8 tasks**, which matches what the main page says: you can chain any number of narrow operations and they stay in one stage.
 
@@ -111,10 +111,10 @@ A purely narrow job `range(8 partitions).filter().select().collect()` gives **1 
 | result of `groupBy(...)`, AQE on (small data) | **1** (AQE merges) |
 | `coalesce(4)` | 4 |
 
-When AQE is on, calling `explain()` before an action starts with `AdaptiveSparkPlan isFinalPlan=false`, which says the plan can still change (see [lesson 6](/en/spark/catalyst-aqe/)). The numbers 1 and 200 above are the source of a question that learners often ask: "why does `explain` show 200 but the UI shows fewer?" The answer is AQE.
+When AQE is on, calling `explain()` before an action starts with `AdaptiveSparkPlan isFinalPlan=false`, which says the plan can still change (see [lesson 6](/en/spark/catalyst-aqe/#already-on-adaptivesparkplan)). The numbers 1 and 200 above are the source of a question that learners often ask: "why does `explain` show 200 but the UI shows fewer?" The answer is AQE.
 
 <Callout type="tip" title="When to use these numbers">
-When you meet a slow job: open the Spark UI, count the stages, and compare with the number of Exchanges in `explain()`. If there are more stages than Exchange + 1 by more than you expect, there may be an extra job (for example the sampling of `orderBy`) or a repeated stage from a retry. Then look at the shuffle bytes of the biggest stage. That is where to reduce first ([lesson 7](/en/spark/performance-tuning/)).
+When you meet a slow job: open the Spark UI, count the stages, and compare with the number of Exchanges in `explain()`. If there are more stages than Exchange + 1 by more than you expect, there may be an extra job (for example the sampling of `orderBy`) or a repeated stage from a retry. Then look at the shuffle bytes of the biggest stage. That is where to reduce first ([lesson 7](/en/spark/performance-tuning/#tuning-means-finding-where-the-time-goes)).
 </Callout>
 
 </Step>

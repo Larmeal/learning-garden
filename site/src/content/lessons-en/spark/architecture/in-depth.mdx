@@ -25,7 +25,7 @@ Every point comes from `exercises/01_architecture.py` (Spark 4.2.0, PySpark in W
 - `spark.range(1_000_000)` splits into 16 partitions, following the number of cores.
 - Calling `SparkSession.builder.getOrCreate()` again gives the **same object** (`is spark` is True). It does not create a new one, so it is safe to call it again in many files.
 
-The result is that on one machine you see real parallel running (tasks run in parallel on many threads), but there is no network in between. The cost of a shuffle on a real cluster is higher than what you see here (see [lesson 11](/en/spark/deployment-spark-ui/) for a cluster you can start yourself).
+The result is that on one machine you see real parallel running (tasks run in parallel on many threads), but there is no network in between. The cost of a shuffle on a real cluster is higher than what you see here (see [lesson 11](/en/spark/deployment-spark-ui/#cluster-manager-and-deploy-mode) for a cluster you can start yourself).
 
 </Step>
 
@@ -37,13 +37,13 @@ Spark is written in Scala and Java. Your Python program does not run Spark itsel
 
 - `type(spark).__module__` is `pyspark.sql.session`, and `sc._jvm` is the entry point to the JVM. From here you can call Spark classes directly, for example `sc._jvm.org.apache.spark.sql.SparkSession.active().version()` gives `4.2.0`, and `sc._jvm.java.lang.System.getProperty("java.version")` gives `21.0.13` (Spark 4 needs Java 17 or newer).
 - A DataFrame in Python holds a **handle** to the Dataset that lives in the JVM (`df._jdf`, which is a `JavaObject`). Every transformation you call is a call to a method on the JVM side through the gateway, and you get a new handle back. The data is never in Python unless you ask to pull it (see the last section).
-- Because each call is only a small message through a socket, DataFrame code in Python is not slower than Scala for the planning part. The part that is slower is when data really has to cross over to Python, for example Python UDFs ([lesson 8](/en/spark/udf/)).
+- Because each call is only a small message through a socket, DataFrame code in Python is not slower than Scala for the planning part. The part that is slower is when data really has to cross over to Python, for example Python UDFs ([lesson 8](/en/spark/udf/#how-the-data-travels)).
 
 Choose an action and press play, to see what crosses the gateway back and what does not cross at all.
 
 <Py4jLab client:visible lang="en" />
 
-This is also the reason why Spark Connect ([lesson 11](/en/spark/deployment-spark-ui/)) can separate the client side: it changes from Py4J to gRPC, but the client still sends only the "plan" to the side that has a JVM.
+This is also the reason why Spark Connect ([lesson 11](/en/spark/deployment-spark-ui/#spark-connect-the-client-and-the-server-are-separate)) can separate the client side: it changes from Py4J to gRPC, but the client still sends only the "plan" to the side that has a JVM.
 
 </Step>
 
@@ -61,7 +61,7 @@ Change the heap size and see what fraction Spark can really manage.
 
 <DriverMemoryLab client:visible lang="en" />
 
-The rest is reserved (the 300 MiB that Spark keeps aside) and user memory (what is left of the heap). [Lesson 13](/en/spark/internals/) explains this formula in detail and shows how storage and execution share the memory. The conclusion you can use now is that a 1 GiB heap does not mean your data can use 1 GiB: Spark manages about two fifths of it, and the rest of the driver is used for other objects.
+The rest is reserved (the 300 MiB that Spark keeps aside) and user memory (what is left of the heap). [Lesson 13](/en/spark/internals/#unified-memory-storage-and-execution-share) explains this formula in detail and shows how storage and execution share the memory. The conclusion you can use now is that a 1 GiB heap does not mean your data can use 1 GiB: Spark manages about two fifths of it, and the rest of the driver is used for other objects.
 
 </Step>
 
@@ -76,10 +76,10 @@ The data is on the executors. The part that is sent back is **only what you ask 
 - `toPandas()` copies the whole result into the memory of the driver as a pandas DataFrame (on `limit(2)` the shape is `(2, 1)`).
 - `write` does not go through the driver: the executors write the files themselves.
 
-The whole result of `collect()` and `toPandas()` must fit in the memory of the driver (and not exceed `spark.driver.maxResultSize`, which is set to 1g, see [lesson 7](/en/spark/performance-tuning/), where it was checked that setting it to 1m made `collect()` of 2 million rows fail). So filter or aggregate the data to make it smaller before you pull it.
+The whole result of `collect()` and `toPandas()` must fit in the memory of the driver (and not exceed `spark.driver.maxResultSize`, which is set to 1g, see [lesson 7](/en/spark/performance-tuning/#warnings-with-evidence), where it was checked that setting it to 1m made `collect()` of 2 million rows fail). So filter or aggregate the data to make it smaller before you pull it.
 
 <Callout type="tip" title="Everything that follows uses this picture">
-The driver plans and hands out work. The executors do the work and hold the data. The cluster manager allocates machines. This picture is used again in the scheduler ([lesson 13](/en/spark/internals/)), deployment ([lesson 11](/en/spark/deployment-spark-ui/)) and the search for missing memory ([lesson 7](/en/spark/performance-tuning/)).
+The driver plans and hands out work. The executors do the work and hold the data. The cluster manager allocates machines. This picture is used again in the scheduler ([lesson 13](/en/spark/internals/)), deployment ([lesson 11](/en/spark/deployment-spark-ui/#cluster-manager-and-deploy-mode)) and the search for missing memory ([lesson 7](/en/spark/performance-tuning/#spill-when-memory-is-not-enough)).
 </Callout>
 
 </Step>

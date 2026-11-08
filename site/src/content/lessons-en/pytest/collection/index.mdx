@@ -39,7 +39,7 @@ There are two kinds of node (source: `_pytest/nodes.py`):
 
 Every node has a `parent`, and `listchain()` returns the chain from the root down to itself. In the example `test_drop` gives `Session > Dir > Package > Module > Class > Function` (ran: `internals/03_collection_tree.py`). The `nodeid` you know, such as `shop/test_cart.py::TestRemove::test_drop`, is the address of the node in the tree, separated by `::`.
 
-This chain matters for [the next lesson](/en/pytest/fixture-engine/): module, class and session fixtures are tied to nodes in it ([lesson 11](/en/pytest/fixture-engine/)).
+This chain matters for [the next lesson](/en/pytest/fixture-engine/#the-rule-about-scope): module, class and session fixtures are tied to nodes in it ([lesson 11](/en/pytest/fixture-engine/#the-rule-about-scope)).
 
 </Step>
 
@@ -61,7 +61,7 @@ Consequences:
 
 ## Folders and files: two hooks decide
 
-When pytest meets a folder it asks the hook `pytest_collect_directory`. If the folder has `__init__.py` the result is a `Package`, otherwise a plain `Dir` (source: `pytest_collect_directory` in `python.py`). For a file it asks `pytest_collect_file`, which accepts only `.py` files whose name matches `python_files`. The exception is a file named directly on the command line, which needs no name check (source: `isinitpath` in the same function, matching what the [First Test lesson](/en/pytest/first-test/) showed with `cart_extra.py`).
+When pytest meets a folder it asks the hook `pytest_collect_directory`. If the folder has `__init__.py` the result is a `Package`, otherwise a plain `Dir` (source: `pytest_collect_directory` in `python.py`). For a file it asks `pytest_collect_file`, which accepts only `.py` files whose name matches `python_files`. The exception is a file named directly on the command line, which needs no name check (source: `isinitpath` in the same function, matching what the [First Test lesson](/en/pytest/first-test/#how-pytest-finds-tests) showed with `cart_extra.py`).
 
 Walking a folder skips some folders according to `norecursedirs`. In the exercise `build/` and `node_modules/` are not walked when you run plain `pytest`, but if you give a path inside such a folder on the command line it is collected (ran: `internals/12_collection_options.py`). Options you will use often:
 
@@ -113,7 +113,7 @@ When a name passes, `_genfunctions` creates the `Function`. The steps are (sourc
 2. Create a `Metafunc` and call the hook `pytest_generate_tests` for every plugin, plus the `pytest_generate_tests` function in the module and in the class.
 3. If nobody calls `metafunc.parametrize`, the result is one `Function`. If somebody does, the result is one `Function` per callspec, named `name[id]`.
 
-`@pytest.mark.parametrize` is only a marker that pytest's own `pytest_generate_tests` reads and turns into a call to `metafunc.parametrize`. So `test_qty[1]` and `test_qty[2]` are different nodes in the tree, with their own nodeid, and they can fail separately ([lesson 4](/en/pytest/parametrize/in-depth/) writes this hook by hand).
+`@pytest.mark.parametrize` is only a marker that pytest's own `pytest_generate_tests` reads and turns into a call to `metafunc.parametrize`. So `test_qty[1]` and `test_qty[2]` are different nodes in the tree, with their own nodeid, and they can fail separately ([lesson 4](/en/pytest/parametrize/in-depth/#pytest_generate_tests-write-the-generator-yourself) writes this hook by hand).
 
 </Step>
 
@@ -128,7 +128,7 @@ A file that cannot be imported does not make its tests fail. It is a **collectio
 | `pytest` | `Interrupted: 1 error during collection`, no tests run at all | 2 |
 | `pytest --continue-on-collection-errors` | runs the other tests, summary `4 passed, 1 warning, 1 error` | 1 |
 
-The default stops everything on purpose. If it carried on, the missing tests would disappear without anyone noticing, and a CI that is green on 200 tests while one whole file never ran is wrong (see [lesson 1](/en/pytest/first-test/) on exit code 5).
+The default stops everything on purpose. If it carried on, the missing tests would disappear without anyone noticing, and a CI that is green on 200 tests while one whole file never ran is wrong (see [lesson 1](/en/pytest/first-test/#exit-codes-what-ci-reads) on exit code 5).
 
 Another import case is two files with the same name in folders that have no `__init__.py`. With the default import mode (`prepend`), `a/test_same.py` and `b/test_same.py` collide and pytest complains `import file mismatch`. Adding `__init__.py` to both folders fixes it, and so does `--import-mode=importlib`. Both ways give 2 passed (ran: `internals/09_config_layout.py`).
 

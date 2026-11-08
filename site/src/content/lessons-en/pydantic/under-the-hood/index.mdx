@@ -78,7 +78,7 @@ Item.__pydantic_core_schema__["schema"]["fields"]["qty"]["schema"]
 # {'type': 'default', 'schema': {'type': 'int', 'gt': 0}, 'default': 1}
 ```
 
-`Field(gt=0, default=1)` in Python becomes two layers: the outer one is `default` with the value 1, and the inner one is an `int` with the condition `gt: 0`. This knowledge pays off, because **JSON Schema** ([lesson 9](/en/pydantic/adapters/)) and **serialization** ([lesson 7](/en/pydantic/serialization/)) read from this same core schema and not directly from the Python class.
+`Field(gt=0, default=1)` in Python becomes two layers: the outer one is `default` with the value 1, and the inner one is an `int` with the condition `gt: 0`. This knowledge pays off, because **JSON Schema** ([lesson 9](/en/pydantic/adapters/#json-schema-from-a-model)) and **serialization** ([lesson 7](/en/pydantic/serialization/)) read from this same core schema and not directly from the Python class.
 
 The file that defines the shape of these dicts is `pydantic_core/core_schema.py` (TypedDicts for every schema type, and constructor functions such as `int_schema`, `list_schema`, `model_schema`). The file that walks your types and writes the dict is `_internal/_generate_schema.py`, which the graph describes as the largest module on the Python side.
 
@@ -172,7 +172,7 @@ Creating 200 classes took 42 ms, and validating 200 times with an already built 
 
 What this means for how you write code:
 
-- Declare models at module level, once. Do not create classes or a `TypeAdapter` inside a function that is called repeatedly ([lesson 9](/en/pydantic/adapters/)).
+- Declare models at module level, once. Do not create classes or a `TypeAdapter` inside a function that is called repeatedly ([lesson 9](/en/pydantic/adapters/#typeadapter-check-any-type)).
 - Slow program startup comes from building models. If you have many, try `defer_build`.
 - `import pydantic` itself is cheap, because `pydantic/__init__.py` loads names lazily: at first `'pydantic.main' in sys.modules` is `False`, and it becomes `True` the first time you touch `pydantic.BaseModel`.
 
@@ -197,7 +197,7 @@ In the order the story flows in this lesson (file names per the v2.13.0 graph):
 | 5 | `pydantic-core/src/validators/mod.rs` | `SchemaValidator` and the build step |
 | 6 | `pydantic-core/src/validators/model.rs`, `model_fields.rs` | checking a model, matching keys to fields |
 | 7 | `pydantic-core/src/validators/union.rs`, `function.rs` | unions ([lesson 4](/en/pydantic/unions/)) and validators you write ([lesson 5](/en/pydantic/validators/)) |
-| 8 | `pydantic-core/src/errors/validation_exception.rs` | `ValidationError` ([lesson 6](/en/pydantic/errors/)) |
+| 8 | `pydantic-core/src/errors/validation_exception.rs` | `ValidationError` ([lesson 6](/en/pydantic/errors/#one-exception-that-carries-every-problem)) |
 | 9 | `pydantic-core/src/serializers/mod.rs` | `SchemaSerializer` ([lesson 7](/en/pydantic/serialization/)) |
 
 You can open the full graph with `/understand-dashboard` at `subjects/pydantic/graphs/pydantic-current/`.

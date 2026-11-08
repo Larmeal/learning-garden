@@ -95,10 +95,10 @@ str : id=42 name='Ann' email='ann@example.com' is_vip=False
 | `"no"`, `"off"` | `False` |
 | `"maybe"` | error `bool_parsing` |
 
-หลักคือ Pydantic แปลงเมื่อค่าเดิมมีความหมายเดียวที่ชัดเจนในชนิดปลายทาง `3.0` คือสามพอดี แต่ `3.5` ถ้าแปลงเป็น `3` จะทำข้อมูลหายเงียบ ๆ จึงปฏิเสธ [บท 3](/pydantic/types/) ลงรายละเอียดตารางนี้ทั้งหมดและแสดงวิธีปิดการแปลงด้วย strict mode
+หลักคือ Pydantic แปลงเมื่อค่าเดิมมีความหมายเดียวที่ชัดเจนในชนิดปลายทาง `3.0` คือสามพอดี แต่ `3.5` ถ้าแปลงเป็น `3` จะทำข้อมูลหายเงียบ ๆ จึงปฏิเสธ [บท 3](/pydantic/types/#ตารางแปลงของ-lax-mode) ลงรายละเอียดตารางนี้ทั้งหมดและแสดงวิธีปิดการแปลงด้วย strict mode
 
 <Callout type="warn" title="ตัวเลขไม่ถูกแปลงเป็น string">
-`str` ไม่รับตัวเลข ส่ง `123` เข้า field `str` ได้ error `string_type` ฝั่ง V1 เคยแปลงให้ ถ้าโค้ดเก่าของคุณพึ่งพฤติกรรมนั้น จะเจอ error ตอนย้าย ([บท 11](/pydantic/migration/))
+`str` ไม่รับตัวเลข ส่ง `123` เข้า field `str` ได้ error `string_type` ฝั่ง V1 เคยแปลงให้ ถ้าโค้ดเก่าของคุณพึ่งพฤติกรรมนั้น จะเจอ error ตอนย้าย ([บท 11](/pydantic/migration/#พวกที่-3-เปลี่ยนเงียบ-ๆ))
 </Callout>
 
 </Step>
@@ -127,7 +127,7 @@ is_vip
 
 สังเกตสองอย่าง อย่างแรก Pydantic **รายงานทุกจุดที่ผิดในครั้งเดียว** ไม่ได้หยุดที่จุดแรก ผู้ใช้ฟอร์มจึงแก้ได้ครบในรอบเดียว อย่างที่สอง แต่ละบรรทัดมี `type` (เช่น `int_from_float`) ซึ่งเป็นรหัสที่โปรแกรมเอาไปจัดการต่อได้ ข้อความ `msg` อาจเปลี่ยนตามเวอร์ชัน แต่ `type` นิ่งกว่า
 
-`ValidationError` เป็น subclass ของ `ValueError` จึงถูกจับด้วย `except ValueError` ได้ ใช้ `e.error_count()` นับจำนวนและ `e.errors()` ดึงเป็น list ของ dict ([บท 6](/pydantic/errors/) ลงลึกเรื่องนี้)
+`ValidationError` เป็น subclass ของ `ValueError` จึงถูกจับด้วย `except ValueError` ได้ ใช้ `e.error_count()` นับจำนวนและ `e.errors()` ดึงเป็น list ของ dict ([บท 6](/pydantic/errors/#errors-json-และ-str-ใช้ต่างกัน) ลงลึกเรื่องนี้)
 
 </Step>
 
@@ -143,7 +143,7 @@ Customer.model_validate({"id": 1, "name": "Ann", "email": "a@x"})   # dict ห�
 Customer.model_validate_json('{"id": 1, "name": "Ann", "email": "a@x"}')   # JSON text
 ```
 
-ทั้งสามได้ผลเท่ากัน (แบบฝึกยืนยันด้วย `==`) ข้อที่ต่างคือ `model_validate_json` ให้ตัว parser JSON ส่งค่าเข้า validator โดยตรง ไม่ได้สร้าง `dict` ของ Python ก่อน และมีกฎเรื่อง strict ที่ต่างจากข้อมูลที่เป็น Python ([บท 3](/pydantic/types/) และ [บท 10](/pydantic/under-the-hood/))
+ทั้งสามได้ผลเท่ากัน (แบบฝึกยืนยันด้วย `==`) ข้อที่ต่างคือ `model_validate_json` ให้ตัว parser JSON ส่งค่าเข้า validator โดยตรง ไม่ได้สร้าง `dict` ของ Python ก่อน และมีกฎเรื่อง strict ที่ต่างจากข้อมูลที่เป็น Python ([บท 3](/pydantic/types/#strict-กับข้อมูลจาก-json-ไม่เหมือนกับข้อมูลจาก-python) และ [บท 10](/pydantic/under-the-hood/#input-ทำไมข้อมูลจาก-python-กับ-json-ต่างกันที่-strict))
 
 ขาออกก็มีสองทาง
 
@@ -162,11 +162,11 @@ c.model_dump_json()   # '{"id":1,"name":"Ann","email":"a@x","is_vip":false}'
 
 พฤติกรรมเริ่มต้นสี่ข้อที่แบบฝึกยืนยัน และมักทำให้คนที่เพิ่งเริ่มประหลาดใจ
 
-**Key ที่ไม่รู้จักถูกทิ้ง** `Customer(id=1, name="a", email="e", nickname="x")` สำเร็จ และ object ที่ได้ไม่มี `nickname` เลย ถ้าอยากให้ error หรืออยากเก็บไว้ ต้องตั้ง `extra` ใน config ([บท 8](/pydantic/models-config/))
+**Key ที่ไม่รู้จักถูกทิ้ง** `Customer(id=1, name="a", email="e", nickname="x")` สำเร็จ และ object ที่ได้ไม่มี `nickname` เลย ถ้าอยากให้ error หรืออยากเก็บไว้ ต้องตั้ง `extra` ใน config ([บท 8](/pydantic/models-config/#configdict-ตั้งค่าทั้ง-model))
 
 **Field เป็น keyword-only** `Customer(1, "a", "e")` โยน `TypeError` เพราะ `BaseModel.__init__()` รับ positional argument ได้ตัวเดียวคือ `self` ทำให้ลำดับ field ในคลาสเปลี่ยนได้โดยไม่ทำให้โค้ดที่เรียกพัง
 
-**การ assign ภายหลังไม่ถูกตรวจ** หลังสร้าง `c` แล้ว `c.id = "oops"` สำเร็จ และ `c.id` เป็น `"oops"` ตรวจเฉพาะตอนสร้าง ถ้าต้องการให้ตรวจทุกครั้งที่ assign เปิด `validate_assignment` ([บท 8](/pydantic/models-config/))
+**การ assign ภายหลังไม่ถูกตรวจ** หลังสร้าง `c` แล้ว `c.id = "oops"` สำเร็จ และ `c.id` เป็น `"oops"` ตรวจเฉพาะตอนสร้าง ถ้าต้องการให้ตรวจทุกครั้งที่ assign เปิด `validate_assignment` ([บท 8](/pydantic/models-config/#configdict-ตั้งค่าทั้ง-model))
 
 **Model จำได้ว่าผู้เรียกส่ง field ไหนมา** `model_fields_set` เป็น set ของชื่อ field ที่ถูกส่งเข้ามาจริง
 
@@ -177,7 +177,7 @@ Customer(id=1, name="a", email="e", is_vip=False).model_fields_set
 # {'id', 'name', 'email', 'is_vip'}
 ```
 
-ข้อมูลนี้ใช้แยก "ไม่ได้ส่งมา" ออกจาก "ส่งมาเป็นค่า default" ซึ่งสำคัญกับ PATCH request: ถ้าผู้ใช้ส่งมาแค่ `name` เราควรแก้แค่ `name` ไม่ใช่รีเซ็ต field อื่นเป็นค่า default [บท 7](/pydantic/serialization/) ใช้มันกับ `exclude_unset`
+ข้อมูลนี้ใช้แยก "ไม่ได้ส่งมา" ออกจาก "ส่งมาเป็นค่า default" ซึ่งสำคัญกับ PATCH request: ถ้าผู้ใช้ส่งมาแค่ `name` เราควรแก้แค่ `name` ไม่ใช่รีเซ็ต field อื่นเป็นค่า default [บท 7](/pydantic/serialization/#เลือก-field-include-exclude-และ-exclude_) ใช้มันกับ `exclude_unset`
 
 <Callout type="try" title="ลองทำใน repo นี้">
 เปิด `subjects/pydantic/code/exercises/01_first_model.py` แล้วรัน `uv run python exercises/01_first_model.py` ลองส่ง `id="  7  "` (มีช่องว่างล้อมรอบ) และ `id="7_000"` ดูว่าได้อะไร แล้วเดาก่อนรันว่าจะผ่านหรือไม่
@@ -207,7 +207,7 @@ Customer(id=1, name="a", email="e", is_vip=False).model_fields_set
 | ผลของ `Customer(id=3.5, name=None, is_vip="maybe")` (สี่ error, ชนิด error แต่ละตัว) | รัน: `exercises/01_first_model.py` |
 | สามทางเข้าได้ผลเท่ากัน, `model_dump` และ `model_dump_json` | รัน: `exercises/01_first_model.py` |
 | key ที่ไม่รู้จักถูกทิ้ง, keyword-only, ไม่ตรวจตอน assign, `model_fields_set` | รัน: `exercises/01_first_model.py` |
-| `model_validate_json` ให้ parser JSON ส่งค่าเข้า validator โดยตรง | source: `input_json.rs` ใน knowledge graph ([บท 10](/pydantic/under-the-hood/)) |
+| `model_validate_json` ให้ parser JSON ส่งค่าเข้า validator โดยตรง | source: `input_json.rs` ใน knowledge graph ([บท 10](/pydantic/under-the-hood/#input-ทำไมข้อมูลจาก-python-กับ-json-ต่างกันที่-strict)) |
 | ตัวเลือกการใช้ `model_fields_set` กับ PATCH | ผู้เขียน |
 
 </Step>
