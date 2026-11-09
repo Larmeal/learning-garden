@@ -10,6 +10,8 @@ export interface Term {
   group: Group;
   mean: string;
   see?: string;
+  /** Other terms that explain this one, shown as links under the meaning (each must be a term of this list). */
+  related?: string[];
 }
 
 export const GROUPS: Record<Group, string> = {
@@ -58,13 +60,22 @@ export const TERMS: Term[] = [
   { term: 'saddle', say: 'แซดเดิล', group: 'parts', mean: 'ชิ้นที่สายพาดบน bridge จุดที่สายสั่นสิ้นสุด ระยะนัตถึง saddle คือ scale length', see: 'guitar/introduction' },
   { term: 'soundhole', say: 'ซาวด์โฮล', group: 'parts', mean: 'รูกลมบนกีต้าร์โปร่งให้เสียงออกจากกล่องก้อง', see: 'guitar/introduction' },
   { term: 'pickguard', say: 'พิกการ์ด', group: 'parts', mean: 'แผ่นป้องกันผิวตัวกีต้าร์จากปิ๊ก', see: 'guitar/introduction' },
+  { term: 'heel', say: 'ฮีล', group: 'parts', mean: 'ส่วนที่คอไปต่อกับตัว (ส้นคอ) ยึดคอเข้ากับ neck block ข้างใน ตำแหน่งที่คอเข้าตัวบอกว่าเป็นแบบ 12-fret หรือ 14-fret clear', see: 'guitar/introduction' },
+  { term: 'rosette', say: 'โรเซตต์', group: 'parts', mean: 'วงลายตกแต่งรอบ soundhole ของกีต้าร์โปร่ง', see: 'guitar/introduction' },
+  { term: 'binding', say: 'ไบนดิง', group: 'parts', mean: 'แถบไม้หรือพลาสติกเส้นเล็กรอบขอบตัวกีต้าร์ ปิดรอยต่อและปกป้องปลายเส้นใยไม้ที่ขอบ', see: 'guitar/introduction' },
+  { term: 'bracing', say: 'เบรซซิง', group: 'parts', mean: 'โครงไม้เส้นเรียวใต้ top ของกีต้าร์โปร่ง ช่วยให้หน้าบางพอจะสั่นแต่ทนแรงดึงสายได้ รูปแบบที่พบบ่อยคือ X-bracing (สายเหล็ก) และ fan bracing (classical)', see: 'guitar/introduction' },
+  { term: 'bridge pin', say: 'บริดจ์ พิน', group: 'parts', mean: 'หมุดที่เสียบในรูบน bridge ของกีต้าร์โปร่งสายเหล็ก ล็อกปลายสาย (ball end) ไว้ใต้ bridge', see: 'guitar/introduction' },
+  { term: 'soundboard', say: 'ซาวด์บอร์ด', group: 'parts', mean: 'แผ่นไม้ด้านหน้าของกล่องเสียง เรียกอีกอย่างว่า top เป็นส่วนที่สั่นและส่งเสียงออกมามากที่สุด', see: 'guitar/introduction' },
+  { term: 'bout', say: 'เบาท์', group: 'parts', mean: 'ส่วนโค้งของตัวกีต้าร์โปร่ง upper bout คือส่วนบนที่แคบกว่า lower bout คือส่วนล่างที่กว้างที่สุด ส่วนที่คอดตรงกลางเรียกว่า waist', see: 'guitar/introduction' },
+  { term: 'end pin', say: 'เอนด์ พิน', group: 'parts', mean: 'ปุ่มโลหะที่ท้ายตัวกีต้าร์โปร่ง ใช้ผูกสายสะพายด้านท้าย ในรุ่น electro-acoustic มักเป็นช่องเสียบสาย jack ด้วย', see: 'guitar/introduction' },
   { term: 'pickup', say: 'พิกอัพ', group: 'parts', mean: 'ขดลวดแม่เหล็กใต้สายของกีต้าร์ไฟฟ้าที่เปลี่ยนการสั่นของสายเป็นสัญญาณไฟฟ้า', see: 'guitar/introduction' },
   { term: 'single-coil', say: 'ซิงเกิลคอยล์', group: 'parts', mean: 'pickup ขดเดียว เสียงใสและคม มีโอกาสได้ยินเสียงหึ่ง (hum) จากไฟฟ้ารอบตัว', see: 'guitar/introduction' },
   { term: 'humbucker', say: 'ฮัมบัคเกอร์', group: 'parts', mean: 'pickup สองขดที่กลับขั้วกันเพื่อตัดเสียงหึ่ง เสียงหนาและแน่นกว่า single-coil', see: 'guitar/introduction' },
   { term: 'tremolo bar', say: 'เทรมโมโล บาร์', group: 'parts', mean: 'คันโยกที่ bridge ใช้เปลี่ยนความตึงสายพร้อมกันทุกเส้นเพื่อทำเสียงเลื่อน เรียกว่า whammy bar ด้วย (ชื่อ tremolo เรียกผิดจากหลักวิชา เพราะ tremolo จริงคือการเปลี่ยนความดัง)' },
   { term: 'strap button', say: 'สแตรป บัตตัน', group: 'parts', mean: 'ปุ่มโลหะบนตัวกีต้าร์สำหรับคล้องสายสะพาย' },
   { term: 'scale length', say: 'สเกล เลนท์', group: 'parts', mean: 'ความยาวของสายที่สั่นได้ ระยะจากนัตถึง saddle ที่พบบ่อย 25.5 นิ้ว (Fender) และ 24.75 นิ้ว (Gibson) ยิ่งยาวยิ่งตึงและเฟร็ตห่างกว่า', see: 'guitar/introduction' },
-  { term: 'action', say: 'แอคชัน', group: 'parts', mean: 'ความสูงของสายเหนือเฟร็ต ต่ำเล่นง่ายแต่เสี่ยงบัซ สูงเสียงชัดแต่กดแรง', see: 'guitar/barre-caged' },
+  { term: 'action', say: 'แอคชัน', group: 'parts', mean: 'ความสูงของสายเหนือเฟร็ต หรือช่องว่างระหว่างสายกับลวดเฟร็ต ถ้า action ต่ำ จะเล่นง่ายขึ้นเพราะกดเบา แต่สายมีโอกาสสั่นไปโดนเฟร็ตจนเกิด Fret Buzz หรือเสียงบัซ ถ้า action สูง เสียงจะชัดและไม่บัซ แต่ต้องกดแรงขึ้น นิ้วและมือล้าเร็วกว่า ปรับได้ที่ saddle และ truss rod', see: 'guitar/barre-caged', related: ['fret buzz', 'saddle', 'truss rod', 'setup'] },
+  { term: 'fret buzz', say: 'เฟร็ต บัซ', group: 'gear', mean: 'เสียงแตกพร่าหรือเสียงซ่าเมื่อสายที่สั่นอยู่ไปโดนลวดเฟร็ต สาเหตุที่พบบ่อยคือ action ต่ำเกินไป กดห่างลวดเฟร็ตหรือกดเบาเกินไป คอตรงหรือโค้งหลังเกินไป (ปรับด้วย truss rod) และเฟร็ตสูงไม่เท่ากัน', see: 'guitar/technique', related: ['action', 'truss rod', 'setup'] },
   { term: 'intonation', say: 'อินโทเนชัน', group: 'parts', mean: 'ความตรงของเสียงเมื่อกดเฟร็ตต่างๆ ถ้าสายเปล่าตรงแต่เฟร็ต 12 เพี้ยน แปลว่าต้องปรับ saddle', see: 'guitar/practice-method' },
   { term: 'string gauge', say: 'สตริง เกจ', group: 'parts', mean: 'ความหนาของสาย วัดเป็นพันของนิ้ว เช่น .009 ถึง .042 (light สำหรับไฟฟ้า) ยิ่งหนาเสียงหนาและตึงขึ้น', see: 'guitar/introduction' },
   { term: 'string', group: 'parts', mean: 'สาย กีต้าร์มาตรฐานมีหกสาย เรียกสาย 6 (ต่ำสุด) ถึงสาย 1 (สูงสุด)', see: 'guitar/fretboard' },

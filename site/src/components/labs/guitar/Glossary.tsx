@@ -8,7 +8,7 @@ import type { Group } from './glossaryData';
 
 type Lang = 'th' | 'en';
 
-const TEXT: Record<Lang, { title: (n: number) => string; placeholder: string; searchLabel: string; groupLabel: string; all: string; found: (n: number) => string; learnIn: string; none: string }> = {
+const TEXT: Record<Lang, { title: (n: number) => string; placeholder: string; searchLabel: string; groupLabel: string; all: string; found: (n: number) => string; learnIn: string; related: string; none: string }> = {
   th: {
     title: (n) => `Glossary: ${n} คำ`,
     placeholder: 'ค้นหา เช่น fret, capo, เบนด์',
@@ -17,6 +17,7 @@ const TEXT: Record<Lang, { title: (n: number) => string; placeholder: string; se
     all: 'ทั้งหมด',
     found: (n) => `พบ ${n} คำ`,
     learnIn: 'เรียนใน',
+    related: 'ดูเพิ่ม:',
     none: 'ไม่พบคำนี้ ลองค้นด้วยภาษาอังกฤษหรือสะกดสั้นลง',
   },
   en: {
@@ -27,11 +28,14 @@ const TEXT: Record<Lang, { title: (n: number) => string; placeholder: string; se
     all: 'All',
     found: (n) => `${n} found`,
     learnIn: 'Learn it in',
+    related: 'See also:',
     none: 'No term found. Try a shorter spelling.',
   },
 };
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+/** Terms are shown with a capital letter on every word (the entries themselves stay lower case for search). */
+const cap = (t: string) => t.replace(/\b([a-z])/g, (m) => m.toUpperCase());
 const ORDER = Object.keys(TH.GROUPS) as Group[];
 
 export default function Glossary({ lang = 'th' }: { lang?: Lang }) {
@@ -42,9 +46,11 @@ export default function Glossary({ lang = 'th' }: { lang?: Lang }) {
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return TERMS.filter((x) => (group === 'all' || x.group === group) && (!q || `${x.term} ${('say' in x && x.say) || ''} ${x.mean}`.toLowerCase().includes(q))).sort((a, b) =>
-      a.term.toLowerCase().localeCompare(b.term.toLowerCase()),
-    );
+    return TERMS.filter((x) => (group === 'all' || x.group === group) && (!q || `${x.term} ${('say' in x && x.say) || ''} ${x.mean}`.toLowerCase().includes(q))).sort((a, b) => {
+      const ea = a.term.toLowerCase() === q ? 0 : 1; // the term that was asked for comes first
+      const eb = b.term.toLowerCase() === q ? 0 : 1;
+      return ea - eb || a.term.toLowerCase().localeCompare(b.term.toLowerCase());
+    });
   }, [query, group, TERMS]);
 
   return (
@@ -71,7 +77,7 @@ export default function Glossary({ lang = 'th' }: { lang?: Lang }) {
         {shown.map((x) => (
           <div key={x.term} style={{ padding: '12px 14px', border: '2px solid var(--line)', borderRadius: 14, background: 'var(--surface)' }}>
             <dt style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 8 }}>
-              <b style={{ fontFamily: 'var(--display)', fontSize: 17 }}>{x.term}</b>
+              <b style={{ fontFamily: 'var(--display)', fontSize: 17 }}>{cap(x.term)}</b>
               {'say' in x && x.say && <span className="gx-detail">{x.say}</span>}
               <span className="gx-tag" style={{ marginLeft: 'auto' }}>{GROUPS[x.group]}</span>
             </dt>
@@ -84,6 +90,14 @@ export default function Glossary({ lang = 'th' }: { lang?: Lang }) {
                     {t.learnIn} "{LESSONS[x.see]}"
                   </a>
                 </>
+              )}
+              {x.related && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 8 }}>
+                  <span className="gx-detail">{t.related}</span>
+                  {x.related.map((r) => (
+                    <button key={r} type="button" className="btn sm" onClick={() => { setGroup('all'); setQuery(r); }}>{cap(r)}</button>
+                  ))}
+                </div>
               )}
             </dd>
           </div>

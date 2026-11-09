@@ -179,5 +179,8 @@ for (const [key, title] of Object.entries(LESSONS)) {
 }
 for (const t of TERMS) if (t.see) assert.ok(t.see in LESSONS, 'glossary term ' + t.term + ' points to unknown lesson ' + t.see);
 checks += TERMS.filter((t) => t.see).length;
+const termNames = new Set(TERMS.map((t) => t.term));
+for (const t of TERMS) for (const r of t.related ?? []) assert.ok(termNames.has(r), 'glossary term ' + t.term + ' lists an unknown related term ' + r);
+checks += TERMS.reduce((n, t) => n + (t.related?.length ?? 0), 0);
 
 console.log(`${checks} checks passed (${shapes} chord boxes from the lessons)`);
