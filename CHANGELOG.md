@@ -2,6 +2,15 @@
 
 Notable changes to the learning garden, newest first. Dates are when the change was made.
 
+## 2026-11-09
+
+### Added
+- Guitar: a page "Anatomy: ส่วนประกอบของกีต้าร์โปร่ง" (Thai and English) in lesson 0 with an animated acoustic guitar (`AcousticAnatomy`): press a part or walk through them to read what it is and what it does next to the drawing, look through the body at the bracing, truss rod and blocks, and follow a plucked string into the room in five steps. The quiz has three more questions.
+- Glossary: eight more parts (heel, rosette, binding, bracing, bridge pin, soundboard, bout, end pin), a "Fret Buzz" entry, and a "See also" row of links between related terms (for example Action to Fret Buzz, Saddle, Truss Rod and Setup). Terms are shown with a capital letter on every word.
+
+### Changed
+- The Action entry of the glossary now explains both sides: a low action is easy to press but can give Fret Buzz, a high action is clear but needs more force.
+
 ## 2026-11-08
 
 ### Added
