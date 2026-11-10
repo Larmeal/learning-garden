@@ -32,7 +32,7 @@ export const LESSONS: Record<string, string> = {
   'guitar/barre-caged': 'คอร์ดบาร์และระบบ CAGED',
   'guitar/scales': 'สเกลบนคอกีต้าร์',
   'guitar/lead-techniques': 'เทคนิคเมโลดี้และการเล่นให้มีชีวิต',
-  'guitar/improvisation': 'การด้นสด',
+  'guitar/improvisation': 'การ Improvise',
   'guitar/ear-songs': 'ถอดเพลงด้วยหูและสร้างคลังเพลง',
   'music-theory/pitch-notation': 'เสียง โน้ต และตัวโน้ต',
   'music-theory/rhythm-meter': 'จังหวะและห้องเพลง',
