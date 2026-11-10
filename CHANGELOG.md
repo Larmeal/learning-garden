@@ -2,6 +2,12 @@
 
 Notable changes to the learning garden, newest first. Dates are when the change was made.
 
+## 2026-11-10
+
+### Changed
+- Data Quality, lesson 2 (Dimensions) and its eight deep-dive pages (Thai and English) are rewritten to be easier to picture. Each page opens with real rows from the dataset and one everyday picture that it keeps using, explains each SQL query line by line, and gives every common misreading its own Step instead of a bold-label form. Citations come once at the end of a paragraph. The headings that other lessons link to are unchanged, except on the Reasonability page, whose misreading headings were renamed and the two capstone links updated.
+- `13_dimension_pitfalls.py` now also asserts the numbers of the new examples (the bad-day copy for Reasonability, the data-set-level completeness copy, the tolerance table). The prose was not read through by a person yet, and the labs and the light theme were not clicked again.
+
 ## 2026-11-09
 
 ### Added

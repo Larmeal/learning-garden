@@ -1,10 +1,10 @@
 ---
 title: Integrity in depth
-summary: Does every reference point at something that exists? Integrity is the dimension whose name means the most different things in different books, so this page fixes the meaning first, then shows orphans on real rows and the SQL trap that hides them.
+summary: Does data that points to data in another table point to something that really exists? Books use the word integrity with different meanings, so this page settles the meaning first, then looks at rows that point to nothing and at the SQL trap that hides them.
 order: 5
 stage: sprout
 format: steps
-updated: 2026-11-04
+updated: 2026-11-10
 ---
 
 import Step from '../../../../components/Step.astro';
@@ -12,11 +12,17 @@ import Callout from '../../../../components/Callout.astro';
 
 <Step>
 
-## What the word asks
+## Integrity asks whether what is referred to really exists
 
-DMBOK2 describes data integrity, or coherence, as including ideas from completeness, accuracy and consistency. In data it usually means one of two things: referential integrity, which is consistency between data objects through a reference key that both contain, or internal consistency within a data set so that there are no holes or missing parts. A data set without integrity looks corrupted or has lost data. A data set without referential integrity has orphans, which are invalid reference keys, or duplicates, which are identical rows that may distort aggregation. The level of orphans can be measured as a raw count or as a percentage of the data set (book: DMBOK2 Table 29, page 459).
+Think of a library loan card. One card says you borrowed the book with code 9017, but the library's catalog has no book with that code. The card is filled in completely and in the right format, yet it points at something that does not exist. Our data has the same situation in `orders`.
 
-Picture a library loan card that names a book. If the catalog has no such book, the card is an orphan. The card is filled in correctly and in the right format. It points at nothing.
+| order_id | customer_id | status | total_amount |
+|---:|---:|---|---:|
+| 65 | 9017 | SHIPPED | 1882.76 |
+
+Order 65 says it belongs to customer number 9017, but our `customers` table has only the customer numbers 1 to 500. Nobody is called 9017. A key that points at something that does not exist is called an **orphan**. The `payments` side has the same case: payments 2534, 2535 and 2536 point to orders 9001, 9002 and 9003, which are not in `orders`.
+
+DMBOK2 describes data integrity as a concept that includes ideas from completeness, accuracy and consistency. In practice it usually means one of two things. One is referential integrity, which is consistency between two tables through a reference key that both contain. The other is internal consistency within a dataset, so that it has no holes or missing parts. A dataset without referential integrity has orphans (reference keys that point at nothing) or duplicates (identical rows that may distort aggregation), and the level of orphans can be measured as a raw count or as a percentage of the dataset (book: DMBOK2 Table 29, page 459).
 
 </Step>
 
@@ -24,66 +30,98 @@ Picture a library loan card that names a book. If the catalog has no such book, 
 
 ## One word, three meanings
 
-Before you measure, say which meaning you use. At least three are in circulation:
+Before measuring integrity, we should agree which meaning our team uses, because at least three are in circulation.
 
-| Where | What "integrity" means |
+| Where | What integrity means |
 |---|---|
-| DMBOK2 | Mainly referential integrity, plus "no holes" inside a data set (book: DMBOK2 Table 29, page 459) |
-| Ten Steps | "Data integrity fundamentals" is a much wider dimension. It covers existence, validity, structure and content, and it is what you learn from profiling. Referential integrity is only one row in it (book: Ten Steps chapter 4, pages 128 to 135) |
-| A database | An integrity constraint, such as a foreign key that the engine enforces |
+| DMBOK2 | Mainly referential integrity, plus having no holes inside a dataset (book: DMBOK2 Table 29, page 459) |
+| Ten Steps | Data integrity fundamentals is a much wider dimension. It covers existence, validity, structure and content, which we learn from profiling, and referential integrity is only one row in it (book: Ten Steps chapter 4, pages 128 to 135) |
+| A database | An integrity constraint, such as a foreign key that the database enforces so that no orphan can appear |
 
-A report that says "integrity 99%" means three different things depending on which one the author had in mind. This path uses the DMBOK2 meaning. Our `orders` and `customers` tables come from `CREATE TABLE ... AS`, so no foreign key is declared, and nothing in the database stops an order from naming a customer that is not there. The check has to be a query.
+A report that says "integrity 99%" therefore means three different things, depending on which one its author had in mind. This path uses the DMBOK2 meaning.
+
+Our `orders` and `customers` tables were made with `CREATE TABLE ... AS`, so no foreign key is declared. Nothing in the database stops an order from pointing to a customer who does not exist, and that is why we have to check with a query ourselves.
 
 </Step>
 
 <Step>
 
-## Orphans on real rows
+## Measuring it
 
 ```sql
+-- orders whose customer_id points to a customer that does not exist
 SELECT count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM customers c WHERE c.customer_id = o.customer_id)),
        count(customer_id)
 FROM orders o WHERE customer_id IS NOT NULL;
 -- 30 of 3,005
 ```
 
-| order_id | customer_id | Is there a customer 9017? |
+For each order, this query asks whether a customer with the same `customer_id` exists in the `customers` table. If not, that order is an orphan. We leave out orders whose `customer_id` is empty with `WHERE customer_id IS NOT NULL`, because an empty cell is a completeness matter, not an integrity matter. That is why the denominator is 3,005 and not 3,020.
+
+The `payments` side uses the same kind of query. 20 of 2,553 payments point to an order that does not exist, and both counts match what was planted (run: `02_dimensions.py`).
+
+</Step>
+
+<Step>
+
+## NOT IN reports a clean table when it is not
+
+Many people write this rule with `NOT IN`, because it is easy to read.
+
+```sql
+SELECT count(*) FROM orders
+WHERE customer_id NOT IN (SELECT customer_id FROM customers);
+-- 30
+```
+
+Right now it gives 30, the same as `NOT EXISTS`. But suppose the list of customers we compare against contains just one NULL.
+
+```sql
+SELECT count(*) FROM orders
+WHERE customer_id NOT IN (SELECT customer_id FROM customers UNION ALL SELECT NULL);
+-- 0
+```
+
+The result becomes 0 at once, although the 30 orphan rows are still there. The reason is that in SQL, comparing with NULL answers "unknown", not "yes" or "no". When the list has a NULL in it, the question "this value is not in the list" can only be answered "unknown" for every row, so no row is counted at all. The check reports a clean table when it is not (run: `13_dimension_pitfalls.py`).
+
+So we use `NOT EXISTS`, which does not have this problem, as the query in the previous section does.
+
+</Step>
+
+<Step>
+
+## An empty key and a key that points at nothing
+
+Compare two kinds of orders that cannot be tied to a customer.
+
+| order_id | customer_id | What is the problem? |
 |---:|---:|---|
-| 65 | 9017 | No |
-| 221 | 9001 | No |
-| 287 | 9023 | No |
+| 344 | (empty) | there is no key at all, which is completeness |
+| 65 | 9017 | there is a key, but it points at nothing, which is integrity |
 
-The same on the other side: `payments.order_id` names orders that do not exist for 20 of 2,553 payments (for example payments 2534, 2535 and 2536 point at orders 9001, 9002 and 9003). Both counts equal what was planted (run: `02_dimensions.py`).
-
-</Step>
-
-<Step>
-
-## Meanings that get misread
-
-<Callout type="warn" title="1. NOT IN can report a clean table when it is not">
-Run `customer_id NOT IN (SELECT customer_id FROM customers)` and you get 30 orphans, as expected. Now suppose the parent list contains a single NULL. The same query returns 0 (run: `13_dimension_pitfalls.py`). In SQL, `x NOT IN (..., NULL)` is never true, so the check silently says every key is fine. Use `NOT EXISTS`, which does not have this problem, as the [main lesson](/en/data-quality/dimensions/#consistency-integrity)'s SQL does.
-</Callout>
-
-**2. A missing key and an orphan key are different problems with the same effect.** 15 orders have a NULL `customer_id`, which is a completeness defect. 30 orders have a `customer_id` that points at nothing, which is an integrity defect. In both cases the order cannot be tied to a customer, so a revenue-by-customer report loses 45 orders (run: `13_dimension_pitfalls.py`). Report them separately, because the fixes differ, and add them when someone asks how much data is unusable.
-
-**3. The check has a direction.** Orders pointing at missing customers are orphans. Customers with no orders are not a violation, unless a business rule says every customer must have placed one. In our data there are 0 such customers, and if there were, they would be people who had not bought yet. Write the direction into the rule: from the child to the parent.
-
-**4. A key that exists can still be the wrong key.** An order that names customer 55 when the buyer was customer 56 passes every integrity check. Integrity checks that the reference lands somewhere, not that it lands in the right place. That is an accuracy question, and only a trusted source can answer it.
-
-**5. The book files duplicates here too.** The same description mentions identical rows that distort aggregation (book: DMBOK2 Table 29, page 459). See [the uniqueness page](/en/data-quality/dimensions/uniqueness/#measuring-it) for the 20 duplicated orders. If both pages count the same rows, your scorecard double counts.
+The two cases have the same effect: we do not know whose order it is. A revenue report by customer will miss both groups. Here `orders.customer_id` is empty in 15 rows and is an orphan in 30 rows, which makes 45 orders that cannot be tied to a customer (run: `13_dimension_pitfalls.py`). Report the two groups separately, because the fixes are different. An empty key has to be fixed at the source that did not send it, while an orphan means we have to find out where the customer went, or whether the key was entered wrongly. When someone asks how many rows of data are unusable, we then add the two groups together.
 
 </Step>
 
 <Step>
 
-## Easy to confuse with
+## Checking from the child to the parent
 
-| Looks like | How to tell them apart | In our data |
-|---|---|---|
-| Completeness | NULL means no reference. An orphan means a reference to nothing | 15 NULL and 30 orphans on `orders.customer_id` |
-| Consistency | Ten Steps files a comparison inside one row (order before ship) under referential integrity. DMBOK2 files it under consistency | `shipped_ts` before `order_ts`: 10 of 1,769 |
-| Uniqueness | Integrity looks for keys that point at nothing. Uniqueness looks for keys that appear twice | 30 orphan orders against 20 duplicate order rows |
+In `orders` and `customers`, the `orders` table is called the child because it refers to `customers`, which is the parent. An integrity check has a direction: it starts from the child table and asks whether what it refers to exists in the parent table.
+
+A customer who has never placed an order is not a violation, unless the business has a rule that every customer must have ordered something. In our dataset there are no such customers (0), and if there were, they would just be people who have not bought yet. So we should write the direction into the rule: "from the child to the parent".
+
+Integrity has one more limit. A key that points at something that exists can still be the wrong key. Suppose an order belongs to customer 56 but was recorded as customer 55. Both numbers exist in `customers`, so our rule passes, because integrity checks only that the key lands somewhere, and not that it lands in the right place. That question belongs to [Accuracy](/en/data-quality/dimensions/accuracy/), and it needs a trusted source to compare with.
+
+</Step>
+
+<Step>
+
+## How it differs from the other dimensions
+
+Integrity is close to completeness, because an empty key is an empty cell that should have a value, as we saw in the section on empty keys. It is also close to uniqueness, because DMBOK2 puts repeated rows in the description of integrity as well (book: DMBOK2 Table 29, page 459). If we already count repeated rows under [Uniqueness](/en/data-quality/dimensions/uniqueness/#measuring-it), we should not count them again here, or the scorecard counts the same rows twice. The two differ in that integrity looks for keys that point at something that does not exist, while uniqueness looks for keys that appear too often. In our dataset there are 30 orphan rows and 20 extra order rows.
+
+Integrity and consistency can also share a label. The Ten Steps example that an order date must come before the ship date sits under referential integrity in that book, but we file it as consistency in this path. See the page [Consistency](/en/data-quality/dimensions/consistency/) for the details.
 
 </Step>
 
@@ -91,9 +129,9 @@ Run `customer_id NOT IN (SELECT customer_id FROM customers)` and you get 30 orph
 
 ## Check yourself
 
-- Which of the three meanings of "integrity" does your team use, and is it written down anywhere?
-- A reviewer rewrites your orphan check with `NOT IN` and it returns 0 on a table you know has orphans. What do you look for first?
-- Customer 55 and customer 56 both exist. How would you know that an order should point at 56?
+- Which of the three meanings of integrity does your team use, and is it written down anywhere?
+- A reviewer rewrites your orphan check with `NOT IN`, and it returns 0 on a table you know has orphans. What do you look at first?
+- Customers 55 and 56 both exist in your table. How would you know which one an order should point to?
 
 </Step>
 
@@ -103,10 +141,10 @@ Run `customer_id NOT IN (SELECT customer_id FROM customers)` and you get 30 orph
 
 | Statement | Source |
 |---|---|
-| Referential integrity, no holes, orphans and duplicates, orphan level as count or percent | book: DMBOK2 Table 29, page 459 |
-| Data integrity fundamentals as a wider dimension; referential integrity as one row; order date before ship date | book: Ten Steps chapter 4, pages 128 to 135 |
-| 30 of 3,005 and 20 of 2,553; NOT IN gives 30 and then 0; 15 + 30 = 45; 0 customers without orders | ran: `02_dimensions.py`, `13_dimension_pitfalls.py` |
-| Orders 65, 221, 287 and payments 2534 to 2536 | ran: query on the same data |
-| The library picture; the direction of the check; the key that exists but is wrong | author |
+| Referential integrity, no holes, orphans and duplicates, the level of orphans as a count or a percentage | book: DMBOK2 Table 29, page 459 |
+| Data integrity fundamentals as a wider dimension, referential integrity as one row, order date before ship date | book: Ten Steps chapter 4, pages 128 to 135 |
+| 30 of 3,005 and 20 of 2,553, `NOT IN` giving 30 and then 0 when there is a NULL, 15 + 30 = 45, 0 customers without orders | ran: `02_dimensions.py`, `13_dimension_pitfalls.py` |
+| Orders 65 and 344, payments 2534 to 2536 | ran: queries on the same dataset |
+| The library card picture, the direction of the check, and the example of a key that exists but is wrong | author |
 
 </Step>

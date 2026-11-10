@@ -1,10 +1,10 @@
 ---
 title: Reasonability in depth
-summary: Does the pattern look the way we expect? Reasonability catches what no row-level rule can, a day where every value is valid and the whole day is wrong. This page builds one such day, catches it, and shows how a careless threshold fires on a normal week.
+summary: Does the pattern in the data look the way we expect? Reasonability catches what no row-level rule can see, a day where every value is valid but the whole day is wrong. This page builds such a day, catches it, and then shows how a carelessly chosen threshold fires on normal days.
 order: 8
 stage: sprout
 format: steps
-updated: 2026-11-04
+updated: 2026-11-10
 ---
 
 import Step from '../../../../components/Step.astro';
@@ -12,68 +12,85 @@ import Callout from '../../../../components/Callout.astro';
 
 <Step>
 
-## What the word asks
+## Reasonability asks whether the pattern in the data looks the way we expect
 
-DMBOK2 says reasonability asks whether a data pattern meets expectations. Its example is whether the distribution of sales across a geographic area makes sense, given what is known about the customers in that area. The measurement can take different forms: a comparison with benchmark data, or with past instances of a similar data set, such as sales from the previous quarter. Once benchmark measurements exist, they can be used to compare new instances of the same data set and detect change (book: DMBOK2 Table 29, page 459).
+Think of a shop owner looking at the till roll at closing time. Every receipt looks normal, and none of them is wrong. But the total for the day is 1% of an ordinary Tuesday, and the owner knows at once that something is wrong, without reading a single receipt, because they already had an expectation of where the total should be. Reasonability turns that expectation into a number we can check.
 
-Picture a shop owner who looks at the till roll at closing. Every receipt looks fine. The total is 1% of a normal Tuesday, and the owner knows something is wrong without having read a single receipt. The expectation lives in the owner's head. Reasonability turns it into a number.
+DMBOK2 says reasonability asks whether a data pattern meets expectations. The book's example is whether the distribution of sales across a geographic area makes sense, given what we know about the customers in that area. It can be measured in several ways, such as comparing with benchmark data or with past instances of a similar dataset, for example sales from the previous quarter. Once benchmark measurements are agreed, we can compare them with a new dataset to detect change (book: DMBOK2 Table 29, page 459).
 
-Ten Steps gives smaller examples of the same idea inside a row or a column. A date of birth and an age that disagree: an applicant who must be 18 or older whose dates make them 2 years old. A frequency distribution of country codes that does not line up with your expectation of how much you sell in each country (book: Ten Steps chapter 4, pages 128 to 135).
+Ten Steps gives smaller examples of the same idea inside a row or a column. One is a birth date and an age that disagree, such as an applicant who must be 18 or older whose dates make them 2 years old. Another is the distribution of country codes that does not match what we expect to sell in each country (book: Ten Steps chapter 4, pages 128 to 135).
 
 </Step>
 
 <Step>
 
-## A bad day that no row-level rule sees
+## A bad day that no row-level rule can see
 
-Our dataset has no planted defect of this kind, so this page works on a modified copy: all the totals on one day, 30 August, are divided by 100, as if one source sent cents where the others send whole units. This is made up, and the original data is untouched (run: `13_dimension_pitfalls.py`).
+Our dataset has no planted defect of this kind, so we created one ourselves in a copy of `orders`. We divided the totals of every order on 30 August by 100, as if one source had sent the smaller unit instead of the whole unit. The original data is untouched, and this is a made-up situation (run: `13_dimension_pitfalls.py`).
+
+Let us compare two kinds of rule against this copy.
 
 | Check | Result on the modified copy |
 |---|---|
-| Validity: `total_amount >= 0` | 0 rows fail. Every total is a positive number |
-| Reasonability: the day's average total is far from the usual | 1 day flagged |
+| Validity: `total_amount >= 0` | 0 rows fail, because every total is still a positive number |
+| Reasonability: the average total of the day is far from usual | 1 day flagged |
 
-On the untouched data the daily average total is about 2,537, with a spread (standard deviation) of 304. On the modified copy, 30 August has an average of 27.89. The rule is "flag a day whose average is more than 3 standard deviations from the mean of the daily averages." It flags 1 day on the copy and 0 days on the untouched data.
+On the original data the average order total per day is about 2,537, and it varies by about 304 around that value (that is the standard deviation, which says how far the daily numbers normally spread from the average). In the copy, 30 August has an average total of only 27.89.
+
+The rule we use is "flag a day whose average is more than 3 standard deviations from the mean of the daily averages". It flags 1 day on the copy and 0 days on the original data.
 
 ```sql
 SELECT CAST(order_ts AS DATE) AS d, count(*) AS n, avg(total_amount) AS avg_total
 FROM (SELECT DISTINCT * FROM orders WHERE total_amount >= 0)
 GROUP BY 1 ORDER BY 1;
--- then compare avg_total with its own history
+-- then compare each day's avg_total with its own history
 ```
 
-The check cannot be written as a filter on one row. It needs an aggregate over many rows and a baseline from other days, which is why the monitoring lesson ([lesson 7](/en/data-quality/monitoring/#volume-seasonality-fools-the-z-score)) is where it lives in practice.
+This check cannot be written as a filter on a single row. It needs an aggregate over many rows and a baseline from other days. In practice it therefore belongs to the monitoring work that [lesson 7](/en/data-quality/monitoring/#volume-seasonality-fools-the-z-score) teaches.
 
 </Step>
 
 <Step>
 
-## Meanings that get misread
+## A threshold built from the average alone fires on normal days
 
-<Callout type="warn" title="1. A threshold taken from the mean alone fires on normal days">
-The book's example bar for consistency over time is a day above 105% of the running average of the previous 30 days (book: DMBOK2 Table 29, page 458). Our daily order count has a mean of 24.7 and a standard deviation of 4.8. Applying that bar here fires on 34 of the 91 days that have a 30-day history (run: `13_dimension_pitfalls.py`). Nothing is wrong on those days. The count is noisy, and a bar of 5% is much tighter than the noise. A bar needs the spread as well as the mean, for example "more than 3 standard deviations from the mean". Treat the book's figure as an illustration of the idea.
-</Callout>
+The book's example bar for consistency over time is a day above 105% of the average of the previous 30 days (book: DMBOK2 Table 29, page 458). Let us apply that bar to our daily order count, which has an average of 24.7 orders and moves up and down by about 4.8 orders.
 
-**2. "Makes sense" is someone's opinion until you write it down.** The book says some ideas about reasonability may be perceived as subjective, and that you should work with the data consumers to articulate the basis of their expectations and turn them into objective comparisons (book: DMBOK2 Table 29, page 459). Ask: what would a person who knows the business expect here, and how far from it is "too far"?
-
-**3. Passing is weak evidence, and failing is not proof.** A wrong value that is plausible passes: a total that is 10% too high stays well inside the usual band. A real event fails: a promotion day will sit far from the mean and the rule will fire. An alert here asks a person to look. It does not say the data is wrong (this remark is the author's).
-
-**4. The baseline has to be trustworthy.** If the history that sets the mean and the spread contains bad days, the band gets wider and misses the next bad day. In the example above, the one bad day among 121 raised the spread from 304 to 379 when it was counted in its own history. It was still caught, because it was so far out. Build the baseline from data you have already checked, and update it on purpose.
-
-**5. It is the only dimension in this path without planted defects.** The other seven have a count that the script checks. This one has a made-up day and a threshold. That is a weaker kind of evidence, and it is stated as such.
+The bar fires on 34 of the 91 days that have a full 30 days of history, although nothing is wrong on those days. The daily order count already varies naturally, and 5% is a much narrower band than that variation. A good bar therefore also needs the standard deviation, for example "more than 3 standard deviations from the mean". The 105% in the book illustrates the idea, and cannot be used as it stands everywhere (run: `13_dimension_pitfalls.py`).
 
 </Step>
 
 <Step>
 
-## Easy to confuse with
+## "Makes sense" has to be written as a number
 
-| Looks like | How to tell them apart | In our data |
-|---|---|---|
-| Validity | Validity judges one value against a domain. Reasonability judges a pattern across many values | the bad day passes validity completely |
-| Consistency over time | The book's temporal consistency example (the 105% rule) is a reasonability check by another name | see [the consistency page](/en/data-quality/dimensions/consistency/#meanings-that-get-misread) |
-| Accuracy | A reasonable pattern can still be wrong, and an odd one can be true | a good promotion day looks unreasonable |
-| Timeliness | A missing day shows up as a count of 0, which is also an unreasonable pattern | a quiet pipeline looks like a very quiet shop |
+"Makes sense" is only somebody's opinion until we write it down as a number. The book says some expectations may seem subjective, and that we should work with the consumers of the data to find out what they expect and on what basis, and then turn that into a concrete comparison (book: DMBOK2 Table 29, page 459).
+
+The question to ask them is what a person who knows the business would expect to see here, and how far away counts as too far. Their answer is the bar we use.
+
+</Step>
+
+<Step>
+
+## The baseline must be trustworthy, and a result is a signal for a person to look
+
+If the history we use to calculate the average contains bad days, the normal band gets wider and we will miss the next bad day. In the example above, the single bad day out of 121 raised the standard deviation from 304 to 379 when it was counted in its own history. It was still caught, because it was so far out. We should build the baseline from data we have already checked, and update it on purpose.
+
+When a rule fires, we should treat it as a signal for a person to look, because we cannot yet conclude that the data is wrong. A total that is wrong but plausible passes the bar: one that is 10% too high is still well inside the usual band. A real event such as a promotion day sits far from the average and makes the bar fire, even though the data is right (this remark is the author's).
+
+</Step>
+
+<Step>
+
+## How it differs from the other dimensions
+
+Reasonability differs from [Validity](/en/data-quality/dimensions/validity/) in that validity judges one value against a domain, while reasonability judges the pattern across many values. Our bad day passes validity completely.
+
+The temporal consistency example in the book (the 105% rule), mentioned on the page [Consistency](/en/data-quality/dimensions/consistency/#three-levels), is a reasonability check under another name.
+
+A pipeline that is silent for a whole day makes the table look like a shop that was very quiet. That is a [Timeliness](/en/data-quality/dimensions/timeliness/) problem, but reasonability catches it too.
+
+It is the only dimension in this path that has no planted defect in the dataset. The other seven have a count that the script checks. This one has a made-up day and a threshold, which is weaker evidence, and we say so plainly.
 
 </Step>
 
@@ -81,8 +98,8 @@ The book's example bar for consistency over time is a day above 105% of the runn
 
 ## Check yourself
 
-- For one number you report every day, what is the usual range, and who told you?
-- Your alert uses "5% above the 30-day average" and fires every other day. What do you change first?
+- For one number you report every day, what is its usual range, and who told you?
+- Your alert uses "5% above the 30 day average" and fires every other day. What do you change first?
 - The same check flags a real marketing campaign. How should a rule tell the difference, and should it?
 
 </Step>
@@ -93,10 +110,10 @@ The book's example bar for consistency over time is a day above 105% of the runn
 
 | Statement | Source |
 |---|---|
-| Definition, benchmark or past instances, subjective expectations, compare new instances to detect change | book: DMBOK2 Table 29, page 459 |
-| The 105% of a 30 day average example | book: DMBOK2 Table 29, page 458 |
-| Age against birth date, frequency distribution of countries | book: Ten Steps chapter 4, pages 128 to 135 |
-| The modified copy, 0 rows by validity and 1 day by reasonability, 2,537 and 304 and 379 and 27.89, 34 of 91 days, mean 24.7 and spread 4.8 | ran: `13_dimension_pitfalls.py` |
-| The till roll picture; the notes on thresholds, baselines and the weak evidence | author |
+| Definition, benchmark or past instances, subjective expectations, comparing new instances to detect change | book: DMBOK2 Table 29, page 459 |
+| The example of 105% of a 30 day average | book: DMBOK2 Table 29, page 458 |
+| Age against birth date, the distribution of country codes | book: Ten Steps chapter 4, pages 128 to 135 |
+| The modified copy, 0 rows by validity and 1 day by reasonability, the values 2,537, 304, 379 and 27.89, 34 of 91 days, the average 24.7 and 4.8 | ran: `13_dimension_pitfalls.py`. The copy is made up, because the dataset has no defect of this kind |
+| The till roll picture, and the remarks on treating a result as a signal for a person to look | author |
 
 </Step>

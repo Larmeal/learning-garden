@@ -1,10 +1,10 @@
 ---
 title: Accuracy in depth
-summary: Does the data match the real thing? Accuracy is the dimension people name first and can measure least, because it needs a source of truth. This page shows what that comparison looks like and how the choices inside it change the number.
+summary: Does the data match the real thing? Accuracy is the dimension people think of first, but it is the hardest to measure, because it needs a source of truth to compare with. This page shows what that comparison looks like, and how the choices inside it change the number.
 order: 7
 stage: sprout
 format: steps
-updated: 2026-11-04
+updated: 2026-11-10
 ---
 
 import Step from '../../../../components/Step.astro';
@@ -12,29 +12,36 @@ import Callout from '../../../../components/Callout.astro';
 
 <Step>
 
-## What the word asks
+## Accuracy asks whether the data matches the real thing
 
-DMBOK2 defines accuracy as the degree to which data correctly represents real-life entities. It adds that accuracy is difficult to measure unless you can reproduce the data collection or confirm records by hand, and that most measures compare the data with a source that has been verified as accurate, such as a system of record or reliable external reference data (book: DMBOK2 Table 29, page 458). DAMA UK says the same in other words: the degree to which data correctly describes the real world object or event (book: DMBOK2 section 1.3.3, page 457).
+Think of a thermometer that reads 31.4 degrees. The number is within a possible range and written in the right format. But is the room really 31.4 degrees? We cannot answer that from the number itself. We need a second thermometer we trust, or someone who already knows.
 
-Picture a thermometer. A reading of 31.4 has the right format and a plausible range. Whether the room is 31.4 degrees takes a second thermometer that you trust, or a person who knows.
+DMBOK2 defines accuracy as the degree to which data correctly represents real-life entities. It says plainly that accuracy is hard to measure, unless we can reproduce the data collection or confirm records by hand. Most measures therefore compare the data with a source that has been verified as accurate, such as a system of record or reliable external reference data (book: DMBOK2 Table 29, page 458). DAMA UK says the same in other words: the degree to which data correctly describes the real world object or event (book: DMBOK2 section 1.3.3, page 457).
 
-Ten Steps opens its accuracy step with the observation that many people use "accuracy" as a synonym for data quality as a whole, and that data professionals know the two are not the same (book: Ten Steps chapter 4, pages 135 to 140).
+Ten Steps opens its accuracy step with the observation that many people use "accuracy" as a synonym for data quality as a whole, while data professionals know that the two are not the same (book: Ten Steps chapter 4, pages 135 to 140).
 
 </Step>
 
 <Step>
 
-## What profiling can and cannot tell you
+## What profiling can and cannot tell us
 
-Ten Steps gives three examples of the line between what profiling shows and what only a comparison can show (book: Ten Steps chapter 4, pages 135 to 140):
+Ten Steps gives three examples of the line between what profiling can see and what only a comparison with the real thing can show (book: Ten Steps chapter 4, pages 135 to 140).
 
-| Profiling shows | Only a comparison shows |
+| Profiling can see | Only a comparison with the real thing can show |
 |---|---|
-| Every part has a valid code, M for make or B for buy | Whether each code is the way that part is actually sourced |
-| Postal codes sit in the postal code field in valid patterns | Whether it is the right postal code for this customer |
+| Every part has a valid code, M (make) or B (buy) | Whether that code matches how the part is actually sourced |
+| Postal codes sit in the postal code field and follow valid patterns | Whether it is the right postal code for this customer |
 | The stock count has the right data type | Whether the number matches what is on the shelf |
 
-In our dataset the comparison is between two systems. The payment system is treated as the source of truth, and each non-cancelled order total is compared with the sum of its payments:
+In our dataset the comparison is between two systems. We treat the payment system as the source of truth, and compare the total of each order that is not cancelled with the sum of that order's payments.
+
+| order_id | total_amount in `orders` | What the payment system received | Difference |
+|---:|---:|---:|---:|
+| 91 | 487.71 | 437.71 | -50.00 |
+| 122 | 2029.28 | 1979.28 | -50.00 |
+| 412 | 4147.84 | 4146.84 | -1.00 |
+| 438 | 1716.14 | 1836.14 | 120.00 |
 
 ```sql
 WITH o AS (SELECT DISTINCT order_id, total_amount FROM orders WHERE status <> 'CANCELLED'),
@@ -44,53 +51,62 @@ FROM o JOIN p USING (order_id);
 -- 35 of 2,533, so 98.62% accurate against payments
 ```
 
-| order_id | total_amount | paid | difference |
-|---:|---:|---:|---:|
-| 91 | 487.71 | 437.71 | -50.00 |
-| 122 | 2029.28 | 1979.28 | -50.00 |
-| 412 | 4147.84 | 4146.84 | -1.00 |
-| 438 | 1716.14 | 1836.14 | 120.00 |
+This query leaves out cancelled orders, because a cancelled order has no payment to compare. It matches each remaining order with the sum of its payments, and if the two values differ by more than 0.005, it counts a mismatch.
 
 </Step>
 
 <Step>
 
-## Meanings that get misread
+## Without a source of truth, accuracy cannot be measured
 
-<Callout type="warn" title="1. You cannot read accuracy off a column">
-Without a reference you can check validity, and you cannot check accuracy. The Ten Steps decision flow has four questions: can you identify an authoritative source, can you get access to it, do the stakeholders agree that it is the authority, and can you afford the assessment. If any answer is no, the book says you cannot or should not assess accuracy, and should use other dimensions instead (book: Ten Steps chapter 4, pages 135 to 140). "We are 98.62% accurate" is a sentence with a hidden clause: "against the payment system".
-</Callout>
+If there is nothing to compare with, we can check validity but we cannot check accuracy. Ten Steps lays out a decision flow with four questions. Can we identify an authoritative source? Can we get access to it? Do the stakeholders agree that it is the authority? Can we afford the assessment? If any answer is no, the book says we cannot or should not assess accuracy, and should use other dimensions instead (book: Ten Steps chapter 4, pages 135 to 140).
 
-**2. A mismatch says two sources disagree, not which one is wrong.** Our 35 rows could be an order total that was typed wrong, or a payment that was captured wrong. We call them inaccurate orders because we agreed that payments are the authority. 20 payments name an order that does not exist (run: `13_dimension_pitfalls.py`), which shows that the reference has problems of its own. The book stresses that without agreement on the authoritative source you risk distrust in the results.
+Comparing with the real thing is often done by hand and is expensive. The book suggests asking whether assessing only some records or some fields would still give a meaningful result. In our dataset the comparison is only a join, which costs nothing, and that is the exception, not the usual case.
 
-**3. The tolerance sets the number.** The check above counts a difference larger than half a cent. Change the tolerance and the result moves (run: `13_dimension_pitfalls.py`):
+The sentence "we are 98.62% accurate" therefore has a hidden clause: "against the payment system". And the number can be trusted only as far as the payment system can.
 
-| Tolerance | Mismatches of 2,533 |
+</Step>
+
+<Step>
+
+## A mismatch says two sources disagree, not which one is wrong
+
+Order 91 records a total of 487.71, and the payment system says it received 437.71. We call order 91 inaccurate because we agreed beforehand that payments are the source of truth. But the truth could be the other way round: the total in `orders` is right and the payment was recorded wrongly.
+
+The reference has problems of its own, too. In `payments` there are 20 payments that point to orders that do not exist (run: `13_dimension_pitfalls.py`), which is a matter for [Integrity](/en/data-quality/dimensions/integrity/). If we trust payments as the truth, we also need to know where it is weak. The book stresses that if the team does not agree on the authoritative source, nobody will trust the results of the assessment.
+
+</Step>
+
+<Step>
+
+## The tolerance changes the number
+
+The query above counts a difference of more than 0.005 as a mismatch. If we change that threshold, the number changes with it (run: `13_dimension_pitfalls.py`).
+
+| Tolerance (difference we accept) | Mismatches of 2,533 |
 |---:|---:|
 | 0.005 | 35 |
 | 1.00 | 27 |
 | 11.00 | 18 |
 | 60.00 | 11 |
 
-None of these is the right answer. A difference of 1.00 and a difference of 120.00 are different problems, and the people who own the money decide where the line goes. Write the tolerance into the rule.
+None of these four lines is the right answer. A difference of 1.00 and a difference of 120.00 are different problems, and the people who own the money decide where the line goes. Write the tolerance into the rule every time.
 
-**4. Valid is not accurate.** All 35 wrong totals are non-negative, so they pass the validity rule. DMBOK2 uses a date of birth as its example: a value inside the allowed range can still be wrong for the person it describes (book: DMBOK2 Table 29, page 459).
+Data that passes a validity rule can still be inaccurate. The 35 wrong totals are all positive, so every one passes the rule `total_amount >= 0`. DMBOK2 uses a date of birth as its example: a value inside the allowed range can still be wrong for the person it describes (book: DMBOK2 Table 29, page 459). Comparing with a copy of ourselves, which does not help with accuracy at all, is explained on the page [Consistency](/en/data-quality/dimensions/consistency/).
 
-**5. Accuracy is expensive, so measure a part.** The book says that accuracy checks are often manual and costly, and suggests asking whether a smaller number of records or fewer fields would still give meaningful results (book: Ten Steps chapter 4, pages 135 to 140). In our data the comparison is a join and costs nothing, which is the exception.
-
-**6. The word is also a model metric.** In machine learning "accuracy" is the share of correct predictions. It does not mean that the training data is accurate in the sense used here, so say which one you mean (this remark is the author's).
+The word accuracy is also the name of a model metric in machine learning, where it means the share of predictions that are correct. It does not mean the data used for training is accurate in the sense used here, so we should say which one we mean (this remark is the author's).
 
 </Step>
 
 <Step>
 
-## Easy to confuse with
+## How it differs from the other dimensions
 
-| Looks like | How to tell them apart | In our data |
-|---|---|---|
-| Validity | Validity asks if the value is allowed. Accuracy asks if it is true | 35 of 35 wrong totals are valid |
-| Consistency | Agreement between two sources does not prove either right | a copy always agrees with its source |
-| Reconciliation | Reconciliation is the process of comparing two systems. Accuracy is what a good match tells you about one of them ([lesson 8](/en/data-quality/reconciliation/#reconcile-with-row-counts-and-sums)) | order totals against payment totals |
+Accuracy differs from [Validity](/en/data-quality/dimensions/validity/) in that validity asks whether the value is allowed, while accuracy asks whether it is true. All 35 wrong totals pass validity.
+
+Accuracy differs from consistency in that two sources that agree do not prove that either one is right.
+
+Reconciliation, which [lesson 8](/en/data-quality/reconciliation/#reconcile-with-row-counts-and-sums) teaches, is the process of comparing two systems. Accuracy is what a good match tells us about one of them, when the other is an agreed source of truth. The order totals against the payment totals on this page are exactly that example.
 
 </Step>
 
@@ -98,9 +114,9 @@ None of these is the right answer. A difference of 1.00 and a difference of 120.
 
 ## Check yourself
 
-- For the most important number your team reports, what is the authoritative source, and who agreed to it?
-- Two systems disagree on 1% of rows. What would you need before saying which system is wrong?
-- You are asked to "make accuracy 99%". What do you ask first?
+- For the most important number your team reports, what is the source of truth, and who agreed to it?
+- Two systems disagree on 1% of rows. What would you need before you could say which system is wrong?
+- Someone asks you to "make accuracy 99%". What do you ask first?
 
 </Step>
 
@@ -110,12 +126,12 @@ None of these is the right answer. A difference of 1.00 and a difference of 120.
 
 | Statement | Source |
 |---|---|
-| Definition, difficulty of measuring, comparison with a system of record | book: DMBOK2 Table 29, page 458 |
+| Definition, the difficulty of measuring it, comparison with a system of record | book: DMBOK2 Table 29, page 458 |
 | Valid but not accurate | book: DMBOK2 Table 29, page 459 |
-| Degree to which data correctly describes the real world | book: DMBOK2 section 1.3.3, page 457 |
-| Accuracy is not a synonym for quality; the three profiling examples; the decision flow; authority must be agreed; cost and sampling | book: Ten Steps chapter 4, pages 135 to 140 |
-| 35 of 2,533, the tolerance table, 20 payments without an order | ran: `02_dimensions.py`, `13_dimension_pitfalls.py` |
-| Orders 91, 122, 412 and 438 | ran: query on the same data |
-| The thermometer picture; the model metric remark | author |
+| The degree to which data describes the real world correctly | book: DMBOK2 section 1.3.3, page 457 |
+| Accuracy is not a synonym for quality, the three profiling examples, the decision flow of four questions, the authority must be agreed, cost and assessing only some records | book: Ten Steps chapter 4, pages 135 to 140 |
+| 35 of 2,533, the tolerance table, the 20 payments with no order | ran: `02_dimensions.py`, `13_dimension_pitfalls.py` |
+| Orders 91, 122, 412 and 438 | ran: queries on the same dataset |
+| The thermometer picture, and the remark on the model metric | author |
 
 </Step>

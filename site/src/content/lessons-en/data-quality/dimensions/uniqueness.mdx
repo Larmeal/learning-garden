@@ -1,10 +1,10 @@
 ---
 title: Uniqueness in depth
-summary: Is each thing recorded once? This page separates an exact copy from a repeated key and from the same real entity written twice, and shows why the number you report depends on how you count.
+summary: Is each thing recorded only once? The word "duplicate" has several meanings, from a row copied exactly to one person recorded twice with slightly different details. This page looks at real rows of each kind, and at why the number we report depends on how we count.
 order: 3
 stage: sprout
 format: steps
-updated: 2026-11-04
+updated: 2026-11-10
 ---
 
 import Step from '../../../../components/Step.astro';
@@ -12,37 +12,45 @@ import Callout from '../../../../components/Callout.astro';
 
 <Step>
 
-## What the word asks
+## Uniqueness asks whether each thing is recorded only once
 
-DMBOK2 says uniqueness means that no entity exists more than once within the data set. That implies a key value relates to each entity, and only to that entity. The book's advice for measuring it is to test against key structure (book: DMBOK2 Table 29, page 459). DAMA UK words it as: no entity instance will be recorded more than once, based upon how that thing is identified (book: DMBOK2 section 1.3.3, page 457).
+Think of a class register that identifies students by seat number. The register has no repeated seat numbers, but the same student could be sitting in two seats under two slightly different spellings of their name. Checking that seat numbers are not repeated therefore cannot tell us that students are not repeated. Uniqueness works the same way: we can check only what the key can see.
 
-The key is doing a lot of work in that sentence. A uniqueness check can only find what the key can see. Picture a class register where students are listed by seat number. The register has no repeated seat numbers, and the same student can still sit in two seats under two spellings of their name.
+DMBOK2 says uniqueness means that no entity exists more than once in the table. That implies one key value points to one entity, and only that one, and the book's advice for measuring it is to test against the key structure. DAMA UK writes it as: no entity instance is recorded more than once, based on how that thing is identified (book: DMBOK2 Table 29, page 459, and section 1.3.3, page 457).
 
-</Step>
-
-<Step>
-
-## Three different things called "a duplicate"
-
-Ten Steps keeps three words apart because tools and people use "matching" and "duplicate" loosely (book: Ten Steps chapter 4, pages 140 to 146):
-
-| Term | Meaning | In our data |
-|---|---|---|
-| Duplicate record | Two records that are exact copies | Order 267 appears twice, identical in every column |
-| Matching records | Records with a high degree of similarity | `user1@example.com` appears on customer 1 and on customer 491 |
-| Equivalent records | Records that refer to the same real-world entity | Are customers 1 and 491 one person or two? The data cannot say |
+Our dataset has two cases that bring this to mind. The first is in `orders`.
 
 | order_id | customer_id | status | total_amount |
 |---:|---:|---|---:|
 | 267 | 360 | PLACED | 4383.96 |
 | 267 | 360 | PLACED | 4383.96 |
 
+Order 267 is in two rows that are identical in every column. If we add up sales directly, this order is counted twice. The second case is in `customers`.
+
 | customer_id | email | country |
 |---:|---|---|
-| 1 | user1@example.com | SG |
-| 491 | user1@example.com | TH |
+| 1 | `user1@example.com` | SG |
+| 491 | `user1@example.com` | TH |
 
-The first pair is a plain defect. The second pair is a question. Same email, different country, different `customer_id`. It could be one person who signed up twice, or a family that shares a mailbox. Ten Steps adds a warning: similarity measures give a likelihood that records are duplicates, not proof, and very similar records can belong to different people (book: Ten Steps chapter 4, pages 140 to 146).
+These two customers have different `customer_id` values but share one email.
+
+</Step>
+
+<Step>
+
+## "Duplicate" has three meanings
+
+The two cases above are not duplicates in the same way. Ten Steps keeps three terms apart, because tools and people use "match" and "duplicate" interchangeably (book: Ten Steps chapter 4, pages 140 to 146).
+
+| Term | Meaning | In our dataset |
+|---|---|---|
+| Duplicate record | Two records that are exact copies | order 267 in the two rows above |
+| Matching records | Records that are very similar | customers 1 and 491, who share an email |
+| Equivalent records | Records that refer to the same thing in the real world | whether customers 1 and 491 are one person or two, the data cannot say |
+
+The first pair is a plain defect, because order 267 should not have two rows. The second pair is a question. The email is the same, but the country is different and so is the `customer_id`. It could be one person who registered twice, or two people in a family sharing a mailbox. Ten Steps adds a warning: similarity measures give only a likelihood that records are duplicates, not proof, and two very similar records can still be different people (book: Ten Steps chapter 4, pages 140 to 146).
+
+So we should not delete or merge customers 1 and 491 the moment we find them. We first ask someone who knows the customers whether they are the same person.
 
 </Step>
 
@@ -55,42 +63,55 @@ The first pair is a plain defect. The second pair is a question. Same email, dif
 SELECT count(*) - count(DISTINCT order_id), count(*) FROM orders;
 -- 20 of 3,020
 
--- the same for email, over non-null rows
+-- the same for email, over rows where the email is not empty
 SELECT count(email) - count(DISTINCT email), count(email) FROM customers;
 -- 10 of 460
 ```
 
-Both counts equal what was planted (run: `02_dimensions.py`). The first one is 99.34% unique and the second 97.83%.
+`count(*)` counts every row, while `count(DISTINCT order_id)` counts only the different `order_id` values. Subtracting one from the other gives the number of extra rows. The first table is 99.34% unique and the email table 97.83%, and both numbers match what was planted (run: `02_dimensions.py`).
+
+The 20 is counted as "extra rows", which is the number a cleanup job would delete. We can also count another way: all the rows that belong to a duplicate group, which here is 40 rows (the 20 repeated orders each take two rows). That is the number of rows a person has to look at. Both are correct. But if one report says "20 of 3,020" and another says "40 of 3,020", readers will think the data changed. Choose one, write which one in the rule, and keep the other as a note (run: `13_dimension_pitfalls.py`).
 
 </Step>
 
 <Step>
 
-## Meanings that get misread
+## A key can be unique while the thing is not
 
-<Callout type="warn" title="1. Which number do you report?">
-Order duplicates can be counted two ways. There are 20 extra rows, which is what a cleanup would delete. There are also 40 rows that belong to a duplicate group, which is how many rows someone has to look at (run: `13_dimension_pitfalls.py`). Both are honest. Reporting "20 of 3,020" in one place and "40 of 3,020" in another looks like the data changed. Pick one, write it in the rule, and keep the other as a note.
-</Callout>
+Back to the class register. `customer_id` is unique across all 500 rows. If we wrote a rule that `customer_id` must not repeat, it would pass. But there are 460 emails that are not empty, and they hold only 450 different values (run: `13_dimension_pitfalls.py`). A rule that checks the wrong key misses this problem. Deciding which column, or which set of columns, identifies "the same customer" is a business decision, and the check has to be written to match it.
 
-**2. A unique key does not make unique entities.** `customer_id` is unique over all 500 rows, and 460 non-null emails hold only 450 distinct values (run: `13_dimension_pitfalls.py`). A key rule on `customer_id` passes. Which column or combination defines "the same customer" is a business decision, and the check should be written against that choice.
+Even with the right key, text that differs only slightly can slip past the count. This table shows 4 made-up emails.
 
-**3. Exact text hides near copies.** On a made-up table of 4 emails (`ann@example.com`, `Ann@Example.com`, `ann@example.com ` with a trailing space, and `bob@example.com`), `count(DISTINCT email)` says 4. After `lower(trim(email))` it says 2 (run: `13_dimension_pitfalls.py`). Standardizing before comparing finds more, and the book makes the same point when it says tools differ on whether they standardize first (book: Ten Steps chapter 4, pages 140 to 146).
+| Email as stored | After lowercasing and trimming trailing spaces |
+|---|---|
+| `ann@example.com` | `ann@example.com` |
+| `Ann@Example.com` | `ann@example.com` |
+| `ann@example.com ` (with a trailing space) | `ann@example.com` |
+| `bob@example.com` | `bob@example.com` |
 
-**4. `SELECT DISTINCT` can hide the defect instead of fixing it.** Summing `total_amount` over `orders` gives 7,616,911.36. After removing the exact copies it is 7,560,842.09, so the duplicates overstate revenue by 56,069.27 (run: `13_dimension_pitfalls.py`). A model that applies `DISTINCT` gives the right revenue, and a uniqueness check placed after it will pass. The source is still emitting duplicates, and every other reader of the raw table still gets the wrong total. Check before the cleanup, not after.
-
-**5. The same defect can have two names.** DMBOK2 lists duplicates under integrity as well: identical rows that may negatively affect aggregation (book: DMBOK2 Table 29, page 459). You can file a repeated `order_id` under uniqueness or under integrity. What matters is that one team does not count it in both.
+A plain `count(DISTINCT email)` gives 4, because each text differs when we compare character by character. After `lower(trim(email))` there are only 2 values, so there are 2 people, not 4. Making text uniform (standardizing) before comparing finds more duplicates, and Ten Steps notes that tools differ in whether they standardize before comparing (book: Ten Steps chapter 4, pages 140 to 146).
 
 </Step>
 
 <Step>
 
-## Easy to confuse with
+## DISTINCT can hide a defect
 
-| Looks like | How to tell them apart | In our data |
-|---|---|---|
-| Integrity | Integrity looks for keys that point at nothing. Uniqueness looks for keys that appear too often | 30 orphan orders against 20 extra order rows |
-| Consistency | Two spellings of one customer are a consistency problem until you decide they are one entity | `TH` and `ไทย` in `country`, and `Ann@Example.com` in `email` |
-| Validity | A duplicate can be perfectly valid | all 20 customers who share an email have a well-formed address |
+A team that finds repeated orders often fixes them by adding `SELECT DISTINCT` to a model. The output of the model is right at once, but the source keeps sending the repeated rows.
+
+See what it does to our revenue. The sum of `total_amount` in `orders` as it stands is 7,616,911.36, but after removing the copies that are identical in every column it is 7,560,842.09. So the repeated rows overstate revenue by 56,069.27 (run: `13_dimension_pitfalls.py`). Anyone who reads the raw table without going through that model still gets the wrong total.
+
+If we put a uniqueness check after the `DISTINCT`, that check will always pass, because the data it sees has already been cleaned. So we should check the table the source sends, before anything touches it.
+
+</Step>
+
+<Step>
+
+## How it differs from the other dimensions
+
+Uniqueness and integrity are so close that DMBOK2 puts repeated rows in the description of integrity as well, calling them identical rows that distort aggregation (book: DMBOK2 Table 29, page 459). If we file a repeated `order_id` under uniqueness, we should not count it again under [Integrity](/en/data-quality/dimensions/integrity/), or the scorecard counts the same rows twice. The two differ in what they look for: integrity looks for keys that point at something that does not exist (order 65 points to customer 9017, who is not there), while uniqueness looks for keys that appear too often. In our dataset there are 30 orphan rows and 20 extra order rows.
+
+Repeated rows can also pass validity perfectly. All 20 customers who share an email have a well formed email, as the [Validity](/en/data-quality/dimensions/validity/) page showed. And a customer recorded twice with slightly different spelling, such as `Ann@Example.com`, is a consistency problem until we decide they are the same person (see the page [Consistency](/en/data-quality/dimensions/consistency/)).
 
 </Step>
 
@@ -98,9 +119,9 @@ Order duplicates can be counted two ways. There are 20 extra rows, which is what
 
 ## Check yourself
 
-- For a table you own, which column or columns define "the same thing"? Who agreed to that?
-- A cleanup job removed 20 rows and your report said 40 rows were affected. Who is right?
-- Two customer rows share an email and differ in country. What would you need to know before merging them?
+- In a table you own, which column or columns say "the same thing", and who agreed to that?
+- A cleanup job deleted 20 rows, but your report says 40 rows were affected. Which number is right?
+- Two customer rows share an email but have different countries. What would you need to know before merging them?
 
 </Step>
 
@@ -110,11 +131,11 @@ Order duplicates can be counted two ways. There are 20 extra rows, which is what
 
 | Statement | Source |
 |---|---|
-| Definition, key structure, duplicates listed under integrity too | book: DMBOK2 Table 29, page 459 |
-| No entity instance recorded more than once | book: DMBOK2 section 1.3.3, page 457 |
-| Duplicate, matching and equivalent records; similarity gives a likelihood; standardize first | book: Ten Steps chapter 4, pages 140 to 146 |
-| 20 and 10 extra rows; 40 rows in groups; 460 against 450; the revenue sums; the tiny email table | ran: `13_dimension_pitfalls.py` |
-| Rows 267, 1 and 491 | ran: query on the same data |
-| The class register picture; the advice to check before the cleanup | author |
+| Definition, testing against key structure, repeated rows also listed under integrity | book: DMBOK2 Table 29, page 459 |
+| No entity instance is recorded more than once | book: DMBOK2 section 1.3.3, page 457 |
+| Duplicate, matching and equivalent records, similarity gives only a likelihood, standardize first | book: Ten Steps chapter 4, pages 140 to 146 |
+| 20 and 10 extra rows, 40 rows in duplicate groups, 460 emails with 450 distinct values, the sums 7,616,911.36 and 7,560,842.09, the made-up table of 4 emails | ran: `13_dimension_pitfalls.py` |
+| Order 267, customers 1 and 491 | ran: queries on the same dataset |
+| The class register picture, and the advice to check before the cleanup | author |
 
 </Step>

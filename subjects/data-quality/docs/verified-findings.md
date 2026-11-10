@@ -52,6 +52,8 @@ All `ran` results use `dqlab.py` (seed 20261101, as-of 2026-11-01 08:00, DuckDB 
 | Tolerance 0.005 / 1 / 11 / 60 gives 35 / 27 / 18 / 11 mismatches of 2,533; 20 payments name no order | ran | `13_dimension_pitfalls.py` |
 | Modified copy (30 Aug totals divided by 100): validity 0 rows, 3 sd rule 1 day (avg 27.89), untouched data 0 days; spread 304 grows to 379; a 105% bar fires on 34 of 91 days | ran | `13_dimension_pitfalls.py`. The copy is made up: the dataset has no planted reasonability defect |
 | Everyday pictures (guest list, milk carton, thermometer, till roll, library card, two clocks, class register); advice on which rules are conventions, on thresholds and baselines, on restating reports | author | |
+| Rows shown at the start of lesson 2 and on the deep-dive pages (customers 1, 2, 3, 14, 23, 24, 28, 30, 36, 367, 491; orders 2, 65, 84, 91, 122, 135, 267, 321, 344, 412, 438, 816; payments 2534 to 2536) | ran | queries on the dataset of `dqlab.py`; every value is copied from the query output |
+| The deep-dive pages and the lesson 2 overview were rewritten on 2026-11-10 (rows first, then the explanation; one card per misreading) after the owner found the first version hard to follow; claims and numbers are unchanged | author | `13_dimension_pitfalls.py` and `02_dimensions.py` still pass |
 
 ## Lesson 3, profiling
 

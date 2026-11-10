@@ -1,10 +1,10 @@
 ---
 title: Validity in depth
-summary: Does the value belong to the set of values the field allows? This page shows the three kinds of domain on real rows and then the ways a rule that passes can still tell you very little.
+summary: Is the value in a field one that the field allows? And if it passes, does that mean it is right? This page looks at three kinds of invalid values in real rows, then at why a rule that passes tells us less than we might think.
 order: 2
 stage: sprout
 format: steps
-updated: 2026-11-04
+updated: 2026-11-10
 ---
 
 import Step from '../../../../components/Step.astro';
@@ -12,65 +12,108 @@ import Callout from '../../../../components/Callout.astro';
 
 <Step>
 
-## What the word asks
+## Validity asks whether the value in a field is one the field allows
 
-DMBOK2 defines validity as whether data values are consistent with a defined domain of values. The domain can be a defined set of valid values such as a reference table, a range, or a value that a rule can determine. The data type, the format and the precision all go into the definition of the domain (book: DMBOK2 Table 29, page 459). DAMA UK puts it more briefly: the data conforms to the syntax (format, type, range) of its definition (book: DMBOK2 section 1.3.3, page 457).
+Picture a person at the door of an event holding a guest list. They can check whether the name a guest gives is on the list. They cannot check whether the person standing in front of them really is that guest. Validity does the job of the person with the list: it checks whether a value meets the rules of its field, and that is only the first gate.
 
-Think of a guest list at a door. The person checking the list can tell you that a name is on it. They cannot tell you that the person in front of them is who they claim to be. Validity is the first check only.
+Here are five values that their fields do not accept, taken from our dataset.
 
-</Step>
+| Table | Row | Field | Value | Why it fails |
+|---|---|---|---|---|
+| customers | 23 | email | `user23example.com` | no `@` |
+| customers | 36 | country | THA | the system accepts only TH, SG, JP and US |
+| customers | 367 | birth_date | 1890-05-01 | older than 1900, the lower bound we set |
+| customers | 28 | birth_date | 2026-12-25 | a day in the future |
+| orders | 321 | total_amount | -187.35 | a negative total |
 
-<Step>
+DMBOK2 defines validity as whether data values match a defined domain. The domain is the set of values the field accepts. It can be a list of values, such as countries, a range, such as birth dates, or a pattern the value must follow, such as an email. Data type, format and precision are part of the domain too. DAMA UK says it more briefly: the data conforms to the syntax (format, type, range) of its definition (book: DMBOK2 Table 29, page 459, and section 1.3.3, page 457).
 
-## Three kinds of domain, on real rows
+The five examples above cover all three kinds of domain.
 
-| Kind of domain | Rule in our data | Fails | Example rows that fail |
-|---|---|---:|---|
-| A list | `country` is one of TH, SG, JP, US | 25 of 500 | 36 `THA`, 101 `T.H.`, 135 `Thailand`, 138 `ไทย` |
-| A range | `birth_date` between 1900-01-01 and today | 6 of 500 | 367 `1890-05-01`, 80 `2030-01-01` |
-| A range | `total_amount` is not negative | 12 of 3,020 | order 321 `-187.35`, order 436 `-94.01` |
-| A pattern | `email` looks like `a@b.c` (non-null rows) | 15 of 460 | 23 `user23example.com`, 88 `user88example.com` |
+| Kind of domain | Rule in our dataset | Fails |
+|---|---|---:|
+| A list | `country` is TH, SG, JP or US | 25 of 500 |
+| A range | `birth_date` is between 1900-01-01 and today | 6 of 500 |
+| A range | `total_amount` is not negative | 12 of 3,020 |
+| A pattern | `email` looks like `a@b.c` (only rows where email is not empty) | 15 of 460 |
 
 ```sql
 SELECT count(*) FILTER (WHERE country NOT IN ('TH','SG','JP','US')), count(*) FROM customers;
 -- 25 of 500
 ```
 
-Every one of these numbers equals what the generator planted (run: `02_dimensions.py`). The rows that fail do so in different ways. Some are rubbish (`1850-01-01`), some are a different spelling of something real (`ไทย`), and one is possibly a legitimate row, which the next step comes back to.
+Every number in the table matches what was planted (run: `02_dimensions.py`).
 
 </Step>
 
 <Step>
 
-## Meanings that get misread
+## A value can pass the rule and still be wrong
 
-<Callout type="warn" title="1. Valid is not accurate">
-Of the 35 orders whose total differs from the payment system, all 35 pass `total_amount >= 0`. Of the 20 customers who share an email with someone else, all 20 have an email of the correct shape (run: `13_dimension_pitfalls.py`). A validity score of 100% says that nothing impossible got in. It does not say that what got in is right. DMBOK2 warns about the same thing: data may be valid and still not be accurate or correctly associated with particular records (book: DMBOK2 Table 29, page 459).
-</Callout>
+Go back to the person with the guest list. If the name "Somchai" is on the list, they let the person in, even if whoever stands there is someone else using that name. Our data has the same situation.
 
-**2. A loose rule accepts rubbish.** The pattern `^[^@\s]+@[^@\s]+\.[^@\s]+$` accepts `a@b.c` and `nobody@nowhere.zz`. On a made-up table of 6 emails it accepts 4, among them `a@b.c` and `x@y.z` (run: `13_dimension_pitfalls.py`). Passing means "has the shape of an email". Whether the mailbox exists is another question, and only a confirmation email answers it.
+Order 91 records a total of 487.71, but the payment system, which received the money, has 437.71. The total is wrong by 50. But 487.71 is a positive number, so it passes the rule `total_amount >= 0` easily. Of the 35 orders whose total does not match the payment system, all 35 pass that rule.
 
-**3. The rule is a statement of the business, not of the data.** We treat a negative `total_amount` as a defect, which gives 12 rows. If the shop records refunds as negative orders, those rows are legitimate and the rule is wrong. The data cannot settle this. The owner of the data can. The same goes for the lower bound of 1900 on `birth_date`: it is a choice, and a customer born in 1899 would fail a rule that is no more than a convention. Say who wrote each rule down and who agreed to it (the rule choices are the author's).
+Customer 1 and customer 491 share the email `user1@example.com`, which is a perfectly well formed email. Of the 20 customers who share an email with someone else, all 20 have an email that passes the format rule (run: `13_dimension_pitfalls.py`).
 
-**4. A date can be valid in two ways at once.** `09/05/2026` is 9 May if day comes first and 5 September if month comes first. On a made-up table of 3 date strings, a day-first parser accepts 2 and a month-first parser accepts 2, and the string `09/05/2026` is accepted by both while meaning different days (run: `13_dimension_pitfalls.py`). Ten Steps tells you to be clear on date formats for exactly this reason (book: Ten Steps chapter 4, pages 128 to 135).
-
-**5. Validity can expire.** The book notes that some data is valid only for a specific length of time, such as data from RFID tags or some scientific data sets (book: DMBOK2 Table 29, page 459). A rule that held last year can fail this year without a single row changing.
-
-**6. An off-list value can be a separate problem.** `ไทย` is outside the list, so it fails validity. It also writes the same country that `TH` writes, which is a consistency problem. You can reject it, or map it to `TH`. The measurement does not choose. See [the consistency page](/en/data-quality/dimensions/consistency/#three-levels).
+So a validity score of 100% tells us only that nothing impossible got in. It does not tell us that what got in is right. DMBOK2 warns about the same thing: data can pass its domain and still not be accurate, or be tied to the wrong record (book: DMBOK2 Table 29, page 459). Finding out whether a value is really right is the job of [Accuracy](/en/data-quality/dimensions/accuracy/).
 
 </Step>
 
 <Step>
 
-## Easy to confuse with
+## A rule that is too loose accepts junk
 
-| Looks like | How to tell them apart | In our data |
+The email rule we use says that an email has some characters, then `@`, then some characters, then a dot, then more characters. That accepts some strange emails. This table lists 6 made-up emails that we ran through the rule.
+
+| email | Does the rule accept it? |
+|---|---|
+| `a@b.c` | accepted |
+| `x@y.z` | accepted |
+| `nobody@nowhere.zz` | accepted |
+| `ann@example.com` | accepted |
+| `ann@@example.com` | rejected (two `@`) |
+| `ann@example` | rejected (no dot) |
+
+The rule accepts 4 of the 6, and among those four are `a@b.c` and `x@y.z`, which look like emails but probably belong to nobody (run: `13_dimension_pitfalls.py`). Passing the rule only means the value looks like an email. Whether a mailbox exists there is something we find out only by sending mail. If we make the rule stricter, it starts rejecting emails that are valid, so we have to balance the two to suit the task.
+
+</Step>
+
+<Step>
+
+## Who decides which values are acceptable
+
+A validity rule is a business agreement that we write down as code. Are the 12 rows with a negative total in `orders` defects? If the shop records refunds as orders with negative totals, those rows are correct, and our rule is the thing that is wrong. The data cannot tell us which is true. Only the owner of the data can.
+
+The lower bound of 1900 on `birth_date` is an agreement too. It removes customer 367, born in 1890, which is sensible, but if a customer born in 1899 ever appeared, they would fail a rule that is only our convention. It is worth writing down who wrote each rule and who agreed to it (the choice of rules is the author's).
+
+Validity can also expire. The book notes that some data is valid only for a certain length of time, such as data from RFID tags or some scientific datasets. A rule that passed last year can fail this year without any row changing (book: DMBOK2 Table 29, page 459).
+
+</Step>
+
+<Step>
+
+## The same date can be read two ways
+
+`09/05/2026` is 9 May if the day comes first, and 5 September if the month comes first. The table below shows 3 made-up strings and how two parsers read them.
+
+| Text | Read as day first | Read as month first |
 |---|---|---|
-| Accuracy | Validity checks against a rule. Accuracy checks against the real thing or a trusted source | 35 wrong totals, all valid |
-| Consistency | Validity needs a defined domain. Consistency needs two representations to compare | `ไทย` is invalid against the list and inconsistent with `TH` |
-| Completeness | A NULL is missing, not invalid | 40 NULL emails are not counted in the 15 of 460 |
+| 09/05/2026 | passes (9 May) | passes (5 September) |
+| 13/05/2026 | passes (13 May) | fails (there is no month 13) |
+| 05/13/2026 | fails (there is no month 13) | passes (13 May) |
 
-On the last row: we leave NULL out of the validity denominator on purpose, so one blank email fails completeness once and not twice. Ten Steps reports validity this way, as in "95% fill rate, and of the records with a value, 90% conform" (book: Ten Steps chapter 4, pages 128 to 135).
+Each parser passes 2 of the 3, and the first row passes both ways although the two readings mean different days (run: `13_dimension_pitfalls.py`). A rule that checks the date format therefore cannot tell us whether the date is the right one, until we have agreed which format belongs to the field. Ten Steps says to be explicit about date formats for the same reason (book: Ten Steps chapter 4, pages 128 to 135).
+
+</Step>
+
+<Step>
+
+## How it differs from the other dimensions
+
+Validity differs from completeness in that validity checks values that exist, while completeness checks whether a value exists at all. Customer 14 has no email, which is completeness. Customer 23 has an email in the wrong format, which is validity. That is why the denominator of the email format rule is 460 and not 500: we leave out the empty emails, so one empty cell does not fail two rules at once. Ten Steps reports it the same way, for example a fill rate of 95%, and among the rows that have a value, 90% match the right pattern (book: Ten Steps chapter 4, pages 128 to 135).
+
+Validity differs from accuracy in the way the previous section showed. Between validity and consistency there are cases that collide. A customer whose country is written `ไทย` fails the allowed list, which is validity, and it names the same country that `TH` names, which is a consistency problem as well. We can reject the value or map it to `TH`, and the measurement cannot choose for us. See the page [Consistency](/en/data-quality/dimensions/consistency/).
 
 </Step>
 
@@ -78,9 +121,9 @@ On the last row: we leave NULL out of the validity denominator on purpose, so on
 
 ## Check yourself
 
-- Write down the domain of one column you use: is it a list, a range or a pattern? Where does the definition live, and who changed it last?
-- Your validity score for `email` is 100% after you tighten the rule. What would you still not know about the column?
-- A rule fails 12 rows. What do you ask before you call them defects?
+- Write down the domain of a column you use. Is it a list, a range or a pattern? Where is the definition written, and who changed it last?
+- The validity of `email` is 100% after you tighten the rule. What do you still not know about the column?
+- A rule fails 12 rows. What do you ask before you call those rows defects?
 
 </Step>
 
@@ -90,11 +133,12 @@ On the last row: we leave NULL out of the validity denominator on purpose, so on
 
 | Statement | Source |
 |---|---|
-| Definition: a defined domain (list, range, rule), type and format and precision, expiry, valid but not accurate | book: DMBOK2 Table 29, page 459 |
-| Conforms to the syntax of its definition | book: DMBOK2 section 1.3.3, page 457 |
-| Define valid per field, date formats, validity reported with the fill rate | book: Ten Steps chapter 4, pages 128 to 135 |
-| 25, 6, 12 and 15 failing rows; sample rows | ran: `02_dimensions.py` and a query on the same data |
-| 35 of 35 and 20 of 20; the tiny email and date tables | ran: `13_dimension_pitfalls.py` |
-| The guest list picture, the refund remark, which rule choices are conventions | author |
+| Definition of a domain (list, range, rule), type and format and precision, expiry, valid but not accurate | book: DMBOK2 Table 29, page 459 |
+| The data conforms to the syntax of its definition | book: DMBOK2 section 1.3.3, page 457 |
+| Defining validity per field, date formats, validity reported with the fill rate | book: Ten Steps chapter 4, pages 128 to 135 |
+| Failing rows 25, 6, 12 and 15 out of 500, 500, 3,020 and 460 | ran: `02_dimensions.py` |
+| 35 of 35 and 20 of 20 that pass their rule, the made-up tables of 6 emails and 3 dates | ran: `13_dimension_pitfalls.py` |
+| Rows shown (customers 23, 36, 367, 28, orders 321, 91) | ran: queries on the same dataset |
+| The guest list picture, the refund example, and which rule choices are only conventions | author |
 
 </Step>
