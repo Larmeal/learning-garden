@@ -5,10 +5,18 @@ Notable changes to the learning garden, newest first. Dates are when the change 
 ## 2026-11-09
 
 ### Added
+- A new subject, `singing` (Thai only): ten lessons on how the singing voice works and how to practise, each with a quiz, plus in-depth pages for the vocal folds and for resonance. Written from two books (Davids and LaTour, *Vocal Technique*; Titze, *Principles of Voice Production*), cited by printed page.
+- Labs for it in `components/labs/singing/`: the anatomy of head and torso, a breathing cycle, the vocal folds in slow motion (top view, cross-section, airflow, harmonics), the three onsets, registers and voice ranges, a vocal tract with source, filter and output graphs, a one-pipe tube, a vowel chart, vowel modification for a soprano, vibrato, a microphone pitch mirror and a warm-up player that plays guide notes.
+- `site/src/lib/voice.ts`, `tract.ts`, `pitch.ts`: a small voice synthesizer (the sounds are made in the browser, not recorded), a map from mouth shape to formants and a pitch detector. `node subjects/singing/code/verify.mts` checks the numbers that the lessons state about them (191 checks). Notes, sources and what was not checked are in `subjects/singing/docs/`.
+- `tools/lesson-refs.mjs` treats a number after "Davids", "LaTour" or "Titze" as a book chapter, and knows the `singing` subject.
 - Guitar: a page "Anatomy: ส่วนประกอบของกีต้าร์โปร่ง" (Thai and English) in lesson 0 with an animated acoustic guitar (`AcousticAnatomy`): press a part or walk through them to read what it is and what it does next to the drawing, look through the body at the bracing, truss rod and blocks, and follow a plucked string into the room in five steps. The quiz has three more questions.
 - Glossary: eight more parts (heel, rosette, binding, bracing, bridge pin, soundboard, bout, end pin), a "Fret Buzz" entry, and a "See also" row of links between related terms (for example Action to Fret Buzz, Saddle, Truss Rod and Setup). Terms are shown with a capital letter on every word.
 
 ### Changed
+- The register lab of the singing subject now draws Chest, Mix, Head and Chest belt side by side on one clock: the folds in cross-section, one cycle of the airflow with the closed part shaded and a moving dot, and the first ten harmonics (H2 and H5 below H1 in dB). A speed switch slows or stops the drawing.
+- The vocal tract lab glides the tongue, jaw, lips and graphs to a new pose instead of jumping, shades the band around each formant on the filter and output graphs, and has a three-line guide to reading the graphs.
+- The anatomy lab "เครื่องดนตรีที่เรียกว่าเสียงร้อง" (and the head and torso drawing it shares with the breathing and vocal tract labs) looks more finished: hair, eye, ear and rounded teeth on the head, shoulders on the trunk that fades out at the bottom, three coloured panels for power, source and filter that light up with the group buttons, a dot on every part, and a pulsing ring with the name of the part you chose. The air path is drawn as a pale tube with white dots.
+- The lesson side navigation (`.lesson-aside`) reserves room for its scrollbar (`scrollbar-gutter: stable`, no sideways scroll). Before, the scrollbar could appear and disappear while the pointer was over a long title, which changed the width, wrapped the title onto a second line and made the list shake.
 - The Action entry of the glossary now explains both sides: a low action is easy to press but can give Fret Buzz, a high action is clear but needs more force.
 
 ## 2026-11-08

@@ -29,7 +29,7 @@ const GRAPH = args.has('--graph');
 
 // a book's name right before the number ("Ten Steps บทที่ 3", "หนังสือ: DDIA บทที่ 13", "book: DDIA chapter 13"), with no comma, full stop or
 // bracket between them
-const BOOK_JUST_BEFORE = /(?:DMBOK2|DQF|Ten Steps|Governance|FoDE|DDIA|DAMA|Medallion|Contracts|หนังสือ|\bbook)[^,;.()\n]{0,16}$/i;
+const BOOK_JUST_BEFORE = /(?:DMBOK2|DQF|Ten Steps|Governance|FoDE|DDIA|DAMA|Medallion|Contracts|Davids|LaTour|Titze|หนังสือ|\bbook)[^,;.()\n]{0,16}$/i;
 const ALIASES = [
   [/great[ -]expectations|\bGX\b/i, 'great-expectations'],
   [/\bspark\b/i, 'spark'],
@@ -38,6 +38,7 @@ const ALIASES = [
   [/data[ -]quality/i, 'data-quality'],
   [/music[ -]theory|ทฤษฎีดนตรี/i, 'music-theory'],
   [/\bguitar\b|กีต้าร์/i, 'guitar'],
+  [/\bsinging\b|การร้องเพลง/i, 'singing'],
 ];
 
 function walk(dir, out = []) {
