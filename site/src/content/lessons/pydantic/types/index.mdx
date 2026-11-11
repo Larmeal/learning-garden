@@ -1,6 +1,6 @@
 ---
 title: ชนิดข้อมูล, Lax และ Strict
-summary: บทนี้ลงลึกว่า Pydantic แปลงอะไรให้บ้างใน lax mode, เปิด strict mode สามวิธี, ต่างกันยังไงระหว่างข้อมูลจาก Python กับจาก JSON และชนิดที่มากับ Pydantic ตั้งแต่วันที่ Decimal ไปจนถึง URL, email และ SecretStr
+summary: บทนี้ลงลึกว่า Pydantic แปลงอะไรให้บ้างใน Lax Mode, เปิด Strict Mode สามวิธี, ต่างกันยังไงระหว่างข้อมูลจาก Python กับจาก JSON และชนิดที่มากับ Pydantic ตั้งแต่วันที่ Decimal ไปจนถึง URL, Email และ SecretStr
 order: 3
 phase: B
 level: 2
@@ -17,7 +17,7 @@ import Callout from '../../../../components/Callout.astro';
 
 ## ตารางแปลงของ Lax Mode
 
-[บท 1](/pydantic/first-model/#lax-mode-แปลงให้ถ้าแปลงได้อย่างปลอดภัย) เห็น `int` กับ `bool` ไปแล้ว บทนี้ขยายไปชนิดอื่น แบบฝึกในบทนี้ใช้ `TypeAdapter` ซึ่งตรวจชนิดใดก็ได้โดยไม่ต้องสร้าง model ([บท 9](/pydantic/adapters/#typeadapter-ตรวจชนิดอะไรก็ได้) อธิบายเต็ม) ตอนนี้ให้อ่านว่า "ตรวจค่านี้กับชนิดนี้" (รัน: `exercises/03_types.py`)
+ใน [บท 1](/pydantic/first-model/#lax-mode-แปลงให้ถ้าแปลงได้อย่างปลอดภัย) เราเห็น `int` กับ `bool` ไปแล้ว ในบทนี้จะขยายไปดูชนิดอื่น ๆ ด้วย โดยแบบฝึกในบทนี้ใช้ `TypeAdapter` ซึ่งตรวจชนิดใดก็ได้โดยไม่ต้องสร้าง Model ([บท 9](/pydantic/adapters/#typeadapter-ตรวจชนิดอะไรก็ได้) จะอธิบายเต็ม ๆ) ตอนนี้ให้อ่านว่า "ตรวจค่านี้กับชนิดนี้" ไปก่อน (รัน: `exercises/03_types.py`)
 
 | ชนิดปลายทาง | รับได้ | ปฏิเสธ |
 |---|---|---|
@@ -30,9 +30,9 @@ import Callout from '../../../../components/Callout.astro';
 | `tuple[int, str]` | `["1", "a"]` ได้ `(1, "a")` | |
 | `dict[str, int]` | `{"a": "1"}` ได้ `{"a": 1}` | |
 
-ข้อสังเกตที่ควรจำ: การแปลง "ภายในโครงสร้าง" ทำให้ด้วย (สมาชิกของ list, ค่าของ dict) และ container ที่ได้เป็นชนิดที่ประกาศ ไม่ใช่ชนิดที่ส่งมา ส่ง `tuple` เข้า `list[int]` ได้ `list`
+ข้อสังเกตที่ควรจำคือ Pydantic จะแปลง "ภายในโครงสร้าง" ให้ด้วย (สมาชิกของ List, ค่าของ Dict) และ Container ที่ได้จะเป็นชนิดที่ประกาศ ไม่ใช่ชนิดที่ส่งมา เช่นถ้าส่ง `tuple` เข้า `list[int]` ก็จะได้ `list`
 
-อีกข้อคือ Pydantic **คัดลอก** container ไม่ได้ถือ reference ของผู้เรียก
+อีกข้อคือ Pydantic จะ **คัดลอก** Container ไม่ได้ถือ Reference ของผู้เรียกไว้
 
 ```python
 src = [1, 2]
@@ -47,7 +47,7 @@ box.items    # [1, 2]
 
 ## Strict Mode: ปิดการแปลง
 
-ถ้าไม่อยากให้ `"42"` เป็น `42` เปิด strict ได้สามที่ ผลเหมือนกัน
+ถ้าไม่อยากให้ `"42"` เป็น `42` เราเปิด Strict ได้สามที่ ซึ่งผลเหมือนกันหมด
 
 ```python
 TypeAdapter(int).validate_python("42", strict=True)   # วิธี 1: ตอนเรียก
@@ -55,7 +55,7 @@ TypeAdapter(StrictInt).validate_python("42")          # วิธี 2: ชน�
 TypeAdapter(Annotated[int, Strict()]).validate_python("42")  # วิธี 3: ติด Strict() ที่ชนิด
 ```
 
-ทั้งสามได้ error `int_type` นอกจากนี้ตั้งทั้ง model ด้วย `ConfigDict(strict=True)` หรือตั้งทีละ field ด้วย `Field(strict=True)` ได้
+ทั้งสามวิธีได้ Error `int_type` เหมือนกัน และเรายังตั้งทั้ง Model ด้วย `ConfigDict(strict=True)` หรือตั้งทีละ Field ด้วย `Field(strict=True)` ได้
 
 ```python
 class Mixed(BaseModel):
@@ -66,12 +66,12 @@ Mixed(a=1, b="2")    # ผ่าน b เป็น 2
 Mixed(a="1", b=2)    # error int_type ที่ a
 ```
 
-strict เข้มกว่าที่คิด แม้แต่ `True` ก็ถูกปฏิเสธจาก field `int` (`int_type`) ทั้งที่ใน Python `True` เป็น subclass ของ `int` และใน lax mode ผ่าน แต่มีข้อยกเว้นที่สมเหตุสมผล `int` ยังผ่านเข้า field `float` ใน strict mode เพราะจำนวนเต็มทุกตัวเป็นทศนิยมได้โดยไม่เสียข้อมูล
+Strict เข้มกว่าที่คิด แม้แต่ `True` ก็ถูกปฏิเสธจาก Field `int` (`int_type`) ทั้งที่ใน Python `True` เป็น Subclass ของ `int` และใน Lax Mode ก็ผ่าน แต่ก็มีข้อยกเว้นที่สมเหตุสมผลอยู่ คือ `int` ยังผ่านเข้า Field `float` ใน Strict Mode ได้ เพราะจำนวนเต็มทุกตัวเป็นทศนิยมได้โดยไม่เสียข้อมูล
 
-ใน model ที่ตั้ง `strict=True` ส่ง `n="1"` และ `when="2026-01-01T00:00:00"` ได้สอง error คือ `int_type` กับ `datetime_type` string ที่หน้าตาเป็นวันที่ก็ไม่ผ่าน ต้องส่ง object `datetime` จริง
+ใน Model ที่ตั้ง `strict=True` ถ้าส่ง `n="1"` และ `when="2026-01-01T00:00:00"` จะได้สอง Error คือ `int_type` กับ `datetime_type` เพราะ String ที่หน้าตาเป็นวันที่ก็ไม่ผ่าน ต้องส่ง Object `datetime` จริง ๆ
 
-<Callout type="tip" title="เมื่อไหร่ควรใช้ strict">
-ข้อมูลที่มาจากโค้ดภายในซึ่งควรมีชนิดถูกอยู่แล้ว ใช้ strict เพื่อจับบั๊กที่ชนิดผิด ข้อมูลจากภายนอกที่เป็น JSON หรือฟอร์ม ซึ่งตัวเลขมักมาเป็น string ปล่อยให้เป็น lax จะสะดวกกว่า ไม่ต้องสั่งแปลงเอง ทั้งนี้เป็นคำแนะนำของผู้เขียน ไม่มีกฎตายตัว
+<Callout type="tip" title="เมื่อไหร่ควรใช้ Strict">
+ถ้าข้อมูลมาจากโค้ดภายในซึ่งควรมีชนิดถูกอยู่แล้ว ให้ใช้ Strict เพื่อจับบั๊กที่ชนิดผิด ส่วนข้อมูลจากภายนอกที่เป็น JSON หรือฟอร์ม ซึ่งตัวเลขมักมาเป็น String ปล่อยให้เป็น Lax จะสะดวกกว่า เพราะไม่ต้องสั่งแปลงเอง ทั้งนี้เป็นคำแนะนำของผู้เขียน ไม่มีกฎตายตัวนะ
 </Callout>
 
 </Step>
@@ -80,7 +80,7 @@ strict เข้มกว่าที่คิด แม้แต่ `True` ก�
 
 ## Strict กับข้อมูลจาก JSON ไม่เหมือนกับข้อมูลจาก Python
 
-JSON มีชนิดน้อยกว่า Python ไม่มีวันที่ ไม่มี tuple ถ้า strict ใช้กฎเดียวกันทั้งสองฝั่ง ก็แปลว่าข้อมูลที่ถูกต้องที่สุดใน JSON จะไม่มีทางผ่าน Pydantic จึงใช้กฎ strict ที่ต่างกัน
+JSON มีชนิดน้อยกว่า Python เพราะไม่มีวันที่และไม่มี Tuple ถ้า Strict ใช้กฎเดียวกันทั้งสองฝั่ง ข้อมูลที่ถูกต้องที่สุดใน JSON ก็จะไม่มีทางผ่าน Pydantic จึงใช้กฎ Strict ที่ต่างกัน
 
 ```python
 class StrictDate(BaseModel):
@@ -91,7 +91,7 @@ StrictDate.model_validate_json('{"d": "2026-01-31"}').d   # date(2026, 1, 31)  �
 StrictDate.model_validate({"d": "2026-01-31"})            # error date_type
 ```
 
-JSON ไม่มีชนิด date จึงต้องเขียนเป็น string ได้ ส่วนข้อมูลจาก Python ที่ส่ง string เข้ามาเป็นการส่งผิดชนิดจริง ๆ แบบเดียวกัน array ใน JSON ผ่านเข้า `tuple` ใน strict mode ได้ แต่ `list` ของ Python ไม่ผ่าน (`tuple_type`) ซึ่ง [บท 10](/pydantic/under-the-hood/#input-ทำไมข้อมูลจาก-python-กับ-json-ต่างกันที่-strict) จะอธิบายว่าเกิดจากการที่ validator อ่าน input ผ่านชั้น Input ที่แยกตามแหล่ง
+JSON ไม่มีชนิด Date จึงต้องเขียนเป็น String ได้ ส่วนข้อมูลจาก Python ที่ส่ง String เข้ามาถือเป็นการส่งผิดชนิดจริง ๆ และแบบเดียวกัน Array ใน JSON ผ่านเข้า `tuple` ใน Strict Mode ได้ แต่ `list` ของ Python ไม่ผ่าน (`tuple_type`) ซึ่ง [บท 10](/pydantic/under-the-hood/#input-ทำไมข้อมูลจาก-python-กับ-json-ต่างกันที่-strict) จะอธิบายว่าเกิดจากการที่ Validator อ่าน Input ผ่านชั้น Input ที่แยกตามแหล่ง
 
 </Step>
 
@@ -107,9 +107,9 @@ ok(timedelta, "PT1H30M")                # timedelta(hours=1, minutes=30)  รู
 ok(timedelta, 90)                       # timedelta(seconds=90)
 ```
 
-(`ok` คือฟังก์ชันช่วยในแบบฝึกที่เรียก `TypeAdapter(tp).validate_python(value)`) ตัวเลขที่ส่งเข้า `datetime` ถูกอ่านเป็น unix timestamp แบบวินาที ซึ่งสะดวกเมื่อรับจากระบบอื่น แต่เป็นกับดักเมื่อมีคนส่งปี `2026` มาแล้วได้วันที่ปี 1970 ถ้าไม่อยากให้เป็นแบบนั้น ใช้ strict
+(`ok` คือฟังก์ชันช่วยในแบบฝึกที่เรียก `TypeAdapter(tp).validate_python(value)`) ตัวเลขที่ส่งเข้า `datetime` จะถูกอ่านเป็น Unix Timestamp แบบวินาที ซึ่งสะดวกเมื่อรับจากระบบอื่น แต่ก็เป็นกับดักเมื่อมีคนส่งปี `2026` มาแล้วได้วันที่ปี 1970 ถ้าไม่อยากให้เป็นแบบนั้นให้ใช้ Strict
 
-string วันที่ที่ไม่มีจริง เช่น `"2026-02-30"` ถูกปฏิเสธ แบบฝึกได้ error ชนิด `date_from_datetime_parsing`
+String วันที่ที่ไม่มีจริง เช่น `"2026-02-30"` จะถูกปฏิเสธ โดยแบบฝึกได้ Error ชนิด `date_from_datetime_parsing`
 
 </Step>
 
@@ -124,9 +124,9 @@ ok(uuid.UUID, str(u))     # UUID object
 ok(Path, "/tmp/x")        # Path('/tmp/x')
 ```
 
-`Decimal` เหมาะกับเงิน เพราะไม่มีปัญหา `0.1 + 0.2 != 0.3` ของ `float` สังเกตว่า `Decimal` รับ `0.1` ที่เป็น `float` แล้วได้ `Decimal('0.1')` ไม่ใช่ `Decimal('0.1000000000000000055...')` Pydantic แปลงผ่านการเขียนเป็นข้อความสั้นสุดของ float ก่อน
+`Decimal` เหมาะกับเงิน เพราะไม่มีปัญหา `0.1 + 0.2 != 0.3` ของ `float` และถ้าสังเกตดู `Decimal` รับ `0.1` ที่เป็น `float` แล้วได้ `Decimal('0.1')` ไม่ใช่ `Decimal('0.1000000000000000055...')` เพราะ Pydantic แปลงผ่านการเขียนเป็นข้อความสั้นสุดของ Float ก่อน
 
-**Enum** รับค่าของ member และปฏิเสธค่าอื่น
+**Enum** จะรับค่าของ Member และปฏิเสธค่าอื่น
 
 ```python
 class Status(enum.Enum):
@@ -137,7 +137,7 @@ ok(Status, "paid")   # Status.PAID
 ok(Status, "late")   # error ชนิด enum
 ```
 
-**Literal** เหมาะเมื่อมีค่าที่ยอมรับไม่กี่ค่าและไม่อยากสร้างคลาส `ok(Literal["a", "b"], "c")` ได้ `literal_error` Literal มีบทบาทสำคัญใน discriminated union ([บท 4](/pydantic/unions/#discriminated-union-ดู-field-เดียวแล้วเลือกให้ตรง))
+**Literal** เหมาะเมื่อมีค่าที่ยอมรับไม่กี่ค่าและไม่อยากสร้างคลาส `ok(Literal["a", "b"], "c")` ได้ `literal_error` และ Literal ยังมีบทบาทสำคัญใน Discriminated Union ([บท 4](/pydantic/unions/#discriminated-union-ดู-field-เดียวแล้วเลือกให้ตรง))
 
 </Step>
 
@@ -153,7 +153,7 @@ conint(ge=1, le=5)            # สร้างชนิดแบบเรีย
 
 `ok(PositiveInt, 0)` ได้ `greater_than` และ `ok(conint(ge=1, le=5), 9)` ได้ `less_than_equal` ชนิดพวกนี้คือ `Annotated` ที่ใส่เงื่อนไขไว้แล้วตามที่เห็นใน [บท 2](/pydantic/fields/#annotated-เอาเงื่อนไขไปติดกับชนิด-แล้วใช้ซ้ำ)
 
-**URL** แยกส่วนให้เป็น attribute
+**URL** จะแยกส่วนให้เป็น Attribute
 
 ```python
 url = ok(HttpUrl, "https://example.com/a?x=1#top")
@@ -162,11 +162,11 @@ url.scheme, url.host, url.path, url.query, url.fragment
 str(ok(HttpUrl, "https://example.com"))   # 'https://example.com/'   เติม / ให้
 ```
 
-`HttpUrl` ปฏิเสธ `ftp://example.com` (`url_scheme`) ส่วน `AnyUrl` รับทุก scheme แต่ปฏิเสธ `"not a url"` (`url_parsing`) สังเกตว่าค่าที่ได้เป็น object ชนิดพิเศษ ไม่ใช่ `str` ถ้าต้องการ string ให้เรียก `str(url)`
+`HttpUrl` ปฏิเสธ `ftp://example.com` (`url_scheme`) ส่วน `AnyUrl` รับทุก Scheme แต่ปฏิเสธ `"not a url"` (`url_parsing`) สังเกตว่าค่าที่ได้เป็น Object ชนิดพิเศษ ไม่ใช่ `str` ดังนั้นถ้าต้องการ String ให้เรียก `str(url)`
 
-**Email** ใช้ `EmailStr` ซึ่งต้องติดตั้ง `email-validator` เพิ่ม (`pip install "pydantic[email]"`) มันปรับตัวพิมพ์เล็กของส่วน domain: `"Ann@Example.COM"` กลายเป็น `"Ann@example.com"` และปฏิเสธ `"ann@"`
+**Email** ใช้ `EmailStr` ซึ่งต้องติดตั้ง `email-validator` เพิ่ม (`pip install "pydantic[email]"`) โดยมันจะปรับส่วน Domain เป็นตัวพิมพ์เล็ก เช่น `"Ann@Example.COM"` กลายเป็น `"Ann@example.com"` และปฏิเสธ `"ann@"`
 
-**SecretStr** ซ่อนค่าจาก `repr`, log และ dump
+**SecretStr** จะซ่อนค่าจาก `repr`, Log และ Dump
 
 ```python
 class Login(BaseModel):
@@ -179,10 +179,10 @@ login.password.get_secret_value() # 'hunter2'
 login.model_dump_json()           # '{"user":"u","password":"**********"}'
 ```
 
-ค่าจริงออกมาได้ทางเดียวคือเรียก `.get_secret_value()` อย่างตั้งใจ ซึ่งทำให้การหลุดของความลับเกิดยากขึ้นจากความพลาดเล็กน้อย เช่น `print(login)` หรือ log ทั้ง object `model_dump()` (โหมด python) ก็ยังคืนค่าที่ถูกซ่อน ไม่ได้คืน `"hunter2"`
+ค่าจริงออกมาได้ทางเดียวคือเรียก `.get_secret_value()` อย่างตั้งใจ ทำให้ความลับหลุดได้ยากขึ้นจากความพลาดเล็กน้อย เช่น `print(login)` หรือการ Log ทั้ง Object และ `model_dump()` (โหมด Python) ก็ยังคืนค่าที่ถูกซ่อน ไม่ได้คืน `"hunter2"`
 
 <Callout type="warn" title="SecretStr ไม่ใช่การเข้ารหัส">
-`SecretStr` แค่ป้องกันการพิมพ์ออกโดยไม่ตั้งใจ ค่ายังอยู่ใน memory เป็นข้อความธรรมดา และอ่านได้ด้วย `get_secret_value()` อย่าเข้าใจว่ามันเก็บความลับอย่างปลอดภัยในระดับระบบ
+`SecretStr` แค่ป้องกันการพิมพ์ออกโดยไม่ตั้งใจ ค่ายังอยู่ใน Memory เป็นข้อความธรรมดา และอ่านได้ด้วย `get_secret_value()` นะ อย่าเข้าใจผิดว่ามันเก็บความลับอย่างปลอดภัยในระดับระบบ
 </Callout>
 
 </Step>
@@ -191,9 +191,9 @@ login.model_dump_json()           # '{"user":"u","password":"**********"}'
 
 ## เช็กตัวเอง
 
-- ส่ง `{"d": "2026-01-31"}` เข้า model ที่ `strict=True` และ field `d: date` ด้วย `model_validate` กับ `model_validate_json` ได้ผลต่างกันยังไง และทำไมจึงออกแบบอย่างนั้น
+- ส่ง `{"d": "2026-01-31"}` เข้า Model ที่ `strict=True` และ Field `d: date` ด้วย `model_validate` กับ `model_validate_json` ได้ผลต่างกันยังไง และทำไมจึงออกแบบอย่างนั้น
 - ทำไม `Decimal` ถึงเหมาะกับราคามากกว่า `float` และ `Decimal` ในแบบฝึกรับ `0.1` แล้วได้ค่าอะไร
-- ถ้า API ที่คุณรับข้อมูลมักส่งตัวเลขมาเป็น string คุณจะเปิด strict ทั้ง model ไหม เพราะอะไร
+- ถ้า API ที่คุณรับข้อมูลมักส่งตัวเลขมาเป็น String คุณจะเปิด Strict ทั้ง Model ไหม เพราะอะไร
 
 </Step>
 
@@ -203,15 +203,15 @@ login.model_dump_json()           # '{"user":"u","password":"**********"}'
 
 | ข้อความ | ที่มา |
 |---|---|
-| ตารางแปลง lax ของ `int`, `float`, `str`, `bool`, `list`, `set`, `tuple`, `dict` | รัน: `exercises/03_types.py` |
-| container ถูกคัดลอก | รัน: `exercises/03_types.py` |
-| strict สามวิธี, ต่อ field, `True` ถูกปฏิเสธใน strict `int`, `int` ผ่านเข้า `float` | รัน: `exercises/03_types.py` |
-| strict กับ `date`: JSON ผ่าน Python ไม่ผ่าน | รัน: `exercises/03_types.py` |
-| strict กับ `tuple`: array ใน JSON ผ่าน, `list` ของ Python ไม่ผ่าน (`tuple_type`) | รัน: `exercises/10_under_the_hood.py` |
-| `datetime`, `date`, `timedelta`, ตัวเลขเป็น unix seconds (`2026` ได้ 1970-01-01 00:33:46), strict ปฏิเสธตัวเลข, `2026-02-30` ล้ม | รัน: `exercises/03_types.py` |
+| ตารางแปลง Lax ของ `int`, `float`, `str`, `bool`, `list`, `set`, `tuple`, `dict` | รัน: `exercises/03_types.py` |
+| Container ถูกคัดลอก | รัน: `exercises/03_types.py` |
+| Strict สามวิธี, ต่อ Field, `True` ถูกปฏิเสธใน Strict `int`, `int` ผ่านเข้า `float` | รัน: `exercises/03_types.py` |
+| Strict กับ `date`: JSON ผ่าน Python ไม่ผ่าน | รัน: `exercises/03_types.py` |
+| Strict กับ `tuple`: Array ใน JSON ผ่าน, `list` ของ Python ไม่ผ่าน (`tuple_type`) | รัน: `exercises/10_under_the_hood.py` |
+| `datetime`, `date`, `timedelta`, ตัวเลขเป็น Unix Seconds (`2026` ได้ 1970-01-01 00:33:46), Strict ปฏิเสธตัวเลข, `2026-02-30` ล้ม | รัน: `exercises/03_types.py` |
 | `Decimal`, `UUID`, `Path`, `Enum`, `Literal` | รัน: `exercises/03_types.py` |
 | `PositiveInt`, `conint`, `HttpUrl`, `AnyUrl`, `EmailStr`, `SecretStr` | รัน: `exercises/03_types.py` |
-| `Decimal` รับ float แล้วผ่านข้อความสั้นสุดของ float | ผู้เขียน (ผลที่เห็นคือ `Decimal('0.1')` รันแล้ว เหตุผลเป็นการอธิบายของผู้เขียน) |
-| คำแนะนำเรื่องเมื่อไหร่ควรใช้ strict, `SecretStr` ไม่ใช่การเข้ารหัส | ผู้เขียน |
+| `Decimal` รับ Float แล้วผ่านข้อความสั้นสุดของ Float | ผู้เขียน (ผลที่เห็นคือ `Decimal('0.1')` รันแล้ว เหตุผลเป็นการอธิบายของผู้เขียน) |
+| คำแนะนำเรื่องเมื่อไหร่ควรใช้ Strict, `SecretStr` ไม่ใช่การเข้ารหัส | ผู้เขียน |
 
 </Step>

@@ -1,6 +1,6 @@
 ---
 title: "Serialization: ควบคุมสิ่งที่ออกจาก Model"
-summary: model_dump สองโหมด (python กับ json), include และ exclude แบบซ้อน, exclude_unset กับ exclude_defaults, field_serializer, PlainSerializer, computed_field, model_serializer, การ serialize subclass และ model_copy
+summary: model_dump สองโหมด (Python กับ Json), Include และ Exclude แบบซ้อน, exclude_unset กับ exclude_defaults, field_serializer, PlainSerializer, computed_field, model_serializer, การ Serialize Subclass และ model_copy
 order: 7
 phase: C
 level: 3
@@ -17,7 +17,7 @@ import Callout from '../../../../components/Callout.astro';
 
 ## สองโหมดของขาออก
 
-บทก่อนหน้าดูขาเข้า บทนี้ดูขาออก ตัวอย่างในบทใช้ model ชุดนี้ (รัน: `exercises/07_serialization.py`)
+บทก่อนหน้าเราดูขาเข้ากันไปแล้ว ส่วนบทนี้จะดูขาออก โดยตัวอย่างในบทใช้ Model ชุดนี้ (รัน: `exercises/07_serialization.py`)
 
 ```python
 class Order(BaseModel):
@@ -29,7 +29,7 @@ class Order(BaseModel):
     tags: set[str] = set()
 ```
 
-`model_dump()` ให้ dict ที่ยังเก็บชนิดของ Python ไว้ครบ ส่วน `model_dump(mode="json")` ให้ dict ที่มีแต่ชนิดที่ JSON เก็บได้
+`model_dump()` ให้ Dict ที่ยังเก็บชนิดของ Python ไว้ครบ ส่วน `model_dump(mode="json")` ให้ Dict ที่มีแต่ชนิดที่ JSON เก็บได้
 
 | field | `model_dump()` | `model_dump(mode="json")` |
 |---|---|---|
@@ -38,21 +38,21 @@ class Order(BaseModel):
 | `lines[0]["price"]` | `Decimal("9.50")` | `"9.50"` |
 | `tags` | `{"x"}` | `["x"]` |
 
-ทั้งสองโหมดแปลง model ที่ซ้อนอยู่ข้างในเป็น dict ด้วย (`lines[0]` เป็น `dict` ไม่ใช่ `Line`) `Decimal` ใน JSON ออกมาเป็น string เพื่อไม่ให้เสียความละเอียด
+ทั้งสองโหมดแปลง Model ที่ซ้อนอยู่ข้างในเป็น Dict ด้วย (`lines[0]` เป็น `dict` ไม่ใช่ `Line`) ส่วน `Decimal` ใน JSON จะออกมาเป็น String เพื่อไม่ให้เสียความละเอียด
 
-`model_dump_json()` ให้ JSON string ตรง ๆ แบบกะทัดรัด ผลเท่ากับ `json.dumps` ของ `mode="json"` และใส่ `indent=2` ได้ถ้าอยากให้อ่านง่าย
+`model_dump_json()` ให้ JSON String ตรง ๆ แบบกะทัดรัด ผลเท่ากับ `json.dumps` ของ `mode="json"` และใส่ `indent=2` ได้ถ้าอยากให้อ่านง่าย
 
 ```text
 {"id":1,"placed":"2026-03-01","color":"red","lines":[{"sku":"A","qty":2,"price":"9.50"}],"note":null,"tags":["x"]}
 ```
 
-ผลที่ได้อ่านกลับได้ทั้งสองทาง `Order.model_validate_json(text) == o` และ `Order.model_validate(js) == o`
+ผลที่ได้อ่านกลับได้ทั้งสองทางเลย เช่น `Order.model_validate_json(text) == o` และ `Order.model_validate(js) == o`
 
 </Step>
 
 <Step>
 
-## เลือก Field: include, exclude และ exclude_*
+## เลือก Field: Include, Exclude และ exclude_*
 
 ```python
 o.model_dump(include={"id", "note"})            # เอาแค่สอง field
@@ -61,17 +61,17 @@ o.model_dump(include={"lines": {0: {"sku"}}})["lines"]            # [{'sku': 'A'
 o.model_dump(exclude={"lines": {"__all__": {"price"}}})["lines"]  # [{'sku': 'A', 'qty': 2}]
 ```
 
-ข้างในโครงสร้างซ้อน ใช้ dict ระบุชั้นถัดไป เลขดัชนีเลือกสมาชิกของ list ตัวนั้น `"__all__"` หมายถึงทุกสมาชิก
+ถ้าอยู่ในโครงสร้างที่ซ้อนกัน เราใช้ Dict ระบุชั้นถัดไป โดยเลขดัชนีจะเลือกสมาชิกของ List ตัวนั้น ส่วน `"__all__"` หมายถึงทุกสมาชิก
 
-อีกชุดหนึ่งเลือกตามสถานะของค่า
+อีกชุดหนึ่งจะเลือกตามสถานะของค่า
 
-| ตัวเลือก | ตัด field ที่... |
+| ตัวเลือก | ตัด Field ที่... |
 |---|---|
 | `exclude_unset=True` | ผู้เรียกไม่ได้ส่งมา (ดู `model_fields_set` ใน [บท 1](/pydantic/first-model/#สิ่งที่-model-ทำเมื่อไม่ได้สั่ง)) |
-| `exclude_defaults=True` | ค่าเท่ากับ default |
+| `exclude_defaults=True` | ค่าเท่ากับ Default |
 | `exclude_none=True` | ค่าเป็น `None` |
 
-สองตัวแรกต่างกันตรงที่ส่งค่าเท่า default มาหรือเปล่า ถ้าสร้าง `Order(..., note=None)` โดยส่ง `note=None` มาตรง ๆ `exclude_unset` **เก็บ** `note` ไว้ (เพราะผู้เรียกส่งมา) แต่ `exclude_defaults` **ตัด** ทิ้ง (เพราะเท่ากับ default) PATCH request ควรใช้ `exclude_unset` เพื่อแก้เฉพาะที่ผู้ใช้ส่งมา
+สองตัวแรกต่างกันตรงที่ผู้เรียกส่งค่าที่เท่ากับ Default มาหรือเปล่า ยกตัวอย่างถ้าสร้าง `Order(..., note=None)` โดยส่ง `note=None` มาตรง ๆ `exclude_unset` จะ **เก็บ** `note` ไว้ (เพราะผู้เรียกส่งมา) แต่ `exclude_defaults` จะ **ตัด** ทิ้ง (เพราะเท่ากับ Default) ดังนั้น PATCH Request ควรใช้ `exclude_unset` เพื่อแก้เฉพาะที่ผู้ใช้ส่งมา
 
 </Step>
 
@@ -79,7 +79,7 @@ o.model_dump(exclude={"lines": {"__all__": {"price"}}})["lines"]  # [{'sku': 'A'
 
 ## Alias ตอน Dump
 
-ตามค่าเริ่มต้น dump ใช้ชื่อ field จริง ใส่ `by_alias=True` เมื่ออยากได้ alias ([บท 2](/pydantic/fields/#alias-ชื่อใน-input-ไม่ตรงกับชื่อใน-python))
+ตามค่าเริ่มต้น Dump จะใช้ชื่อ Field จริง ถ้าอยากได้ Alias ให้ใส่ `by_alias=True` ([บท 2](/pydantic/fields/#alias-ชื่อใน-input-ไม่ตรงกับชื่อใน-python))
 
 ```python
 a = Aliased(userId=1)
@@ -88,7 +88,7 @@ a.model_dump(by_alias=True)           # {'userId': 1}
 a.model_dump_json(by_alias=True)      # '{"userId":1}'
 ```
 
-พฤติกรรมนี้ตรงข้ามกับตอนรับ input (ที่ alias เป็นค่าเริ่มต้น) ทำให้ round trip ต้องจำให้ตรงกัน ถ้าเขียนไฟล์ด้วย `by_alias=True` ก็ต้องอ่านกลับด้วยชื่อ alias
+พฤติกรรมนี้ตรงข้ามกับตอนรับ Input (ที่ใช้ Alias เป็นค่าเริ่มต้น) เราจึงต้องจำให้ตรงกันตอน Round Trip ถ้าเขียนไฟล์ด้วย `by_alias=True` ก็ต้องอ่านกลับด้วยชื่อ Alias
 
 </Step>
 
@@ -96,7 +96,7 @@ a.model_dump_json(by_alias=True)      # '{"userId":1}'
 
 ## field_serializer และ PlainSerializer
 
-เปลี่ยนวิธีเขียนค่าของ field เดียวด้วย `field_serializer`
+เปลี่ยนวิธีเขียนค่าของ Field เดียวด้วย `field_serializer`
 
 ```python
 class Event(BaseModel):
@@ -114,9 +114,9 @@ class Event(BaseModel):
 
 `at` ถูกแปลงในทุกโหมด ส่วน `price` มี `when_used="json"` จึงแปลงเป็น `float` เฉพาะตอนออก JSON ผลของแบบฝึกคือ `model_dump()["price"]` ยังเป็น `Decimal("1.5")` แต่ `model_dump_json()` ได้ `{"at":"01/03/2026","price":1.5}`
 
-ตัวเลือก `when_used` มี `"always"` (ค่าเริ่มต้น), `"json"`, `"json-unless-none"` และ `"unless-none"`
+ตัวเลือก `when_used` มีสี่ค่าคือ `"always"` (ค่าเริ่มต้น), `"json"`, `"json-unless-none"` และ `"unless-none"`
 
-ถ้าอยากใช้ซ้ำกับหลาย field ผูกกับชนิดด้วย `Annotated` และ `PlainSerializer` แบบเดียวกับ validator ใน [บท 5](/pydantic/validators/#validator-แบบ-annotated-ใช้ซ้ำและซ้อนกันได้)
+ถ้าอยากใช้ซ้ำกับหลาย Field เราผูกกับชนิดด้วย `Annotated` และ `PlainSerializer` ได้ แบบเดียวกับ Validator ใน [บท 5](/pydantic/validators/#validator-แบบ-annotated-ใช้ซ้ำและซ้อนกันได้)
 
 ```python
 Baht = Annotated[Decimal, PlainSerializer(lambda v: f"{v:.2f} THB", return_type=str)]
@@ -127,15 +127,15 @@ class Price(BaseModel):
 Price(amount="3").model_dump()    # {'amount': '3.00 THB'}
 ```
 
-`return_type` บอกชนิดของสิ่งที่ฟังก์ชันคืน เพื่อให้ JSON Schema ([บท 9](/pydantic/adapters/#json-schema-จาก-model)) ระบุชนิดของ field นี้ได้ถูก
+`return_type` ใช้บอกชนิดของสิ่งที่ฟังก์ชันคืน เพื่อให้ JSON Schema ([บท 9](/pydantic/adapters/#json-schema-จาก-model)) ระบุชนิดของ Field นี้ได้ถูกต้อง
 
 </Step>
 
 <Step>
 
-## computed_field: เอา property เข้าไปในผลลัพธ์
+## computed_field: เอา Property เข้าไปในผลลัพธ์
 
-`@property` ธรรมดาไม่ปรากฏใน dump ถ้าอยากให้ปรากฏ ครอบด้วย `@computed_field`
+`@property` ธรรมดาไม่ปรากฏใน Dump ถ้าอยากให้ปรากฏ ให้ครอบด้วย `@computed_field`
 
 ```python
 class Rect(BaseModel):
@@ -150,7 +150,7 @@ class Rect(BaseModel):
 Rect(w=2, h=3).model_dump()     # {'w': 2, 'h': 3, 'area': 6}
 ```
 
-computed field มีผลต่อขาออกเท่านั้น JSON Schema แบบ serialization มี `area` ส่วนแบบ validation ไม่มี และถ้าส่ง `area=99` เข้ามาตอนสร้าง ค่านั้นถูกเมิน (`Rect(w=1, h=1, area=99).area` ได้ 1) เพราะมันไม่ใช่ field ขาเข้า ต้องใส่ type hint ของค่าที่คืนไว้เสมอ Pydantic ใช้มันสร้าง schema
+Computed Field มีผลต่อขาออกเท่านั้น โดย JSON Schema แบบ Serialization จะมี `area` แต่แบบ Validation ไม่มี และถ้าส่ง `area=99` เข้ามาตอนสร้าง ค่านั้นจะถูกเมิน (`Rect(w=1, h=1, area=99).area` ได้ 1) เพราะมันไม่ใช่ Field ขาเข้า เรายังต้องใส่ Type Hint ของค่าที่คืนไว้เสมอ เพราะ Pydantic ใช้มันสร้าง Schema
 
 </Step>
 
@@ -158,7 +158,7 @@ computed field มีผลต่อขาออกเท่านั้น JSON
 
 ## model_serializer: คุมทั้งก้อน
 
-เมื่อรูปร่างของผลลัพธ์ต่างจากโครงสร้าง field ไปมาก ใช้ `model_serializer` เขียนเอง ตัวอย่างนี้ใช้ `SerializationInfo` ดูว่าอยู่โหมดไหน
+เมื่อรูปร่างของผลลัพธ์ต่างจากโครงสร้าง Field ไปมาก เราใช้ `model_serializer` เขียนเองได้ ซึ่งตัวอย่างนี้ใช้ `SerializationInfo` ดูว่าอยู่โหมดไหน
 
 ```python
 class Money(BaseModel):
@@ -173,7 +173,7 @@ Money(amount=5, currency="THB").model_dump_json()   # '"5 THB"'
 Money(amount=5, currency="THB").model_dump()        # {'a': 5}
 ```
 
-ตัวอย่างนี้แกล้งให้สองโหมดต่างกันมากเพื่อให้เห็นว่า `info.mode` ใช้ทำอะไร งานจริงมักคืนรูปเดียวกันทั้งสองโหมด
+ตัวอย่างนี้แกล้งให้สองโหมดต่างกันมากเพื่อให้เห็นว่า `info.mode` ใช้ทำอะไร ส่วนงานจริงมักคืนรูปเดียวกันทั้งสองโหมด
 
 </Step>
 
@@ -181,7 +181,7 @@ Money(amount=5, currency="THB").model_dump()        # {'a': 5}
 
 ## Subclass ถูก Serialize ตามชนิดที่ประกาศ
 
-กับดักที่เจอบ่อยเมื่อใช้ inheritance
+มีกับดักที่เจอบ่อยเมื่อใช้ Inheritance
 
 ```python
 class Animal(BaseModel):
@@ -197,17 +197,17 @@ Owner(pet=Dog(name="r", tricks=3)).model_dump()
 # {'pet': {'name': 'r'}}      tricks หายไป
 ```
 
-field ประกาศว่า `Animal` ดังนั้น Pydantic serialize ตาม schema ของ `Animal` ถึงค่าจริงจะเป็น `Dog` ก็ตาม ถ้าต้องการให้ตามชนิดจริง มีสองวิธีที่แบบฝึกยืนยันว่าได้ผลเท่ากัน
+Field ประกาศว่าเป็น `Animal` Pydantic จึง Serialize ตาม Schema ของ `Animal` ถึงค่าจริงจะเป็น `Dog` ก็ตาม ถ้าต้องการให้ตามชนิดจริง มีสองวิธีซึ่งแบบฝึกยืนยันว่าได้ผลเท่ากัน
 
 ```python
 pet: SerializeAsAny[Animal]                                  # ที่ field
 Owner(...).model_dump(serialize_as_any=True)                 # ตอนเรียก
 ```
 
-อีกทางคือเปลี่ยนมาใช้ discriminated union ของ [บท 4](/pydantic/unions/#discriminated-union-ดู-field-เดียวแล้วเลือกให้ตรง) ซึ่งเลือก model ตาม tag ทั้งขาเข้าและขาออก (ข้อนี้ผู้เขียนไม่ได้รันในแบบฝึก)
+อีกทางคือเปลี่ยนมาใช้ Discriminated Union ของ [บท 4](/pydantic/unions/#discriminated-union-ดู-field-เดียวแล้วเลือกให้ตรง) ซึ่งเลือก Model ตาม Tag ทั้งขาเข้าและขาออก (ข้อนี้ผู้เขียนไม่ได้รันในแบบฝึก)
 
 <Callout type="warn" title="ข้อมูลหายเงียบ ๆ">
-กรณี subclass ข้างบนไม่มี error และไม่มี warning ข้อมูลของ `Dog` หายไปจากผลลัพธ์เฉย ๆ ถ้า API ของคุณรับ model แบบ polymorphic ให้เขียน test ที่ dump แล้วเทียบ field ของ subclass
+กรณี Subclass ข้างบนไม่มีทั้ง Error และ Warning เลย ข้อมูลของ `Dog` หายไปจากผลลัพธ์เฉย ๆ ดังนั้นถ้า API ของคุณรับ Model แบบ Polymorphic ให้เขียน Test ที่ Dump แล้วเทียบ Field ของ Subclass ด้วยนะ
 </Callout>
 
 </Step>
@@ -216,7 +216,7 @@ Owner(...).model_dump(serialize_as_any=True)                 # ตอนเร�
 
 ## ค่าที่ผิดชนิดตอน Dump: Warning ไม่ใช่ Error
 
-เพราะ `validate_assignment` ปิดอยู่ตามค่าเริ่มต้น ([บท 1](/pydantic/first-model/#สิ่งที่-model-ทำเมื่อไม่ได้สั่ง)) เราใส่ค่าผิดชนิดเข้า model ได้ แล้วค่านั้นถูกส่งต่อมาถึงขา dump
+เพราะ `validate_assignment` ปิดอยู่ตามค่าเริ่มต้น ([บท 1](/pydantic/first-model/#สิ่งที่-model-ทำเมื่อไม่ได้สั่ง)) เราจึงใส่ค่าผิดชนิดเข้า Model ได้ และค่านั้นจะถูกส่งต่อมาถึงขา Dump
 
 ```python
 m = N(n=1)         # n: int
@@ -229,13 +229,13 @@ Pydantic serializer warnings:
   PydanticSerializationUnexpectedValue(Expected `int` - serialized value may not be as expected [field_name='n', input_value='not an int', input_type=str])
 ```
 
-ค่าถูก dump ออกไปตามที่เป็น พร้อม warning หนึ่งครั้ง ถ้ารัน test ด้วย `-W error` warning นี้จะกลายเป็นความล้มเหลว ซึ่งเป็นวิธีจับการ assign ผิดชนิดโดยไม่ต้องเปิด `validate_assignment`
+ค่าจะถูก Dump ออกไปตามที่เป็น พร้อม Warning หนึ่งครั้ง ถ้ารัน Test ด้วย `-W error` Warning นี้จะกลายเป็นความล้มเหลว ซึ่งเป็นวิธีจับการ Assign ผิดชนิดโดยไม่ต้องเปิด `validate_assignment`
 
 </Step>
 
 <Step>
 
-## model_copy: แก้โดยไม่ mutate
+## model_copy: แก้โดยไม่ Mutate
 
 ```python
 c = o.model_copy(update={"id": 2})
@@ -245,10 +245,10 @@ c.lines is o.lines            # True   copy แบบตื้น
 o.model_copy(deep=True).lines is not o.lines   # True
 ```
 
-`update` **ไม่ผ่านการตรวจ** ค่าที่ใส่เข้าไปใช้ตามที่เป็น (ต่างจากการสร้าง model ใหม่) และ copy ตามค่าเริ่มต้นเป็นแบบตื้น list ข้างในใช้ร่วมกัน ถ้าจะแก้ list ใน copy โดยไม่กระทบต้นฉบับ ใช้ `deep=True`
+`update` **ไม่ผ่านการตรวจ** ค่าที่ใส่เข้าไปจะถูกใช้ตามที่เป็น (ต่างจากการสร้าง Model ใหม่) และ Copy ตามค่าเริ่มต้นเป็นแบบตื้น ทำให้ List ข้างในใช้ร่วมกัน ถ้าจะแก้ List ใน Copy โดยไม่กระทบต้นฉบับ ให้ใช้ `deep=True`
 
-<Callout type="try" title="ลองทำใน repo นี้">
-รัน `uv run python exercises/07_serialization.py` แล้วลองเปลี่ยน `when_used="json"` ของ `money` เป็น `"always"` ดูว่า `assert` บรรทัดไหนล้ม และทำไม
+<Callout type="try" title="ลองทำใน Repo นี้">
+รัน `uv run python exercises/07_serialization.py` แล้วลองเปลี่ยน `when_used="json"` ของ `money` เป็น `"always"` ดูว่า `assert` บรรทัดไหนล้ม พร้อมคิดดูว่าทำไม
 </Callout>
 
 </Step>
@@ -258,8 +258,8 @@ o.model_copy(deep=True).lines is not o.lines   # True
 ## เช็กตัวเอง
 
 - API ของคุณรับ PATCH ที่ผู้ใช้ส่งมาแค่ `{"name": "x"}` จะเลือก `exclude_unset` หรือ `exclude_none` เพราะอะไร
-- `model_dump()` กับ `model_dump(mode="json")` ต่างกันกับ field ชนิด `Decimal` และ `set` อย่างไร
-- `Owner.pet: Animal` เก็บ `Dog` ไว้ แล้ว dump ได้อะไร และคุณจะแก้ได้กี่วิธี
+- `model_dump()` กับ `model_dump(mode="json")` ต่างกันกับ Field ชนิด `Decimal` และ `set` อย่างไร
+- `Owner.pet: Animal` เก็บ `Dog` ไว้ แล้ว Dump ได้อะไร และคุณจะแก้ได้กี่วิธี
 
 </Step>
 
@@ -269,18 +269,18 @@ o.model_copy(deep=True).lines is not o.lines   # True
 
 | ข้อความ | ที่มา |
 |---|---|
-| python กับ json mode, ตารางสี่ field, compact กับ `indent`, round trip | รัน: `exercises/07_serialization.py` |
+| Python กับ Json Mode, ตารางสี่ Field, Compact กับ `indent`, Round Trip | รัน: `exercises/07_serialization.py` |
 | `include`, `exclude` แบบซ้อน, `__all__`, `exclude_unset`, `exclude_defaults`, `exclude_none` | รัน: `exercises/07_serialization.py` |
 | `by_alias` | รัน: `exercises/07_serialization.py` |
 | `field_serializer`, `when_used="json"`, `PlainSerializer` | รัน: `exercises/07_serialization.py` |
 | ตัวเลือกอื่นของ `when_used` | ผู้เขียน (ตามเอกสาร ไม่ได้รันครบทุกค่า) |
-| `computed_field`, JSON Schema สองโหมด, input ของ `area` ถูกเมิน | รัน: `exercises/07_serialization.py` |
+| `computed_field`, JSON Schema สองโหมด, Input ของ `area` ถูกเมิน | รัน: `exercises/07_serialization.py` |
 | `model_serializer` กับ `info.mode` | รัน: `exercises/07_serialization.py` |
-| subclass ถูก serialize ตามชนิดที่ประกาศ, `SerializeAsAny`, `serialize_as_any` | รัน: `exercises/07_serialization.py` |
-| warning ตอน dump ค่าผิดชนิด และข้อความของมัน | รัน: `exercises/07_serialization.py` |
+| Subclass ถูก Serialize ตามชนิดที่ประกาศ, `SerializeAsAny`, `serialize_as_any` | รัน: `exercises/07_serialization.py` |
+| Warning ตอน Dump ค่าผิดชนิด และข้อความของมัน | รัน: `exercises/07_serialization.py` |
 | `model_copy(update=)` ตื้น และ `deep=True` | รัน: `exercises/07_serialization.py` |
 | `update` ไม่ผ่านการตรวจ | รัน: `exercises/07_serialization.py` |
-| `-W error` จับ warning ได้ | ผู้เขียน |
-| ขา serialize เป็น `SchemaSerializer` ที่สร้างจาก core schema ตัวเดียวกับ validator | source: `serializers/mod.rs` ใน knowledge graph |
+| `-W error` จับ Warning ได้ | ผู้เขียน |
+| ขา Serialize เป็น `SchemaSerializer` ที่สร้างจาก Core Schema ตัวเดียวกับ Validator | Source: `serializers/mod.rs` ใน Knowledge Graph |
 
 </Step>

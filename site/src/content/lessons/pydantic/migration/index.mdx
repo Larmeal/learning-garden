@@ -1,6 +1,6 @@
 ---
 title: ย้ายจาก V1 ไป V2
-summary: อะไรยังใช้ได้ผ่าน shim พร้อม warning ที่บอกชื่อใหม่, อะไรพังเป็น error, พฤติกรรมที่เปลี่ยนเงียบ ๆ (Optional, str, Config), pydantic.v1 สำหรับย้ายทีละส่วน และทำไมโค้ด V1 ทั้งชุดถึงยังอยู่ใน package
+summary: อะไรยังใช้ได้ผ่าน Shim พร้อม Warning ที่บอกชื่อใหม่, อะไรพังเป็น Error, พฤติกรรมที่เปลี่ยนเงียบ ๆ (Optional, Str, Config), pydantic.v1 สำหรับย้ายทีละส่วน และทำไมโค้ด V1 ทั้งชุดถึงยังอยู่ใน Package
 order: 11
 phase: D
 level: 3
@@ -19,11 +19,11 @@ import Callout from '../../../../components/Callout.astro';
 
 เมื่อเอาโค้ดที่เขียนสำหรับ Pydantic V1 ไปรันบน V2 สิ่งที่เจอแบ่งได้เป็นสามพวก (รัน: `exercises/11_migration.py`)
 
-1. **ยังทำงาน แต่ warning** ชื่อเมธอดเก่าอย่าง `.dict()` ผ่าน shim ไปหาชื่อใหม่
-2. **พังชัดเจน** ใช้ keyword หรือ import ที่ถูกถอดออก จะได้ error ที่บอกเหตุผล
-3. **ทำงานต่างจากเดิมโดยไม่มีสัญญาณ** อันตรายที่สุด เพราะ test ที่ไม่ครอบคลุมจะไม่เห็น
+1. พวกแรกยังทำงานได้ แต่จะมี Warning เตือน เช่นชื่อเมธอดเก่าอย่าง `.dict()` ที่ผ่าน Shim ไปหาชื่อใหม่
+2. พวกที่สองพังอย่างชัดเจน คือใช้ Keyword หรือ Import ที่ถูกถอดออกไปแล้ว ซึ่งจะได้ Error ที่บอกเหตุผล
+3. พวกที่สามทำงานต่างจากเดิมโดยไม่มีสัญญาณเตือนเลย เป็นพวกที่อันตรายที่สุด เพราะ Test ที่ไม่ครอบคลุมจะไม่เห็น
 
-บทนี้เรียงตามสามพวกนั้น ฝั่ง Python มี module ที่ทำหน้าที่ shim อยู่หลายตัว (กราฟ source จัดเป็นชั้น "V1 Compatibility Shims" 21 ไฟล์) หัวใจคือ `pydantic/_migration.py` ที่เก็บตารางสี่ชุด: ชื่อที่ย้ายที่ (`MOVED_IN_V2`), ชื่อที่ย้ายที่และ deprecated (`DEPRECATED_MOVED_IN_V2`), ชื่อที่ต้องไปใช้จาก `pydantic.v1` (`REDIRECT_TO_V1`) และชื่อที่ถูกลบ (`REMOVED_IN_V2`) แล้วใช้ `__getattr__` ของ module คัดว่าแต่ละชื่อควร warn, redirect หรือ error
+บทนี้จะเรียงตามสามพวกนั้น ส่วนฝั่ง Python มี Module ที่ทำหน้าที่ Shim อยู่หลายตัว (กราฟ Source จัดเป็นชั้น "V1 Compatibility Shims" 21 ไฟล์) โดยหัวใจคือ `pydantic/_migration.py` ซึ่งเก็บตารางสี่ชุด ได้แก่ ชื่อที่ย้ายที่ (`MOVED_IN_V2`), ชื่อที่ย้ายที่และ Deprecated (`DEPRECATED_MOVED_IN_V2`), ชื่อที่ต้องไปใช้จาก `pydantic.v1` (`REDIRECT_TO_V1`) และชื่อที่ถูกลบ (`REMOVED_IN_V2`) แล้วใช้ `__getattr__` ของ Module คัดว่าแต่ละชื่อควร Warn, Redirect หรือ Error
 
 </Step>
 
@@ -31,7 +31,7 @@ import Callout from '../../../../components/Callout.astro';
 
 ## พวกที่ 1: ชื่อเมธอดเก่ายังใช้ได้ พร้อม Warning
 
-เมธอดของ model ใน V1 ยังเรียกได้ และแต่ละตัวออก `PydanticDeprecatedSince20` ซึ่งระบุชื่อใหม่ในข้อความ
+เมธอดของ Model ใน V1 ยังเรียกได้ และแต่ละตัวออก `PydanticDeprecatedSince20` ซึ่งระบุชื่อใหม่ในข้อความ
 
 | V1 | V2 |
 |---|---|
@@ -43,9 +43,9 @@ import Callout from '../../../../components/Callout.astro';
 | `Model.schema()` | `Model.model_json_schema()` |
 | `Model.construct(...)` | `Model.model_construct(...)` |
 
-ตัวอย่างข้อความที่แบบฝึกได้ `The `construct` method is deprecated; use `model_construct` instead. Deprecated in Pydantic V2.0 to be removed in V3.0.` สังเกต "to be removed in V3.0" ผู้เขียนอ่านเป็นว่าชื่อเก่าจะหายในรุ่นใหญ่ถัดไป จึงไม่ควรปล่อยไว้
+ตัวอย่างข้อความที่แบบฝึกได้ `The `Construct` method is deprecated; use `model_construct` instead. Deprecated in Pydantic V2.0 to be removed in V3.0.` ให้สังเกตคำว่า "to be removed in V3.0" ซึ่งผู้เขียนอ่านเป็นว่าชื่อเก่าจะหายไปในรุ่นใหญ่ถัดไป จึงไม่ควรปล่อยไว้
 
-`parse_raw` ได้ warning สองตัว เพราะข้างในเรียกฟังก์ชันที่ deprecated อีกตัว (`load_str_bytes`) ถ้า test ของคุณนับจำนวน warning ให้ระวัง
+`parse_raw` ได้ Warning สองตัว เพราะข้างในเรียกฟังก์ชันที่ Deprecated อีกตัว (`load_str_bytes`) ถ้า Test ของคุณนับจำนวน Warning ให้ระวังตรงนี้ด้วยนะ
 
 **`@validator` ยังทำงาน**
 
@@ -57,7 +57,7 @@ def pos(cls, v):
     return v
 ```
 
-คืน `PydanticDeprecatedSince20` ตอนประกาศคลาส แต่ `Legacy(n=-1)` ยังได้ `ValidationError` ชนิด `value_error` ตามเดิม ให้ย้ายไป `@field_validator` ([บท 5](/pydantic/validators/#after-before-wrap-plain)) ซึ่งต้องใส่ `@classmethod` ด้วย
+ตอนประกาศคลาสจะมี `PydanticDeprecatedSince20` ออกมา แต่ `Legacy(n=-1)` ก็ยังได้ `ValidationError` ชนิด `value_error` ตามเดิม เราควรย้ายไปใช้ `@field_validator` ([บท 5](/pydantic/validators/#after-before-wrap-plain)) ซึ่งต้องใส่ `@classmethod` ด้วย
 
 </Step>
 
@@ -65,13 +65,13 @@ def pos(cls, v):
 
 ## พวกที่ 2: พังชัดเจน
 
-**`@root_validator` โดยไม่ระบุ mode** ใน V1 ใช้ได้เลย ใน V2 ต้องบอกว่าเป็น `pre=True` หรือ `skip_on_failure=True` ถ้าไม่บอก ได้ `PydanticUserError` ที่ `e.code == "root-validator-pre-skip"` ตอนประกาศคลาส (และยังมี warning ว่า `@root_validator` deprecated) ทางที่ถูกคือเปลี่ยนไปใช้ `@model_validator` ([บท 5](/pydantic/validators/#model_validator-กฎที่คร่อมหลาย-field))
+ตัวแรกคือ **`@root_validator` ที่ไม่ระบุ Mode** ซึ่งใน V1 ใช้ได้เลย แต่ใน V2 ต้องบอกว่าเป็น `pre=True` หรือ `skip_on_failure=True` ถ้าไม่บอกจะได้ `PydanticUserError` ที่ `e.code == "root-validator-pre-skip"` ตอนประกาศคลาส (และยังมี Warning ว่า `@root_validator` Deprecated) ทางที่ถูกคือเปลี่ยนไปใช้ `@model_validator` ([บท 5](/pydantic/validators/#model_validator-กฎที่คร่อมหลาย-field))
 
-**keyword ที่ถูกลบ** `Field("a", regex="^a$")` ได้ `PydanticUserError` ที่ `e.code == "removed-kwargs"` ชื่อใหม่คือ `pattern` ([บท 2](/pydantic/fields/#เงื่อนไขของค่า))
+ตัวที่สองคือ **Keyword ที่ถูกลบ** เช่น `Field("a", regex="^a$")` จะได้ `PydanticUserError` ที่ `e.code == "removed-kwargs"` โดยชื่อใหม่คือ `pattern` ([บท 2](/pydantic/fields/#เงื่อนไขของค่า))
 
-**`BaseSettings` ย้ายออกไป** `from pydantic import BaseSettings` ได้ `PydanticImportError` ข้อความบอกว่าย้ายไปที่ package `pydantic-settings` พร้อมลิงก์คู่มือ
+ตัวสุดท้ายคือ **`BaseSettings` ที่ย้ายออกไป** `from pydantic import BaseSettings` จะได้ `PydanticImportError` ซึ่งข้อความบอกว่าย้ายไปที่ Package `pydantic-settings` พร้อมลิงก์คู่มือ
 
-error ทั้งสามชนิดมีข้อดีคือบอกทางแก้ในข้อความ และเกิดตอน import หรือประกาศคลาส ไม่ต้องรอถึง runtime ที่ข้อมูลผ่านเข้ามา
+Error ทั้งสามชนิดมีข้อดีตรงที่บอกทางแก้ไว้ในข้อความ และเกิดตอน Import หรือประกาศคลาส เราจึงไม่ต้องรอถึง Runtime ที่ข้อมูลผ่านเข้ามา
 
 </Step>
 
@@ -79,13 +79,13 @@ error ทั้งสามชนิดมีข้อดีคือบอก�
 
 ## พวกที่ 3: เปลี่ยนเงียบ ๆ
 
-พวกนี้ไม่มี warning ต้องมี test จับ แบบฝึกยืนยันสามเรื่อง
+พวกนี้ไม่มี Warning เตือนเลย เราจึงต้องมี Test คอยจับ ซึ่งแบบฝึกยืนยันไว้สามเรื่อง
 
-**1. `Optional[X]` ไม่ได้แปลว่าไม่ต้องส่งอีกแล้ว** V1: `a: Optional[int]` ไม่ต้องส่ง และ default เป็น `None` (แบบฝึกรันผ่าน `pydantic.v1`: `V1Opt().a is None`) V2: ต้องส่ง ไม่ส่งได้ error `missing` ([บท 2](/pydantic/fields/#required-optional-และ-nullable-คนละเรื่องกัน))
+**1. `Optional[X]` ไม่ได้แปลว่าไม่ต้องส่งอีกแล้ว** ใน V1 `a: Optional[int]` ไม่ต้องส่งก็ได้ และ Default เป็น `None` (แบบฝึกรันผ่าน `pydantic.v1`: `V1Opt().a is None`) แต่ใน V2 ต้องส่ง ถ้าไม่ส่งจะได้ Error `missing` ([บท 2](/pydantic/fields/#required-optional-และ-nullable-คนละเรื่องกัน))
 
-**2. ตัวเลขไม่ถูกแปลงเป็น `str`** V1: `V1Str(s=123).s == "123"` V2: `Num(f=1, s=123)` ได้ `string_type`
+**2. ตัวเลขไม่ถูกแปลงเป็น `str`** ใน V1 `V1Str(s=123).s == "123"` แต่ใน V2 `Num(f=1, s=123)` จะได้ `string_type`
 
-**3. `class Config` เก่าทำงานแค่บางคีย์** คลาสนี้ยังอ่านได้ (มี warning ว่า class-based config deprecated) แต่ key ที่ **เปลี่ยนชื่อ** ถูกเมิน พร้อม `UserWarning` ว่า key ใดเปลี่ยนชื่อเป็นอะไร
+**3. `class Config` เก่าทำงานแค่บางคีย์** คลาสนี้ยังอ่านได้ (มี Warning ว่า class-based config deprecated) แต่ Key ที่ **เปลี่ยนชื่อ** จะถูกเมิน พร้อม `UserWarning` บอกว่า Key ใดเปลี่ยนชื่อเป็นอะไร
 
 ```python
 class Old(BaseModel):
@@ -98,10 +98,10 @@ Old(a=1, z=2)             # error extra_forbidden   ← extra ทำงาน
 Old.model_validate(Row()) # error model_type        ← orm_mode ถูกเมิน
 ```
 
-ข้อความ warning ของแบบฝึก: `'orm_mode' has been renamed to 'from_attributes'` และ `'allow_population_by_field_name' has been renamed to 'validate_by_name'` ถ้าคุณปิด warning ไว้ (หรือ log ถูกกรอง) จะไม่รู้เลยว่า ORM mode ไม่ทำงาน แล้วไปเจอ `model_type` ตอน runtime
+ข้อความ Warning ที่แบบฝึกได้คือ `'orm_mode' has been renamed to 'from_attributes'` และ `'allow_population_by_field_name' has been renamed to 'validate_by_name'` ถ้าคุณปิด Warning ไว้ (หรือ Log ถูกกรอง) จะไม่รู้เลยว่า ORM Mode ไม่ทำงาน แล้วไปเจอ `model_type` ตอน Runtime
 
-<Callout type="warn" title="รัน test ด้วย warning เป็น error ระหว่างย้าย">
-`pytest -W error::DeprecationWarning` ไม่พอ เพราะ `PydanticDeprecatedSince20` เป็นคลาส warning ของ Pydantic เอง (และ warning เรื่อง config key เป็น `UserWarning`) ในช่วงย้ายให้เปิด warning ทุกชนิดเป็น error แล้วค่อยไล่แก้ทีละอัน เป็นข้อแนะนำของผู้เขียน ไม่ได้รันแบบเต็มกับโปรเจกต์จริง
+<Callout type="warn" title="รัน Test ด้วย Warning เป็น Error ระหว่างย้าย">
+`pytest -W error::DeprecationWarning` ไม่พอนะ เพราะ `PydanticDeprecatedSince20` เป็นคลาส Warning ของ Pydantic เอง (และ Warning เรื่อง Config Key เป็น `UserWarning`) ในช่วงย้ายจึงควรเปิด Warning ทุกชนิดให้เป็น Error แล้วค่อยไล่แก้ทีละอัน ซึ่งเป็นข้อแนะนำของผู้เขียน และไม่ได้รันแบบเต็มกับโปรเจกต์จริง
 </Callout>
 
 </Step>
@@ -110,7 +110,7 @@ Old.model_validate(Row()) # error model_type        ← orm_mode ถูกเม
 
 ## pydantic.v1: ย้ายทีละส่วน
 
-Pydantic V2 ส่ง V1 ทั้งชุดมาด้วยใน `pydantic.v1` (กราฟระบุว่าเป็นสำเนาเต็มของ V1 มี model, field, validators, types และ schema ของตัวเอง ประมาณ 26 ไฟล์ ใน layer "Legacy Pydantic V1") ใช้ในช่วงที่โปรเจกต์ใหญ่และเปลี่ยนทีเดียวไม่ไหว
+Pydantic V2 ส่ง V1 ทั้งชุดมาด้วยใน `pydantic.v1` (กราฟระบุว่าเป็นสำเนาเต็มของ V1 มี Model, Field, Validators, Types และ Schema ของตัวเอง ประมาณ 26 ไฟล์ ใน Layer "Legacy Pydantic V1") ซึ่งใช้ได้ในช่วงที่โปรเจกต์ใหญ่จนเปลี่ยนทีเดียวไม่ไหว
 
 ```python
 from pydantic.v1 import BaseModel as V1Model
@@ -123,9 +123,9 @@ Old1(n=1).dict()              # {'n': 1}    ชื่อเมธอด V1 ใ�
 issubclass(Old1, BaseModel)   # False       คนละคลาสกับ BaseModel ของ V2
 ```
 
-สิ่งสำคัญคือ **model ของ V1 กับ V2 เป็นคนละโลก** field ของ V2 model ที่ชนิดเป็น V1 model (หรือกลับกัน) ใช้ไม่ได้ ต้องย้ายเป็นชั้น ๆ จากใบไม้เข้าหาราก หรือแปลงที่ขอบด้วย dict
+สิ่งสำคัญที่ต้องรู้คือ **Model ของ V1 กับ V2 เป็นคนละโลกกัน** ถ้า Field ของ V2 Model มีชนิดเป็น V1 Model (หรือกลับกัน) จะใช้ไม่ได้ เราต้องย้ายเป็นชั้น ๆ จากใบไม้เข้าหาราก หรือแปลงที่ขอบด้วย Dict
 
-ข้อจำกัดอย่างหนึ่งที่ควรรู้: ผู้เขียนไม่ได้ตรวจนโยบายการ support `pydantic.v1` กับ Python เวอร์ชันใหม่ ๆ ก่อนจะวางแผนอยู่กับมันนาน ให้เช็กเอกสาร release ของเวอร์ชันที่ใช้
+ข้อจำกัดอย่างหนึ่งที่ควรรู้คือ ผู้เขียนไม่ได้ตรวจนโยบายการ Support `pydantic.v1` กับ Python เวอร์ชันใหม่ ๆ ดังนั้นก่อนจะวางแผนอยู่กับมันนาน ให้เช็กเอกสาร Release ของเวอร์ชันที่ใช้ด้วยนะ
 
 </Step>
 
@@ -133,14 +133,14 @@ issubclass(Old1, BaseModel)   # False       คนละคลาสกับ Ba
 
 ## ลำดับที่แนะนำ
 
-คำแนะนำของผู้เขียน เรียงจากเสี่ยงน้อยไปมาก
+นี่เป็นคำแนะนำของผู้เขียน โดยเรียงจากเสี่ยงน้อยไปมาก
 
-1. อัปเกรดเป็น V2 แล้วรัน test ด้วย warning ทุกชนิดเป็น error ดูรายการที่พัง
-2. แก้พวกที่ 2 ก่อน เพราะเห็นชัดและบอกทางแก้ (`regex` เป็น `pattern`, `root_validator` เป็น `model_validator`, `BaseSettings` ไปที่ `pydantic-settings`)
-3. ไล่ `Optional[X]` ทุกจุด ตัดสินใจทีละ field ว่าต้องส่งไหม ถ้าไม่ต้องส่ง เติม `= None`
-4. เปลี่ยน `class Config` เป็น `model_config = ConfigDict(...)` โดยแปลงชื่อคีย์ตามตารางใน warning
-5. เปลี่ยนชื่อเมธอด (`dict` ไปเป็น `model_dump` ฯลฯ) ซึ่งทำด้วยการค้นแทนที่ได้
-6. เขียน test ที่ใช้ข้อมูลจริงจากระบบ สำหรับพวกที่ 3 (`str` จากตัวเลข, ค่าที่คลุมเครือระหว่าง `int` กับ `float`) เพราะมันเงียบ
+1. อัปเกรดเป็น V2 แล้วรัน Test โดยตั้งให้ Warning ทุกชนิดเป็น Error จากนั้นดูรายการที่พัง
+2. แก้พวกที่ 2 ก่อน เพราะเห็นชัดและบอกทางแก้ไว้ให้ (`regex` เป็น `pattern`, `root_validator` เป็น `model_validator`, `BaseSettings` ไปที่ `pydantic-settings`)
+3. ไล่ดู `Optional[X]` ทุกจุด แล้วตัดสินใจทีละ Field ว่าต้องส่งไหม ถ้าไม่ต้องส่งก็เติม `= None`
+4. เปลี่ยน `class Config` เป็น `model_config = ConfigDict(...)` โดยแปลงชื่อคีย์ตามที่ Warning บอกไว้
+5. เปลี่ยนชื่อเมธอด (`dict` ไปเป็น `model_dump` ฯลฯ) ซึ่งทำด้วยการค้นแล้วแทนที่ได้
+6. เขียน Test ที่ใช้ข้อมูลจริงจากระบบ สำหรับพวกที่ 3 (`str` จากตัวเลข, ค่าที่คลุมเครือระหว่าง `int` กับ `float`) เพราะพวกนี้เปลี่ยนแบบเงียบ ๆ
 
 </Step>
 
@@ -148,9 +148,9 @@ issubclass(Old1, BaseModel)   # False       คนละคลาสกับ Ba
 
 ## เช็กตัวเอง
 
-- โค้ดเก่ามี `a: Optional[int]` และ caller ไม่เคยส่ง `a` ย้ายไป V2 แล้วเกิดอะไรขึ้น และแก้อย่างไร
+- โค้ดเก่ามี `a: Optional[int]` และ Caller ไม่เคยส่ง `a` ย้ายไป V2 แล้วเกิดอะไรขึ้น และแก้อย่างไร
 - `class Config: orm_mode = True` บน V2 ทำให้ `Model.model_validate(orm_object)` สำเร็จไหม แล้วรู้ได้อย่างไรว่าอะไรผิด
-- ทำไม V1 model ไม่ควรเป็น field ของ V2 model
+- ทำไม V1 Model ไม่ควรเป็น Field ของ V2 Model
 
 </Step>
 
@@ -160,14 +160,14 @@ issubclass(Old1, BaseModel)   # False       คนละคลาสกับ Ba
 
 | ข้อความ | ที่มา |
 |---|---|
-| ตารางชื่อเมธอด V1 กับ V2 และ warning ที่ระบุชื่อใหม่, `parse_raw` ได้ warning เพิ่ม | รัน: `exercises/11_migration.py` |
-| `@validator` ยังทำงานและ warn | รัน: `exercises/11_migration.py` |
-| `root_validator` ไม่มี mode ได้ `root-validator-pre-skip`, `regex` ได้ `removed-kwargs`, `BaseSettings` ได้ `PydanticImportError` | รัน: `exercises/11_migration.py` |
+| ตารางชื่อเมธอด V1 กับ V2 และ Warning ที่ระบุชื่อใหม่, `parse_raw` ได้ Warning เพิ่ม | รัน: `exercises/11_migration.py` |
+| `@validator` ยังทำงานและ Warn | รัน: `exercises/11_migration.py` |
+| `root_validator` ไม่มี Mode ได้ `root-validator-pre-skip`, `regex` ได้ `removed-kwargs`, `BaseSettings` ได้ `PydanticImportError` | รัน: `exercises/11_migration.py` |
 | `Optional[int]` ใน V1 กับ V2, `str` รับตัวเลขใน V1 แต่ V2 ไม่รับ | รัน: `exercises/11_migration.py` |
-| `class Config`: คีย์เปลี่ยนชื่อถูกเมินและมี warning, `extra` ยังทำงาน, `orm_mode` ไม่ทำงาน (`model_type`) | รัน: `exercises/11_migration.py` |
-| `pydantic.v1` ใช้ได้, ไม่ใช่ subclass ของ `BaseModel` ของ V2 | รัน: `exercises/11_migration.py` |
-| ตารางสี่ชุดใน `_migration.py`, ชั้น shim 21 ไฟล์, ชั้น legacy 26 ไฟล์ | source: knowledge graph v2.13.0 |
-| model V1 กับ V2 ผสมใน field เดียวกันไม่ได้ | ผู้เขียน (ไม่ได้ทดสอบ) |
-| warning ต้องเปิดทุกชนิดเป็น error และลำดับการย้าย | ผู้เขียน |
+| `class Config`: คีย์เปลี่ยนชื่อถูกเมินและมี Warning, `extra` ยังทำงาน, `orm_mode` ไม่ทำงาน (`model_type`) | รัน: `exercises/11_migration.py` |
+| `pydantic.v1` ใช้ได้, ไม่ใช่ Subclass ของ `BaseModel` ของ V2 | รัน: `exercises/11_migration.py` |
+| ตารางสี่ชุดใน `_migration.py`, ชั้น Shim 21 ไฟล์, ชั้น Legacy 26 ไฟล์ | Source: knowledge graph v2.13.0 |
+| Model V1 กับ V2 ผสมใน Field เดียวกันไม่ได้ | ผู้เขียน (ไม่ได้ทดสอบ) |
+| Warning ต้องเปิดทุกชนิดเป็น Error และลำดับการย้าย | ผู้เขียน |
 
 </Step>

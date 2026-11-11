@@ -1,6 +1,6 @@
 ---
 title: Field, Default และเงื่อนไข
-summary: บทนี้ดู required กับ optional กับ nullable ที่มักสับสนกัน default และ default_factory เงื่อนไขอย่าง gt, min_length, pattern การใช้ Annotated เพื่อใช้เงื่อนไขซ้ำ และ alias ทั้งสามแบบ
+summary: ดู Required กับ Optional กับ Nullable ที่มักสับสนกัน, Default และ default_factory, เงื่อนไขอย่าง gt, min_length, Pattern, การใช้ Annotated เพื่อใช้เงื่อนไขซ้ำ และ Alias ทั้งสามแบบ
 order: 2
 phase: A
 level: 1
@@ -17,7 +17,7 @@ import Callout from '../../../../components/Callout.astro';
 
 ## Required, Optional และ Nullable คนละเรื่องกัน
 
-คำสามคำนี้ถูกใช้ปนกันบ่อย แต่ใน Pydantic V2 มันแยกกันชัด (รัน: `exercises/02_fields.py`)
+คำสามคำนี้มักถูกใช้ปนกัน แต่ใน Pydantic V2 มันแยกจากกันอย่างชัดเจน (รัน: `exercises/02_fields.py`)
 
 ```python
 class A(BaseModel):
@@ -28,11 +28,11 @@ class A(BaseModel):
     ellipsis: int = Field(...)          # เหมือน required
 ```
 
-เรียก `A()` ไม่ส่งอะไรเลยจะได้ error `missing` สามจุด คือ `required`, `nullable_required` และ `ellipsis` ส่วน `with_default` กับ `nullable_default` ผ่าน
+ถ้าเรียก `A()` โดยไม่ส่งอะไรเลย จะได้ Error `missing` สามจุด คือ `required`, `nullable_required` และ `ellipsis` ส่วน `with_default` กับ `nullable_default` ผ่านได้
 
-จุดที่ทำให้คนที่ย้ายมาจาก V1 สะดุดคือ `nullable_required` ใน V1 การเขียน `Optional[int]` เฉย ๆ ทำให้ field ไม่ต้องส่งและมี default เป็น `None` ใน V2 `Optional[int]` บอกแค่ว่า **ค่าเป็น `None` ได้** ถ้าอยากให้ไม่ต้องส่งด้วย ต้องเขียน `= None` เอง
+จุดที่ทำให้คนที่ย้ายมาจาก V1 สะดุดคือ `nullable_required` เพราะใน V1 การเขียน `Optional[int]` เฉย ๆ ทำให้ Field ไม่ต้องส่งและมี Default เป็น `None` แต่ใน V2 `Optional[int]` บอกแค่ว่า **ค่าเป็น `None` ได้** ถ้าอยากให้ไม่ต้องส่งด้วย เราต้องเขียน `= None` เอง
 
-ถามตัวเองสองข้อแยกกันตอนออกแบบ field: ผู้เรียกต้องส่งมาไหม และค่าที่ส่งเป็น `None` ได้ไหม สองข้อนี้ตอบได้สี่แบบ และสี่แบบข้างบนครอบคลุมครบ
+ตอนออกแบบ Field ให้ลองถามตัวเองแยกกันสองข้อ คือผู้เรียกต้องส่งมาไหม และค่าที่ส่งเป็น `None` ได้ไหม สองข้อนี้ตอบได้สี่แบบ ซึ่งสี่แบบข้างบนก็ครอบคลุมครบแล้ว
 
 </Step>
 
@@ -40,7 +40,7 @@ class A(BaseModel):
 
 ## Default ทำงานยังไง
 
-**Default ไม่ถูกตรวจ** ค่า default ที่คุณเขียนในคลาสถูกใช้ตามที่เขียน ไม่ผ่านการ validate
+**Default ไม่ถูกตรวจ** ค่า Default ที่คุณเขียนในคลาสจะถูกใช้ตามที่เขียนไว้ โดยไม่ผ่านการ Validate
 
 ```python
 class B(BaseModel):
@@ -50,18 +50,18 @@ class B(BaseModel):
 B().n    # 'not checked'  ยังเป็น str ทั้งที่ประกาศ int
 ```
 
-ถ้าอยากให้ default ผ่านการตรวจด้วย ใช้ `Field("5", validate_default=True)` แล้ว `B2().n` จะเป็น `5`
+ถ้าอยากให้ Default ผ่านการตรวจด้วย ก็ใช้ `Field("5", validate_default=True)` แล้ว `B2().n` จะเป็น `5`
 
-**Default แบบ mutable ปลอดภัย** `tags: list[str] = []` ใน Python ธรรมดาเป็นบั๊กคลาสสิก เพราะทุกคนใช้ list ตัวเดียวกัน Pydantic คัดลอกค่า default ให้แต่ละ instance แบบฝึกพิสูจน์ว่า `b1.tags.append("x")` ไม่กระทบ `b2.tags`
+**Default แบบ Mutable ปลอดภัย** `tags: list[str] = []` ใน Python ธรรมดาเป็นบั๊กคลาสสิก เพราะทุกคนใช้ List ตัวเดียวกัน แต่ Pydantic จะคัดลอกค่า Default ให้แต่ละ Instance แบบฝึกพิสูจน์ไว้ว่า `b1.tags.append("x")` ไม่กระทบ `b2.tags`
 
-**`default_factory`** เรียกฟังก์ชันหนึ่งครั้งต่อหนึ่ง instance เหมาะกับค่าที่ต้องคำนวณใหม่ทุกครั้ง เช่นเวลาปัจจุบัน
+**`default_factory`** จะเรียกฟังก์ชันหนึ่งครั้งต่อหนึ่ง Instance จึงเหมาะกับค่าที่ต้องคำนวณใหม่ทุกครั้ง เช่นเวลาปัจจุบัน
 
 ```python
 class Stamp(BaseModel):
     created: datetime = Field(default_factory=datetime.now)
 ```
 
-factory ที่รับ argument หนึ่งตัวจะได้ dict ของ field ที่ validate เสร็จแล้ว (ใช้ได้ตั้งแต่ V2.10)
+ถ้า Factory รับ Argument หนึ่งตัว มันจะได้ Dict ของ Field ที่ Validate เสร็จแล้วมา (ใช้ได้ตั้งแต่ V2.10)
 
 ```python
 class WithData(BaseModel):
@@ -77,7 +77,7 @@ WithData(first="Ann").slug    # 'ann'
 
 ## เงื่อนไขของค่า
 
-`Field` รับเงื่อนไขเป็น keyword ได้ตรง ๆ
+`Field` รับเงื่อนไขเป็น Keyword ได้ตรง ๆ เลย
 
 ```python
 class Line(BaseModel):
@@ -87,7 +87,7 @@ class Line(BaseModel):
     note: str = Field("", max_length=10)
 ```
 
-| keyword | ใช้กับ | error type ที่ได้เมื่อไม่ผ่าน |
+| Keyword | ใช้กับ | Error Type ที่ได้เมื่อไม่ผ่าน |
 |---|---|---|
 | `gt`, `ge`, `lt`, `le` | ตัวเลข, วันที่ | `greater_than`, `greater_than_equal`, `less_than`, `less_than_equal` |
 | `min_length`, `max_length` | string, list, set, dict | `string_too_short`, `string_too_long`, `too_short`, `too_long` |
@@ -95,9 +95,9 @@ class Line(BaseModel):
 | `multiple_of` | ตัวเลข | `multiple_of` |
 | `max_digits`, `decimal_places` | `Decimal` | `decimal_max_digits`, `decimal_max_places` |
 
-ส่ง `Line(sku="ab", qty=0, price=-1)` ได้สามจุดตามลำดับ `string_too_short`, `greater_than`, `greater_than_equal` และ error แต่ละตัวพก `ctx` ที่บอกเงื่อนไขมาด้วย เช่น `{'gt': 0}` กับข้อความ `Input should be greater than 0`
+ถ้าส่ง `Line(sku="ab", qty=0, price=-1)` จะได้ Error สามจุดตามลำดับ คือ `string_too_short`, `greater_than`, `greater_than_equal` และ Error แต่ละตัวจะพก `ctx` ที่บอกเงื่อนไขมาด้วย เช่น `{'gt': 0}` กับข้อความ `Input should be greater than 0`
 
-`pattern` ใช้ regex engine ของ Rust เป็นค่าเริ่มต้น ซึ่งไม่รองรับ lookahead ถ้าเขียน `(?=a)` ใน pattern จะได้ `SchemaError` **ตอนสร้างคลาส** ไม่ต้องรอถึงตอน validate มีสองทางออก ตั้ง `regex_engine="python-re"` ใน config เพื่อใช้ `re` ของ Python หรือเขียน validator ([บท 5](/pydantic/validators/#เมื่อเงื่อนไขของ-field-ไม่พอ)) แทน
+`pattern` ใช้ Regex Engine ของ Rust เป็นค่าเริ่มต้น ซึ่งไม่รองรับ Lookahead ถ้าเขียน `(?=a)` ใน Pattern จะได้ `SchemaError` **ตอนสร้างคลาส** โดยไม่ต้องรอถึงตอน Validate ทางออกมีสองทาง คือตั้ง `regex_engine="python-re"` ใน Config เพื่อใช้ `re` ของ Python หรือเขียน Validator ([บท 5](/pydantic/validators/#เมื่อเงื่อนไขของ-field-ไม่พอ)) แทน
 
 </Step>
 
@@ -105,7 +105,7 @@ class Line(BaseModel):
 
 ## Annotated: เอาเงื่อนไขไปติดกับชนิด แล้วใช้ซ้ำ
 
-ถ้าเงื่อนไขเดียวกันใช้หลาย field เขียนซ้ำทุกที่น่าเบื่อและแก้ยาก `Annotated` ให้เราตั้งชื่อชนิดใหม่ที่พกเงื่อนไขไปด้วย
+ถ้าเงื่อนไขเดียวกันถูกใช้กับหลาย Field การเขียนซ้ำทุกที่ก็น่าเบื่อและแก้ยาก `Annotated` ช่วยให้เราตั้งชื่อชนิดใหม่ที่พกเงื่อนไขไปด้วยได้
 
 ```python
 from typing import Annotated
@@ -120,9 +120,9 @@ class Line2(BaseModel):
     parts: list[Qty] = []
 ```
 
-เงื่อนไขของ `Qty` ทำงานกับสมาชิกของ list ด้วย `Line2(sku="X-1", qty=5, parts=[1, 0, 101])` ได้สอง error ที่ตำแหน่ง `parts.1` (`greater_than`) และ `parts.2` (`less_than_equal`) ตำแหน่งในรายงานชี้ถึงสมาชิกที่ผิดพอดี
+เงื่อนไขของ `Qty` ทำงานกับสมาชิกของ List ด้วย ถ้าส่ง `Line2(sku="X-1", qty=5, parts=[1, 0, 101])` จะได้สอง Error ที่ตำแหน่ง `parts.1` (`greater_than`) และ `parts.2` (`less_than_equal`) ซึ่งตำแหน่งในรายงานชี้ถึงสมาชิกที่ผิดพอดี
 
-รูปแบบนี้ใช้กับ validator ได้เหมือนกัน ([บท 5](/pydantic/validators/#validator-แบบ-annotated-ใช้ซ้ำและซ้อนกันได้)) และเป็นวิธีที่ Pydantic เองใช้สร้างชนิดสำเร็จรูปอย่าง `PositiveInt` ([บท 3](/pydantic/types/#ชนิดสำเร็จรูป-ตัวเลขที่มีเงื่อนไข-url-email-secretstr))
+รูปแบบนี้ใช้กับ Validator ได้เหมือนกัน ([บท 5](/pydantic/validators/#validator-แบบ-annotated-ใช้ซ้ำและซ้อนกันได้)) และเป็นวิธีที่ Pydantic เองใช้สร้างชนิดสำเร็จรูปอย่าง `PositiveInt` ([บท 3](/pydantic/types/#ชนิดสำเร็จรูป-ตัวเลขที่มีเงื่อนไข-url-email-secretstr))
 
 </Step>
 
@@ -130,7 +130,7 @@ class Line2(BaseModel):
 
 ## Alias: ชื่อใน Input ไม่ตรงกับชื่อใน Python
 
-JSON จาก API ภายนอกมักใช้ `userId` แต่โค้ด Python ของเราอยากได้ `user_id` `alias` แก้ปัญหานี้
+JSON จาก API ภายนอกมักใช้ `userId` แต่โค้ด Python ของเราอยากได้ `user_id` ซึ่ง `alias` ช่วยแก้ปัญหานี้ได้
 
 ```python
 class Alias(BaseModel):
@@ -140,16 +140,16 @@ Alias(userId=1).user_id    # 1
 Alias(user_id=1)           # error: field "userId" missing
 ```
 
-เมื่อมี `alias` Pydantic รับ input ด้วยชื่อ alias เท่านั้น ถ้าอยากให้รับชื่อจริงด้วย เปิด `populate_by_name=True` ใน config ([บท 8](/pydantic/models-config/#configdict-ตั้งค่าทั้ง-model))
+เมื่อมี `alias` Pydantic จะรับ Input ด้วยชื่อ Alias เท่านั้น ถ้าอยากให้รับชื่อจริงด้วย ก็เปิด `populate_by_name=True` ใน Config ([บท 8](/pydantic/models-config/#configdict-ตั้งค่าทั้ง-model))
 
-ตอน dump ตามค่าเริ่มต้นจะใช้ชื่อ field จริง ส่ง `by_alias=True` เมื่ออยากได้ชื่อ alias กลับไป
+ตอน Dump ตามค่าเริ่มต้นจะใช้ชื่อ Field จริง และถ้าอยากได้ชื่อ Alias กลับไปก็ส่ง `by_alias=True`
 
 ```python
 a.model_dump()                 # {'user_id': 1}
 a.model_dump(by_alias=True)    # {'userId': 1}
 ```
 
-alias มีสามระดับ ใช้แยกกันได้เมื่อชื่อขาเข้ากับขาออกไม่เหมือนกัน
+Alias มีสามระดับ ซึ่งใช้แยกกันได้เมื่อชื่อขาเข้ากับขาออกไม่เหมือนกัน
 
 ```python
 class Kinds(BaseModel):
@@ -161,7 +161,7 @@ k = Kinds(in_a=1, bee=2, address={"city": "Chiang Mai"})
 k.model_dump(by_alias=True)    # {'out_a': 1, 'b': 2, 'city': 'Chiang Mai'}
 ```
 
-`validation_alias` กำหนดชื่อขาเข้า `serialization_alias` กำหนดชื่อขาออก `AliasChoices` รับได้หลายชื่อ (ตัวแรกที่เจอชนะ) และ `AliasPath` ดึงค่าจากข้างในโครงสร้างซ้อน ดังที่เห็นว่า `city` มาจาก `address.city` โดยไม่ต้องสร้าง model ของ address
+`validation_alias` กำหนดชื่อขาเข้า ส่วน `serialization_alias` กำหนดชื่อขาออก `AliasChoices` รับได้หลายชื่อ (ตัวแรกที่เจอชนะ) และ `AliasPath` ดึงค่าจากข้างในโครงสร้างซ้อน ดังที่เห็นว่า `city` มาจาก `address.city` โดยไม่ต้องสร้าง Model ของ Address
 
 </Step>
 
@@ -176,15 +176,15 @@ class Account(BaseModel):
     token: str = Field(frozen=True, default="t")
 ```
 
-- `exclude=True` ทำให้ field ไม่ออกมาใน `model_dump()` และ `model_dump_json()` ผลของ `Account(user="u", password="p").model_dump()` คือ `{'user': 'u', 'token': 't'}`
-- `repr=False` ซ่อน field จาก `repr` ตัว `password` จึงไม่ปรากฏเวลา log object
-- `frozen=True` ห้ามแก้ field นั้นหลังสร้าง `acc.token = "new"` ได้ `ValidationError` ชนิด `frozen_field`
-- `description`, `examples`, `title` ไปอยู่ใน JSON Schema ([บท 9](/pydantic/adapters/#json-schema-จาก-model))
+- `exclude=True` ทำให้ Field ไม่ออกมาใน `model_dump()` และ `model_dump_json()` โดยผลของ `Account(user="u", password="p").model_dump()` คือ `{'user': 'u', 'token': 't'}`
+- `repr=False` ซ่อน Field จาก `repr` ทำให้ `password` ไม่ปรากฏเวลา Log Object
+- `frozen=True` ห้ามแก้ Field นั้นหลังสร้าง ถ้าเขียน `acc.token = "new"` จะได้ `ValidationError` ชนิด `frozen_field`
+- `description`, `examples`, `title` จะไปอยู่ใน JSON Schema ([บท 9](/pydantic/adapters/#json-schema-จาก-model))
 
-ข้อมูลของแต่ละ field เก็บไว้ที่ `Model.model_fields` เป็น dict ของ `FieldInfo` เช่น `Account.model_fields["user"]` พิมพ์ออกมาเป็น `annotation=str required=True` และเรียก `.is_required()` ได้
+ข้อมูลของแต่ละ Field เก็บไว้ที่ `Model.model_fields` ซึ่งเป็น Dict ของ `FieldInfo` เช่น `Account.model_fields["user"]` พิมพ์ออกมาเป็น `annotation=str required=True` และเรียก `.is_required()` ได้
 
-<Callout type="warn" title="exclude ไม่ได้ทำให้ค่าปลอดภัยทั้งหมด">
-`exclude=True` กับ `repr=False` ซ่อนค่าจากการ dump และจาก `repr` เท่านั้น ค่ายังอยู่ใน `acc.password` และใน error ถ้า validation ล้ม (error แสดง `input_value`) ถ้าเป็นความลับจริง ให้ดู `SecretStr` ([บท 3](/pydantic/types/#ชนิดสำเร็จรูป-ตัวเลขที่มีเงื่อนไข-url-email-secretstr)) และ `hide_input_in_errors` ([บท 6](/pydantic/errors/#ซ่อนค่าที่ผิด-อย่าให้-password-หลุดเข้า-log))
+<Callout type="warn" title="Exclude ไม่ได้ทำให้ค่าปลอดภัยทั้งหมด">
+`exclude=True` กับ `repr=False` ซ่อนค่าจากการ Dump และจาก `repr` เท่านั้น ค่ายังอยู่ใน `acc.password` และใน Error ถ้า Validation ล้ม (Error แสดง `input_value`) ถ้าเป็นความลับจริง ๆ ให้ดู `SecretStr` ([บท 3](/pydantic/types/#ชนิดสำเร็จรูป-ตัวเลขที่มีเงื่อนไข-url-email-secretstr)) และ `hide_input_in_errors` ([บท 6](/pydantic/errors/#ซ่อนค่าที่ผิด-อย่าให้-password-หลุดเข้า-log))
 </Callout>
 
 </Step>
@@ -193,9 +193,9 @@ class Account(BaseModel):
 
 ## เช็กตัวเอง
 
-- `x: Optional[int]` กับ `x: Optional[int] = None` ต่างกันตรงไหน และถ้าย้ายโค้ดมาจาก V1 อันไหนที่พฤติกรรมเปลี่ยน
-- `n: int = "5"` ผ่านไหม และ `n` เป็นชนิดอะไรเมื่อสร้าง model โดยไม่ส่ง `n`
-- ต้องการรับ JSON key `userId` แต่ในโค้ดเรียก `user.user_id` และตอนส่งกลับให้ client ใช้ `userId` ต้องตั้งอะไรบ้าง
+- `x: Optional[int]` กับ `x: Optional[int] = None` ต่างกันตรงไหน และถ้าย้ายโค้ดมาจาก V1 แบบไหนที่พฤติกรรมเปลี่ยน
+- `n: int = "5"` ผ่านไหม และ `n` เป็นชนิดอะไรเมื่อสร้าง Model โดยไม่ส่ง `n`
+- ถ้าต้องการรับ JSON Key `userId` แต่ในโค้ดเรียก `user.user_id` และตอนส่งกลับให้ Client ใช้ `userId` เราต้องตั้งอะไรบ้าง
 
 </Step>
 
@@ -205,15 +205,15 @@ class Account(BaseModel):
 
 | ข้อความ | ที่มา |
 |---|---|
-| required, optional, nullable สี่แบบ และ error `missing` สามจุด | รัน: `exercises/02_fields.py` |
-| default ไม่ถูกตรวจ, `validate_default`, mutable default ถูกคัดลอก | รัน: `exercises/02_fields.py` |
-| `default_factory` แบบไม่มี argument และแบบรับ `data` | รัน: `exercises/02_fields.py` |
-| ชนิด error ของแต่ละเงื่อนไข และ `ctx` | รัน: `exercises/02_fields.py`, `exercises/12_capstone.py` (`decimal_max_places`) |
+| Required, Optional, Nullable สี่แบบ และ Error `missing` สามจุด | รัน: `exercises/02_fields.py` |
+| Default ไม่ถูกตรวจ, `validate_default`, Mutable Default ถูกคัดลอก | รัน: `exercises/02_fields.py` |
+| `default_factory` แบบไม่มี Argument และแบบรับ `data` | รัน: `exercises/02_fields.py` |
+| ชนิด Error ของแต่ละเงื่อนไข และ `ctx` | รัน: `exercises/02_fields.py`, `exercises/12_capstone.py` (`decimal_max_places`) |
 | `Annotated` ใช้ซ้ำและตำแหน่ง `parts.1`, `parts.2` | รัน: `exercises/02_fields.py` |
-| alias, `populate_by_name`, `by_alias`, `AliasChoices`, `AliasPath` | รัน: `exercises/02_fields.py` |
+| Alias, `populate_by_name`, `by_alias`, `AliasChoices`, `AliasPath` | รัน: `exercises/02_fields.py` |
 | `exclude`, `repr=False`, `frozen` (`frozen_field`), `description` ใน JSON Schema, `FieldInfo` | รัน: `exercises/02_fields.py` |
-| `Optional[int]` ใน V1 มี default เป็น `None` | รัน: `exercises/11_migration.py` (ใช้ `pydantic.v1`) |
-| `pattern` ปฏิเสธ lookahead ตอนสร้างคลาส (`SchemaError`) และ `regex_engine="python-re"` ยอมรับ | รัน: `exercises/02_fields.py` |
+| `Optional[int]` ใน V1 มี Default เป็น `None` | รัน: `exercises/11_migration.py` (ใช้ `pydantic.v1`) |
+| `pattern` ปฏิเสธ Lookahead ตอนสร้างคลาส (`SchemaError`) และ `regex_engine="python-re"` ยอมรับ | รัน: `exercises/02_fields.py` |
 | `default_factory` ที่รับ `data` ใช้ได้ตั้งแต่ V2.10 | ผู้เขียน (ตามเอกสาร, ไม่ได้รันกับเวอร์ชันเก่า) |
 
 </Step>

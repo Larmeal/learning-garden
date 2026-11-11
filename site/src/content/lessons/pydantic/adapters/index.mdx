@@ -1,6 +1,6 @@
 ---
 title: TypeAdapter, validate_call, Dataclass และ JSON Schema
-summary: ตรวจข้อมูลที่ไม่ใช่ BaseModel ด้วย TypeAdapter, ตรวจ argument ของฟังก์ชันด้วย validate_call, pydantic dataclass, TypedDict กับ NamedTuple และสร้าง JSON Schema จาก model พร้อมข้อจำกัด
+summary: ตรวจข้อมูลที่ไม่ใช่ BaseModel ด้วย TypeAdapter, ตรวจ Argument ของฟังก์ชันด้วย validate_call, Pydantic Dataclass, TypedDict กับ NamedTuple และสร้าง JSON Schema จาก Model พร้อมข้อจำกัด
 order: 9
 phase: C
 level: 3
@@ -17,7 +17,7 @@ import Callout from '../../../../components/Callout.astro';
 
 ## TypeAdapter: ตรวจชนิดอะไรก็ได้
 
-ไม่ใช่ทุกอย่างที่ต้องห่อเป็น `BaseModel` ถ้าต้องตรวจแค่ `list[int]` หรือ `dict[str, int]` การสร้างคลาสเพิ่มเป็นภาระ `TypeAdapter` รับชนิดแล้วให้ validator, serializer และ JSON Schema ของชนิดนั้น (รัน: `exercises/09_adapters.py`)
+ข้อมูลบางอย่างไม่จำเป็นต้องห่อเป็น `BaseModel` เสมอไป ถ้าเราต้องตรวจแค่ `list[int]` หรือ `dict[str, int]` การสร้างคลาสเพิ่มก็เป็นภาระเปล่า ๆ `TypeAdapter` จึงรับชนิดนั้นเข้าไป แล้วให้ Validator, Serializer และ JSON Schema ของชนิดนั้นกลับมา (รัน: `exercises/09_adapters.py`)
 
 ```python
 ta = TypeAdapter(list[int])
@@ -28,9 +28,9 @@ ta.dump_json([1, 2])               # b'[1,2]'   คืน bytes ไม่ใช�
 ta.json_schema()                   # {'type': 'array', 'items': {'type': 'integer'}}
 ```
 
-ชื่อเมธอดต่างจาก model เล็กน้อย `validate_python` แทน `model_validate`, `dump_python` แทน `model_dump` ข้อควรระวังอย่างเดียวคือ `dump_json` คืน `bytes`
+ชื่อเมธอดต่างจาก Model เล็กน้อย โดยใช้ `validate_python` แทน `model_validate` และ `dump_python` แทน `model_dump` ส่วนข้อควรระวังมีอย่างเดียวคือ `dump_json` คืน `bytes`
 
-เงื่อนไขจาก [บท 2](/pydantic/fields/#annotated-เอาเงื่อนไขไปติดกับชนิด-แล้วใช้ซ้ำ) ใช้ได้ภายในชนิด
+เงื่อนไขจาก [บท 2](/pydantic/fields/#annotated-เอาเงื่อนไขไปติดกับชนิด-แล้วใช้ซ้ำ) ก็ใช้ภายในชนิดได้เหมือนกัน
 
 ```python
 Users = TypeAdapter(dict[str, Annotated[int, Field(ge=0)]])
@@ -38,13 +38,13 @@ Users.validate_python({"a": "1"})     # {'a': 1}
 Users.validate_python({"a": -1})      # error ที่ loc ('a',) ชนิด greater_than_equal
 ```
 
-**สร้างครั้งเดียว ใช้ซ้ำ** การสร้าง `TypeAdapter` คือขั้นแพง เพราะต้องเดินชนิดและสร้าง core schema ([บท 10](/pydantic/under-the-hood/#ต้นทุนอยู่ตอนสร้างคลาส-ไม่ใช่ตอน-validate)) การเรียก `validate_python` เป็นขั้นถูก แบบฝึกวัด 200 ครั้งของ `[1, 2, 3]` บนเครื่องที่รัน
+**สร้างครั้งเดียว ใช้ซ้ำ** การสร้าง `TypeAdapter` เป็นขั้นที่แพง เพราะต้องเดินดูชนิดและสร้าง Core Schema ([บท 10](/pydantic/under-the-hood/#ต้นทุนอยู่ตอนสร้างคลาส-ไม่ใช่ตอน-validate)) ส่วนการเรียก `validate_python` เป็นขั้นที่ถูก แบบฝึกจึงวัดดู 200 ครั้งของ `[1, 2, 3]` บนคอมพิวเตอร์ที่รัน
 
 ```text
 build each call 6.9 ms, reuse 0.09 ms for 200 calls, ratio 77x
 ```
 
-ตัวเลขนี้ขึ้นกับเครื่อง สิ่งที่แบบฝึก `assert` คืออัตราส่วนมากกว่า 20 เท่า ดังนั้นให้ประกาศ adapter เป็นตัวแปรระดับ module แทนการสร้างในฟังก์ชันที่ถูกเรียกบ่อย
+ตัวเลขนี้ขึ้นกับคอมพิวเตอร์ที่รัน สิ่งที่แบบฝึก `assert` ไว้คืออัตราส่วนมากกว่า 20 เท่า เพราะฉะนั้นเราควรประกาศ Adapter เป็นตัวแปรระดับ Module แทนที่จะสร้างในฟังก์ชันที่ถูกเรียกบ่อย
 
 </Step>
 
@@ -52,7 +52,7 @@ build each call 6.9 ms, reuse 0.09 ms for 200 calls, ratio 77x
 
 ## TypedDict และ NamedTuple
 
-ชนิดมาตรฐานของ Python ที่ไม่ใช่ class ธรรมดาก็ตรวจได้ และผลที่ได้ยังเป็นชนิดเดิม
+ชนิดมาตรฐานของ Python ที่ไม่ใช่ Class ธรรมดาก็ตรวจได้เหมือนกัน และผลที่ได้ก็ยังเป็นชนิดเดิม
 
 ```python
 class Movie(TypedDict):
@@ -70,7 +70,7 @@ class Pt(NamedTuple):
 TypeAdapter(Pt).validate_python(("1", "2"))    # Pt(x=1, y=2)
 ```
 
-เหมาะเมื่อโค้ดเดิมส่ง dict หรือ tuple กันอยู่แล้วและอยากเพิ่มการตรวจที่ขอบ โดยไม่เปลี่ยนชนิดข้อมูลที่เหลือของโปรแกรม
+วิธีนี้เหมาะเมื่อโค้ดเดิมส่ง Dict หรือ Tuple กันอยู่แล้ว และเราอยากเพิ่มการตรวจที่ขอบ โดยไม่ต้องเปลี่ยนชนิดข้อมูลที่เหลือของโปรแกรม
 
 </Step>
 
@@ -78,7 +78,7 @@ TypeAdapter(Pt).validate_python(("1", "2"))    # Pt(x=1, y=2)
 
 ## Pydantic Dataclass
 
-`dataclass` ธรรมดาไม่ตรวจอะไร ([บท 1](/pydantic/first-model/#type-hint-ไม่ได้ตรวจอะไรเลย)) เปลี่ยนเป็นของ Pydantic ได้โดยเปลี่ยนที่ import
+`dataclass` ธรรมดาไม่ได้ตรวจอะไรเลย ([บท 1](/pydantic/first-model/#type-hint-ไม่ได้ตรวจอะไรเลย)) แต่เราเปลี่ยนเป็นของ Pydantic ได้โดยแค่เปลี่ยนที่ Import
 
 ```python
 from pydantic.dataclasses import dataclass as pdataclass
@@ -95,9 +95,9 @@ dataclasses.asdict(Item("A", 2))    # {'sku': 'A', 'qty': 2}
 TypeAdapter(Item).validate_python({"sku": "A", "qty": "2"})   # Item(sku='A', qty=2)
 ```
 
-ยังเป็น dataclass ที่ใช้กับเครื่องมืออื่นได้ (`asdict`, `fields`) และ type checker เห็นเป็น dataclass ตามปกติ ข้อต่างจาก `BaseModel` คือไม่มีเมธอด `model_*` ใช้ `TypeAdapter` เมื่อต้องการ dump หรือ JSON Schema
+ผลที่ได้ยังเป็น Dataclass ที่ใช้กับเครื่องมืออื่นได้ (`asdict`, `fields`) และ Type Checker ก็เห็นเป็น Dataclass ตามปกติ ส่วนข้อต่างจาก `BaseModel` คือไม่มีเมธอด `model_*` ถ้าต้องการ Dump หรือ JSON Schema ก็ให้ใช้ `TypeAdapter` แทน
 
-เลือกอย่างไร: ถ้าต้องการพวก `model_dump`, `model_json_schema`, ConfigDict เต็มรูปแบบ หรือ field ที่ต้อง alias ใช้ `BaseModel` ถ้าโค้ดอยู่ในสไตล์ dataclass อยู่แล้วและอยากเพิ่มการตรวจ ใช้ pydantic dataclass (คำแนะนำของผู้เขียน)
+แล้วจะเลือกอย่างไรดี ถ้าเราต้องการพวก `model_dump`, `model_json_schema`, ConfigDict เต็มรูปแบบ หรือ Field ที่ต้อง Alias ก็ใช้ `BaseModel` แต่ถ้าโค้ดอยู่ในสไตล์ Dataclass อยู่แล้วและอยากเพิ่มการตรวจ ก็ใช้ Pydantic Dataclass (คำแนะนำของผู้เขียน)
 
 </Step>
 
@@ -113,17 +113,17 @@ def add(a: int, b: int = 1) -> int:
 add("2", b="3")    # 5
 ```
 
-decorator ตรวจ argument ทุกตัวด้วยกฎเดียวกับ model ผิดแล้วได้ `ValidationError` ที่ `loc` ใช้ตำแหน่งหรือชื่อ
+Decorator ตัวนี้ตรวจ Argument ทุกตัวด้วยกฎเดียวกับ Model ถ้าผิดก็จะได้ `ValidationError` ที่ `loc` ใช้ตำแหน่งหรือชื่อของ Argument
 
-| เรียก | error |
+| เรียก | Error |
 |---|---|
 | `add("x")` | `loc == (0,)` ชนิด `int_parsing` |
 | `add(1, 2, 3)` | `unexpected_positional_argument` |
 | `add(1, c=3)` | `unexpected_keyword_argument` |
 
-ค่าที่คืนไม่ถูกตรวจตามค่าเริ่มต้น ถ้าต้องการให้ตรวจด้วย ใส่ `@validate_call(validate_return=True)` แล้วฟังก์ชันที่คืน `"not an int"` จะได้ `int_parsing` ฟังก์ชันที่ห่อแล้วยังชื่อเดิม (`add.__name__ == "add"`) และเรียกตัวต้นฉบับโดยไม่ผ่านการตรวจได้ที่ `add.raw_function`
+ตามค่าเริ่มต้น ค่าที่ฟังก์ชันคืนจะไม่ถูกตรวจ ถ้าอยากให้ตรวจด้วยก็ใส่ `@validate_call(validate_return=True)` แล้วฟังก์ชันที่คืน `"not an int"` จะได้ `int_parsing` ฟังก์ชันที่ห่อแล้วยังคงชื่อเดิม (`add.__name__ == "add"`) และถ้าอยากเรียกตัวต้นฉบับโดยไม่ผ่านการตรวจ ก็เรียกได้ที่ `add.raw_function`
 
-argument ที่เป็น model รับ dict ได้ตามที่ model ปกติรับ
+Argument ที่เป็น Model ก็รับ Dict ได้เหมือนกับที่ Model ปกติรับ
 
 ```python
 @validate_call
@@ -134,7 +134,7 @@ use({"n": "4"})    # 4
 ```
 
 <Callout type="tip" title="เหมาะกับงานแบบไหน">
-`validate_call` สะดวกกับฟังก์ชันที่เป็นทางเข้าของ library หรือ CLI ซึ่งผู้เรียกเป็นคนอื่น กับฟังก์ชันที่เรียกกันเองในโค้ดที่ type checker ตรวจอยู่แล้ว การตรวจซ้ำทุกครั้งที่เรียกเป็นต้นทุนที่ไม่จำเป็น
+`validate_call` สะดวกกับฟังก์ชันที่เป็นทางเข้าของ Library หรือ CLI ซึ่งผู้เรียกเป็นคนอื่น ส่วนฟังก์ชันที่เรียกกันเองในโค้ดที่ Type Checker ตรวจอยู่แล้ว การตรวจซ้ำทุกครั้งที่เรียกจะเป็นต้นทุนที่ไม่จำเป็น
 </Callout>
 
 </Step>
@@ -143,7 +143,7 @@ use({"n": "4"})    # 4
 
 ## JSON Schema จาก Model
 
-`Model.model_json_schema()` (หรือ `TypeAdapter(...).json_schema()`) สร้าง JSON Schema ที่ให้ฝั่ง client ใช้ตรวจ ทำเอกสาร API หรือสร้างฟอร์ม
+`Model.model_json_schema()` (หรือ `TypeAdapter(...).json_schema()`) สร้าง JSON Schema ที่ฝั่ง Client เอาไปใช้ตรวจ ทำเอกสาร API หรือสร้างฟอร์มได้
 
 ```python
 class Product(BaseModel):
@@ -155,15 +155,15 @@ class Product(BaseModel):
     note: str | None = None
 ```
 
-สิ่งที่ผลมีจริง (ยืนยันด้วย `assert` ในแบบฝึก)
+ผลที่ได้มีสิ่งเหล่านี้จริง (ยืนยันด้วย `assert` ในแบบฝึก)
 
-- `required` คือ `["sku", "price"]` field ที่มี default ไม่อยู่ในรายการ
-- `sku` มี `minLength: 3` พร้อม `description` และ `examples`
+- `required` คือ `["sku", "price"]` เพราะ Field ที่มี Default ไม่อยู่ในรายการ
+- `sku` มี `minLength: 3` พร้อมกับ `description` และ `examples`
 - `price` มี `exclusiveMinimum: 0` (จาก `gt=0`)
 - `note` เป็น `anyOf: [{"type": "string"}, {"type": "null"}]`
-- `title` เป็น `"Product"` และ `description` ได้จาก docstring ของคลาส
+- `title` เป็น `"Product"` และ `description` มาจาก Docstring ของคลาส
 
-model ที่ซ้อนกันไปอยู่ใน `$defs` แล้วอ้างด้วย `$ref`
+ส่วน Model ที่ซ้อนกันจะไปอยู่ใน `$defs` แล้วอ้างถึงด้วย `$ref`
 
 ```python
 class Basket(BaseModel):
@@ -172,10 +172,10 @@ class Basket(BaseModel):
 schema["properties"]["items"]["items"]   # {'$ref': '#/$defs/Product'}
 ```
 
-**สองโหมด** `model_json_schema(mode="validation")` (ค่าเริ่มต้น) อธิบายสิ่งที่ model **รับ** ส่วน `mode="serialization"` อธิบายสิ่งที่ **ส่งออก** ต่างกันตรงที่ computed field ([บท 7](/pydantic/serialization/#computed_field-เอา-property-เข้าไปในผลลัพธ์)) อยู่ในแบบ serialization เท่านั้น ใน serialization `required` ยังเป็น `["sku", "price"]` เพราะ field ที่มี default ยังไม่บังคับ ถ้าอยากให้ field ที่มี default ถือว่ามีเสมอในผลที่ส่ง ตั้ง `json_schema_serialization_defaults_required` เป็น `True` แล้ว `required` จะได้ครบสี่ field
+**สองโหมด** `model_json_schema(mode="validation")` (ค่าเริ่มต้น) อธิบายสิ่งที่ Model **รับ** ส่วน `mode="serialization"` อธิบายสิ่งที่ **ส่งออก** โดยสองโหมดนี้ต่างกันตรงที่ Computed Field ([บท 7](/pydantic/serialization/#computed_field-เอา-property-เข้าไปในผลลัพธ์)) จะอยู่ในแบบ Serialization เท่านั้น และใน Serialization `required` ก็ยังเป็น `["sku", "price"]` เพราะ Field ที่มี Default ยังไม่บังคับ ถ้าอยากให้ Field ที่มี Default ถือว่ามีอยู่เสมอในผลที่ส่งออก ก็ตั้ง `json_schema_serialization_defaults_required` เป็น `True` แล้ว `required` จะได้ครบสี่ Field
 
-<Callout type="warn" title="validator ที่เป็นโค้ด Python มองไม่เห็นใน JSON Schema">
-`field_validator` ที่ตรวจว่าเลขเป็นเลขคู่ ไม่ปรากฏใน schema เลย แบบฝึกยืนยัน: `n` ยังเป็น `{"title": "N", "type": "integer"}` เท่านั้น JSON Schema ที่สร้างจึงบอกได้เฉพาะเงื่อนไขที่ Pydantic เข้าใจ (ชนิด `Field(...)` `Annotated`) ถ้ามี validator ที่สำคัญ ต้องบอกใน `description` เอง ไม่เช่นนั้น client ที่เชื่อ schema จะส่งค่าที่ server ปฏิเสธ
+<Callout type="warn" title="Validator ที่เป็นโค้ด Python มองไม่เห็นใน JSON Schema">
+`field_validator` ที่ตรวจว่าเลขเป็นเลขคู่ จะไม่ปรากฏใน Schema เลย แบบฝึกยืนยันไว้ว่า `n` ยังเป็น `{"title": "N", "type": "integer"}` เท่านั้น JSON Schema ที่สร้างจึงบอกได้เฉพาะเงื่อนไขที่ Pydantic เข้าใจ (ชนิด `Field(...)` `Annotated`) ถ้ามี Validator ที่สำคัญ เราต้องบอกไว้ใน `description` เอง ไม่อย่างนั้น Client ที่เชื่อ Schema จะส่งค่าที่ Server ปฏิเสธมา
 </Callout>
 
 </Step>
@@ -184,9 +184,9 @@ schema["properties"]["items"]["items"]   # {'$ref': '#/$defs/Product'}
 
 ## เช็กตัวเอง
 
-- ฟังก์ชันที่ถูกเรียกพันครั้งต่อวินาทีสร้าง `TypeAdapter(list[int])` ข้างในทุกครั้ง มีปัญหาตรงไหน และแก้อย่างไร
-- `TypeAdapter(Movie).validate_python(...)` (Movie เป็น `TypedDict`) คืนอะไร ต่างจากการใช้ `BaseModel` ตรงไหน
-- schema ของ `Product` ในโหมด validation กับ serialization ต่างกันในกรณีใด และ validator ที่คุณเขียนเองเห็นใน schema ไหม
+- ถ้าฟังก์ชันที่ถูกเรียกพันครั้งต่อวินาทีสร้าง `TypeAdapter(list[int])` ข้างในทุกครั้ง จะมีปัญหาตรงไหน และแก้อย่างไร
+- `TypeAdapter(Movie).validate_python(...)` (Movie เป็น `TypedDict`) คืนอะไรกลับมา และต่างจากการใช้ `BaseModel` ตรงไหน
+- Schema ของ `Product` ในโหมด Validation กับ Serialization ต่างกันในกรณีใด และ Validator ที่คุณเขียนเองจะเห็นใน Schema ไหม
 
 </Step>
 
@@ -196,16 +196,16 @@ schema["properties"]["items"]["items"]   # {'$ref': '#/$defs/Product'}
 
 | ข้อความ | ที่มา |
 |---|---|
-| เมธอดของ `TypeAdapter`, `dump_json` คืน bytes, loc ของ dict | รัน: `exercises/09_adapters.py` |
-| อัตราส่วนสร้างทุกครั้ง กับใช้ซ้ำ (ผลที่พิมพ์ 77x เป็นผลของเครื่องที่รัน, assert มากกว่า 20x) | รัน: `exercises/09_adapters.py` |
+| เมธอดของ `TypeAdapter`, `dump_json` คืน Bytes, Loc ของ Dict | รัน: `exercises/09_adapters.py` |
+| อัตราส่วนสร้างทุกครั้ง กับใช้ซ้ำ (ผลที่พิมพ์ 77x เป็นผลของคอมพิวเตอร์ที่รัน, Assert มากกว่า 20x) | รัน: `exercises/09_adapters.py` |
 | `TypedDict` และ `NamedTuple` | รัน: `exercises/09_adapters.py` |
-| pydantic dataclass | รัน: `exercises/09_adapters.py` |
-| `validate_call`: argument, error สามแบบ, `validate_return`, `raw_function`, model เป็น argument | รัน: `exercises/09_adapters.py` |
-| JSON Schema: required, minLength, exclusiveMinimum, anyOf, docstring, `$defs`, สองโหมด, `json_schema_serialization_defaults_required` | รัน: `exercises/09_adapters.py` |
-| validator ไม่ปรากฏใน JSON Schema | รัน: `exercises/09_adapters.py` |
-| ขั้นแพงคือการสร้าง core schema | รัน: `exercises/10_under_the_hood.py` (สร้างคลาส 200 ครั้ง เทียบกับ validate 200 ครั้ง) |
-| คำแนะนำเรื่องเลือก `BaseModel` หรือ dataclass และเมื่อไหร่ใช้ `validate_call` | ผู้เขียน |
-| `TypeAdapter` สร้าง validator, serializer และ JSON Schema ของชนิดใดก็ได้ | source: `type_adapter.py` ใน knowledge graph |
-| JSON Schema สร้างจาก core schema ไม่ใช่จากคลาส Python | source: `json_schema.py` ใน knowledge graph |
+| Pydantic Dataclass | รัน: `exercises/09_adapters.py` |
+| `validate_call`: Argument, Error สามแบบ, `validate_return`, `raw_function`, Model เป็น Argument | รัน: `exercises/09_adapters.py` |
+| JSON Schema: Required, minLength, exclusiveMinimum, anyOf, Docstring, `$defs`, สองโหมด, `json_schema_serialization_defaults_required` | รัน: `exercises/09_adapters.py` |
+| Validator ไม่ปรากฏใน JSON Schema | รัน: `exercises/09_adapters.py` |
+| ขั้นแพงคือการสร้าง Core Schema | รัน: `exercises/10_under_the_hood.py` (สร้างคลาส 200 ครั้ง เทียบกับ Validate 200 ครั้ง) |
+| คำแนะนำเรื่องเลือก `BaseModel` หรือ Dataclass และเมื่อไหร่ใช้ `validate_call` | ผู้เขียน |
+| `TypeAdapter` สร้าง Validator, Serializer และ JSON Schema ของชนิดใดก็ได้ | Source: `type_adapter.py` ใน Knowledge Graph |
+| JSON Schema สร้างจาก Core Schema ไม่ใช่จากคลาส Python | Source: `json_schema.py` ใน Knowledge Graph |
 
 </Step>

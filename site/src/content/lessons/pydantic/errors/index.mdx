@@ -1,6 +1,6 @@
 ---
 title: อ่านและจัดการ ValidationError
-summary: ValidationError ประกอบด้วยอะไร loc ชี้ตำแหน่งใน model ที่ซ้อนกันยังไง errors(), json() และ str() ใช้ต่างกันยังไง การสร้าง error ของตัวเองด้วย PydanticCustomError, ข้อมูลใน ctx และการซ่อน input ที่เป็นความลับ
+summary: ValidationError ประกอบด้วยอะไร Loc ชี้ตำแหน่งใน Model ที่ซ้อนกันยังไง errors(), json() และ str() ใช้ต่างกันยังไง การสร้าง Error ของตัวเองด้วย PydanticCustomError, ข้อมูลใน Ctx และการซ่อน Input ที่เป็นความลับ
 order: 6
 phase: B
 level: 3
@@ -35,9 +35,9 @@ bad = {"id": "x",
 Order.model_validate(bad)
 ```
 
-`ValidationError` ที่ได้ถือสี่ error `e.error_count()` ได้ 4 และ `e.title` เป็น `"Order"` และเพราะ `ValidationError` เป็น subclass ของ `ValueError` ตัว `except ValueError` ของโค้ดเก่าจะจับมันได้ด้วย
+`ValidationError` ที่ได้จะถือสี่ Error ไว้ด้วยกัน โดย `e.error_count()` ได้ 4 และ `e.title` เป็น `"Order"` อีกอย่างคือ `ValidationError` เป็น Subclass ของ `ValueError` ดังนั้น `except ValueError` ของโค้ดเก่าก็จับมันได้ด้วย
 
-`e.errors()` คืน list ของ dict หนึ่งตัวต่อหนึ่งปัญหา
+ส่วน `e.errors()` จะคืน List ของ Dict หนึ่งตัวต่อหนึ่งปัญหา
 
 ```python
 {'type': 'int_parsing',
@@ -47,14 +47,14 @@ Order.model_validate(bad)
  'url': 'https://errors.pydantic.dev/2.13/v/int_parsing'}
 ```
 
-| key | ความหมาย |
+| Key | ความหมาย |
 |---|---|
 | `type` | รหัสของปัญหา เสถียรกว่าข้อความ ใช้ในโค้ดที่ต้องตัดสินใจตามชนิดของปัญหา |
-| `loc` | ตำแหน่งใน input เป็น tuple ของ key และดัชนี |
+| `loc` | ตำแหน่งใน Input เป็น Tuple ของ Key และดัชนี |
 | `msg` | ข้อความสำหรับคนอ่าน |
 | `input` | ค่าที่ทำให้ล้ม |
 | `ctx` | ข้อมูลประกอบ (ถ้ามี) เช่น `{'gt': 0}` |
-| `url` | ลิงก์ไปหน้าเอกสารของ error ชนิดนั้น |
+| `url` | ลิงก์ไปหน้าเอกสารของ Error ชนิดนั้น |
 
 </Step>
 
@@ -62,17 +62,17 @@ Order.model_validate(bad)
 
 ## Loc: ตามรอยลงไปในโครงสร้างซ้อน
 
-สี่ error ของตัวอย่างข้างบนมี `loc` ดังนี้
+สี่ Error ของตัวอย่างข้างบนมี `loc` ดังนี้
 
 ```python
 [('id',), ('items', 1, 'sku'), ('items', 1, 'qty'), ('meta', 'k')]
 ```
 
-อ่านว่า field `id`, สมาชิกตัวที่ 1 (นับจาก 0) ของ `items` ที่ field `sku`, ตัวเดียวกันที่ `qty`, และ key `k` ของ `meta` loc ใน `list` ใช้ดัชนีเป็นตัวเลข ใน `dict` ใช้ key เป็นข้อความ ในการแสดงผลแบบข้อความจะเขียนต่อกันด้วยจุด เช่น `items.1.sku`
+อ่านได้ว่า Field `id`, สมาชิกตัวที่ 1 (นับจาก 0) ของ `items` ที่ Field `sku`, ตัวเดียวกันที่ `qty`, และ Key `k` ของ `meta` โดย Loc ใน `list` จะใช้ดัชนีเป็นตัวเลข ส่วนใน `dict` จะใช้ Key เป็นข้อความ และในการแสดงผลแบบข้อความจะเขียนต่อกันด้วยจุด เช่น `items.1.sku`
 
-ถ้า input มาเป็น JSON ผ่าน `model_validate_json` ตำแหน่งก็รายงานแบบเดียวกัน `'{"id": 1, "items": [{"sku": "A"}]}'` ได้ `loc == ("items", 0, "qty")` ชนิด `missing`
+ถ้า Input มาเป็น JSON ผ่าน `model_validate_json` ตำแหน่งก็รายงานแบบเดียวกัน เช่น `'{"id": 1, "items": [{"sku": "A"}]}'` จะได้ `loc == ("items", 0, "qty")` ชนิด `missing`
 
-ถ้า JSON ผิดไวยากรณ์ ก็เป็น `ValidationError` เหมือนกัน ชนิด `json_invalid` โดย `loc` ว่างและข้อความบอกตำแหน่งในข้อความ เช่น `Invalid JSON: EOF while parsing a list at line 1 column 20` ผู้เรียกจึงไม่ต้องจับ `json.JSONDecodeError` แยกต่างหาก
+ถ้า JSON ผิดไวยากรณ์ ก็เป็น `ValidationError` เหมือนกัน ชนิด `json_invalid` โดย `loc` จะว่าง และข้อความจะบอกตำแหน่งในข้อความ JSON เช่น `Invalid JSON: EOF while parsing a list at line 1 column 20` ผู้เรียกจึงไม่ต้องจับ `json.JSONDecodeError` แยกต่างหาก
 
 </Step>
 
@@ -82,13 +82,13 @@ Order.model_validate(bad)
 
 | เมธอด | คืน | ใช้เมื่อ |
 |---|---|---|
-| `str(e)` | ข้อความหลายบรรทัดอ่านง่าย | แสดงให้คน เช่นใน log หรือ traceback |
-| `e.errors()` | `list[dict]` | โค้ดที่ต้องประมวลผลต่อ เช่น แปลงเป็นรูปแบบ response ของ API |
-| `e.json()` | JSON string | ส่งต่อเป็นข้อความ |
+| `str(e)` | ข้อความหลายบรรทัดอ่านง่าย | แสดงให้คน เช่นใน Log หรือ Traceback |
+| `e.errors()` | `list[dict]` | โค้ดที่ต้องประมวลผลต่อ เช่น แปลงเป็นรูปแบบ Response ของ API |
+| `e.json()` | JSON String | ส่งต่อเป็นข้อความ |
 
-บรรทัดแรกของ `str(e)` คือ `4 validation errors for Order` ตามด้วยชื่อ field ที่ผิดทีละบรรทัด (ตามแบบที่เห็นใน [บท 1](/pydantic/first-model/#เมื่อข้อมูลผิด-validationerror))
+บรรทัดแรกของ `str(e)` คือ `4 validation errors for Order` ตามด้วยชื่อ Field ที่ผิดทีละบรรทัด (แบบเดียวกับที่เห็นใน [บท 1](/pydantic/first-model/#เมื่อข้อมูลผิด-validationerror))
 
-`errors()` ปรับได้สามทาง
+นอกจากนี้ `errors()` ยังปรับได้สามทาง
 
 ```python
 e.errors(include_url=False)       # ไม่เอา url
@@ -96,8 +96,8 @@ e.errors(include_input=False)     # ไม่เอาค่าที่ผิ�
 e.errors(include_context=False)   # ไม่เอา ctx
 ```
 
-<Callout type="warn" title="errors() ที่มี ctx ไม่ได้เป็น JSON เสมอไป">
-เมื่อ validator โยน `ValueError` เราจะเห็น exception ตัวเดิมอยู่ใน `ctx["error"]` (แบบฝึกยืนยัน `isinstance(ctx["error"], ValueError)`) แต่ exception object ส่งเข้า `json.dumps` ไม่ได้ จะได้ `TypeError` ถ้าต้องการ JSON ใช้ `e.json()` ซึ่งแปลง `ctx["error"]` เป็นข้อความ `{"error": "too big"}` ให้ หรือใช้ `include_context=False`
+<Callout type="warn" title="errors() ที่มี Ctx ไม่ได้เป็น JSON เสมอไป">
+เมื่อ Validator โยน `ValueError` เราจะเห็น Exception ตัวเดิมอยู่ใน `ctx["error"]` (แบบฝึกยืนยัน `isinstance(ctx["error"], ValueError)`) แต่ Exception Object ส่งเข้า `json.dumps` ไม่ได้ และจะได้ `TypeError` ถ้าต้องการ JSON ให้ใช้ `e.json()` ซึ่งแปลง `ctx["error"]` เป็นข้อความ `{"error": "too big"}` ให้ หรือจะใช้ `include_context=False` ก็ได้
 </Callout>
 
 </Step>
@@ -106,7 +106,7 @@ e.errors(include_context=False)   # ไม่เอา ctx
 
 ## สร้าง Error ของตัวเอง
 
-`raise ValueError("...")` ใน validator ได้ `type` เป็น `value_error` เสมอ และข้อความมี `Value error, ` นำหน้า ถ้าอยากได้รหัสของตัวเองและข้อความที่ปรับได้ ใช้ `PydanticCustomError` จาก `pydantic_core`
+ถ้าเรา `raise ValueError("...")` ใน Validator `type` จะเป็น `value_error` เสมอ และข้อความจะมี `Value error, ` นำหน้า ถ้าอยากได้รหัสของตัวเองและข้อความที่ปรับได้ ก็ใช้ `PydanticCustomError` จาก `pydantic_core`
 
 ```python
 from pydantic_core import PydanticCustomError
@@ -123,11 +123,11 @@ def known(cls, v):
     return v
 ```
 
-`Coupon(code="NOPE")` ได้ `type='unknown_coupon'`, `msg='coupon NOPE does not exist'`, `ctx={'code': 'NOPE'}` ข้อความเป็น template ที่เติมค่าจาก `ctx` และ `type` เป็นรหัสที่ฝั่ง client เอาไปจับคู่กับข้อความภาษาของตัวเองได้
+`Coupon(code="NOPE")` จะได้ `type='unknown_coupon'`, `msg='coupon NOPE does not exist'`, `ctx={'code': 'NOPE'}` โดยข้อความเป็น Template ที่เติมค่าจาก `ctx` ส่วน `type` เป็นรหัสที่ฝั่ง Client เอาไปจับคู่กับข้อความภาษาของตัวเองได้
 
-ถ้าอยากใช้ error ชนิดที่ Pydantic มีอยู่แล้ว ใช้ `PydanticKnownError("greater_than", {"gt": 0})` ได้ `type` เป็น `greater_than` พร้อมข้อความมาตรฐาน
+ถ้าอยากใช้ Error ชนิดที่ Pydantic มีอยู่แล้ว ก็ใช้ `PydanticKnownError("greater_than", {"gt": 0})` จะได้ `type` เป็น `greater_than` พร้อมข้อความมาตรฐาน
 
-**exception ที่ไม่ถูกแปลงเป็น `ValidationError`** มีแค่ `ValueError` กับ `AssertionError` (และสองคลาสข้างบน) exception อื่นหลุดออกไปเหมือนเดิม แบบฝึกโยน `ZeroDivisionError` ใน validator แล้วได้ `ZeroDivisionError` ออกมาตรง ๆ แนวคิดเดียวกับ `TypeError` ใน [บท 5](/pydantic/validators/#exception-ชนิดไหนกลายเป็น-validationerror)
+**Exception ที่ถูกแปลงเป็น `ValidationError`** มีแค่ `ValueError` กับ `AssertionError` (และสองคลาสข้างบน) ส่วน Exception อื่นจะหลุดออกไปเหมือนเดิม แบบฝึกโยน `ZeroDivisionError` ใน Validator แล้วก็ได้ `ZeroDivisionError` ออกมาตรง ๆ ซึ่งเป็นแนวคิดเดียวกับ `TypeError` ใน [บท 5](/pydantic/validators/#exception-ชนิดไหนกลายเป็น-validationerror)
 
 </Step>
 
@@ -135,9 +135,9 @@ def known(cls, v):
 
 ## ซ่อนค่าที่ผิด: อย่าให้ Password หลุดเข้า Log
 
-`str(e)` แสดง `input_value` ของทุก error ถ้า input คือ password ที่พิมพ์ผิด มันจะถูกเขียนลง log ไปด้วย แบบฝึกยืนยันด้วย field `pw: int` ที่ส่ง `"hunter2"`
+`str(e)` แสดง `input_value` ของทุก Error ดังนั้นถ้า Input คือ Password ที่พิมพ์ผิด มันก็จะถูกเขียนลง Log ไปด้วย แบบฝึกยืนยันด้วย Field `pw: int` ที่ส่ง `"hunter2"`
 
-มีสองระดับ ระดับเรียก `errors()` ใช้ `include_input=False` (ค่าจะหายจากผลที่ได้) ระดับ model ตั้งใน config
+การซ่อนทำได้สองระดับ ระดับที่เรียก `errors()` ให้ใช้ `include_input=False` (ค่าจะหายจากผลที่ได้) ส่วนระดับ Model ให้ตั้งใน Config
 
 ```python
 class Hidden(BaseModel):
@@ -147,9 +147,9 @@ class Hidden(BaseModel):
 Hidden(pw="hunter2")
 ```
 
-ข้อความที่ได้ไม่มี `hunter2` เหลืออยู่ บรรทัดของ error เหลือ `Input should be a valid integer, unable to parse string as an integer [type=int_parsing]` และไม่มีส่วน `input_value`
+ข้อความที่ได้จะไม่มี `hunter2` เหลืออยู่ บรรทัดของ Error จะเหลือ `Input should be a valid integer, unable to parse string as an integer [type=int_parsing]` และไม่มีส่วน `input_value`
 
-ถ้าเป็น `SecretStr` ([บท 3](/pydantic/types/#ชนิดสำเร็จรูป-ตัวเลขที่มีเงื่อนไข-url-email-secretstr)) ซึ่งไม่ใช่ชนิดเดียวกับ `int` ค่าก็ถูกซ่อนใน `repr` อยู่แล้ว แต่ error จาก validator ที่คุณเขียนเองควรระวังไม่ใส่ค่าลงใน message ดังที่ capstone ใน [บท 12](/pydantic/capstone/#วิธีจ่ายเงิน-discriminated-union-และความลับ) ทำกับเลขบัตร (ข้อความ `card number must be 16 digits` ไม่เอาตัวเลขมาด้วย)
+ถ้าใช้ `SecretStr` ([บท 3](/pydantic/types/#ชนิดสำเร็จรูป-ตัวเลขที่มีเงื่อนไข-url-email-secretstr)) ค่าก็ถูกซ่อนใน `repr` อยู่แล้ว แต่ Error จาก Validator ที่คุณเขียนเองก็ควรระวังไม่ใส่ค่าลงใน Message ดังที่ Capstone ใน [บท 12](/pydantic/capstone/#วิธีจ่ายเงิน-discriminated-union-และความลับ) ทำกับเลขบัตร (ข้อความ `card number must be 16 digits` ไม่เอาตัวเลขมาด้วย)
 
 </Step>
 
@@ -157,7 +157,7 @@ Hidden(pw="hunter2")
 
 ## แปลง Error เป็น Response ของ API
 
-รูปแบบที่ใช้บ่อยคือแปลง `errors()` เป็นรายการที่ client เอาไปแสดงต่อได้ ไม่เปิดเผยค่าที่ส่งมา ตัวอย่างจาก capstone
+รูปแบบที่ใช้บ่อยคือแปลง `errors()` เป็นรายการที่ Client เอาไปแสดงต่อได้ โดยไม่เปิดเผยค่าที่ส่งมา ลองดูตัวอย่างจาก Capstone
 
 ```python
 def problems(raw: str) -> list[dict]:
@@ -173,7 +173,7 @@ def problems(raw: str) -> list[dict]:
     return []
 ```
 
-ฝั่ง client ได้ `field` สำหรับชี้จุดในฟอร์ม `code` สำหรับแปลเป็นภาษาของผู้ใช้ และ `message` เป็นข้อความสำรอง ข้อมูลที่ผู้ใช้พิมพ์ไม่ถูกสะท้อนกลับไป [บท 12](/pydantic/capstone/#เมื่อข้อมูลผิดทุกจุด-รายการปัญหา) ใช้โครงเดียวกันนี้กับ order ที่ผิดเก้าจุด
+ฝั่ง Client จะได้ `field` สำหรับชี้จุดในฟอร์ม `code` สำหรับแปลเป็นภาษาของผู้ใช้ และ `message` เป็นข้อความสำรอง โดยข้อมูลที่ผู้ใช้พิมพ์จะไม่ถูกสะท้อนกลับไป ส่วน [บท 12](/pydantic/capstone/#เมื่อข้อมูลผิดทุกจุด-รายการปัญหา) ก็ใช้โครงเดียวกันนี้กับ Order ที่ผิดเก้าจุด
 
 </Step>
 
@@ -181,9 +181,9 @@ def problems(raw: str) -> list[dict]:
 
 ## เช็กตัวเอง
 
-- ส่ง `{"id": "x", "items": [{"sku": 5}]}` เข้า `Order` คาดว่า `loc` ของแต่ละ error เป็นอะไร (ลองเขียนก่อนรัน)
-- ทำไม `json.dumps(e.errors())` ถึงล้มเมื่อ error มาจาก `raise ValueError` ใน validator และคุณแก้ได้สองวิธีอย่างไร
-- ทีมของคุณอยากให้แอปมือถือแสดงข้อความ "คูปองนี้ไม่มีอยู่" เป็นภาษาไทย ควรผูกกับ `msg` หรือ `type` เพราะอะไร
+- ถ้าส่ง `{"id": "x", "items": [{"sku": 5}]}` เข้า `Order` คุณคิดว่า `loc` ของแต่ละ Error จะเป็นอะไร (ลองเขียนก่อนรัน)
+- ทำไม `json.dumps(e.errors())` ถึงล้มเมื่อ Error มาจาก `raise ValueError` ใน Validator และเราแก้ได้สองวิธีอย่างไร
+- ถ้าทีมของคุณอยากให้แอปมือถือแสดงข้อความ "คูปองนี้ไม่มีอยู่" เป็นภาษาไทย ควรผูกกับ `msg` หรือ `type` เพราะอะไร
 
 </Step>
 
@@ -193,15 +193,15 @@ def problems(raw: str) -> list[dict]:
 
 | ข้อความ | ที่มา |
 |---|---|
-| `error_count`, `title`, `isinstance(e, ValueError)`, `loc` สี่ตัว, key ทั้งหกของ error | รัน: `exercises/06_errors.py` |
+| `error_count`, `title`, `isinstance(e, ValueError)`, `loc` สี่ตัว, Key ทั้งหกของ Error | รัน: `exercises/06_errors.py` |
 | `json_invalid` และข้อความตำแหน่งใน JSON, `loc` ของ `model_validate_json` | รัน: `exercises/06_errors.py` |
 | `str(e)`, `e.json()`, `include_url`, `include_input`, `include_context` | รัน: `exercises/06_errors.py` |
-| `ctx["error"]` เป็น exception ตัวเดิม, `json.dumps(errors())` ล้ม, `e.json()` ใช้ได้ | รัน: `exercises/06_errors.py` |
+| `ctx["error"]` เป็น Exception ตัวเดิม, `json.dumps(errors())` ล้ม, `e.json()` ใช้ได้ | รัน: `exercises/06_errors.py` |
 | `PydanticCustomError`, `PydanticKnownError` | รัน: `exercises/06_errors.py` |
-| `ZeroDivisionError` ใน validator หลุดออกมา | รัน: `exercises/06_errors.py` |
+| `ZeroDivisionError` ใน Validator หลุดออกมา | รัน: `exercises/06_errors.py` |
 | `include_input=False` และ `hide_input_in_errors` ซ่อนค่า | รัน: `exercises/06_errors.py` |
 | รูปแบบ `problems()` สำหรับ API | รัน: `exercises/12_capstone.py` |
 | ผูกการแปลภาษากับ `type` ไม่ใช่ `msg` | ผู้เขียน |
-| `ValidationError` สร้างจาก Rust (`validation_exception.rs`) และรวบรวม error แทนที่จะหยุดที่ตัวแรก | source: `validation_exception.rs` ใน knowledge graph |
+| `ValidationError` สร้างจาก Rust (`validation_exception.rs`) และรวบรวม Error แทนที่จะหยุดที่ตัวแรก | Source: `validation_exception.rs` ใน Knowledge Graph |
 
 </Step>

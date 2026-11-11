@@ -1,6 +1,6 @@
 ---
 title: Validator ที่เขียนเอง
-summary: field_validator และ model_validator แบบ before, after, wrap และ plain, validator แบบ Annotated ที่ใช้ซ้ำได้, ลำดับการทำงานเมื่อซ้อนกัน, ValidationInfo กับ context และ exception ชนิดไหนกลายเป็น ValidationError
+summary: field_validator และ model_validator แบบ Before, After, Wrap และ Plain, Validator แบบ Annotated ที่ใช้ซ้ำได้, ลำดับการทำงานเมื่อซ้อนกัน, ValidationInfo กับ Context และ Exception ชนิดไหนกลายเป็น ValidationError
 order: 5
 phase: B
 level: 3
@@ -17,7 +17,7 @@ import Callout from '../../../../components/Callout.astro';
 
 ## เมื่อเงื่อนไขของ Field ไม่พอ
 
-`Field(gt=0)` และ `pattern` ตรวจได้ทีละค่า แต่บางกฎต้องการตรรกะ เช่น username ต้องเป็นตัวอักษรกับตัวเลขเท่านั้นแล้วแปลงเป็นตัวเล็ก หรือ password สองช่องต้องตรงกัน Pydantic ให้ validator สำหรับกรณีนี้ สองตัวหลักคือ `field_validator` (ตรวจ field) และ `model_validator` (ตรวจทั้ง model)
+`Field(gt=0)` และ `pattern` ตรวจได้ทีละค่า แต่บางกฎต้องใช้ตรรกะเพิ่ม เช่น Username ต้องเป็นตัวอักษรกับตัวเลขเท่านั้นแล้วแปลงเป็นตัวเล็ก หรือ Password สองช่องต้องตรงกัน สำหรับกรณีนี้ Pydantic ให้ Validator มาสองตัวหลัก คือ `field_validator` (ตรวจ Field) และ `model_validator` (ตรวจทั้ง Model)
 
 ```python
 class Signup(BaseModel):
@@ -40,9 +40,9 @@ class Signup(BaseModel):
         return v
 ```
 
-(รัน: `exercises/05_validators.py`) สามอย่างที่ต้องจำ ค่าที่ validator **คืน** จะแทนค่าเดิม (`"Ann99"` กลายเป็น `"ann99"`) validator จะโยน `ValueError` เมื่อไม่ผ่าน และต้องใส่ `@classmethod` ใต้ `@field_validator`
+(รัน: `exercises/05_validators.py`) มีสามอย่างที่ต้องจำ อย่างแรก ค่าที่ Validator **คืน** จะแทนค่าเดิม (`"Ann99"` กลายเป็น `"ann99"`) อย่างที่สอง Validator จะโยน `ValueError` เมื่อไม่ผ่าน และอย่างสุดท้าย ต้องใส่ `@classmethod` ไว้ใต้ `@field_validator`
 
-ส่ง `username="a b", password="x", password2="y"` ได้สอง error ทั้งคู่ชนิด `value_error` ข้อความขึ้นต้นว่า `Value error, ` ตามด้วยข้อความที่เราเขียน
+ถ้าส่ง `username="a b", password="x", password2="y"` จะได้สอง Error ทั้งคู่ชนิด `value_error` โดยข้อความขึ้นต้นว่า `Value error, ` ตามด้วยข้อความที่เราเขียน
 
 </Step>
 
@@ -50,18 +50,18 @@ class Signup(BaseModel):
 
 ## After, Before, Wrap, Plain
 
-`field_validator` มีสี่ mode ต่างกันที่ว่าทำงานตอนไหนเทียบกับการตรวจชนิดของ Pydantic
+`field_validator` มีสี่ Mode ซึ่งต่างกันที่ว่าทำงานตอนไหนเมื่อเทียบกับการตรวจชนิดของ Pydantic
 
-| mode | ทำงานเมื่อ | รับอะไร | ใช้กับ |
+| Mode | ทำงานเมื่อ | รับอะไร | ใช้กับ |
 |---|---|---|---|
 | `after` (ค่าเริ่มต้น) | หลัง Pydantic ตรวจชนิดผ่านแล้ว | ค่าที่ตรวจแล้ว (ชนิดถูกต้อง) | กฎของธุรกิจ, ทำความสะอาดค่า |
-| `before` | ก่อนตรวจชนิด | input ดิบ ชนิดอะไรก็ได้ | แปลงรูปแบบ input ให้ Pydantic รับได้ |
-| `wrap` | ห่อรอบการตรวจ | input ดิบ และ `handler` ที่เรียกการตรวจเดิม | ดักผลหรือ error ของการตรวจเดิม |
-| `plain` | แทนที่การตรวจเดิมทั้งหมด | input ดิบ | ชนิดที่ Pydantic ไม่รู้จัก |
+| `before` | ก่อนตรวจชนิด | Input ดิบ ชนิดอะไรก็ได้ | แปลงรูปแบบ Input ให้ Pydantic รับได้ |
+| `wrap` | ห่อรอบการตรวจ | Input ดิบ และ `handler` ที่เรียกการตรวจเดิม | ดักผลหรือ Error ของการตรวจเดิม |
+| `plain` | แทนที่การตรวจเดิมทั้งหมด | Input ดิบ | ชนิดที่ Pydantic ไม่รู้จัก |
 
-**after** ไว้ใจชนิดของค่าได้เสมอ ส่ง `username=123` เข้า model ข้างบน validator ไม่ถูกเรียกเลย เพราะ Pydantic ตัดที่ `string_type` ไปแล้ว ผลคือ error เดียวที่ไม่มี `Value error, ` นำหน้า ทำให้ validator แบบ after เขียนสั้นได้ ไม่ต้องกลัวว่าค่าจะผิดชนิด
+**After** ไว้ใจชนิดของค่าได้เสมอ ถ้าส่ง `username=123` เข้า Model ข้างบน Validator จะไม่ถูกเรียกเลย เพราะ Pydantic ตัดที่ `string_type` ไปแล้ว ผลคือได้ Error เดียวที่ไม่มี `Value error, ` นำหน้า เราจึงเขียน Validator แบบ After ให้สั้นได้ โดยไม่ต้องกลัวว่าค่าจะผิดชนิด
 
-**before** ใช้เมื่อ input ต้องจัดรูปก่อนเข้าตรวจ
+ส่วน **Before** ใช้เมื่อ Input ต้องจัดรูปก่อนเข้าตรวจ
 
 ```python
 class Tags(BaseModel):
@@ -76,7 +76,7 @@ Tags(tags="a,b").tags      # ['a', 'b']
 Tags(tags=["c"]).tags      # ['c']
 ```
 
-เมื่อคืนค่าจาก before แล้ว Pydantic ยังตรวจชนิดต่อ ถ้าฟังก์ชันคืน list ของตัวเลข จะติดที่ `list[str]` ตามปกติ
+หลังจาก Before คืนค่ามาแล้ว Pydantic ยังตรวจชนิดต่อ ดังนั้นถ้าฟังก์ชันคืน List ของตัวเลข ก็จะติดที่ `list[str]` ตามปกติ
 
 </Step>
 
@@ -84,9 +84,9 @@ Tags(tags=["c"]).tags      # ['c']
 
 ## ValidationInfo: อ่าน Field ที่ผ่านมาแล้ว และ Context
 
-validator รับ argument ตัวที่สองเป็น `ValidationInfo` ได้ ข้างในมี `data` (field ที่ตรวจเสร็จและผ่านแล้ว) `field_name` และ `context`
+Validator รับ Argument ตัวที่สองเป็น `ValidationInfo` ได้ ซึ่งข้างในมี `data` (Field ที่ตรวจเสร็จและผ่านแล้ว) `field_name` และ `context`
 
-`info.data` มีข้อจำกัดสองข้อที่ต้องรู้ ข้อแรก มีเฉพาะ field ที่ **ประกาศก่อน** field ที่กำลังตรวจ (ตามลำดับในคลาส) เพราะ Pydantic ตรวจตามลำดับนั้น ข้อสอง field ที่ตรวจไม่ผ่านจะ **ไม่อยู่ใน** `info.data` แบบฝึกพิสูจน์ข้อสอง
+`info.data` มีข้อจำกัดสองข้อที่ต้องรู้ ข้อแรก มีเฉพาะ Field ที่ **ประกาศก่อน** Field ที่กำลังตรวจ (ตามลำดับในคลาส) เพราะ Pydantic ตรวจตามลำดับนั้น ข้อสอง Field ที่ตรวจไม่ผ่านจะ **ไม่อยู่ใน** `info.data` ซึ่งแบบฝึกพิสูจน์ข้อสองให้ดู
 
 ```python
 class Order(BaseModel):
@@ -103,9 +103,9 @@ Order(qty="x", note="n")   # ล้มที่ qty → seen["keys"] == []
 Order(qty=1, note="n")     # → seen["keys"] == ["qty"]
 ```
 
-ตัวอย่าง `same_password` ข้างบนจึงเขียน `"password" in info.data` ก่อนอ่านค่า ถ้า `password` ล้ม ตัวนี้จะไม่อยู่ และถ้าไม่เช็กจะเจอ `KeyError`
+ตัวอย่าง `same_password` ข้างบนจึงเขียน `"password" in info.data` ก่อนอ่านค่า เพราะถ้า `password` ล้ม ตัวนี้จะไม่อยู่ใน `info.data` และถ้าไม่เช็กก็จะเจอ `KeyError`
 
-**context** คือ dict ที่ผู้เรียกส่งเข้ามาตอน validate เพื่อให้ validator ใช้ข้อมูลที่ไม่ได้อยู่ในตัว input
+ส่วน **Context** คือ Dict ที่ผู้เรียกส่งเข้ามาตอน Validate เพื่อให้ Validator ใช้ข้อมูลที่ไม่ได้อยู่ในตัว Input
 
 ```python
 class Ctx(BaseModel):
@@ -121,7 +121,7 @@ Ctx.model_validate({"price": 100}).price                          # 100
 Ctx.model_validate({"price": 100}, context={"vat": 0.07}).price   # 107.0
 ```
 
-ระวังว่า `info.context` เป็น `None` ถ้าผู้เรียกไม่ส่งมา จึงต้องจัดการกรณีนั้น
+ระวังว่า `info.context` จะเป็น `None` ถ้าผู้เรียกไม่ส่งมา เราจึงต้องจัดการกรณีนั้นด้วย
 
 </Step>
 
@@ -129,7 +129,7 @@ Ctx.model_validate({"price": 100}, context={"vat": 0.07}).price   # 107.0
 
 ## Validator แบบ Annotated: ใช้ซ้ำและซ้อนกันได้
 
-validator ที่ผูกกับ field ผ่านชื่อจำกัดอยู่ในคลาสเดียว ถ้าอยากใช้กฎเดียวกันกับหลายคลาส ให้ผูกกับ **ชนิด** ด้วย `Annotated` แบบที่ [บท 2](/pydantic/fields/#annotated-เอาเงื่อนไขไปติดกับชนิด-แล้วใช้ซ้ำ) ทำกับ `Field`
+Validator ที่ผูกกับ Field ผ่านชื่อจะใช้ได้ในคลาสเดียว ถ้าอยากใช้กฎเดียวกันกับหลายคลาส ให้ผูกกับ **ชนิด** ด้วย `Annotated` แบบที่ [บท 2](/pydantic/fields/#annotated-เอาเงื่อนไขไปติดกับชนิด-แล้วใช้ซ้ำ) ทำกับ `Field`
 
 ```python
 from pydantic import AfterValidator, BeforeValidator, PlainValidator, WrapValidator
@@ -143,15 +143,15 @@ Stacked = Annotated[
 ]
 ```
 
-เมื่อซ้อนหลายตัว ลำดับการทำงานของแบบฝึกคือ
+เมื่อซ้อนหลายตัว ลำดับการทำงานที่แบบฝึกได้คือ
 
 ```text
 ['before2', 'before1', 'after1', 'after2']
 ```
 
-`after` ทำงานตามลำดับที่เขียน (บนลงล่าง) ส่วน `before` ทำงานย้อนกลับ (ล่างขึ้นบน) จำง่าย ๆ ว่า validator ถูกห่อซ้อนกันเป็นชั้น ตัวที่เขียนทีหลังอยู่นอกสุดสำหรับ before และอยู่ในสุดสำหรับ after
+`after` ทำงานตามลำดับที่เขียน (บนลงล่าง) ส่วน `before` ทำงานย้อนกลับ (ล่างขึ้นบน) จำง่าย ๆ ได้ว่า Validator ถูกห่อซ้อนกันเป็นชั้น ตัวที่เขียนทีหลังจะอยู่นอกสุดสำหรับ Before และอยู่ในสุดสำหรับ After
 
-**WrapValidator** ได้ `handler` ที่เรียกการตรวจเดิมแล้วจับผลหรือ error ได้
+**WrapValidator** จะได้ `handler` ที่เรียกการตรวจเดิม แล้วจับผลหรือ Error ได้
 
 ```python
 def default_on_error(v, handler):
@@ -167,7 +167,7 @@ Lenient(n="x").n    # 0
 Lenient(n="7").n    # 7
 ```
 
-**PlainValidator** แทนที่การตรวจเดิมทั้งหมด `Annotated[int, PlainValidator(lambda v: int(v) * 2)]` รับ `"4"` แล้วได้ `8` Pydantic ไม่ได้ตรวจอะไรอีก ถ้าฟังก์ชันคืนผิดชนิด ก็ถือว่าผ่าน ใช้เมื่อคุณรู้ว่ากำลังทำอะไรเท่านั้น
+**PlainValidator** จะแทนที่การตรวจเดิมทั้งหมด เช่น `Annotated[int, PlainValidator(lambda v: int(v) * 2)]` รับ `"4"` แล้วได้ `8` และ Pydantic ไม่ได้ตรวจอะไรอีก ถ้าฟังก์ชันคืนผิดชนิดก็ถือว่าผ่าน จึงควรใช้เมื่อคุณรู้ว่ากำลังทำอะไรอยู่เท่านั้นนะ
 
 </Step>
 
@@ -175,7 +175,7 @@ Lenient(n="7").n    # 7
 
 ## model_validator: กฎที่คร่อมหลาย Field
 
-กฎอย่าง "low ต้องไม่เกิน high" เกี่ยวกับสอง field จึงตรวจที่ระดับ model
+กฎอย่าง "`low` ต้องไม่เกิน `high`" เกี่ยวกับสอง Field เราจึงตรวจที่ระดับ Model
 
 ```python
 class Range(BaseModel):
@@ -189,11 +189,11 @@ class Range(BaseModel):
         return self
 ```
 
-validator แบบ `after` ได้ instance ที่สร้างเสร็จแล้ว (`self`) และต้องคืน `self` ผลจาก `Range(low=5, high=1)` คือ error เดียว ที่ `loc` ว่าง (ไม่ผูกกับ field ไหน) ข้อความ `Value error, low must not be above high`
+Validator แบบ `after` จะได้ Instance ที่สร้างเสร็จแล้ว (`self`) และต้องคืน `self` ผลจาก `Range(low=5, high=1)` คือได้ Error เดียว ที่ `loc` ว่าง (ไม่ผูกกับ Field ไหน) และมีข้อความ `Value error, low must not be above high`
 
-ข้อควรรู้: ถ้ามี field ใดตรวจไม่ผ่าน `after` validator **ไม่ทำงาน** เลย `Range(low="x", high=1)` ได้ `int_parsing` อย่างเดียว กฎคร่อม field จึงไม่รบกวนรายงานของข้อผิดพื้นฐาน และเขียนโดยไว้ใจได้ว่าทุก field ถูกต้องแล้ว
+มีข้อควรรู้อย่างหนึ่งคือ ถ้ามี Field ใดตรวจไม่ผ่าน `after` Validator จะ **ไม่ทำงาน** เลย `Range(low="x", high=1)` จึงได้ `int_parsing` อย่างเดียว กฎคร่อม Field เลยไม่รบกวนรายงานของข้อผิดพื้นฐาน และเราเขียนโดยไว้ใจได้ว่าทุก Field ถูกต้องแล้ว
 
-`mode="before"` ได้ input ดิบของทั้ง model ซึ่งเป็นอะไรก็ได้ ไม่จำเป็นต้องเป็น dict
+ส่วน `mode="before"` จะได้ Input ดิบของทั้ง Model ซึ่งเป็นอะไรก็ได้ ไม่จำเป็นต้องเป็น Dict
 
 ```python
 class Point(BaseModel):
@@ -216,7 +216,7 @@ Point.model_validate((1, 2))    # Point(x=1, y=2)
 
 ## Exception ชนิดไหนกลายเป็น ValidationError
 
-ใน validator เราโยน exception ได้หลายแบบ แต่ Pydantic จับแค่บางชนิด แบบฝึกลองโยนสามแบบ
+ใน Validator เราโยน Exception ได้หลายแบบ แต่ Pydantic จับแค่บางชนิด ซึ่งแบบฝึกลองโยนสามแบบดังนี้
 
 | โยน | ผล |
 |---|---|
@@ -224,10 +224,10 @@ Point.model_validate((1, 2))    # Point(x=1, y=2)
 | `AssertionError` (ผ่าน `assert`) | `ValidationError` ชนิด `assertion_error` |
 | `TypeError` | **หลุดออกมาเป็น `TypeError` ตรง ๆ** ไม่ถูกห่อ |
 
-เหตุผลของข้อสาม: `TypeError` ใน validator มักเป็นบั๊กของโค้ด (เรียกฟังก์ชันผิด argument) ไม่ใช่ข้อมูลผิด Pydantic จึงปล่อยให้มันดังขึ้นมา ไม่ให้ไปปนกับข้อผิดของผู้ใช้ ([บท 6](/pydantic/errors/#สร้าง-error-ของตัวเอง) ยืนยันแบบเดียวกันกับ `ZeroDivisionError`)
+เหตุผลของข้อสามคือ `TypeError` ใน Validator มักเป็นบั๊กของโค้ด (เรียกฟังก์ชันผิด Argument) ไม่ใช่ข้อมูลผิด Pydantic จึงปล่อยให้มันดังขึ้นมา จะได้ไม่ไปปนกับข้อผิดของผู้ใช้ ([บท 6](/pydantic/errors/#สร้าง-error-ของตัวเอง) ยืนยันแบบเดียวกันกับ `ZeroDivisionError`)
 
-<Callout type="warn" title="assert ถูกตัดทิ้งเมื่อรันด้วย -O">
-ถ้ารัน Python ด้วย `python -O` คำสั่ง `assert` ถูกตัดออก validator ที่ใช้ `assert` เป็นตัวตรวจจะไม่ตรวจเลย ใช้ `raise ValueError(...)` สำหรับกฎที่ต้องทำงานเสมอ ข้อนี้เป็นพฤติกรรมของ Python ที่เอกสาร Pydantic เตือนไว้เช่นกัน แบบฝึกในบทนี้ไม่ได้รันด้วย `-O`
+<Callout type="warn" title="Assert ถูกตัดทิ้งเมื่อรันด้วย -O">
+ถ้ารัน Python ด้วย `python -O` คำสั่ง `assert` จะถูกตัดออก ทำให้ Validator ที่ใช้ `assert` เป็นตัวตรวจไม่ตรวจเลย ดังนั้นสำหรับกฎที่ต้องทำงานเสมอให้ใช้ `raise ValueError(...)` ข้อนี้เป็นพฤติกรรมของ Python ที่เอกสาร Pydantic เตือนไว้เช่นกัน และแบบฝึกในบทนี้ไม่ได้รันด้วย `-O`
 </Callout>
 
 </Step>
@@ -236,7 +236,7 @@ Point.model_validate((1, 2))    # Point(x=1, y=2)
 
 ## ที่ควรรู้เพิ่ม
 
-**ตรวจสมาชิกของ list หรือหลาย field พร้อมกัน** ชื่อ field ใน `@field_validator` ใส่ได้หลายตัว และ validator ของ field ที่เป็น list ได้ list ทั้งก้อน
+**ตรวจสมาชิกของ List หรือหลาย Field พร้อมกัน** เราใส่ชื่อ Field ใน `@field_validator` ได้หลายตัว และ Validator ของ Field ที่เป็น List จะได้ List ทั้งก้อน
 
 ```python
 @field_validator("skus")
@@ -252,11 +252,11 @@ def upper(cls, v):           # ใช้กับสอง field
     return v.upper()
 ```
 
-**Validator ไม่ทำงานกับ default** `code: str = "abc"` ที่มี validator แปลงเป็นตัวใหญ่ `D().code` ยังเป็น `"abc"` แต่ `D(code="abc").code` เป็น `"ABC"` ถ้าอยากให้ default ผ่านด้วย ใช้ `validate_default=True` ใน `Field` ([บท 2](/pydantic/fields/#default-ทำงานยังไง))
+**Validator ไม่ทำงานกับ Default** เช่น `code: str = "abc"` ที่มี Validator แปลงเป็นตัวใหญ่ `D().code` จะยังเป็น `"abc"` แต่ `D(code="abc").code` เป็น `"ABC"` ถ้าอยากให้ Default ผ่านด้วย ให้ใช้ `validate_default=True` ใน `Field` ([บท 2](/pydantic/fields/#default-ทำงานยังไง))
 
-**ไม่ทำงานตอน assign** เว้นแต่เปิด `validate_assignment` ([บท 8](/pydantic/models-config/#configdict-ตั้งค่าทั้ง-model))
+**ไม่ทำงานตอน Assign** เว้นแต่เราจะเปิด `validate_assignment` ([บท 8](/pydantic/models-config/#configdict-ตั้งค่าทั้ง-model))
 
-**ใช้ใน subclass ได้** validator ถูกสืบทอดจากคลาสแม่ และ subclass override โดยประกาศฟังก์ชันชื่อเดียวกันได้
+**ใช้ใน Subclass ได้** เพราะ Validator ถูกสืบทอดจากคลาสแม่ และ Subclass Override ได้โดยประกาศฟังก์ชันชื่อเดียวกัน
 
 </Step>
 
@@ -264,9 +264,9 @@ def upper(cls, v):           # ใช้กับสอง field
 
 ## เช็กตัวเอง
 
-- validator แบบ after บน field `n: int` ถูกเรียกไหม ถ้าผู้ใช้ส่ง `"abc"` เข้ามา แล้ว validator แบบ before ล่ะ
-- ทำไม `same_password` ต้องเช็ก `"password" in info.data` ก่อนอ่าน และ field ไหนที่ไม่อยู่ใน `info.data`
-- คุณต้องการ model ที่เรียก `Order.model_validate(raw, context={"vat": 0.07})` แล้ว validator ใช้อัตราภาษีนั้น ถ้าผู้เรียกลืมส่ง context validator ควรทำอะไร
+- Validator แบบ After บน Field `n: int` ถูกเรียกไหม ถ้าผู้ใช้ส่ง `"abc"` เข้ามา แล้ว Validator แบบ Before ล่ะ
+- ทำไม `same_password` ต้องเช็ก `"password" in info.data` ก่อนอ่าน และ Field ไหนที่ไม่อยู่ใน `info.data`
+- คุณต้องการ Model ที่เรียก `Order.model_validate(raw, context={"vat": 0.07})` แล้ว Validator ใช้อัตราภาษีนั้น ถ้าผู้เรียกลืมส่ง Context Validator ควรทำอะไร
 
 </Step>
 
@@ -276,15 +276,15 @@ def upper(cls, v):           # ใช้กับสอง field
 
 | ข้อความ | ที่มา |
 |---|---|
-| `field_validator` แบบ after, ค่าที่คืนแทนค่าเดิม, ข้อความ `Value error, ...` | รัน: `exercises/05_validators.py` |
-| after validator ไม่ทำงานเมื่อชนิดผิด | รัน: `exercises/05_validators.py` |
-| `info.data` มีเฉพาะ field ก่อนหน้าที่ผ่านแล้ว | รัน: `exercises/05_validators.py` |
+| `field_validator` แบบ After, ค่าที่คืนแทนค่าเดิม, ข้อความ `Value error, ...` | รัน: `exercises/05_validators.py` |
+| After Validator ไม่ทำงานเมื่อชนิดผิด | รัน: `exercises/05_validators.py` |
+| `info.data` มีเฉพาะ Field ก่อนหน้าที่ผ่านแล้ว | รัน: `exercises/05_validators.py` |
 | `mode="before"`, ลำดับ `['before2', 'before1', 'after1', 'after2']`, `WrapValidator`, `PlainValidator` | รัน: `exercises/05_validators.py` |
-| `model_validator` after ไม่ทำงานเมื่อ field ล้ม, before รับ input ดิบ | รัน: `exercises/05_validators.py` |
+| `model_validator` After ไม่ทำงานเมื่อ Field ล้ม, Before รับ Input ดิบ | รัน: `exercises/05_validators.py` |
 | `ValueError` และ `AssertionError` กลายเป็น `ValidationError`, `TypeError` หลุดออกมา | รัน: `exercises/05_validators.py` |
-| validator บน list, หลาย field, ไม่ทำงานกับ default, `context` | รัน: `exercises/05_validators.py` |
+| Validator บน List, หลาย Field, ไม่ทำงานกับ Default, `context` | รัน: `exercises/05_validators.py` |
 | `assert` ถูกตัดทิ้งเมื่อรันด้วย `-O` | ผู้เขียน (พฤติกรรมของ Python, ไม่ได้รันด้วย `-O`) |
-| validator ถูกสืบทอดและ override ได้ | ผู้เขียน |
-| ชนิด validator จัดเก็บและเรียกผ่าน `function.rs` (before, after, plain, wrap) | source: `function.rs` ใน knowledge graph |
+| Validator ถูกสืบทอดและ Override ได้ | ผู้เขียน |
+| ชนิด Validator จัดเก็บและเรียกผ่าน `function.rs` (Before, After, Plain, Wrap) | Source: `function.rs` ใน Knowledge Graph |
 
 </Step>

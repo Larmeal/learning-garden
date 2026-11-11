@@ -1,6 +1,6 @@
 ---
 title: "ข้างใน: Core Schema และ Validator ที่เขียนด้วย Rust"
-summary: ตอนเขียน class Order(BaseModel) แล้วรัน Pydantic ทำอะไรบ้าง metaclass สร้าง core schema (dict ธรรมดา) ส่งให้ pydantic-core ที่เขียนด้วย Rust สร้าง validator, forward reference กับ model_rebuild, defer_build และเหตุผลที่การสร้างคลาสช้ากว่าการ validate มาก
+summary: ตอนเขียน Class Order(BaseModel) แล้วรัน Pydantic ทำอะไรบ้าง Metaclass สร้าง Core Schema (Dict ธรรมดา) ส่งให้ Pydantic-core ที่เขียนด้วย Rust สร้าง Validator, Forward Reference กับ model_rebuild, defer_build และเหตุผลที่การสร้างคลาสช้ากว่าการ Validate มาก
 order: 10
 phase: D
 level: 4
@@ -17,14 +17,14 @@ import Callout from '../../../../components/Callout.astro';
 
 ## ภาพรวมสองครึ่ง
 
-Pydantic V2 แยกเป็นสองส่วนที่คนละภาษา
+Pydantic V2 แยกเป็นสองส่วนที่เขียนด้วยคนละภาษา
 
-- **pydantic** (Python) อ่าน type hint, config และ decorator ของคลาสคุณ แล้วแปลงเป็นคำอธิบายของการตรวจ
-- **pydantic-core** (Rust, ต่อกับ Python ผ่าน PyO3) รับคำอธิบายนั้นไปสร้าง validator กับ serializer ที่ทำงานจริง
+- ส่วนแรกคือ **Pydantic** (Python) ซึ่งอ่าน Type Hint, Config และ Decorator ของคลาสคุณ แล้วแปลงเป็นคำอธิบายของการตรวจ
+- ส่วนที่สองคือ **Pydantic-core** (Rust, ต่อกับ Python ผ่าน PyO3) ซึ่งรับคำอธิบายนั้นไปสร้าง Validator กับ Serializer ที่ทำงานจริง
 
-ตัวกลางระหว่างสองส่วนคือ **core schema** ซึ่งเป็น `dict` ธรรมดาของ Python บทนี้ตามรอยตั้งแต่ตอนสร้างคลาส จนถึงตอนเรียก `validate_python` โดยทุกข้อเช็กได้จาก `exercises/10_under_the_hood.py`
+ตัวกลางระหว่างสองส่วนคือ **Core Schema** ซึ่งเป็น `dict` ธรรมดาของ Python ในบทนี้เราจะตามรอยตั้งแต่ตอนสร้างคลาส ไปจนถึงตอนเรียก `validate_python` โดยทุกข้อเช็กได้จาก `exercises/10_under_the_hood.py`
 
-เรื่องไฟล์ที่เอ่ยถึง มาจาก knowledge graph ของ source เวอร์ชัน 2.13.0 ใน `subjects/pydantic/graphs/pydantic-current/` (230 ไฟล์ แยกเป็นชั้น Public API, Internal Schema Generation, Core Python Bindings และชั้นของ Rust) เวอร์ชันที่แบบฝึกรันก็คือ 2.13.0 เช่นกัน (`verify.py` เช็กให้)
+ไฟล์ที่เอ่ยถึงในบทนี้มาจาก Knowledge Graph ของ Source เวอร์ชัน 2.13.0 ใน `subjects/pydantic/graphs/pydantic-current/` (230 ไฟล์ แยกเป็นชั้น Public API, Internal Schema Generation, Core Python Bindings และชั้นของ Rust) เวอร์ชันที่แบบฝึกรันก็คือ 2.13.0 เช่นกัน (`verify.py` เช็กให้)
 
 </Step>
 
@@ -42,9 +42,9 @@ class Order(BaseModel):
     items: list[Item]
 ```
 
-`BaseModel` ใช้ metaclass ชื่อ `ModelMetaclass` (`type(Order).__name__`) ซึ่งทำงานทันทีที่ Python อ่านคำสั่ง `class Order` จนจบ ตามกราฟ ไฟล์ `_internal/_model_construction.py` ทำหน้าที่นี้: ตรวจ namespace, รวบรวม field, เก็บ private attribute, สร้าง core schema แล้วสร้าง validator กับ serializer
+`BaseModel` ใช้ Metaclass ชื่อ `ModelMetaclass` (`type(Order).__name__`) ซึ่งจะทำงานทันทีที่ Python อ่านคำสั่ง `class Order` จนจบ ตามกราฟ ไฟล์ `_internal/_model_construction.py` ทำหน้าที่นี้ โดยตรวจ Namespace, รวบรวม Field, เก็บ Private Attribute, สร้าง Core Schema แล้วสร้าง Validator กับ Serializer
 
-ผลของมันเก็บไว้ที่ attribute ของคลาส
+ผลของมันจะถูกเก็บไว้ที่ Attribute ของคลาส
 
 ```python
 Order.__pydantic_complete__          # True   สร้างเสร็จแล้ว
@@ -53,7 +53,7 @@ Order.__pydantic_serializer__        # SchemaSerializer
 Order.__pydantic_core_schema__       # dict ที่ส่งให้ Rust
 ```
 
-ตอนเขียน `Order(id=1, ...)` สิ่งที่ถูกเรียกใต้ฝากระโปรงคือ `Order.__pydantic_validator__.validate_python(...)` แบบฝึกเรียกตรง ๆ ให้เห็นว่าได้ `Order` กลับมาเหมือนกัน
+ตอนเราเขียน `Order(id=1, ...)` สิ่งที่ถูกเรียกอยู่ข้างใต้คือ `Order.__pydantic_validator__.validate_python(...)` ซึ่งแบบฝึกเรียกตรง ๆ ให้เห็นว่าได้ `Order` กลับมาเหมือนกัน
 
 </Step>
 
@@ -71,16 +71,16 @@ schema["schema"]["type"]               # 'model-fields'
 # {'id': 'int', 'items': 'list'}
 ```
 
-โครงสร้างคือชั้น `model` ห่อ `model-fields` ซึ่งมี dict ของ field แต่ละตัวพร้อม schema ของชนิดมัน field `items` เป็นชนิด `list` และ `items_schema` ของมันคือ schema ของ `Item` ทั้งก้อน (`inner["cls"] is Item`) เงื่อนไขกับ default ก็อยู่ในนั้น
+โครงสร้างคือชั้น `model` ห่อ `model-fields` ซึ่งมี Dict ของ Field แต่ละตัวพร้อม Schema ของชนิดมัน Field `items` เป็นชนิด `list` และ `items_schema` ของมันคือ Schema ของ `Item` ทั้งก้อน (`inner["cls"] is Item`) ส่วนเงื่อนไขกับ Default ก็อยู่ในนั้นด้วย
 
 ```python
 Item.__pydantic_core_schema__["schema"]["fields"]["qty"]["schema"]
 # {'type': 'default', 'schema': {'type': 'int', 'gt': 0}, 'default': 1}
 ```
 
-`Field(gt=0, default=1)` ใน Python กลายเป็นโครงสร้างสองชั้น: ชั้นนอก `default` กับค่า 1 ชั้นใน `int` ที่มีเงื่อนไข `gt: 0` ความรู้นี้ใช้ได้จริง เพราะ **JSON Schema** ([บท 9](/pydantic/adapters/#json-schema-จาก-model)) และ **การ serialize** ([บท 7](/pydantic/serialization/)) อ่านจาก core schema ตัวเดียวกันนี้ ไม่ได้อ่านจากคลาส Python โดยตรง
+`Field(gt=0, default=1)` ใน Python กลายเป็นโครงสร้างสองชั้น โดยชั้นนอกคือ `default` กับค่า 1 ส่วนชั้นในคือ `int` ที่มีเงื่อนไข `gt: 0` ความรู้นี้ใช้ได้จริง เพราะ **JSON Schema** ([บท 9](/pydantic/adapters/#json-schema-จาก-model)) และ **การ Serialize** ([บท 7](/pydantic/serialization/)) อ่านจาก Core Schema ตัวเดียวกันนี้ ไม่ได้อ่านจากคลาส Python โดยตรง
 
-ไฟล์ที่กำหนดรูปร่างของ dict เหล่านี้คือ `pydantic_core/core_schema.py` (TypedDict ของทุกชนิด schema กับฟังก์ชันสร้างอย่าง `int_schema`, `list_schema`, `model_schema`) ส่วนไฟล์ที่เดินชนิดของคุณแล้วเขียน dict ออกมาคือ `_internal/_generate_schema.py` ซึ่งกราฟระบุว่าเป็นโมดูลที่ใหญ่ที่สุดของฝั่ง Python
+ไฟล์ที่กำหนดรูปร่างของ Dict เหล่านี้คือ `pydantic_core/core_schema.py` (TypedDict ของทุกชนิด Schema กับฟังก์ชันสร้างอย่าง `int_schema`, `list_schema`, `model_schema`) ส่วนไฟล์ที่เดินชนิดของคุณแล้วเขียน Dict ออกมาคือ `_internal/_generate_schema.py` ซึ่งกราฟระบุว่าเป็นโมดูลที่ใหญ่ที่สุดของฝั่ง Python
 
 </Step>
 
@@ -88,7 +88,7 @@ Item.__pydantic_core_schema__["schema"]["fields"]["qty"]["schema"]
 
 ## ข้ามฝั่ง Python ไปคุย Rust ตรง ๆ ได้
 
-เพราะ core schema เป็นแค่ dict เราจึงเขียนเองแล้วส่งให้ Rust ได้เลย โดยไม่ผ่าน `BaseModel`
+เพราะ Core Schema เป็นแค่ Dict เราจึงเขียนเองแล้วส่งให้ Rust ได้เลย โดยไม่ผ่าน `BaseModel`
 
 ```python
 from pydantic_core import SchemaValidator, core_schema as cs
@@ -99,19 +99,19 @@ v.validate_python([0])           # ValidationError ชนิด greater_than
 v.validate_json("[1, 2]")        # [1, 2]
 ```
 
-ผลที่ได้เหมือนที่เคยเห็นทุกอย่าง: lax แปลง `"1"` เป็น `1`, error มี `type` ชื่อเดียวกัน นั่นคือหลักฐานว่า `BaseModel`, `TypeAdapter` และ `validate_call` ล้วนเป็นเปลือกบาง ๆ ที่สร้าง core schema ให้ แล้วส่งให้ `SchemaValidator` ตัวนี้
+ผลที่ได้เหมือนที่เราเคยเห็นทุกอย่าง คือ Lax แปลง `"1"` เป็น `1` และ Error มี `type` ชื่อเดียวกัน ซึ่งเป็นหลักฐานว่า `BaseModel`, `TypeAdapter` และ `validate_call` ล้วนเป็นเปลือกบาง ๆ ที่สร้าง Core Schema ให้ แล้วส่งให้ `SchemaValidator` ตัวนี้
 
-ใน Rust ตามกราฟ `validators/mod.rs` มี `SchemaValidator` (ตัวที่ Python เรียก) กับขั้น build ที่อ่านแท็ก `type` ของ schema แล้วสร้าง validator ที่ตรงกัน โดยมีไฟล์ต่อชนิดในโฟลเดอร์เดียวกัน: `int.rs`, `string.rs`, `list.rs`, `model.rs`, `union.rs`, `function.rs` และอื่น ๆ เมื่อ validator ตัวนอกทำงาน มันเรียกตัวในของมันต่อเป็นลำดับชั้น ตรงกับโครงสร้างซ้อนของ schema
+ฝั่ง Rust ตามกราฟ `validators/mod.rs` มี `SchemaValidator` (ตัวที่ Python เรียก) กับขั้น Build ที่อ่านแท็ก `type` ของ Schema แล้วสร้าง Validator ที่ตรงกัน โดยมีไฟล์ของแต่ละชนิดอยู่ในโฟลเดอร์เดียวกัน เช่น `int.rs`, `string.rs`, `list.rs`, `model.rs`, `union.rs`, `function.rs` และอื่น ๆ เมื่อ Validator ตัวนอกทำงาน มันจะเรียกตัวในของมันต่อเป็นลำดับชั้น ตรงกับโครงสร้างซ้อนของ Schema
 
 </Step>
 
 <Step>
 
-## Input: ทำไมข้อมูลจาก Python กับ JSON ต่างกันที่ strict
+## Input: ทำไมข้อมูลจาก Python กับ JSON ต่างกันที่ Strict
 
-ใน Rust validator ไม่ได้อ่านออบเจ็กต์ Python หรือ JSON ตรง ๆ แต่ผ่านชั้นกลางที่เรียกว่า trait `Input` (`input/input_abstract.rs`) มี implementation สามแบบ: ข้อมูล Python (`input_python.rs`), JSON ที่ parse แล้ว (`input_json.rs`) และ string (ใช้กับ key ของ JSON object) แต่ละ method มีเวอร์ชัน strict กับ lax
+ใน Rust ตัว Validator ไม่ได้อ่านออบเจ็กต์ Python หรือ JSON ตรง ๆ แต่อ่านผ่านชั้นกลางที่เรียกว่า Trait `Input` (`input/input_abstract.rs`) ซึ่งมี Implementation สามแบบ ได้แก่ ข้อมูล Python (`input_python.rs`), JSON ที่ Parse แล้ว (`input_json.rs`) และ String (ใช้กับ Key ของ JSON Object) โดยแต่ละ Method มีเวอร์ชัน Strict กับ Lax
 
-นี่คือเหตุผลของพฤติกรรมใน [บท 3](/pydantic/types/#strict-กับข้อมูลจาก-json-ไม่เหมือนกับข้อมูลจาก-python) ที่ strict ตัดสินต่างกันตามแหล่ง แบบฝึกใช้ field `pair: tuple[int, int]` ใน model strict
+นี่คือเหตุผลของพฤติกรรมใน [บท 3](/pydantic/types/#strict-กับข้อมูลจาก-json-ไม่เหมือนกับข้อมูลจาก-python) ที่ Strict ตัดสินต่างกันตามแหล่งข้อมูล แบบฝึกใช้ Field `pair: tuple[int, int]` ใน Model Strict
 
 ```python
 Strict.model_validate_json('{"pair": [1, 2]}').pair    # (1, 2)  ผ่าน JSON มีแต่ array
@@ -119,7 +119,7 @@ Strict.model_validate({"pair": [1, 2]})                # error ชนิด tupl
 Strict.model_validate({"pair": (1, 2)}).pair           # (1, 2)  ผ่าน
 ```
 
-การที่ `model_validate_json` ให้ parser JSON ส่งค่าเข้า validator โดยตรง (กราฟระบุว่าใช้ `jiter`) แปลว่าไม่ต้องสร้าง `dict` และ `list` ของ Python ก่อน ซึ่งเป็นที่มาของคำแนะนำให้ใช้ `model_validate_json` กับข้อมูลที่เป็น JSON string ตั้งแต่ต้น การวัดความเร็วจริงไม่ได้ทำในบทนี้
+การที่ `model_validate_json` ให้ Parser JSON ส่งค่าเข้า Validator โดยตรง (กราฟระบุว่าใช้ `jiter`) แปลว่าไม่ต้องสร้าง `dict` และ `list` ของ Python ก่อน ซึ่งเป็นที่มาของคำแนะนำให้ใช้ `model_validate_json` กับข้อมูลที่เป็น JSON String ตั้งแต่ต้น ส่วนการวัดความเร็วจริงไม่ได้ทำในบทนี้
 
 </Step>
 
@@ -127,7 +127,7 @@ Strict.model_validate({"pair": (1, 2)}).pair           # (1, 2)  ผ่าน
 
 ## เมื่อคลาสสร้างไม่เสร็จในรอบเดียว
 
-บางครั้ง Pydantic สร้าง validator ตอน `class` จบไม่ได้ เพราะ type hint อ้างถึงชื่อที่ยังไม่มี (forward reference)
+บางครั้ง Pydantic ก็สร้าง Validator ตอน `class` จบไม่ได้ เพราะ Type Hint อ้างถึงชื่อที่ยังไม่มี (Forward Reference)
 
 ```python
 class A(BaseModel):
@@ -138,11 +138,11 @@ type(A.__pydantic_validator__).__name__      # 'MockValSer'
 A(b=1)    # PydanticUserError: `A` is not fully defined; you should define `B`, then call `A.model_rebuild()`.
 ```
 
-ตอนนั้น `__pydantic_validator__` เป็นตัวแทน (`MockValSer`, จาก `_internal/_mock_val_ser.py` ตามกราฟ) ที่รอเรียกใช้แล้วค่อยพยายามสร้างจริง หรือบอกสิ่งที่ขาด
+ตอนนั้น `__pydantic_validator__` จะเป็นตัวแทน (`MockValSer`, จาก `_internal/_mock_val_ser.py` ตามกราฟ) ที่รอให้เรียกใช้ แล้วค่อยพยายามสร้างจริง หรือบอกสิ่งที่ขาด
 
-หลังประกาศ `B` แล้ว เรียก `A.model_rebuild()` ก็ได้ validator จริง (`A(b={"x": "1"}).b.x == 1`) หรือบางกรณีไม่ต้องเรียกเอง: คลาส `C` ที่อ้าง `D` ซึ่งประกาศต่อท้ายทันที พอเรียก `C(d={"x": 1})` ครั้งแรก Pydantic ลอง rebuild ให้เอง `C.__pydantic_complete__` ก็เปลี่ยนเป็น `True`
+หลังประกาศ `B` แล้ว เราเรียก `A.model_rebuild()` ก็จะได้ Validator จริง (`A(b={"x": "1"}).b.x == 1`) หรือบางกรณีก็ไม่ต้องเรียกเอง เช่นคลาส `C` ที่อ้าง `D` ซึ่งประกาศต่อท้ายทันที พอเรียก `C(d={"x": 1})` ครั้งแรก Pydantic จะลอง Rebuild ให้เอง และ `C.__pydantic_complete__` ก็เปลี่ยนเป็น `True`
 
-ถ้ารู้ว่าอยากเลื่อนการสร้างอยู่แล้ว ใช้ `defer_build`
+ถ้ารู้อยู่แล้วว่าอยากเลื่อนการสร้างออกไป ก็ใช้ `defer_build`
 
 ```python
 class Lazy(BaseModel):
@@ -154,7 +154,7 @@ Lazy(x=1)
 Lazy.__pydantic_complete__    # True   สร้างตอนใช้ครั้งแรก
 ```
 
-เหมาะเมื่อโปรแกรมมี model เป็นร้อย แต่ใช้จริงในแต่ละรอบไม่กี่ตัว จึงเลื่อนต้นทุนการสร้างของตัวที่ไม่ได้ใช้ไปเลย
+วิธีนี้เหมาะเมื่อโปรแกรมมี Model เป็นร้อย แต่ใช้จริงในแต่ละรอบไม่กี่ตัว เพราะต้นทุนการสร้างของตัวที่ไม่ได้ใช้จะถูกเลื่อนออกไปเลย
 
 </Step>
 
@@ -162,22 +162,22 @@ Lazy.__pydantic_complete__    # True   สร้างตอนใช้คร�
 
 ## ต้นทุนอยู่ตอนสร้างคลาส ไม่ใช่ตอน Validate
 
-แบบฝึกจับเวลาสองอย่างบนเครื่องที่รัน
+แบบฝึกจับเวลาสองอย่างบนคอมพิวเตอร์ที่รันแบบฝึก
 
 ```text
 create 200 classes 42 ms, validate 200 times 0.30 ms
 ```
 
-สร้างคลาส 200 ตัวใช้เวลา 42 ms ส่วน validate ด้วย validator ที่สร้างไว้แล้ว 200 ครั้งใช้ 0.30 ms ตัวเลขขึ้นกับเครื่อง และสองอย่างนี้ทำงานต่างกัน ข้อสรุปที่ `assert` ได้คือสร้างแพงกว่า validate มากกว่า 20 เท่า
+สร้างคลาส 200 ตัวใช้เวลา 42 ms ส่วน Validate ด้วย Validator ที่สร้างไว้แล้ว 200 ครั้งใช้ 0.30 ms ตัวเลขนี้ขึ้นกับคอมพิวเตอร์ที่รัน และสองอย่างนี้ทำงานต่างกัน ข้อสรุปที่ `assert` ได้คือการสร้างแพงกว่า Validate มากกว่า 20 เท่า
 
-ผลต่อการเขียนโค้ด
+เรื่องนี้ส่งผลต่อการเขียนโค้ดสามอย่าง
 
-- ประกาศ model ที่ระดับ module ครั้งเดียว อย่าสร้างคลาสหรือ `TypeAdapter` ในฟังก์ชันที่ถูกเรียกซ้ำ ([บท 9](/pydantic/adapters/#typeadapter-ตรวจชนิดอะไรก็ได้))
-- การ import ที่ช้าตอนเริ่มโปรแกรมมาจากการสร้าง model ถ้ามีมาก ให้ลอง `defer_build`
-- `import pydantic` เองถูก เพราะ `pydantic/__init__.py` โหลดชื่อแบบ lazy: ตอนแรก `'pydantic.main' in sys.modules` เป็น `False` และกลายเป็น `True` เมื่อเข้าถึง `pydantic.BaseModel` ครั้งแรก
+- ประกาศ Model ที่ระดับ Module ครั้งเดียว และอย่าสร้างคลาสหรือ `TypeAdapter` ในฟังก์ชันที่ถูกเรียกซ้ำ ([บท 9](/pydantic/adapters/#typeadapter-ตรวจชนิดอะไรก็ได้))
+- การ Import ที่ช้าตอนเริ่มโปรแกรมมักมาจากการสร้าง Model ถ้ามี Model มาก ให้ลอง `defer_build`
+- ส่วน `import pydantic` เองนั้นเบา เพราะ `pydantic/__init__.py` โหลดชื่อแบบ Lazy โดยตอนแรก `'pydantic.main' in sys.modules` เป็น `False` และจะกลายเป็น `True` เมื่อเข้าถึง `pydantic.BaseModel` ครั้งแรก
 
 <Callout type="note" title="Validator พิมพ์อธิบายตัวเองได้">
-`repr(Order.__pydantic_validator__)` พิมพ์โครงสร้างของ validator ที่ Rust สร้างจริง แบบฝึกได้ 117 บรรทัด เริ่มด้วย `SchemaValidator(title="Order", validator=Model(` และมี `ModelFieldsValidator` อยู่ข้างใน เป็นวิธีดูว่า schema ถูกแปลงเป็นอะไรเมื่อสงสัย
+`repr(Order.__pydantic_validator__)` พิมพ์โครงสร้างของ Validator ที่ Rust สร้างจริง แบบฝึกได้ 117 บรรทัด เริ่มด้วย `SchemaValidator(title="Order", validator=Model(` และมี `ModelFieldsValidator` อยู่ข้างใน จึงเป็นวิธีที่ใช้ดูได้ว่า Schema ถูกแปลงเป็นอะไร เมื่อเราสงสัย
 </Callout>
 
 </Step>
@@ -186,21 +186,21 @@ create 200 classes 42 ms, validate 200 times 0.30 ms
 
 ## ถ้าอยากอ่าน Source ต่อ
 
-เรียงตามลำดับที่เรื่องไหลในบทนี้ (ชื่อไฟล์ตามกราฟ v2.13.0)
+ตารางนี้เรียงตามลำดับที่เรื่องไหลไปในบทนี้ (ชื่อไฟล์ตามกราฟ v2.13.0)
 
 | ขั้น | ไฟล์ | บทบาท |
 |---|---|---|
 | 1 | `pydantic/main.py` | `BaseModel` และ `create_model` |
-| 2 | `pydantic/_internal/_model_construction.py` | metaclass, สร้างคลาส |
-| 3 | `pydantic/_internal/_generate_schema.py` | เดินชนิดแล้วเขียน core schema |
-| 4 | `pydantic_core/core_schema.py` | รูปร่างของ schema |
-| 5 | `pydantic-core/src/validators/mod.rs` | `SchemaValidator` และขั้น build |
-| 6 | `pydantic-core/src/validators/model.rs`, `model_fields.rs` | ตรวจ model, จับคู่ key กับ field |
-| 7 | `pydantic-core/src/validators/union.rs`, `function.rs` | union ([บท 4](/pydantic/unions/)) และ validator ที่เขียนเอง ([บท 5](/pydantic/validators/)) |
+| 2 | `pydantic/_internal/_model_construction.py` | Metaclass, สร้างคลาส |
+| 3 | `pydantic/_internal/_generate_schema.py` | เดินชนิดแล้วเขียน Core Schema |
+| 4 | `pydantic_core/core_schema.py` | รูปร่างของ Schema |
+| 5 | `pydantic-core/src/validators/mod.rs` | `SchemaValidator` และขั้น Build |
+| 6 | `pydantic-core/src/validators/model.rs`, `model_fields.rs` | ตรวจ Model, จับคู่ Key กับ Field |
+| 7 | `pydantic-core/src/validators/union.rs`, `function.rs` | Union ([บท 4](/pydantic/unions/)) และ Validator ที่เขียนเอง ([บท 5](/pydantic/validators/)) |
 | 8 | `pydantic-core/src/errors/validation_exception.rs` | `ValidationError` ([บท 6](/pydantic/errors/#หนึ่ง-exception-ที่พกทุกปัญหา)) |
 | 9 | `pydantic-core/src/serializers/mod.rs` | `SchemaSerializer` ([บท 7](/pydantic/serialization/)) |
 
-graph เต็มเปิดดูด้วย `/understand-dashboard` ได้ที่ `subjects/pydantic/graphs/pydantic-current/`
+ส่วน Graph เต็มเปิดดูด้วย `/understand-dashboard` ได้ที่ `subjects/pydantic/graphs/pydantic-current/`
 
 </Step>
 
@@ -209,8 +209,8 @@ graph เต็มเปิดดูด้วย `/understand-dashboard` ได�
 ## เช็กตัวเอง
 
 - `Order.__pydantic_validator__` คืออะไร สร้างตอนไหน และเขียนด้วยภาษาอะไร
-- ทำไม JSON Schema กับ serializer จึงรู้เรื่อง `Field(gt=0)` ทั้งที่ไม่ได้อ่านคลาส Python ตอนทำงาน
-- model หนึ่งอ้าง forward reference ที่ยังไม่ประกาศ จะเกิดอะไรขึ้นถ้าสร้าง instance ทันที และแก้อย่างไร
+- ทำไม JSON Schema กับ Serializer จึงรู้เรื่อง `Field(gt=0)` ทั้งที่ไม่ได้อ่านคลาส Python ตอนทำงาน
+- Model หนึ่งอ้าง Forward Reference ที่ยังไม่ประกาศ จะเกิดอะไรขึ้นถ้าสร้าง Instance ทันที และแก้อย่างไร
 
 </Step>
 
@@ -220,14 +220,14 @@ graph เต็มเปิดดูด้วย `/understand-dashboard` ได�
 
 | ข้อความ | ที่มา |
 |---|---|
-| `ModelMetaclass`, `__pydantic_complete__`, ชนิดของ validator และ serializer, อยู่ใน `pydantic_core._pydantic_core` | รัน: `exercises/10_under_the_hood.py` |
-| โครงสร้างของ core schema ของ `Order` และ `Item.qty` | รัน: `exercises/10_under_the_hood.py` |
+| `ModelMetaclass`, `__pydantic_complete__`, ชนิดของ Validator และ Serializer, อยู่ใน `pydantic_core._pydantic_core` | รัน: `exercises/10_under_the_hood.py` |
+| โครงสร้างของ Core Schema ของ `Order` และ `Item.qty` | รัน: `exercises/10_under_the_hood.py` |
 | ใช้ `SchemaValidator` กับ `core_schema` ตรง ๆ | รัน: `exercises/10_under_the_hood.py` |
-| strict ของ `tuple` ต่างกันระหว่าง JSON กับ Python | รัน: `exercises/10_under_the_hood.py` |
-| forward reference: `MockValSer`, `PydanticUserError`, `model_rebuild`, rebuild อัตโนมัติ, `defer_build` | รัน: `exercises/10_under_the_hood.py` |
-| 42 ms เทียบ 0.30 ms (ตัวเลขของเครื่องที่รัน, assert มากกว่า 20 เท่า), lazy import, `repr` 117 บรรทัด | รัน: `exercises/10_under_the_hood.py` |
-| ชื่อไฟล์ บทบาท และชั้นของ source (metaclass, `_generate_schema.py`, `validators/mod.rs`, trait `Input`, `jiter`, `MockValSer`) | source: knowledge graph v2.13.0 (อ่านสรุปของแต่ละไฟล์ ไม่ได้อ่านโค้ดทุกบรรทัด) |
-| JSON Schema และ serializer อ่านจาก core schema | source: `json_schema.py` และ `serializers/mod.rs` ใน knowledge graph |
+| Strict ของ `tuple` ต่างกันระหว่าง JSON กับ Python | รัน: `exercises/10_under_the_hood.py` |
+| Forward Reference: `MockValSer`, `PydanticUserError`, `model_rebuild`, Rebuild อัตโนมัติ, `defer_build` | รัน: `exercises/10_under_the_hood.py` |
+| 42 ms เทียบ 0.30 ms (ตัวเลขของคอมพิวเตอร์ที่รัน, Assert มากกว่า 20 เท่า), Lazy Import, `repr` 117 บรรทัด | รัน: `exercises/10_under_the_hood.py` |
+| ชื่อไฟล์ บทบาท และชั้นของ Source (Metaclass, `_generate_schema.py`, `validators/mod.rs`, Trait `Input`, `jiter`, `MockValSer`) | Source: knowledge graph v2.13.0 (อ่านสรุปของแต่ละไฟล์ ไม่ได้อ่านโค้ดทุกบรรทัด) |
+| JSON Schema และ Serializer อ่านจาก Core Schema | Source: `json_schema.py` และ `serializers/mod.rs` ใน Knowledge Graph |
 | ไม่ต้องสร้าง `dict` ของ Python ก่อน เมื่อใช้ `model_validate_json` และคำแนะนำให้ใช้ | ผู้เขียน (จากสรุปของ `input_json.rs` ไม่ได้วัดความเร็ว) |
 | เมื่อไหร่ควรใช้ `defer_build` | ผู้เขียน |
 
