@@ -1,6 +1,6 @@
 ---
-title: ทะเบียน metric ในตัว GX
-summary: เปิดทะเบียนที่ GX ใช้หา implementation ของ metric ดูว่ามีกี่ตัว ตัวไหนมีเฉพาะบาง engine และเหตุที่ expectation บางตัวใช้ได้เฉพาะบน pandas
+title: ทะเบียน Metric ในตัว GX
+summary: เปิดทะเบียนที่ GX ใช้หา Implementation ของ Metric ดูว่ามีกี่ตัว ตัวไหนมีเฉพาะบาง Engine และเหตุที่ Expectation บางตัวใช้ได้เฉพาะบน Pandas
 order: 1
 stage: sprout
 format: steps
@@ -15,18 +15,18 @@ import MetricLookup from '../../../../components/labs/great-expectations/MetricL
 
 ## ทะเบียนมีอะไรอยู่
 
-ทุก metric ที่เขียนเป็นคลาส (เช่น `ColumnMax`) ลงทะเบียนตัวเองตอน import ลงใน `registry._registered_metrics` โดยมีชื่อ metric เป็นกุญแจ และรายการ `providers` ที่บอกว่ามี implementation สำหรับ engine ไหน สคริปต์ `26_registry_domains.py` ส่วนที่ 1 นับของ GX 1.24.1 ที่ติดตั้งไว้
+ทุก Metric ที่เขียนเป็นคลาส (เช่น `ColumnMax`) จะลงทะเบียนตัวเองตอน Import ลงใน `registry._registered_metrics` โดยมีชื่อ Metric เป็นกุญแจ และมีรายการ `providers` ที่บอกว่ามี Implementation สำหรับ Engine ไหนบ้าง สคริปต์ `26_registry_domains.py` ส่วนที่ 1 นับตัวเลขเหล่านี้จาก GX 1.24.1 ที่ติดตั้งไว้
 
 | นับอะไร | จำนวน |
 |---|---|
-| ชื่อ metric ที่ลงทะเบียน | 315 |
-| มี implementation สำหรับ pandas | 241 |
-| มี implementation สำหรับ SQL (SQLAlchemy) | 255 |
-| มี implementation สำหรับ Spark | 254 |
-| มีครบทั้งสาม engine | 184 |
-| มีบน pandas แต่ไม่มีบน SQL | 57 |
+| ชื่อ Metric ที่ลงทะเบียน | 315 |
+| มี Implementation สำหรับ Pandas | 241 |
+| มี Implementation สำหรับ SQL (SQLAlchemy) | 255 |
+| มี Implementation สำหรับ Spark | 254 |
+| มีครบทั้งสาม Engine | 184 |
+| มีบน Pandas แต่ไม่มีบน SQL | 57 |
 
-ตัวเลขนับจาก implementation ที่ลงทะเบียน ไม่ได้รันทุก metric บนทุก engine และ Spark ไม่ได้รันเลยในเส้นทางนี้
+ตัวเลขเหล่านี้นับจาก Implementation ที่ลงทะเบียนไว้ ไม่ได้รันทุก Metric บนทุก Engine นะ และในเส้นทางนี้เราก็ไม่ได้รัน Spark เลย
 
 </Step>
 
@@ -34,7 +34,7 @@ import MetricLookup from '../../../../components/labs/great-expectations/MetricL
 
 ## ค้นหาเอง
 
-พิมพ์ชื่อบางส่วน เช่น `column.max`, `nonnull`, `quantile` แล้วเลือกตัวกรองดู metric ที่ขาด engine ใด
+ลองพิมพ์ชื่อบางส่วน เช่น `column.max`, `nonnull`, `quantile` แล้วเลือกตัวกรอง เพื่อดูว่า Metric ไหนขาด Engine ใดไป
 
 <MetricLookup client:visible />
 
@@ -42,14 +42,14 @@ import MetricLookup from '../../../../components/labs/great-expectations/MetricL
 
 <Step>
 
-## ผลของการขาด implementation
+## ผลของการขาด Implementation
 
-ถ้า expectation ต้องใช้ metric ที่ไม่มี implementation สำหรับ engine ที่กำลังรัน GX ไม่ได้ raise ให้ แต่เก็บเป็นผล `success=False` พร้อมข้อความ `No provider found` ใน `exception_info` (ทดลองแล้วกับ custom expectation ที่เขียนเงื่อนไขไว้เฉพาะ pandas แล้วรันบน SQLite ใน[บทที่ 12](/great-expectations/custom-expectations/testing-shipping/#เงื่อนไขเดียวกัน-ผลต่างกันตาม-engine)) ผลจึงดูเหมือน "ข้อมูลไม่ผ่าน" ทั้งที่ปัญหาคือ engine ไม่รองรับ
+ถ้า Expectation ต้องใช้ Metric ที่ไม่มี Implementation สำหรับ Engine ที่กำลังรันอยู่ GX จะไม่ Raise ให้ แต่เก็บเป็นผล `success=False` พร้อมข้อความ `No provider found` ใน `exception_info` (เราทดลองแล้วกับ Custom Expectation ที่เขียนเงื่อนไขไว้เฉพาะ Pandas แล้วรันบน SQLite ใน[บทที่ 12](/great-expectations/custom-expectations/testing-shipping/#เงื่อนไขเดียวกัน-ผลต่างกันตาม-engine)) ผลที่ออกมาจึงดูเหมือน "ข้อมูลไม่ผ่าน" ทั้งที่จริง ๆ แล้วปัญหาคือ Engine ไม่รองรับ
 
-ตัวอย่างจากการนับ: metric ตระกูล `column_values.dateutil_parseable.*` มีบน pandas แต่ไม่มีบน SQL (ห้าตัวแรกในรายการ 57 ตัวคือ `column.parameterized_distribution_ks_test_p_value` และสี่ตัวของ `dateutil_parseable`) expectation ที่ต้องใช้ metric เหล่านั้นจึงไม่ควรเอาไปรันกับข้อมูลที่อยู่ในฐานข้อมูล
+ยกตัวอย่างจากการนับ Metric ตระกูล `column_values.dateutil_parseable.*` มีบน Pandas แต่ไม่มีบน SQL (ห้าตัวแรกในรายการ 57 ตัวคือ `column.parameterized_distribution_ks_test_p_value` และสี่ตัวของ `dateutil_parseable`) เพราะฉะนั้น Expectation ที่ต้องใช้ Metric เหล่านั้นจึงไม่ควรเอาไปรันกับข้อมูลที่อยู่ในฐานข้อมูล
 
-<Callout type="warn" title="ก่อนวาง suite ลง SQL หรือ Spark">
-การมีชื่อ expectation ให้ใช้ ไม่ได้แปลว่า engine ของคุณรองรับ ให้ลองรัน suite กับข้อมูลตัวอย่างบน engine นั้นก่อน แล้วอ่านผลที่ `success=False` ทุกข้อว่ามี `No provider found` หรือไม่ (ใช้ลำดับคำถามจากหน้า "[อ่านผลที่ไม่ผ่านอย่างเป็นระบบ](/great-expectations/reading-results/triage/#ลำดับคำถาม)" ใน[บทที่ 4](/great-expectations/reading-results/)) ทะเบียนนี้เป็นเพียงทางลัดดูล่วงหน้า
+<Callout type="warn" title="ก่อนวาง Suite ลง SQL หรือ Spark">
+การที่มีชื่อ Expectation ให้ใช้ ไม่ได้แปลว่า Engine ของคุณรองรับ ให้ลองรัน Suite กับข้อมูลตัวอย่างบน Engine นั้นก่อน แล้วอ่านผลที่ `success=False` ทุกข้อว่ามี `No provider found` หรือไม่ (ใช้ลำดับคำถามจากหน้า "[อ่านผลที่ไม่ผ่านอย่างเป็นระบบ](/great-expectations/reading-results/triage/#ลำดับคำถาม)" ใน[บทที่ 4](/great-expectations/reading-results/)) ส่วนทะเบียนนี้เป็นเพียงทางลัดไว้ดูล่วงหน้า
 </Callout>
 
 </Step>

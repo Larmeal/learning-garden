@@ -1,6 +1,6 @@
 ---
 title: เขียน Expectation เอง
-summary: เมื่อ expectation ที่มีให้ไม่พอ ดูก่อนว่ากฎของคุณเป็นกฎแบบไหน เลือกคลาสแม่ให้ตรง เขียนเงื่อนไขหนึ่งข้อ แล้วรู้ว่า suite ที่เก็บไว้จะหาคลาสของคุณเจอได้อย่างไร
+summary: เมื่อ Expectation ที่มีให้ไม่พอ ให้ดูก่อนว่ากฎของคุณเป็นกฎแบบไหน แล้วเลือกคลาสแม่ให้ตรง เขียนเงื่อนไขหนึ่งข้อ และดูว่า Suite ที่เก็บไว้จะหาคลาสของคุณเจอได้อย่างไร
 order: 12
 phase: D
 level: 4
@@ -18,7 +18,7 @@ import CustomAnatomy from '../../../../components/labs/great-expectations/Custom
 
 ## เริ่มจากถามว่ากฎของคุณตัดสินจากอะไร
 
-ก่อนเขียนโค้ด ให้ตอบคำถามเดียว: กฎนี้ดูอะไรเพื่อตัดสินว่าข้อมูลผ่านหรือไม่ คำตอบนี้เลือกคลาสแม่ให้ และคลาสแม่คือส่วนที่ GX เขียนไว้ให้แล้วเกือบทั้งหมด
+ก่อนเขียนโค้ด ลองถามตัวเองข้อเดียวว่ากฎนี้ดูอะไรเพื่อตัดสินว่าข้อมูลผ่านหรือไม่ คำตอบนี้จะบอกเราว่าควรเลือกคลาสแม่ตัวไหน ซึ่งคลาสแม่คือส่วนที่ GX เขียนไว้ให้แล้วเกือบทั้งหมด
 
 | กฎตัดสินจาก | คลาสแม่ | ตัวอย่างที่ GX มีให้ | ตัวอย่างกฎที่อาจต้องเขียนเอง |
 |---|---|---|---|
@@ -27,9 +27,9 @@ import CustomAnatomy from '../../../../components/labs/great-expectations/Custom
 | ค่าหลายคอลัมน์ในแถวเดียวกัน | `MulticolumnMapExpectation` | `ExpectMulticolumnSumToEqual` | ช่องทางชำระเงินต้องมีค่าเพียงช่องเดียว |
 | ตัวเลขสรุปหนึ่งค่าของคอลัมน์ | `ColumnAggregateExpectation` | `ExpectColumnMaxToBeBetween` | ช่วงห่างระหว่างค่ามากสุดกับน้อยสุดต้องแคบ |
 | ตัวเลขสรุปหนึ่งค่าของทั้งตาราง | `BatchExpectation` | `ExpectTableRowCountToEqual` | (บทนี้ไม่ได้ทดลองคลาสนี้) |
-| ผลของ SQL ที่ต้องไม่มีแถวเลย | `UnexpectedRowsExpectation` | ใช้ตรงๆ ไม่ต้องเขียนคลาส | ยอดต้องไม่ติดลบเมื่อเทียบกับตารางอื่น |
+| ผลของ SQL ที่ต้องไม่มีแถวเลย | `UnexpectedRowsExpectation` | ใช้ตรง ๆ ไม่ต้องเขียนคลาส | ยอดต้องไม่ติดลบเมื่อเทียบกับตารางอื่น |
 
-ทั้งหมดอยู่ใน `expectations/expectation.py` ของ GX และสืบทอดกันเป็นชั้น (`ColumnMapExpectation` สืบจาก `BatchExpectation` ที่สืบจาก `Expectation`) สามแถวแรกของตาราง (column map, pair, multicolumn) เป็นกลุ่ม "map" ที่บอกได้ว่าแถวไหนผิด ส่วน aggregate กับ batch ให้ค่าสรุปได้ค่าเดียว
+คลาสทั้งหมดอยู่ใน `expectations/expectation.py` ของ GX และสืบทอดกันเป็นชั้น (`ColumnMapExpectation` สืบจาก `BatchExpectation` ที่สืบจาก `Expectation`) สามแถวแรกของตาราง (Column Map, Pair, Multicolumn) เป็นกลุ่ม "Map" ซึ่งบอกได้ว่าแถวไหนผิด ส่วน Aggregate กับ Batch จะให้ค่าสรุปได้ค่าเดียว
 
 </Step>
 
@@ -37,7 +37,7 @@ import CustomAnatomy from '../../../../components/labs/great-expectations/Custom
 
 ## ตัวอย่างที่สั้นที่สุดที่ใช้งานได้
 
-กฎ "ค่าในคอลัมน์ `n` ต้องเป็นเลขคู่" เขียนเป็นสองคลาส
+กฎ "ค่าในคอลัมน์ `n` ต้องเป็นเลขคู่" เราเขียนได้เป็นสองคลาส
 
 ```python
 class ColumnValuesAreEven(ColumnMapMetricProvider):
@@ -57,7 +57,7 @@ class ExpectColumnValuesToBeEven(ColumnMapExpectation):
     args_keys = ("column",)
 ```
 
-คลาสแรกตอบว่า "ค่านี้ปกติไหม" ทีละแถว คลาสที่สองบอกแค่ว่าใช้ metric ตัวไหน ใช้งานได้เหมือน expectation ที่ GX ให้มา
+คลาสแรกตอบคำถามว่า "ค่านี้ปกติไหม" ทีละแถว ส่วนคลาสที่สองบอกแค่ว่าใช้ Metric ตัวไหน แล้วเราก็ใช้งานได้เหมือน Expectation ที่ GX ให้มา
 
 ```python
 suite.add_expectation(ExpectColumnValuesToBeEven(column="n"))
@@ -72,17 +72,17 @@ suite.add_expectation(ExpectColumnValuesToBeEven(column="n", mostly=0.6))
 
 ## เขียนแค่นี้ แล้วได้อะไรกลับมา
 
-ข้อมูล `[2, 4, 6, 7, 10, 11]` (ทดลองแล้วใน `07_custom_expectation.py`)
+ลองใช้ข้อมูล `[2, 4, 6, 7, 10, 11]` (ทดลองแล้วใน `07_custom_expectation.py`)
 
 | ตรวจกับ | ผล |
 |---|---|
-| pandas | `success=False`, `unexpected_count=2`, ค่าที่ผิด `[7, 11]` |
-| pandas, `mostly=0.6` | `success=True` (ถูก 4 จาก 6 ได้ 0.667 ซึ่งไม่ต่ำกว่า 0.6) |
+| Pandas | `success=False`, `unexpected_count=2`, ค่าที่ผิด `[7, 11]` |
+| Pandas, `mostly=0.6` | `success=True` (ถูก 4 จาก 6 ได้ 0.667 ซึ่งไม่ต่ำกว่า 0.6) |
 | SQLite (ตาราง `numbers`) | `success=False`, `unexpected_count=2` |
 
-เราไม่ได้เขียนโค้ดนับแถวที่ผิด คำนวณ `mostly` เก็บค่าที่ผิด หรือจัดรูปผลตาม `result_format` เลย `ColumnMapExpectation` ทำให้หมด และ SQLite ก็รันได้ด้วยคลาสเดิมเพราะเรามีเงื่อนไขของ `SqlAlchemyExecutionEngine` อยู่
+เราไม่ได้เขียนโค้ดนับแถวที่ผิด คำนวณ `mostly` เก็บค่าที่ผิด หรือจัดรูปผลตาม `result_format` เลย เพราะ `ColumnMapExpectation` ทำให้หมด และ SQLite ก็รันได้ด้วยคลาสเดิม เพราะเรามีเงื่อนไขของ `SqlAlchemyExecutionEngine` เขียนไว้อยู่แล้ว
 
-ชื่อประเภทที่เก็บใน suite คือ `expect_column_values_to_be_even` GX แปลงมาจากชื่อคลาสเอง ไม่มีช่องให้ตั้งชื่อเป็นอย่างอื่น (หน้า "[วงจรชีวิต](/great-expectations/custom-expectations/registry-loading/)" มีรายละเอียด)
+ชื่อประเภทที่เก็บใน Suite คือ `expect_column_values_to_be_even` ซึ่ง GX แปลงมาจากชื่อคลาสเอง เราจึงตั้งชื่ออย่างอื่นไม่ได้ (หน้า "[วงจรชีวิต](/great-expectations/custom-expectations/registry-loading/)" มีรายละเอียด)
 
 </Step>
 
@@ -90,13 +90,13 @@ suite.add_expectation(ExpectColumnValuesToBeEven(column="n", mostly=0.6))
 
 ## สามอย่างที่เกิดตอนคลาสถูกนิยาม
 
-ไม่มีบรรทัด `register(...)` ในโค้ดข้างบน แต่เมื่อ Python อ่านถึงคำว่า `class` สามอย่างนี้เกิดขึ้นแล้ว (ทดลองใน `11_custom_column_map.py`)
+ในโค้ดข้างบนไม่มีบรรทัด `register(...)` เลย แต่เมื่อ Python อ่านถึงคำว่า `class` สามอย่างนี้ก็เกิดขึ้นแล้ว (ทดลองใน `11_custom_column_map.py`)
 
-1. ลงทะเบียน expectation: `MetaExpectation.__new__` ตั้ง `expectation_type` จากชื่อคลาส แล้วใส่คลาสลง dict ชื่อ `_registered_expectations` ในไฟล์ `expectations/registry.py` คลาสที่ไม่มี `map_metric` ถือเป็นคลาสนามธรรมและไม่ถูกลงทะเบียน
-2. ลงทะเบียน metric: เมธอดที่ติด `@column_condition_partial` ถูกลงทะเบียนแยกตาม engine และ GX สร้าง metric ที่เหลือให้ด้วย (`.unexpected_count`, `.unexpected_values`, `.unexpected_index_list` และอื่นๆ) รวมแปดชื่อใต้ `column_values.are_even`
-3. กลายเป็นโมเดลที่ตรวจ argument: expectation เป็น pydantic model พิมพ์ `colum="n"` ผิดตัวเดียวก็ได้ `ValidationError` ทันที (ทั้ง `field required` และ `extra fields not permitted`) `mostly=1.5` ไม่ผ่านเพราะ `MostlyField` จำกัดไม่เกิน 1.0 และ `severity="loud"` ก็ไม่ผ่านเช่นกัน
+1. อย่างแรกคือการลงทะเบียน Expectation โดย `MetaExpectation.__new__` จะตั้ง `expectation_type` จากชื่อคลาส แล้วใส่คลาสลง Dict ชื่อ `_registered_expectations` ในไฟล์ `expectations/registry.py` ส่วนคลาสที่ไม่มี `map_metric` ถือเป็นคลาสนามธรรมและไม่ถูกลงทะเบียน
+2. อย่างที่สองคือการลงทะเบียน Metric โดยเมธอดที่ติด `@column_condition_partial` จะถูกลงทะเบียนแยกตาม Engine และ GX สร้าง Metric ที่เหลือให้ด้วย (`.unexpected_count`, `.unexpected_values`, `.unexpected_index_list` และอื่น ๆ) รวมแปดชื่อใต้ `column_values.are_even`
+3. อย่างที่สามคือคลาสกลายเป็นโมเดลที่ตรวจ Argument เพราะ Expectation เป็น Pydantic Model ถ้าพิมพ์ `colum="n"` ผิดตัวเดียวก็ได้ `ValidationError` ทันที (ทั้ง `field required` และ `extra fields not permitted`) ส่วน `mostly=1.5` ไม่ผ่านเพราะ `MostlyField` จำกัดไม่เกิน 1.0 และ `severity="loud"` ก็ไม่ผ่านเช่นกัน
 
-ทั้งสามอย่างเกิดตอน import ไฟล์ที่นิยามคลาส คลาสที่ยังไม่ถูก import จึงไม่มีตัวตนสำหรับ GX เลย นี่คือต้นเหตุของกับดักใหญ่ที่สุดของบทนี้ หน้า "[วงจรชีวิต](/great-expectations/custom-expectations/registry-loading/)" ไล่ให้ดูทีละขั้น
+ทั้งสามอย่างเกิดตอน Import ไฟล์ที่นิยามคลาส ดังนั้นคลาสที่ยังไม่ถูก Import จึงไม่มีตัวตนสำหรับ GX เลย ซึ่งเป็นต้นเหตุของกับดักใหญ่ที่สุดของบทนี้ โดยหน้า "[วงจรชีวิต](/great-expectations/custom-expectations/registry-loading/)" จะไล่ให้ดูทีละขั้น
 
 </Step>
 
@@ -106,17 +106,17 @@ suite.add_expectation(ExpectColumnValuesToBeEven(column="n", mostly=0.6))
 
 หน้าย่อยของบทนี้เรียงตามลำดับที่ควรอ่าน
 
-1. ลองของที่มีก่อน: `mostly`, `row_condition`, `severity` และวิธีค้นหา expectation ที่มีอยู่ เพื่อไม่ต้องเขียนเกินจำเป็น
-2. column map ลงลึก: สิ่งที่เงื่อนไขของคุณได้รับจริง, metric ทั้งแปดตัว, SQL ที่ GX สร้าง, ตารางว่าง, null และ `filter_column_isnull`
-3. expectation แบบอื่น: aggregate, pair, multicolumn และ `UnexpectedRowsExpectation` พร้อมตัวอย่างที่รันได้ทุกแบบ
-4. วงจรชีวิต: ชื่อประเภทมาจากไหน, registry ทำงานอย่างไร, suite ที่เก็บไว้หาคลาสของคุณเจออย่างไร และทำไมถึงโหลดมาว่างได้
-5. ทดสอบและปล่อยใช้: ตารางกรณีทดสอบ, `run_diagnostics`, ตัวตรวจใน CI และเรื่องการอัปเกรด
+1. ลองของที่มีก่อน ดู `mostly`, `row_condition`, `severity` และวิธีค้นหา Expectation ที่มีอยู่ เพื่อไม่ต้องเขียนเกินจำเป็น
+2. Column Map ลงลึก ดูสิ่งที่เงื่อนไขของคุณได้รับจริง, Metric ทั้งแปดตัว, SQL ที่ GX สร้าง, ตารางว่าง, Null และ `filter_column_isnull`
+3. Expectation แบบอื่น ได้แก่ Aggregate, Pair, Multicolumn และ `UnexpectedRowsExpectation` พร้อมตัวอย่างที่รันได้ทุกแบบ
+4. วงจรชีวิต ดูว่าชื่อประเภทมาจากไหน, Registry ทำงานอย่างไร, Suite ที่เก็บไว้หาคลาสของคุณเจออย่างไร และทำไมถึงโหลดมาว่างได้
+5. ทดสอบและปล่อยใช้ มีตารางกรณีทดสอบ, `run_diagnostics`, ตัวตรวจใน CI และเรื่องการอัปเกรด
 
 <Callout type="warn" title="กับดักสี่ข้อที่ทดลองเจอจริง">
-1. ถ้าโปรเซสที่โหลด suite ไม่ได้ import คลาส suite จะว่างเปล่าและ `run()` ได้ `success=True`
-2. เงื่อนไขเดียวกันให้ความหมายต่างกันเมื่อเปลี่ยน engine เช่นคอลัมน์ข้อความ `"a" % 2 == 0` ล้มบน pandas แต่ผ่านเงียบๆ บน SQLite
-3. ตั้ง `filter_column_isnull = False` แล้วข้อมูลมี null ทำให้ GX สร้างผลไม่ได้
-4. คลาสที่ชื่อซ้ำกับ expectation ที่มีอยู่ จะแทนที่ตัวเดิมใน registry โดยมีแค่ warning
+1. ถ้าโปรเซสที่โหลด Suite ไม่ได้ Import คลาส Suite จะว่างเปล่าและ `run()` ได้ `success=True`
+2. เงื่อนไขเดียวกันให้ความหมายต่างกันเมื่อเปลี่ยน Engine เช่นคอลัมน์ข้อความ `"a" % 2 == 0` ล้มบน Pandas แต่ผ่านเงียบ ๆ บน SQLite
+3. ตั้ง `filter_column_isnull = False` แล้วข้อมูลมี Null ทำให้ GX สร้างผลไม่ได้
+4. คลาสที่ชื่อซ้ำกับ Expectation ที่มีอยู่ จะแทนที่ตัวเดิมใน Registry โดยมีแค่ Warning
 </Callout>
 
 </Step>

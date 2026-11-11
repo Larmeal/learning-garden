@@ -1,6 +1,6 @@
 ---
-title: เขียน action เอง และ action ที่ล้ม
-summary: สร้าง ValidationAction ที่เขียนไฟล์สถานะ ดูว่ามันได้รับอะไร และทดลอง action ที่ raise เพื่อดูว่าผลตรวจที่เก็บไว้แล้วรอดหรือไม่
+title: เขียน Action เอง และ Action ที่ล้ม
+summary: สร้าง ValidationAction ที่เขียนไฟล์สถานะ ดูว่ามันได้รับอะไร และทดลอง Action ที่ Raise เพื่อดูว่าผลตรวจที่เก็บไว้แล้วรอดหรือไม่
 order: 2
 stage: sprout
 format: steps
@@ -13,9 +13,9 @@ import FlowFrames from '../../../../components/labs/great-expectations/FlowFrame
 
 <Step>
 
-## action ที่เขียนไฟล์สถานะ
+## Action ที่เขียนไฟล์สถานะ
 
-บทหลักแสดงโครงของ `ValidationAction` ที่นี่รันจริง (`27_actions_notify.py` ส่วนที่ 3, GX 1.24.1)
+บทหลักแสดงโครงของ `ValidationAction` ไว้แล้ว ส่วนในหน้านี้เรารันจริง (`27_actions_notify.py` ส่วนที่ 3, GX 1.24.1)
 
 ```python
 class WriteStatus(ValidationAction):
@@ -32,32 +32,32 @@ cp = gx.Checkpoint(name="cp_custom", validation_definitions=[vd],
 cp.run(batch_parameters={"dataframe": df})
 ```
 
-ผลที่พิมพ์
+ผลที่พิมพ์ออกมาเป็นดังนี้
 
 ```text
 file content: failed | saw: {'context_type': 'ActionContext', 'success': False}
 ```
 
-- ข้อมูลทำให้ suite ไม่ผ่าน ไฟล์จึงมีคำว่า `failed`
-- `run` ได้ `CheckpointResult` เต็ม (อ่าน `.success` ได้ และเข้าถึง `run_results` ได้เหมือนหน้า "[อ่าน CheckpointResult](/great-expectations/validation-checkpoints/checkpoint-result/)" ของ[บทที่ 7](/great-expectations/validation-checkpoints/#checkpointresult)) กับ `ActionContext` ตัวหนึ่ง
-- ฟิลด์ของ action (ที่นี่ `path`) ประกาศเป็นฟิลด์ pydantic แล้วส่งตอนสร้าง
-- ฟิลด์ `type` เป็นตัวบอกชื่อประเภทของ action ตอนเก็บ checkpoint ลงไฟล์ (คลาสถูกลงทะเบียนใน registry ด้วยค่า `type` ตอนนิยาม ตามคอมเมนต์ใน `MetaValidationAction` ของซอร์ส)
+- ข้อมูลทำให้ Suite ไม่ผ่าน ไฟล์จึงมีคำว่า `failed` อยู่
+- `run` ได้รับ `CheckpointResult` เต็ม ๆ (อ่าน `.success` ได้ และเข้าถึง `run_results` ได้เหมือนหน้า "[อ่าน CheckpointResult](/great-expectations/validation-checkpoints/checkpoint-result/)" ของ[บทที่ 7](/great-expectations/validation-checkpoints/#checkpointresult)) พร้อมกับ `ActionContext` อีกตัวหนึ่ง
+- ฟิลด์ของ Action (ที่นี่คือ `path`) ประกาศเป็นฟิลด์ Pydantic แล้วส่งค่าเข้าไปตอนสร้าง
+- ฟิลด์ `type` เป็นตัวบอกชื่อประเภทของ Action ตอนเก็บ Checkpoint ลงไฟล์ โดยคลาสจะถูกลงทะเบียนใน Registry ด้วยค่า `type` ตอนนิยาม (ตามคอมเมนต์ใน `MetaValidationAction` ของซอร์ส)
 
-ส่วนที่ 5 ของสคริปต์ทดลองสิ่งที่ custom expectation เจอเป็นกับดัก ([บทที่ 12](/great-expectations/custom-expectations/registry-loading/#ผลที่เห็นจากสองโปรเซส)) กับ action: process A สร้าง checkpoint ที่มี `WriteStatus` ลงใน file context แล้ว process B ที่ไม่ได้ import คลาสนี้โหลด context
+ส่วนที่ 5 ของสคริปต์ทดลองกับดักที่ Custom Expectation เคยเจอ ([บทที่ 12](/great-expectations/custom-expectations/registry-loading/#ผลที่เห็นจากสองโปรเซส)) กับ Action ด้วย โดย Process A สร้าง Checkpoint ที่มี `WriteStatus` ลงใน File Context แล้ว Process B ที่ไม่ได้ Import คลาสนี้ก็โหลด Context ขึ้นมา ผลที่ได้เป็นดังนี้
 
 ```text
 B: ValidationActionRegistryRetrievalError | Invalid action configuration; no action of type write_status found.
 ```
 
-ต่างจาก custom expectation ที่ suite โหลดมาว่างเงียบๆ กรณี action `get_context()` raise ทันทีและบอกชื่อ type ที่หาไม่เจอ ปัญหานี้จึงเห็นเร็วกว่า ทั้งสองกรณีมีต้นเหตุเดียวกัน คือคลาสต้องถูก import ก่อนจึงอยู่ใน registry
+ต่างจาก Custom Expectation ที่ Suite โหลดมาว่างเงียบ ๆ แต่กรณี Action นั้น `get_context()` จะ Raise ทันทีและบอกชื่อ Type ที่หาไม่เจอ ปัญหานี้จึงเห็นได้เร็วกว่า ทั้งสองกรณีมีต้นเหตุเดียวกัน คือคลาสต้องถูก Import ก่อน จึงจะอยู่ใน Registry
 
 </Step>
 
 <Step>
 
-## action ที่ raise
+## Action ที่ Raise
 
-`Boom.run` ตั้งใจ raise `RuntimeError("webhook is down")` สคริปต์รัน checkpoint ที่มี `Boom` เป็น action เดียว
+`Boom.run` ตั้งใจ Raise `RuntimeError("webhook is down")` ขึ้นมา แล้วสคริปต์ก็รัน Checkpoint ที่มี `Boom` เป็น Action เดียว ได้ผลดังนี้
 
 ```text
 run raised: RuntimeError | webhook is down
@@ -66,7 +66,7 @@ results stored anyway: 1
 
 <FlowFrames
   client:visible
-  title="เมื่อ action ล้ม ผลตรวจรอดหรือไม่"
+  title="เมื่อ Action ล้ม ผลตรวจรอดหรือไม่"
   width={760}
   height={240}
   boxes={[
@@ -84,7 +84,7 @@ results stored anyway: 1
   ]}
 />
 
-ดังนั้น Slack ที่ล่มไม่ทำให้ผลตรวจหาย แต่ทำให้ `cp.run()` raise และ action หลังจากนั้นไม่ถูกรัน (ทดลองใน `06_actions_docs.py`) pipeline ที่ไม่ได้ครอบ `try/except` จะล้มทั้งงานเพราะการแจ้งเตือนเสริม
+ดังนั้น Slack ที่ล่มไม่ทำให้ผลตรวจหาย แต่ทำให้ `cp.run()` Raise และ Action หลังจากนั้นไม่ถูกรัน (ทดลองใน `06_actions_docs.py`) ถ้า Pipeline ไม่ได้ครอบ `try/except` ไว้ ทั้งงานก็จะล้มเพราะการแจ้งเตือนเสริมเพียงอย่างเดียว
 
 ## รูปแบบที่ปลอดภัย
 
@@ -97,10 +97,10 @@ def run(self, checkpoint_result, action_context=None):
     return {}
 ```
 
-รูปนี้เป็นข้อเสนอจากพฤติกรรมที่ทดลองแล้ว (action ที่ raise ลาก checkpoint ล้ม) ตัวโค้ดนี้เองไม่ได้รัน
+รูปแบบนี้เป็นข้อเสนอที่ได้จากพฤติกรรมที่ทดลองแล้ว (Action ที่ Raise ลาก Checkpoint ล้ม) แต่ตัวโค้ดนี้เองไม่ได้รันนะ
 
-<Callout type="note" title="ผลข้างเคียงของการกลืน error">
-action ที่กลืน error จะไม่แจ้งว่าการแจ้งเตือนล้ม ควรเขียน log ไว้เสมอ ไม่เช่นนั้นทีมจะเข้าใจว่าไม่มีเหตุ ทั้งที่ข้อความไปไม่ถึง
+<Callout type="note" title="ผลข้างเคียงของการกลืน Error">
+Action ที่กลืน Error จะไม่บอกเราว่าการแจ้งเตือนล้ม ดังนั้นควรเขียน Log ไว้เสมอ ไม่เช่นนั้นทีมจะเข้าใจว่าไม่มีเหตุอะไรเกิดขึ้น ทั้งที่ข้อความส่งไปไม่ถึง
 </Callout>
 
 </Step>

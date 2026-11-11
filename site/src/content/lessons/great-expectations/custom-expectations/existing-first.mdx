@@ -1,6 +1,6 @@
 ---
 title: ลองของที่มีก่อน
-summary: GX มี expectation 59 ตัวพร้อมพารามิเตอร์ที่ปรับพฤติกรรมได้ ดูว่าอะไรแก้ได้ด้วย mostly, row_condition และ severity และวิธีค้นหาก่อนเขียนเอง
+summary: GX มี Expectation 59 ตัวพร้อมพารามิเตอร์ที่ปรับพฤติกรรมได้ ดูว่าอะไรแก้ได้ด้วย Mostly, row_condition และ Severity และวิธีค้นหาก่อนเขียนเอง
 order: 1
 stage: sprout
 format: steps
@@ -14,13 +14,13 @@ import Callout from '../../../../components/Callout.astro';
 
 ## เขียนเองมีค่าใช้จ่ายต่อเนื่อง
 
-custom expectation ทำงานได้ดี แต่คุณรับภาระสามอย่างไปด้วย
+Custom Expectation ทำงานได้ดี แต่คุณรับภาระสามอย่างไปด้วย
 
-- ต้องเขียนและทดสอบเงื่อนไขแยกทีละ engine ที่ใช้จริง ถ้าลืมเขียนให้ engine ไหน expectation นั้นล้มบน engine นั้น
-- ทุกโปรเซสที่โหลด suite ต้อง import คลาสของคุณก่อน ไม่งั้น suite โหลดมาว่าง (หน้า "[วงจรชีวิต](/great-expectations/custom-expectations/registry-loading/)")
-- คุณดูแลโค้ดนี้ตอนอัปเกรด GX เอง มันเรียกใช้ของภายในอย่าง `ColumnMapMetricProvider` และ `column_condition_partial`
+- ต้องเขียนและทดสอบเงื่อนไขแยกทีละ Engine ที่ใช้จริง ถ้าลืมเขียนให้ Engine ไหน Expectation นั้นล้มบน Engine นั้น
+- ทุกโปรเซสที่โหลด Suite ต้อง Import คลาสของคุณก่อน ไม่อย่างนั้น Suite จะโหลดมาว่าง (หน้า "[วงจรชีวิต](/great-expectations/custom-expectations/registry-loading/)")
+- คุณต้องดูแลโค้ดนี้เองตอนอัปเกรด GX เพราะมันเรียกใช้ของภายในอย่าง `ColumnMapMetricProvider` และ `column_condition_partial`
 
-ภาระข้อสามไม่ได้หนักเกินไป สคริปต์ `07`, `11`, `12` และ `13` ของบทนี้รันบนทั้ง GX 1.9.3 และ 1.24.1 ด้วยโค้ดชุดเดียวกัน คลาสที่นิยามไว้ทำงานได้เหมือนกัน ผลต่างที่เห็นมีแค่ชนิดตัวเลขใน result (`np.int64` ใน 1.9.3 เทียบกับ `int` ใน 1.24.1 ในผลของ pair และ multicolumn) กับข้อความ error ของกรณี `filter_column_isnull = False` นี่เป็นผลจากสองรุ่นที่ทดลอง ไม่ใช่คำรับประกันว่ารุ่นอื่นจะเหมือนกัน และบทนี้ไม่ได้ทดลองว่า Data Docs แสดง expectation ที่เขียนเองอย่างไร
+ภาระข้อที่สามไม่ได้หนักเกินไป เพราะสคริปต์ `07`, `11`, `12` และ `13` ของบทนี้รันบนทั้ง GX 1.9.3 และ 1.24.1 ด้วยโค้ดชุดเดียวกัน และคลาสที่นิยามไว้ก็ทำงานได้เหมือนกัน ผลต่างที่เห็นมีแค่ชนิดตัวเลขใน Result (`np.int64` ใน 1.9.3 เทียบกับ `int` ใน 1.24.1 ในผลของ Pair และ Multicolumn) กับข้อความ Error ของกรณี `filter_column_isnull = False` ทั้งนี้เป็นผลจากสองรุ่นที่ทดลอง ไม่ได้รับประกันว่ารุ่นอื่นจะเหมือนกัน และบทนี้ไม่ได้ทดลองว่า Data Docs แสดง Expectation ที่เขียนเองอย่างไร
 
 </Step>
 
@@ -28,7 +28,7 @@ custom expectation ทำงานได้ดี แต่คุณรับภ
 
 ## ปรับของที่มีด้วยพารามิเตอร์
 
-ตารางตัวอย่างหกแถว (`15_adapt_builtin.py`)
+เราใช้ตารางตัวอย่างหกแถว (`15_adapt_builtin.py`)
 
 ```python
 orders = pd.DataFrame({
@@ -38,20 +38,20 @@ orders = pd.DataFrame({
 })
 ```
 
-### mostly: ยอมให้ผิดได้สัดส่วนหนึ่ง
+### Mostly: ยอมให้ผิดได้สัดส่วนหนึ่ง
 
 ```python
 gxe.ExpectColumnValuesToBeBetween(column="amount", min_value=0, max_value=1000, mostly=0.8)
 ```
 
-| mostly | ผล |
+| Mostly | ผล |
 |---|---|
 | 1 (ค่าเริ่มต้น) | `success=False`, ผิด 1 จาก 6 (ค่า `5000.0`) |
 | 0.8 | `success=True` (ถูก 5 จาก 6 ได้ 0.833) |
 
 ### row_condition: ตรวจเฉพาะแถวที่เข้าเงื่อนไข
 
-รหัสไปรษณีย์ต้องมี 5 หลักเฉพาะแถวที่ `country` เป็น `th` ประเทศอื่นรูปแบบต่างกันได้
+สมมติว่ารหัสไปรษณีย์ต้องมี 5 หลักเฉพาะแถวที่ `country` เป็น `th` ส่วนประเทศอื่นมีรูปแบบต่างกันได้
 
 ```python
 from great_expectations.expectations.row_conditions import Column
@@ -66,16 +66,16 @@ gxe.ExpectColumnValuesToMatchRegex(
 | ไม่ใส่ | 6 | 4 (`'1011'`, `'100-0001'` สองแถว, `'018956'`) |
 | `Column("country") == "th"` | 3 | 1 (`'1011'`) |
 
-### severity: บอกว่าล้มแล้วหนักแค่ไหน
+### Severity: บอกว่าล้มแล้วหนักแค่ไหน
 
 ```python
 gxe.ExpectColumnValuesToBeBetween(column="amount", min_value=0, max_value=1000, severity="warning")
 ```
 
-ผลของ validation มี `get_max_severity_failure()` ซึ่งคืนระดับที่หนักที่สุดในบรรดาข้อที่ล้ม (ในตัวอย่างที่ผสม `warning` กับ `critical` ได้ `FailureSeverity.CRITICAL`) ค่าที่ใช้ได้คือ `critical`, `warning`, `info` และค่าเริ่มต้นคือ `critical`
+ผลของ Validation มี `get_max_severity_failure()` ซึ่งคืนระดับที่หนักที่สุดในบรรดาข้อที่ล้ม (ในตัวอย่างที่ผสม `warning` กับ `critical` ได้ `FailureSeverity.CRITICAL`) ค่าที่ใช้ได้คือ `critical`, `warning`, `info` และค่าเริ่มต้นคือ `critical`
 
 <Callout type="note" title="ไวยากรณ์ของ row_condition เปลี่ยนไปแล้ว">
-ใน GX 1.24.1 `row_condition` รับอ็อบเจ็กต์อย่าง `Column("country") == "th"` ซอร์ส `expectations/row_conditions.py` มีทั้ง `AndCondition` และ `OrCondition` แต่จำกัดว่า AND ห้ามมี OR ซ้อนอยู่ข้างใน และ OR ห้ามซ้อน OR ซอร์สรุ่นนี้ยังมีฟิลด์ `condition_parser` และตัวแปลง row_condition แบบสตริงเก่า (`_transform_legacy_row_condition`) แต่บทนี้ไม่ได้ทดลองแบบสตริง ตัวอย่างจากเอกสารเก่าจึงควรลองกับรุ่นที่ติดตั้งก่อนใช้
+ใน GX 1.24.1 `row_condition` รับอ็อบเจ็กต์อย่าง `Column("country") == "th"` โดยซอร์ส `expectations/row_conditions.py` มีทั้ง `AndCondition` และ `OrCondition` แต่จำกัดว่า AND ห้ามมี OR ซ้อนอยู่ข้างใน และ OR ห้ามซ้อน OR นอกจากนี้ซอร์สรุ่นนี้ยังมีฟิลด์ `condition_parser` และตัวแปลง row_condition แบบสตริงเก่า (`_transform_legacy_row_condition`) แต่บทนี้ไม่ได้ทดลองแบบสตริง ดังนั้นตัวอย่างจากเอกสารเก่าควรลองกับรุ่นที่ติดตั้งก่อนใช้นะ
 </Callout>
 
 </Step>
@@ -84,7 +84,7 @@ gxe.ExpectColumnValuesToBeBetween(column="amount", min_value=0, max_value=1000, 
 
 ## ค้นหาก่อนเขียน
 
-ตอน `import great_expectations.expectations` GX ลงทะเบียน expectation ที่มีให้ครบ นับได้ 59 ตัวใน 1.24.1 ค้นด้วยชื่อได้ทันที
+ตอน `import great_expectations.expectations` GX จะลงทะเบียน Expectation ที่มีให้ครบ ซึ่งนับได้ 59 ตัวใน 1.24.1 และเราค้นด้วยชื่อได้ทันที
 
 ```python
 from great_expectations.expectations import registry
@@ -100,7 +100,7 @@ names = registry.list_registered_expectation_implementations()
 | `regex` | `column_values_to_match_regex`, `..._regex_list`, `column_values_to_not_match_regex`, `..._regex_list` |
 | `unique` | `column_values_to_be_unique`, `compound_columns_to_be_unique`, `select_column_values_to_be_unique_within_record` และอีกสองตัว |
 
-ในรายการ 59 ตัวมีหลายตัวที่คนมักคิดว่าต้องเขียนเอง เช่น `column_values_to_not_be_outliers`, `column_values_to_be_json_parseable`, `column_values_to_match_strftime_format`, `table_row_count_to_equal_other_table` และ `query_results_to_match_comparison` ค้นด้วยคำที่ตรงกับกฎของคุณ แล้วเปิดเอกสารหรือซอร์สของตัวที่เจอเพื่อดูพารามิเตอร์
+ในรายการ 59 ตัวมีหลายตัวที่คนมักคิดว่าต้องเขียนเอง เช่น `column_values_to_not_be_outliers`, `column_values_to_be_json_parseable`, `column_values_to_match_strftime_format`, `table_row_count_to_equal_other_table` และ `query_results_to_match_comparison` ดังนั้นให้ลองค้นด้วยคำที่ตรงกับกฎของคุณ แล้วเปิดเอกสารหรือซอร์สของตัวที่เจอเพื่อดูพารามิเตอร์
 
 </Step>
 
@@ -127,7 +127,7 @@ query = "SELECT * FROM {batch} WHERE discount * 2 > price"
 gxe.UnexpectedRowsExpectation(unexpected_rows_query=query)
 ```
 
-ผลที่ทดลองบน SQLite (`12_custom_kinds.py`): `success=False`, `observed_value=1` คือพบหนึ่งแถวที่ละเมิดกฎ ข้อจำกัดคือมันรันได้เฉพาะ backend ที่รับ SQL (ซอร์สมี provider ของ SQLAlchemy และ Spark โดย Spark ไม่ได้ทดลอง) บน pandas จะได้ `success=False` พร้อมข้อความ `No provider found for unexpected_rows_query.table using PandasExecutionEngine`
+เมื่อทดลองบน SQLite (`12_custom_kinds.py`) จะได้ `success=False` และ `observed_value=1` ซึ่งหมายถึงพบหนึ่งแถวที่ละเมิดกฎ ข้อจำกัดของมันคือรันได้เฉพาะ Backend ที่รับ SQL (ซอร์สมี Provider ของ SQLAlchemy และ Spark โดย Spark ไม่ได้ทดลอง) ส่วนบน Pandas จะได้ `success=False` พร้อมข้อความ `No provider found for unexpected_rows_query.table using PandasExecutionEngine`
 
 </Step>
 
@@ -135,13 +135,13 @@ gxe.UnexpectedRowsExpectation(unexpected_rows_query=query)
 
 ## ลำดับที่ควรลอง
 
-1. มี expectation ตรงตัวไหม (ค้นใน registry ด้วยคำสำคัญสองสามคำ)
-2. ดัดแปลงด้วย `mostly`, `row_condition`, `severity`
-3. กฎเขียนเป็น SQL ได้ และข้อมูลอยู่ในฐานข้อมูล SQL (หรือ Spark): ใช้ `UnexpectedRowsExpectation`
-4. เขียนคลาสเอง เลือกคลาสแม่ตามตารางในหน้าแรกของบท
+1. ดูก่อนว่ามี Expectation ตรงตัวไหม (ค้นใน Registry ด้วยคำสำคัญสองสามคำ)
+2. ลองดัดแปลงด้วย `mostly`, `row_condition`, `severity`
+3. ถ้ากฎเขียนเป็น SQL ได้ และข้อมูลอยู่ในฐานข้อมูล SQL (หรือ Spark) ให้ใช้ `UnexpectedRowsExpectation`
+4. ถ้ายังไม่พอ ก็เขียนคลาสเอง โดยเลือกคลาสแม่ตามตารางในหน้าแรกของบท
 
 <Callout type="tip" title="ข้อ 3 กับข้อ 4 ต่างกันที่ผลลัพธ์">
-`UnexpectedRowsExpectation` ให้ `observed_value` เป็นจำนวนแถวที่ผิด และถ้าตั้ง `result_format` เป็น `COMPLETE` จะได้แถวเต็มใน `details.unexpected_rows` ด้วย (ทดลองแล้วบน SQLite) แต่ไม่มี `mostly`, `unexpected_percent` หรือดัชนีแถวอย่าง column map ซอร์สกำหนด `success_keys` ของมันไว้แค่ `unexpected_rows_query`
+`UnexpectedRowsExpectation` ให้ `observed_value` เป็นจำนวนแถวที่ผิด และถ้าตั้ง `result_format` เป็น `COMPLETE` จะได้แถวเต็มใน `details.unexpected_rows` ด้วย (ทดลองแล้วบน SQLite) แต่ไม่มี `mostly`, `unexpected_percent` หรือดัชนีแถวอย่าง Column Map ซอร์สกำหนด `success_keys` ของมันไว้แค่ `unexpected_rows_query`
 </Callout>
 
 </Step>

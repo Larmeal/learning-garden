@@ -16,7 +16,7 @@ import Variants from '../../../../components/labs/great-expectations/Variants';
 
 ## ตั้งสถานการณ์
 
-โฟลเดอร์มีไฟล์ของวันที่ 1 และ 3 มกราคม 2024 ส่วนไฟล์ของวันที่ 2 ไม่เคยมา (`29_pipeline_policies.py` ส่วนที่ 2, GX 1.24.1) checkpoint ตรวจจำนวนแถวไม่ต่ำกว่า 1 ผ่าน batch definition รายวันที่ regex ปิดหัวท้าย (ตามหน้า "regex ของชื่อไฟล์" ของ[บทที่ 6](/great-expectations/datasources-batches/#partitioner-สองตระกูล))
+สมมติว่าในโฟลเดอร์มีไฟล์ของวันที่ 1 และ 3 มกราคม 2024 ส่วนไฟล์ของวันที่ 2 ไม่เคยมา (`29_pipeline_policies.py` ส่วนที่ 2, GX 1.24.1) โดย Checkpoint จะตรวจว่าจำนวนแถวไม่ต่ำกว่า 1 ผ่าน Batch Definition รายวันที่ Regex ปิดหัวท้าย (ตามหน้า "Regex ของชื่อไฟล์" ของ[บทที่ 6](/great-expectations/datasources-batches/#partitioner-สองตระกูล))
 
 ```python
 def run_for(day: date):
@@ -37,19 +37,19 @@ def run_for(day: date):
       label: 'ส่งวันที่ครบ',
       code: `for d in (1, 2, 3):\n    run_for(date(2024, 1, d))`,
       output: `day 1: validated data_2024-01-01.csv success=True\nday 2: NoAvailableBatchesError | No available batches found.\nday 3: validated data_2024-01-03.csv success=True`,
-      reading: 'วันที่ไม่มีไฟล์ล้มดังๆ ด้วย NoAvailableBatchesError ทีมรู้ทันทีว่าข้อมูลของวันนั้นไม่มา',
+      reading: 'วันที่ไม่มีไฟล์จะล้มดัง ๆ ด้วย NoAvailableBatchesError ทีมจึงรู้ทันทีว่าข้อมูลของวันนั้นไม่มา',
     },
     {
       label: 'ลืมส่งวันที่',
       code: `daily_cp.run(batch_parameters={})   # ตัวแปรวันที่ว่างแล้วไม่ถูกส่ง`,
       output: `validated data_2024-01-03.csv success=True\n(ขอวันที่ 2 ซึ่งไม่มีไฟล์)`,
-      reading: 'ไม่ error ตรวจไฟล์ล่าสุดที่มี (วันที่ 3) แล้วรายงานว่าผ่าน ข้อมูลของวันที่ 2 ไม่เคยถูกตรวจและไม่มีใครรู้',
+      reading: 'ไม่ error แต่ไปตรวจไฟล์ล่าสุดที่มี (วันที่ 3) แล้วรายงานว่าผ่าน ข้อมูลของวันที่ 2 จึงไม่เคยถูกตรวจและไม่มีใครรู้',
       bad: true,
     },
   ]}
 />
 
-กรณีที่สองคือกับดักของ[บทที่ 6](/great-expectations/datasources-batches/#get_batch-เลือกไฟล์ไหน) ที่ยืนยันในระดับ checkpoint ด้วย ผลบอกชื่อไฟล์ที่ตรวจอยู่ใน `meta["batch_spec"]["path"]` ของผลแต่ละ validation สคริปต์ใช้ฟิลด์นี้พิมพ์ชื่อไฟล์
+กรณีที่สองคือกับดักของ[บทที่ 6](/great-expectations/datasources-batches/#get_batch-เลือกไฟล์ไหน) ซึ่งเรายืนยันแล้วในระดับ Checkpoint ด้วย โดยชื่อไฟล์ที่ถูกตรวจอยู่ใน `meta["batch_spec"]["path"]` ของผลแต่ละ Validation และสคริปต์ก็ใช้ฟิลด์นี้พิมพ์ชื่อไฟล์ออกมา
 
 </Step>
 
@@ -75,7 +75,7 @@ def run_for(day: date):
     { title: 'task แปลงเป็นพารามิเตอร์ครบ', text: 'year, month, day เป็นจำนวนเต็ม ส่งครบทุกตัวเสมอ', on: ['sch', 'task'], arrows: [0] },
     { title: 'ส่งให้ checkpoint', text: 'GX กรอง batch ตามพารามิเตอร์ที่ได้ ไม่ได้ใช้ "ล่าสุด"', on: ['task', 'gx'], arrows: [1] },
     { title: 'มีไฟล์: ตรวจวันนั้น', text: 'ผลของวันนั้นถูกเก็บ ชื่อไฟล์อยู่ใน meta ให้ตรวจย้อนได้', on: ['gx', 'ok'], arrows: [2] },
-    { title: 'ไม่มีไฟล์: ล้มดังๆ', text: 'NoAvailableBatchesError ทำให้ task ล้ม แล้ว scheduler แจ้งเตือนตามระบบของมัน', on: ['gx', 'miss'], arrows: [3], tag: '29_pipeline_policies.py' },
+    { title: 'ไม่มีไฟล์: ล้มดัง ๆ', text: 'NoAvailableBatchesError ทำให้ task ล้ม แล้ว scheduler แจ้งเตือนตามระบบของมัน', on: ['gx', 'miss'], arrows: [3], tag: '29_pipeline_policies.py' },
   ]}
 />
 
@@ -85,14 +85,14 @@ def run_for(day: date):
 
 ## รันซ้ำวันเดิม
 
-รัน `run_for(date(2024, 1, 3))` สองครั้ง จำนวนผลใน results store เพิ่มขึ้น 2 (ไม่ใช่ 1) ผลรอบเก่าไม่ถูกทับ ทุกรอบมี `run_time` ของมันเอง (หน้า "[รันซ้ำกับข้อมูลของวันถัดไป](/great-expectations/first-validation/run-again/#ข้อควรรู้เมื่อรันทุกวัน)" ของ[บทที่ 2](/great-expectations/first-validation/)) ผลที่ตามมา
+ถ้ารัน `run_for(date(2024, 1, 3))` สองครั้ง จำนวนผลใน Results Store จะเพิ่มขึ้น 2 (ไม่ใช่ 1) ผลรอบเก่าไม่ถูกทับ และทุกรอบมี `run_time` ของมันเอง (ดูหน้า "[รันซ้ำกับข้อมูลของวันถัดไป](/great-expectations/first-validation/run-again/#ข้อควรรู้เมื่อรันทุกวัน)" ของ[บทที่ 2](/great-expectations/first-validation/)) ซึ่งส่งผลดังนี้
 
-- backfill ย้อนหลังทำได้ตรงๆ แค่ส่งวันที่เก่า ผลรอบเก่าอยู่ครบ
-- ถ้าต้องการรู้ว่าวันหนึ่งผ่านหรือไม่ ต้องเลือกผลล่าสุดของวันนั้นเอง GX ไม่ได้ทำให้
-- ผลที่ซ้ำกันของวันเดียวกันอาจขัดกัน (รอบแรกล้ม รอบสองผ่านหลังแก้ไฟล์) ระบบที่อ่านผลต้องรู้ว่าจะเชื่อรอบไหน
+- เราทำ Backfill ย้อนหลังได้ตรง ๆ แค่ส่งวันที่เก่าเข้าไป และผลรอบเก่าก็ยังอยู่ครบ
+- ถ้าอยากรู้ว่าวันหนึ่งผ่านหรือไม่ เราต้องเลือกผลล่าสุดของวันนั้นเอง เพราะ GX ไม่ได้เลือกให้
+- ผลที่ซ้ำกันของวันเดียวกันอาจขัดกันได้ (รอบแรกล้ม รอบสองผ่านหลังแก้ไฟล์) ระบบที่อ่านผลจึงต้องรู้ว่าจะเชื่อรอบไหน
 
 <Callout type="warn" title="ที่ไม่ได้ทดลอง">
-ทดลองกับไฟล์ CSV ในโฟลเดอร์เดียวและ ephemeral context เท่านั้น ไม่ได้ทดลองกับ scheduler จริง ไม่ได้ทดลองการรันสองงานพร้อมกัน และไม่ได้ทดลองแหล่งข้อมูลที่เป็นตาราง SQL แม้หลักการส่งพารามิเตอร์ครบจะใช้ได้เหมือนกัน
+เราทดลองกับไฟล์ CSV ในโฟลเดอร์เดียวและ Ephemeral Context เท่านั้น ไม่ได้ทดลองกับ Scheduler จริง ไม่ได้ทดลองการรันสองงานพร้อมกัน และไม่ได้ทดลองแหล่งข้อมูลที่เป็นตาราง SQL แม้หลักการส่งพารามิเตอร์ให้ครบจะใช้ได้เหมือนกัน
 </Callout>
 
 </Step>

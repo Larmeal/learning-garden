@@ -1,6 +1,6 @@
 ---
 title: notify_on ส่งเมื่อไหร่ ทดลองครบทุกคู่
-summary: Slack ตัวปลอมบน localhost รับข้อความแล้วนับ ทดลองหกค่าของ notify_on กับสี่ผลของการตรวจ ได้ตารางที่ตอบว่าส่งหรือไม่ รวมถึงระดับ severity ที่เทียบแบบเท่ากันพอดี
+summary: Slack ตัวปลอมบน Localhost รับข้อความแล้วนับ ทดลองหกค่าของ notify_on กับสี่ผลของการตรวจ ได้ตารางที่ตอบว่าส่งหรือไม่ รวมถึงระดับ Severity ที่เทียบแบบเท่ากันพอดี
 order: 1
 stage: sprout
 format: steps
@@ -15,16 +15,16 @@ import CaseExplorer from '../../../../components/labs/great-expectations/CaseExp
 
 ## วิธีทดลองโดยไม่ส่งข้อความจริง
 
-`SlackNotificationAction` ส่งข้อความด้วย HTTP POST ไปที่ webhook สคริปต์ `27_actions_notify.py` ตั้ง webhook เป็นเซิร์ฟเวอร์เล็กๆ บน `127.0.0.1` ที่นับ POST ที่เข้ามา ข้อความไม่ได้ออกนอกเครื่อง ทดลองกับสี่สถานการณ์ และหกค่า `notify_on` (GX 1.24.1)
+`SlackNotificationAction` ส่งข้อความด้วย HTTP POST ไปที่ Webhook ดังนั้นสคริปต์ `27_actions_notify.py` จึงตั้ง Webhook เป็นเซิร์ฟเวอร์เล็ก ๆ บน `127.0.0.1` ที่คอยนับ POST ที่เข้ามา ข้อความจึงไม่ได้ออกนอกคอมพิวเตอร์ แล้วทดลองกับสี่สถานการณ์ และหกค่า `notify_on` (GX 1.24.1)
 
 | สถานการณ์ | กฎที่ตั้ง | ผล |
 |---|---|---|
-| pass | `age` ระหว่าง 0 ถึง 500 | ผ่านหมด |
-| fail warning | `age` ระหว่าง 0 ถึง 120 ตั้ง `severity="warning"` | ล้ม 1 ข้อ ระดับ warning |
-| fail critical | `name` ไม่เป็น null (ค่าเริ่มต้น critical) | ล้ม 1 ข้อ ระดับ critical |
-| fail both | สองกฎข้างบนรวมกัน | ล้ม 2 ข้อ สูงสุดคือ critical |
+| Pass | `age` ระหว่าง 0 ถึง 500 | ผ่านหมด |
+| Fail Warning | `age` ระหว่าง 0 ถึง 120 ตั้ง `severity="warning"` | ล้ม 1 ข้อ ระดับ Warning |
+| Fail Critical | `name` ไม่เป็น Null (ค่าเริ่มต้น Critical) | ล้ม 1 ข้อ ระดับ Critical |
+| Fail Both | สองกฎข้างบนรวมกัน | ล้ม 2 ข้อ สูงสุดคือ Critical |
 
-ข้อมูลคือ `age = [10, 20, 300]`, `name = ['a', None, 'c']`
+ข้อมูลที่ใช้คือ `age = [10, 20, 300]`, `name = ['a', None, 'c']`
 
 </Step>
 
@@ -32,7 +32,7 @@ import CaseExplorer from '../../../../components/labs/great-expectations/CaseExp
 
 ## ผลการส่ง
 
-เลือกสถานการณ์เพื่อดูว่าค่า `notify_on` ไหนส่งข้อความจริง "ผ่าน" ในตารางด้านล่างหมายถึงมี POST เข้ามา 1 ครั้ง "ไม่ผ่าน" หมายถึงไม่มี
+ลองเลือกสถานการณ์ดูว่าค่า `notify_on` ไหนส่งข้อความจริง ในตารางด้านล่าง "ส่ง" หมายถึงมี POST เข้ามา 1 ครั้ง ส่วน "ไม่ส่ง" หมายถึงไม่มีเลย
 
 <CaseExplorer
   client:visible
@@ -66,16 +66,16 @@ import CaseExplorer from '../../../../components/labs/great-expectations/CaseExp
 
 ## สามข้อที่เห็นจากตาราง
 
-1. `notify_on="warning"` ไม่ได้แปลว่า "warning ขึ้นไป" ในกรณี fail both (มีทั้ง warning และ critical ล้ม) มันไม่ส่ง เพราะระดับสูงสุดของข้อที่ล้มคือ critical ซึ่งไม่เท่ากับ warning ในซอร์ส `should_notify` เทียบแบบ `notify_on == max_severity` ถ้าต้องการให้ทั้ง warning และ critical ส่ง ให้ใช้ `failure`
-2. ค่า `info` ไม่ส่งเลยในสี่สถานการณ์ เพราะไม่มีสถานการณ์ไหนมีข้อ info เป็นระดับสูงสุดที่ล้ม (ไม่ได้ทดลองตั้ง `severity="info"`)
-3. ตั้ง action สองตัวเพื่อแยกช่อง เช่น Slack ของทีมเป็น `failure` และ PagerDuty เป็น `critical` ผลจึงต่างกันตามความร้ายแรง ตามที่บทหลักเสนอ
+1. `notify_on="warning"` ไม่ได้แปลว่า "Warning ขึ้นไป" นะ ในกรณี Fail Both (มีทั้ง Warning และ Critical ล้ม) มันจะไม่ส่ง เพราะระดับสูงสุดของข้อที่ล้มคือ Critical ซึ่งไม่เท่ากับ Warning (ในซอร์ส `should_notify` เทียบแบบ `notify_on == max_severity`) ถ้าต้องการให้ทั้ง Warning และ Critical ส่ง ก็ให้ใช้ `failure`
+2. ค่า `info` ไม่ส่งเลยในทั้งสี่สถานการณ์ เพราะไม่มีสถานการณ์ไหนที่ข้อ Info เป็นระดับสูงสุดที่ล้ม (ไม่ได้ทดลองตั้ง `severity="info"`)
+3. เราตั้ง Action สองตัวเพื่อแยกช่องทางได้ เช่น Slack ของทีมเป็น `failure` และ PagerDuty เป็น `critical` ผลจึงต่างกันไปตามความร้ายแรง ซึ่งตรงกับที่บทหลักเสนอไว้
 
 ## หน้าตาของข้อความ
 
-กรณี fail critical กับ `notify_on="all"` ได้ POST ที่ body มี key เดียวคือ `blocks` ขนาด 416 ตัวอักษร ข้อความที่อ่านได้มีหัวข้อ `slack_all - cp_fail_critical_all - Failure :no_entry:`, เวลารัน และสรุปว่า `*Asset*`, `*Expectation Suite*` กับ `*Summary*: 0 of 1 Expectations were met` ข้อความสั้น ไม่มีรายละเอียดของแถวที่ผิด หากต้องการรายละเอียดต้องมีลิงก์ไป Data Docs ซึ่งหน้าถัดไปอธิบาย
+ในกรณี Fail Critical กับ `notify_on="all"` เราได้ POST ที่ Body มี Key เดียวคือ `blocks` ขนาด 416 ตัวอักษร ข้อความที่อ่านได้มีหัวข้อ `slack_all - cp_fail_critical_all - Failure :no_entry:`, เวลารัน และสรุปว่า `*Asset*`, `*Expectation Suite*` กับ `*Summary*: 0 of 1 Expectations were met` ข้อความนี้สั้น ไม่มีรายละเอียดของแถวที่ผิด ถ้าต้องการรายละเอียดก็ต้องมีลิงก์ไป Data Docs ซึ่งหน้าถัดไปจะอธิบาย
 
 <Callout type="warn" title="ที่ทดลองและไม่ได้ทดลอง">
-ทดลองเฉพาะ Slack action ผ่าน webhook ปลอม ส่วน Teams, PagerDuty, Opsgenie และ Email ใช้ฟังก์ชัน `should_notify` ตัวเดียวกันตามซอร์ส แต่ไม่ได้ส่งจริงสักตัว และ Opsgenie กับ PagerDuty มีค่า `notify_on` เริ่มต้นเป็น `failure`
+เราทดลองเฉพาะ Slack Action ผ่าน Webhook ปลอมเท่านั้น ส่วน Teams, PagerDuty, Opsgenie และ Email ใช้ฟังก์ชัน `should_notify` ตัวเดียวกันตามซอร์ส แต่ไม่ได้ส่งจริงสักตัว และ Opsgenie กับ PagerDuty มีค่า `notify_on` เริ่มต้นเป็น `failure`
 </Callout>
 
 </Step>

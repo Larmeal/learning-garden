@@ -1,6 +1,6 @@
 ---
 title: Validation Definition และ Checkpoint
-summary: หน่วยที่รันซ้ำได้ใน production ตาม Checkpoint.run ไปทีละขั้น และเหตุที่มันไม่ raise เมื่อข้อมูลไม่ผ่าน
+summary: หน่วยที่รันซ้ำได้ใน Production ตาม Checkpoint.run ไปทีละขั้น และเหตุที่มันไม่ Raise เมื่อข้อมูลไม่ผ่าน
 order: 7
 phase: B
 level: 3
@@ -20,10 +20,10 @@ import RunFlow from '../../../../components/labs/great-expectations/RunFlow';
 
 | ชั้น | หน้าที่ | ผลที่ได้ |
 |---|---|---|
-| Validation Definition | ตรวจข้อมูลหนึ่งก้อนด้วย suite หนึ่งชุด | `ExpectationSuiteValidationResult` |
-| Checkpoint | รัน validation definition หลายตัวด้วยพารามิเตอร์ร่วมกัน แล้วสั่ง action | `CheckpointResult` |
+| Validation Definition | ตรวจข้อมูลหนึ่งก้อนด้วย Suite หนึ่งชุด | `ExpectationSuiteValidationResult` |
+| Checkpoint | รัน Validation Definition หลายตัวด้วยพารามิเตอร์ร่วมกัน แล้วสั่ง Action | `CheckpointResult` |
 
-validation definition เหมาะกับการทดลองและตรวจครั้งเดียว checkpoint คือทางหลักใน production เพราะผูก action และรวมหลายการตรวจเป็นงานเดียว
+Validation Definition เหมาะกับการทดลองและการตรวจครั้งเดียว ส่วน Checkpoint เป็นทางหลักที่ใช้ใน Production เพราะผูก Action ได้ และรวมการตรวจหลายอันให้เป็นงานเดียว
 
 ```python
 vd = context.validation_definitions.add(
@@ -43,7 +43,7 @@ result = checkpoint.run(batch_parameters={"dataframe": df})
 
 <RunFlow client:visible />
 
-GX ไม่แตะข้อมูลจนถึงขั้นที่ 3 และผลถูกเก็บก่อนที่ action จะเริ่ม สองข้อนี้ตอบได้ว่าถ้าล้มกลางทางจะเสียอะไร
+จะเห็นว่า GX ไม่แตะข้อมูลเลยจนถึงขั้นที่ 3 และผลจะถูกเก็บก่อนที่ Action จะเริ่ม สองข้อนี้ช่วยตอบได้ว่าถ้าล้มกลางทาง เราจะเสียอะไรไปบ้าง
 
 </Step>
 
@@ -58,25 +58,25 @@ result.run_results        # dict: ValidationResultIdentifier -> ExpectationSuite
 result.describe()         # สรุปเป็น JSON
 ```
 
-`run_results` มีหนึ่งรายการต่อ validation definition คีย์ประกอบด้วยชื่อ suite, `run_id` และ batch id ทุก validation ใน checkpoint ได้ `run_id` เดียวกัน จึงรู้ว่าเป็นรอบรันเดียวกัน
+`run_results` มีหนึ่งรายการต่อหนึ่ง Validation Definition โดยคีย์ประกอบด้วยชื่อ Suite, `run_id` และ Batch id ซึ่งทุก Validation ใน Checkpoint จะได้ `run_id` เดียวกัน เราจึงรู้ได้ว่าเป็นรอบรันเดียวกัน
 
-พารามิเตอร์ `batch_parameters` และ `expectation_parameters` ที่ส่งให้ `run()` ถูกส่งให้ทุก validation definition เหมือนกัน ส่วน `result_format` เป็นฟิลด์ของ `Checkpoint` เอง ถ้า validation definition สองตัวใช้ batch definition คนละแบบ (ตัวหนึ่งรายวัน อีกตัวทั้งตาราง) พารามิเตอร์ชุดเดียวต้องเข้ากันได้กับทั้งคู่
+พารามิเตอร์ `batch_parameters` และ `expectation_parameters` ที่ส่งให้ `run()` จะถูกส่งต่อให้ทุก Validation Definition เหมือนกัน ส่วน `result_format` เป็นฟิลด์ของ `Checkpoint` เอง ดังนั้นถ้า Validation Definition สองตัวใช้ Batch Definition คนละแบบ (ตัวหนึ่งรายวัน อีกตัวทั้งตาราง) พารามิเตอร์ชุดเดียวที่ส่งไปก็ต้องเข้ากันได้กับทั้งคู่
 
 </Step>
 
 <Step>
 
-## กับดัก: ไม่ raise เมื่อข้อมูลไม่ผ่าน
+## กับดัก: ไม่ Raise เมื่อข้อมูลไม่ผ่าน
 
 ```python
 result = checkpoint.run(batch_parameters={"dataframe": bad_df})
 # ไม่มี exception, result.success == False
 ```
 
-ทดลองแล้วใน `03_traps.py`: checkpoint คืนผลที่ `success=False` ตามปกติโดยไม่ raise GX ถือว่าข้อมูลไม่ผ่านเป็นผลการตรวจ ผลข้างเคียงคือ pipeline ที่เรียก `checkpoint.run(...)` แล้วไม่ตรวจ `.success` จะเดินต่อไปเสมอ ([บทที่ 10](/great-expectations/pipeline-integration/#checkpoint-ไม่ใช่-gate) ว่าด้วยวิธีกั้น)
+เราทดลองแล้วใน `03_traps.py` พบว่า Checkpoint จะคืนผลที่ `success=False` ตามปกติโดยไม่ Raise เพราะ GX ถือว่าข้อมูลไม่ผ่านเป็นผลการตรวจอย่างหนึ่ง ผลข้างเคียงคือ Pipeline ที่เรียก `checkpoint.run(...)` แล้วไม่ตรวจ `.success` จะเดินต่อไปเสมอ ([บทที่ 10](/great-expectations/pipeline-integration/#checkpoint-ไม่ใช่-gate) ว่าด้วยวิธีกั้น)
 
-<Callout type="warn" title="สิ่งที่ทำให้ raise">
-ข้อมูลไม่ผ่านไม่ทำให้ raise แต่สิ่งเหล่านี้ทำ: ไม่มี validation definition ใน checkpoint, ของที่ถูกอ้างถึงยังไม่ได้ add เข้า context, batch ที่ขอไม่มี (`NoAvailableBatchesError`) และ action ที่ error ([บทที่ 9](/great-expectations/actions-data-docs/#ลำดับและเงื่อนไข))
+<Callout type="warn" title="สิ่งที่ทำให้ Raise">
+ข้อมูลที่ไม่ผ่านไม่ได้ทำให้ Raise แต่สิ่งเหล่านี้ทำให้ Raise ได้ คือไม่มี Validation Definition ใน Checkpoint, ของที่ถูกอ้างถึงยังไม่ได้ Add เข้า Context, Batch ที่ขอไม่มีอยู่ (`NoAvailableBatchesError`) และ Action ที่ Error ([บทที่ 9](/great-expectations/actions-data-docs/#ลำดับและเงื่อนไข))
 </Callout>
 
 </Step>
@@ -85,8 +85,8 @@ result = checkpoint.run(batch_parameters={"dataframe": bad_df})
 
 ## เช็กตัวเอง
 
-- checkpoint มี validation definition สองตัว ตัวแรกไม่ผ่าน ตัวที่สองผ่าน `result.success` เป็นอะไร และ validation ตัวที่สองยังถูกรันไหม (หน้า "[หลาย validation ใน checkpoint เดียว](/great-expectations/validation-checkpoints/multi-validation/)" มีเฉลย)
-- ทำไม validation definition ถึงต้องถูก add เข้า context ก่อนใส่ใน checkpoint
+- Checkpoint มี Validation Definition สองตัว ตัวแรกไม่ผ่าน ตัวที่สองผ่าน `result.success` เป็นอะไร และ Validation ตัวที่สองยังถูกรันไหม (หน้า "[หลาย Validation ใน Checkpoint เดียว](/great-expectations/validation-checkpoints/multi-validation/)" มีเฉลย)
+- ทำไม Validation Definition ถึงต้องถูก Add เข้า Context ก่อนใส่ใน Checkpoint
 - ข้อมูลของวันนี้เสีย แต่โค้ดไม่ล้ม สาเหตุที่น่าจะเป็นคืออะไร
 
 </Step>
@@ -95,8 +95,8 @@ result = checkpoint.run(batch_parameters={"dataframe": bad_df})
 
 ## หน้าย่อยของบทนี้
 
-1. หลาย validation ใน checkpoint เดียว: ผลรวม ตัวที่ล้มไม่หยุดตัวอื่น และพารามิเตอร์ชุดเดียว
-2. อ่าน CheckpointResult: describe() กับ run_results และฟังก์ชันดึงข้อที่ล้ม
-3. validation definition หรือ checkpoint ใช้อะไรดี: ความต่างที่วัดได้
+1. หลาย Validation ใน Checkpoint เดียว ซึ่งดูผลรวม ตัวที่ล้มแล้วไม่หยุดตัวอื่น และพารามิเตอร์ชุดเดียว
+2. อ่าน CheckpointResult ซึ่งดู describe() กับ run_results และฟังก์ชันดึงข้อที่ล้ม
+3. Validation Definition หรือ Checkpoint ใช้อะไรดี โดยดูความต่างที่วัดได้
 
 </Step>

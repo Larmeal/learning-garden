@@ -1,6 +1,6 @@
 ---
-title: วงจรชีวิต registry และการโหลด
-summary: ชื่อประเภทของ expectation มาจากไหน registry ทำงานอย่างไร และทำไม suite ที่เก็บไว้ถึงโหลดมาว่างได้เมื่ออีกโปรเซสไม่ได้ import คลาสของคุณ
+title: วงจรชีวิต Registry และการโหลด
+summary: ชื่อประเภทของ Expectation มาจากไหน Registry ทำงานอย่างไร และทำไม Suite ที่เก็บไว้ถึงโหลดมาว่างได้เมื่ออีกโปรเซสไม่ได้ Import คลาสของคุณ
 order: 4
 stage: sprout
 format: steps
@@ -14,14 +14,14 @@ import Callout from '../../../../components/Callout.astro';
 
 ## ชื่อประเภทมาจากชื่อคลาส และตั้งเองไม่ได้
 
-ตอนนิยามคลาส `MetaExpectation.__new__` (ใน `expectations/expectation.py`) ทำสิ่งนี้
+ตอนนิยามคลาส `MetaExpectation.__new__` (ใน `expectations/expectation.py`) จะทำสิ่งนี้
 
 ```python
 newclass.expectation_type = camel_to_snake(clsname)
 register_expectation(newclass)
 ```
 
-ทดลองใน `13_custom_registry.py` ด้วยการสร้างคลาสหลายชื่อ
+เราทดลองใน `13_custom_registry.py` ด้วยการสร้างคลาสหลายชื่อ
 
 | ชื่อคลาส | `expectation_type` |
 |---|---|
@@ -30,37 +30,37 @@ register_expectation(newclass)
 | `ExpectColumnValuesToBeUTF8` | `expect_column_values_to_be_utf8` |
 | `ExpectIDsToBeUnique` | `expect_i_ds_to_be_unique` |
 
-แถวสุดท้ายน่าสังเกต ตัวย่อที่ลงท้ายด้วยตัวพิมพ์เล็กอย่าง `IDs` ถูกตัดเป็น `i_ds` ถ้าตั้งชื่อคลาสแบบนี้ ชื่อประเภทที่เก็บใน suite จะหน้าตาแปลกไปตลอด
+แถวสุดท้ายน่าสังเกต เพราะตัวย่อที่ลงท้ายด้วยตัวพิมพ์เล็กอย่าง `IDs` ถูกตัดเป็น `i_ds` ถ้าตั้งชื่อคลาสแบบนี้ ชื่อประเภทที่เก็บใน Suite ก็จะหน้าตาแปลกไปตลอด
 
-ลองตั้ง `expectation_type = "my_chosen_name"` ในคลาสดู ผลคือไม่มีผล ได้ชื่อจากคลาสเหมือนเดิม (`expect_something_else` ในการทดลอง) และ `"my_chosen_name"` ไม่อยู่ใน registry docstring ของ `MetaExpectation` เขียนว่าจะใช้ค่าที่ตั้งไว้ถ้ามี แต่โค้ดเขียนทับเสมอ ผลนี้เหมือนกันทั้ง GX 1.9.3 และ 1.24.1
+ถ้าลองตั้ง `expectation_type = "my_chosen_name"` ในคลาสดู จะไม่มีผลอะไร เพราะได้ชื่อจากคลาสเหมือนเดิม (`expect_something_else` ในการทดลอง) และ `"my_chosen_name"` ไม่อยู่ใน Registry Docstring ของ `MetaExpectation` เขียนว่าจะใช้ค่าที่ตั้งไว้ถ้ามี แต่โค้ดเขียนทับเสมอ และผลนี้เหมือนกันทั้ง GX 1.9.3 และ 1.24.1
 
-ผลที่ตามมาคือการเปลี่ยนชื่อคลาสเท่ากับเปลี่ยนชื่อประเภท suite ที่เก็บชื่อเดิมไว้จะหาคลาสไม่เจอ (ขั้นถัดๆ ไป) ตั้งชื่อให้ดีตั้งแต่แรก และอย่าเปลี่ยนทีหลังโดยไม่แก้ suite ตามไปด้วย
+ดังนั้นการเปลี่ยนชื่อคลาสจึงเท่ากับการเปลี่ยนชื่อประเภท และ Suite ที่เก็บชื่อเดิมไว้ก็จะหาคลาสไม่เจอ (ขั้นถัด ๆ ไปจะเล่าให้ฟัง) เราจึงควรตั้งชื่อให้ดีตั้งแต่แรก และอย่าเปลี่ยนทีหลังโดยไม่แก้ Suite ตามไปด้วย
 
 </Step>
 
 <Step>
 
-## registry คือ dict ธรรมดา และชื่อซ้ำจะเขียนทับ
+## Registry คือ Dict ธรรมดา และชื่อซ้ำจะเขียนทับ
 
-`expectations/registry.py` มีตัวแปรระดับโมดูลชื่อ `_registered_expectations` เป็น dict จากชื่อประเภทไปหาคลาส `register_expectation` ทำสามอย่างตามกรณี
+`expectations/registry.py` มีตัวแปรระดับโมดูลชื่อ `_registered_expectations` ซึ่งเป็น Dict จากชื่อประเภทไปหาคลาส โดย `register_expectation` ทำสามอย่างตามกรณี
 
-- ชื่อใหม่: ใส่ลง dict
-- ชื่อเดิมกับคลาสเดิม: ลงบันทึกระดับ info ว่า `Multiple declarations` แล้วจบ
-- ชื่อเดิมแต่เป็นคลาสอื่น: ลงบันทึกระดับ warning ว่า `Overwriting declaration of expectation ...` แล้วแทนที่
+- ถ้าเป็นชื่อใหม่ ก็ใส่ลง Dict
+- ถ้าเป็นชื่อเดิมกับคลาสเดิม ก็ลงบันทึกระดับ Info ว่า `Multiple declarations` แล้วจบ
+- ถ้าเป็นชื่อเดิมแต่เป็นคลาสอื่น ก็ลงบันทึกระดับ Warning ว่า `Overwriting declaration of expectation ...` แล้วแทนที่
 
-กรณีสุดท้ายทดลองแล้ว: นิยามคลาสชื่อ `ExpectColumnValuesToNotBeNull` ของตัวเองใน `__main__` ทั้งที่ GX มีคลาสชื่อเดียวกันอยู่ `registry.get_expectation_impl("expect_column_values_to_not_be_null")` เปลี่ยนไปคืนคลาสของเรา มีแค่ warning ใน log (กับ warning เรื่อง renderer อีกหลายบรรทัด) ไม่มี error
+กรณีสุดท้ายเราทดลองแล้ว โดยนิยามคลาสชื่อ `ExpectColumnValuesToNotBeNull` ของตัวเองใน `__main__` ทั้งที่ GX มีคลาสชื่อเดียวกันอยู่ ผลคือ `registry.get_expectation_impl("expect_column_values_to_not_be_null")` เปลี่ยนไปคืนคลาสของเรา และมีแค่ Warning ใน Log (กับ Warning เรื่อง Renderer อีกหลายบรรทัด) ไม่มี Error
 
 <Callout type="warn" title="ชนชื่อกับของ GX แล้วไม่มีใครบอก">
-ทุก suite ในโปรเซสนั้นที่ใช้ประเภทนี้จะรันคลาสของคุณแทนของ GX โดยไม่รู้ตัว ก่อนตั้งชื่อ ค้นใน registry ด้วย `registry.list_registered_expectation_implementations()` ว่ามีชื่อนั้นหรือยัง
+ทุก Suite ในโปรเซสนั้นที่ใช้ประเภทนี้จะรันคลาสของคุณแทนของ GX โดยไม่รู้ตัว ดังนั้นก่อนตั้งชื่อ ให้ค้นใน Registry ด้วย `registry.list_registered_expectation_implementations()` ว่ามีชื่อนั้นหรือยัง
 </Callout>
 
 </Step>
 
 <Step>
 
-## ในโปรเซสเดียวกัน ประเภทที่ไม่รู้จักล้มดังๆ
+## ในโปรเซสเดียวกัน ประเภทที่ไม่รู้จักล้มดัง ๆ
 
-ลองเพิ่ม expectation ที่ไม่มีใครเขียนลง suite
+ลองเพิ่ม Expectation ที่ไม่มีใครเขียนลง Suite ดูก่อน
 
 ```python
 gx.ExpectationSuite(name="s").add_expectation_configurations(
@@ -68,17 +68,17 @@ gx.ExpectationSuite(name="s").add_expectation_configurations(
 )
 ```
 
-ได้ `InvalidExpectationConfigurationError: Could not add expectation; provided configuration is not valid: expect_something_nobody_wrote not found` ที่มาคือ `ExpectationSuite._build_expectation` เรียก `to_domain_obj()` ซึ่งเรียก `get_expectation_impl(type)` ใน registry แล้ว raise `ExpectationNotFoundError` ซึ่งถูกห่อเป็น error ข้างบน
+จะได้ `InvalidExpectationConfigurationError: Could not add expectation; provided configuration is not valid: expect_something_nobody_wrote not found` ซึ่งที่มาคือ `ExpectationSuite._build_expectation` เรียก `to_domain_obj()` ซึ่งเรียก `get_expectation_impl(type)` ใน Registry แล้ว Raise `ExpectationNotFoundError` ซึ่งถูกห่อเป็น Error ข้างบน
 
-ตรงนี้ปลอดภัย เพราะคุณเห็นข้อผิดพลาดทันที ปัญหาอยู่ที่ทางอื่นที่ใช้กลไกเดียวกัน
+ตรงนี้ยังปลอดภัย เพราะคุณเห็นข้อผิดพลาดทันที ส่วนปัญหาจริงอยู่ที่อีกทางหนึ่งซึ่งใช้กลไกเดียวกัน
 
 </Step>
 
 <Step>
 
-## ตอนโหลด suite จากไฟล์ error ถูกกลืน
+## ตอนโหลด Suite จากไฟล์ Error ถูกกลืน
 
-suite ใน file context เก็บเป็น JSON ที่อ้างด้วยชื่อประเภทเท่านั้น ไม่มีโค้ดหรือชื่อโมดูล ผลจริงของ suite ในการทดลอง (`gx/expectations/even.json`)
+Suite ใน File Context เก็บเป็น JSON ที่อ้างด้วยชื่อประเภทเท่านั้น โดยไม่มีโค้ดหรือชื่อโมดูล ซึ่งผลจริงของ Suite ในการทดลอง (`gx/expectations/even.json`)
 
 ```json
 [
@@ -92,7 +92,7 @@ suite ใน file context เก็บเป็น JSON ที่อ้างด
 ]
 ```
 
-ตอนโหลด `ExpectationSuite.__init__` (ใน `core/expectation_suite.py`) วนสร้าง expectation จากแต่ละรายการ
+ตอนโหลด `ExpectationSuite.__init__` (ใน `core/expectation_suite.py`) วนสร้าง Expectation จากแต่ละรายการ
 
 ```python
 for exp in expectations or []:
@@ -102,7 +102,7 @@ for exp in expectations or []:
         logger.exception(f"Could not add expectation; provided configuration is not valid: {e.message}")
 ```
 
-ถ้าหาคลาสไม่เจอ มันจับ error ไว้ ลงบันทึกระดับ ERROR แล้วไปรายการถัดไป รายการนั้นหายจาก suite ไม่มีอะไรถูกส่งต่อให้โค้ดของคุณ นี่คือกลไกของกับดักที่ใหญ่ที่สุดของบทนี้
+ถ้าหาคลาสไม่เจอ มันจะจับ Error ไว้ ลงบันทึกระดับ ERROR แล้วไปรายการถัดไป รายการนั้นจึงหายจาก Suite โดยไม่มีอะไรถูกส่งต่อให้โค้ดของคุณ นี่คือกลไกของกับดักที่ใหญ่ที่สุดของบทนี้
 
 </Step>
 
@@ -110,16 +110,16 @@ for exp in expectations or []:
 
 ## ผลที่เห็นจากสองโปรเซส
 
-`13_custom_registry.py` เปิดโปรเซสแรกบันทึก suite หนึ่ง expectation แล้วเปิดโปรเซสที่สองโหลดมันขึ้นมารันกับข้อมูลเลขคี่ล้วน (`[1, 3, 5]` ซึ่งควรล้ม)
+`13_custom_registry.py` เปิดโปรเซสแรกเพื่อบันทึก Suite หนึ่ง Expectation แล้วเปิดโปรเซสที่สองโหลดมันขึ้นมารันกับข้อมูลเลขคี่ล้วน (`[1, 3, 5]` ซึ่งควรล้ม)
 
-| โปรเซสที่สอง | expectation ใน JSON | โหลดมาได้ | ผล |
+| โปรเซสที่สอง | Expectation ใน JSON | โหลดมาได้ | ผล |
 |---|---|---|---|
-| ไม่ import โมดูลของคุณ | 1 | 0 | `success=True`, `evaluated_expectations=0` |
-| import โมดูลก่อน `get_context()` | 1 | 1 | `success=False`, `evaluated_expectations=1` |
+| ไม่ Import โมดูลของคุณ | 1 | 0 | `success=True`, `evaluated_expectations=0` |
+| Import โมดูลก่อน `get_context()` | 1 | 1 | `success=False`, `evaluated_expectations=1` |
 
-กรณีแรก log มีบรรทัด `ERROR great_expectations.core.expectation_suite: Could not add expectation; provided configuration is not valid: ... expect_column_values_to_be_even not found` ในการทดลองเห็นสามบรรทัดต่อการโหลดหนึ่งครั้ง (ไม่ได้ตรวจว่าทำไมซ้ำ) ถ้าโปรเซสของคุณไม่ได้เก็บ log ระดับ ERROR ของ GX ไว้ดู ก็ไม่มีร่องรอยเลย ผลลัพธ์ `success=True` ดูเหมือนข้อมูลดีทั้งที่ไม่ได้ตรวจอะไรสักข้อ
+กรณีแรก Log มีบรรทัด `ERROR great_expectations.core.expectation_suite: Could not add expectation; provided configuration is not valid: ... expect_column_values_to_be_even not found` ในการทดลองเห็นสามบรรทัดต่อการโหลดหนึ่งครั้ง (ไม่ได้ตรวจว่าทำไมซ้ำ) ถ้าโปรเซสของคุณไม่ได้เก็บ Log ระดับ ERROR ของ GX ไว้ดู ก็จะไม่มีร่องรอยเลย และผลลัพธ์ `success=True` จะดูเหมือนข้อมูลดีทั้งที่ไม่ได้ตรวจอะไรสักข้อ
 
-[บทที่ 10](/great-expectations/pipeline-integration/#quality-gate-ที่แยกสาเหตุได้) (pipeline) พูดถึงการตรวจผลนี้จากฝั่ง gate หน้านี้ดูฝั่งต้นเหตุ
+[บทที่ 10](/great-expectations/pipeline-integration/#quality-gate-ที่แยกสาเหตุได้) (Pipeline) พูดถึงการตรวจผลนี้จากฝั่ง Gate ส่วนหน้านี้ดูฝั่งต้นเหตุ
 
 </Step>
 
@@ -127,10 +127,10 @@ for exp in expectations or []:
 
 ## สามวิธีกัน เรียงจากต้นเหตุไปปลายเหตุ
 
-1. import ให้ถึงก่อนโหลด: ใส่ custom expectation ทั้งหมดไว้ในแพ็กเกจเดียว (เช่น `my_project.expectations`) แล้ว import มันที่จุดเริ่มของทุกโปรแกรมที่แตะ GX ก่อนเรียก `gx.get_context()` ผลทดลองคือ import ก่อนโหลดแล้วได้ 1 expectation ตามที่ควร ที่ที่ลืมง่ายคือโปรเซสที่ไม่ใช่โปรแกรมหลัก เช่น worker ของ scheduler หรือ kernel ของ notebook ที่เปิดแยก
-2. ตรวจจำนวนหลังโหลด: เทียบจำนวนใน JSON กับจำนวนที่โหลดได้ `14_custom_testing.py` ทำเป็นตัวตรวจที่รันใน CI ได้ ผลกับ suite ที่มี custom หนึ่งข้อกับ built-in หนึ่งข้อคือ `suite mixed: 2 on disk, 1 loaded -> MISSING CLASSES`
-3. ตรวจผลที่ gate: อ่าน `result.statistics["evaluated_expectations"]` แล้วปฏิเสธผลที่เป็น 0 หรือน้อยกว่าจำนวนที่ควรมี ข้อนี้จับได้เฉพาะตอนรันจริง
+1. Import ให้ถึงก่อนโหลด โดยใส่ Custom Expectation ทั้งหมดไว้ในแพ็กเกจเดียว (เช่น `my_project.expectations`) แล้ว Import มันที่จุดเริ่มของทุกโปรแกรมที่แตะ GX ก่อนเรียก `gx.get_context()` ผลทดลองคือ Import ก่อนโหลดแล้วได้ 1 Expectation ตามที่ควร ส่วนที่ที่ลืมง่ายคือโปรเซสที่ไม่ใช่โปรแกรมหลัก เช่น Worker ของ Scheduler หรือ Kernel ของ Notebook ที่เปิดแยก
+2. ตรวจจำนวนหลังโหลด โดยเทียบจำนวนใน JSON กับจำนวนที่โหลดได้ ซึ่ง `14_custom_testing.py` ทำเป็นตัวตรวจที่รันใน CI ได้ ผลกับ Suite ที่มี Custom หนึ่งข้อกับ Built-in หนึ่งข้อคือ `suite mixed: 2 on disk, 1 loaded -> MISSING CLASSES`
+3. ตรวจผลที่ Gate โดยอ่าน `result.statistics["evaluated_expectations"]` แล้วปฏิเสธผลที่เป็น 0 หรือน้อยกว่าจำนวนที่ควรมี ข้อนี้จับได้เฉพาะตอนรันจริง
 
-ข้อ 1 กันที่ต้นเหตุ ข้อ 2 และ 3 รองรับตอนมีคนลืม ใช้ครบสามข้อจะดีที่สุด เพราะแต่ละข้อจับความผิดพลาดคนละช่วงเวลา
+ข้อ 1 กันที่ต้นเหตุ ส่วนข้อ 2 และ 3 รองรับตอนมีคนลืม การใช้ครบทั้งสามข้อจึงดีที่สุด เพราะแต่ละข้อจับความผิดพลาดคนละช่วงเวลา
 
 </Step>

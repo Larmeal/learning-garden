@@ -1,6 +1,6 @@
 ---
-title: column map ลงลึก
-summary: ไล่ตั้งแต่เงื่อนไขหนึ่งบรรทัดของคุณจนเป็นผลลัพธ์ทั้งชุด ดูว่าเงื่อนไขได้รับอะไร GX สร้าง metric และ SQL อะไรต่อ และกรณีขอบที่ทำให้ผลหลอก
+title: Column Map ลงลึก
+summary: ไล่ตั้งแต่เงื่อนไขหนึ่งบรรทัดของคุณจนเป็นผลลัพธ์ทั้งชุด ดูว่าเงื่อนไขได้รับอะไร GX สร้าง Metric และ SQL อะไรต่อ และกรณีขอบที่ทำให้ผลหลอก
 order: 2
 stage: sprout
 format: steps
@@ -15,26 +15,26 @@ import RowJourney from '../../../../components/labs/great-expectations/RowJourne
 
 ## ทำไมต้องเป็นสองคลาส
 
-คลาสแรก (`ColumnMapMetricProvider`) รู้วิธีตอบคำถาม "แถวนี้ปกติไหม" บน engine หนึ่งๆ คลาสที่สอง (`ColumnMapExpectation`) รู้ว่าต้องขอ metric อะไรมาแล้วสรุปเป็น `success` การแยกแบบนี้เป็นอย่างเดียวกับที่[บทที่ 8](/great-expectations/metrics-engines/#ประกาศ-แล้วค่อยตัดสิน) อธิบาย: expectation ประกาศความต้องการ ส่วน engine เป็นคนคำนวณ
+คลาสแรก (`ColumnMapMetricProvider`) รู้วิธีตอบคำถาม "แถวนี้ปกติไหม" บน Engine หนึ่ง ๆ ส่วนคลาสที่สอง (`ColumnMapExpectation`) รู้ว่าต้องขอ Metric อะไรมาแล้วสรุปเป็น `success` การแยกแบบนี้เป็นอย่างเดียวกับที่[บทที่ 8](/great-expectations/metrics-engines/#ประกาศ-แล้วค่อยตัดสิน) อธิบายไว้ คือ Expectation ประกาศความต้องการ ส่วน Engine เป็นคนคำนวณ
 
-ดูว่า `ColumnMapExpectation` ขออะไรบ้างได้ที่ `get_validation_dependencies` ใน `expectations/expectation.py` ผลที่ทดลองด้วย `ExpectColumnValuesToBeEven` (ชื่อเต็มของ metric คือ `column_values.are_even.unexpected_count` และที่เหลือในทำนองเดียวกัน)
+เราดูได้ว่า `ColumnMapExpectation` ขออะไรบ้างที่ `get_validation_dependencies` ใน `expectations/expectation.py` ซึ่งผลที่ทดลองด้วย `ExpectColumnValuesToBeEven` เป็นดังนี้ (ชื่อเต็มของ Metric คือ `column_values.are_even.unexpected_count` และที่เหลือในทำนองเดียวกัน)
 
-| result_format | จำนวน | metric ที่ขอ |
+| result_format | จำนวน | Metric ที่ขอ |
 |---|---|---|
 | BOOLEAN_ONLY | 3 | `are_even.unexpected_count`, `nonnull.unexpected_count`, `table.row_count` |
 | BASIC | 4 | สามตัวข้างบน และ `are_even.unexpected_values` |
 | SUMMARY | 6 | สี่ตัวข้างบน และ `are_even.unexpected_index_list`, `are_even.unexpected_index_query` |
 | COMPLETE | 6 | ชุดเดียวกับ SUMMARY |
 
-มีสองตัวที่ expectation ขอทุกครั้งโดยที่คุณไม่ได้เขียน คือ `column_values.nonnull.unexpected_count` (นับ null) กับ `table.row_count` (นับแถวทั้งหมด) สองตัวนี้ใช้หาจำนวนแถวที่ไม่ใช่ null ซึ่งเป็นตัวหารของสูตร `mostly`
+มีสองตัวที่ Expectation ขอทุกครั้งโดยที่คุณไม่ได้เขียน คือ `column_values.nonnull.unexpected_count` (นับ Null) กับ `table.row_count` (นับแถวทั้งหมด) สองตัวนี้ใช้หาจำนวนแถวที่ไม่ใช่ Null ซึ่งเป็นตัวหารของสูตร `mostly`
 
 </Step>
 
 <Step>
 
-## เงื่อนไขของคุณได้รับอะไรจริงๆ
+## เงื่อนไขของคุณได้รับอะไรจริง ๆ
 
-ใน `expectations/metrics/map_metric_provider/column_condition_partial.py` ตัวห่อ (wrapper) ของ engine pandas ทำดังนี้
+ใน `expectations/metrics/map_metric_provider/column_condition_partial.py` ตัวห่อ (Wrapper) ของ Engine Pandas ทำดังนี้
 
 ```python
 df = df[df[column_name].notnull()]            # 1. ตัด null ออกก่อน
@@ -42,11 +42,11 @@ meets_expectation_series = metric_fn(cls, df[column_name], **metric_value_kwargs
 return ~meets_expectation_series              # 2. กลับค่า: True คือแถวที่ผิด
 ```
 
-เงื่อนไขที่คุณเขียนจึงตอบ "แถวนี้ปกติ" (True คือผ่าน) และไม่เคยเห็นแถวที่เป็น null เลย ทดลองใน `11_custom_column_map.py`: ตาราง 6 แถวที่มี `None` สองแถว เงื่อนไขถูกเรียกครั้งเดียวและได้รับ `[2.0, 4.0, 7.0, 11.0]`
+เงื่อนไขที่คุณเขียนจึงตอบ "แถวนี้ปกติ" (True คือผ่าน) และไม่เคยเห็นแถวที่เป็น Null เลย ซึ่งทดลองใน `11_custom_column_map.py` กับตาราง 6 แถวที่มี `None` สองแถว เงื่อนไขถูกเรียกครั้งเดียวและได้รับ `[2.0, 4.0, 7.0, 11.0]`
 
-สังเกตว่าเป็น `2.0` ไม่ใช่ `2` pandas เปลี่ยนคอลัมน์จำนวนเต็มที่มี `None` เป็น float ทั้งคอลัมน์ ถ้าเงื่อนไขของคุณขึ้นกับชนิดข้อมูล (เช่นเทียบเป็นสตริง หรือใช้ `isinstance`) ผลจะต่างกันระหว่างตารางที่มี null กับไม่มี และ `unexpected_values` ในผลก็ออกมาเป็น `[7.0, 11.0]` แทน `[7, 11]`
+สังเกตว่าเป็น `2.0` ไม่ใช่ `2` เพราะ Pandas เปลี่ยนคอลัมน์จำนวนเต็มที่มี `None` เป็น Float ทั้งคอลัมน์ ถ้าเงื่อนไขของคุณขึ้นกับชนิดข้อมูล (เช่นเทียบเป็นสตริง หรือใช้ `isinstance`) ผลจะต่างกันระหว่างตารางที่มี Null กับไม่มี และ `unexpected_values` ในผลก็ออกมาเป็น `[7.0, 11.0]` แทน `[7, 11]`
 
-ฝั่ง SQL ตัวห่อทำเรื่องเดียวกันด้วยนิพจน์ `sa.and_(sa.not_(column.is_(None)), sa.not_(expected_condition))` เงื่อนไขที่คุณคืนเป็นนิพจน์ของ SQLAlchemy ไม่ใช่ค่าจริง
+ฝั่ง SQL ตัวห่อทำเรื่องเดียวกันด้วยนิพจน์ `sa.and_(sa.not_(column.is_(None)), sa.not_(expected_condition))` เงื่อนไขที่คุณคืนจึงเป็นนิพจน์ของ SQLAlchemy ไม่ใช่ค่าจริง
 
 <RowJourney client:visible />
 
@@ -54,45 +54,45 @@ return ~meets_expectation_series              # 2. กลับค่า: True �
 
 <Step>
 
-## metric แปดตัวที่ได้โดยไม่ได้เขียน
+## Metric แปดตัวที่ได้โดยไม่ได้เขียน
 
-คุณเขียนเงื่อนไขเดียว (`column_values.are_even`) แต่ตอนนิยามคลาส `MapMetricProvider._register_metric_functions` ลงทะเบียนให้อีกหลายตัว ดูจาก `registry._registered_metrics` หลังนิยามคลาสเสร็จ
+คุณเขียนเงื่อนไขเดียว (`column_values.are_even`) แต่ตอนนิยามคลาส `MapMetricProvider._register_metric_functions` จะลงทะเบียนให้อีกหลายตัว ซึ่งดูได้จาก `registry._registered_metrics` หลังนิยามคลาสเสร็จ
 
-| ชื่อใต้ `column_values.are_even` | ใช้ทำอะไร | pandas | SQL |
+| ชื่อใต้ `column_values.are_even` | ใช้ทำอะไร | Pandas | SQL |
 |---|---|---|---|
 | `.condition` | เงื่อนไขของคุณ (ผ่านตัวห่อแล้ว) | ใช่ | ใช่ |
 | `.unexpected_count` | นับแถวที่ผิด | ใช่ | ใช่ |
-| `.unexpected_count.aggregate_fn` | รูปแบบที่รวมกับ metric อื่นเป็น SELECT เดียวได้ | ไม่มี | ใช่ |
+| `.unexpected_count.aggregate_fn` | รูปแบบที่รวมกับ Metric อื่นเป็น SELECT เดียวได้ | ไม่มี | ใช่ |
 | `.unexpected_values` | ค่าที่ผิด | ใช่ | ใช่ |
 | `.unexpected_value_counts` | ค่าที่ผิดพร้อมจำนวนครั้ง | ใช่ | ใช่ |
 | `.unexpected_index_list` | ลำดับแถวที่ผิด | ใช่ | ใช่ |
 | `.unexpected_index_query` | โค้ดหรือ SQL สำหรับดึงแถวที่ผิด | ใช่ | ใช่ |
 | `.unexpected_rows` | แถวเต็มของแถวที่ผิด | ใช่ | ใช่ |
 
-บทบาทของ `.aggregate_fn` ข้างบนเป็นข้อสรุปจากชื่อกับกลไกการรวม metric ใน[บทที่ 8](/great-expectations/metrics-engines/#สองแบบ-คำนวณทันที-กับเลื่อนไว้รวม) ไม่ได้ทดลองแยกต่างหาก
+บทบาทของ `.aggregate_fn` ข้างบนเป็นข้อสรุปจากชื่อกับกลไกการรวม Metric ใน[บทที่ 8](/great-expectations/metrics-engines/#สองแบบ-คำนวณทันที-กับเลื่อนไว้รวม) และเราไม่ได้ทดลองแยกต่างหาก
 
-ทุกตัวถูกสร้างจากเงื่อนไขของคุณตัวเดียว นี่คือเหตุผลที่ column map expectation เพิ่ม `mostly` หรือขอตัวอย่างค่าที่ผิดได้ฟรี และเป็นเหตุผลที่ถ้าเงื่อนไขของคุณผิด ทุกตัวผิดตามไปด้วย
+ทุกตัวถูกสร้างจากเงื่อนไขของคุณตัวเดียว ซึ่งเป็นเหตุผลที่ Column Map Expectation เพิ่ม `mostly` หรือขอตัวอย่างค่าที่ผิดได้ฟรี และเป็นเหตุผลเดียวกับที่ถ้าเงื่อนไขของคุณผิด ทุกตัวก็จะผิดตามไปด้วย
 
 </Step>
 
 <Step>
 
-## ตอนรัน: metric ถูกคำนวณเป็นรอบ
+## ตอนรัน: Metric ถูกคำนวณเป็นรอบ
 
-`ColumnMapExpectation.get_validation_dependencies` บอกว่าต้องใช้ metric ไหน แล้วกราฟของ GX ([บทที่ 8](/great-expectations/metrics-engines/#ลองดูมันคำนวณ)) คำนวณทีละรอบ รอบหนึ่งคือ metric ทั้งหมดที่ตัวที่มันพึ่งคำนวณเสร็จแล้ว ข้อมูล `[2, 4, None, 7]` บน pandas ระดับ `BASIC` (ทดลองใน `11_custom_column_map.py` ส่วน 3b ดักการเรียก `resolve_metrics`)
+`ColumnMapExpectation.get_validation_dependencies` บอกว่าต้องใช้ Metric ไหน แล้วกราฟของ GX ([บทที่ 8](/great-expectations/metrics-engines/#ลองดูมันคำนวณ)) คำนวณทีละรอบ โดยรอบหนึ่งคือ Metric ทั้งหมดที่ตัวที่มันพึ่งคำนวณเสร็จแล้ว ลองดูข้อมูล `[2, 4, None, 7]` บน Pandas ระดับ `BASIC` (ทดลองใน `11_custom_column_map.py` ส่วน 3b ดักการเรียก `resolve_metrics`)
 
-| รอบ | metric ที่คำนวณ | ทำไมอยู่รอบนี้ |
+| รอบ | Metric ที่คำนวณ | ทำไมอยู่รอบนี้ |
 |---|---|---|
 | 0 | `table.column_types`, `table.row_count` | ไม่พึ่งอะไร |
-| 1 | `table.columns` | ตัวห่อของ column map ต้องรู้รายชื่อคอลัมน์ก่อน |
-| 2 | `are_even.condition`, `nonnull.condition` | เงื่อนไขของคุณ คู่กับเงื่อนไข "ไม่ใช่ null" ที่ expectation ขอเพิ่มเพื่อนับ null |
+| 1 | `table.columns` | ตัวห่อของ Column Map ต้องรู้รายชื่อคอลัมน์ก่อน |
+| 2 | `are_even.condition`, `nonnull.condition` | เงื่อนไขของคุณ คู่กับเงื่อนไข "ไม่ใช่ Null" ที่ Expectation ขอเพิ่มเพื่อนับ Null |
 | 3 | `are_even.unexpected_count`, `are_even.unexpected_values`, `nonnull.unexpected_count` | ตัวนับและตัวเก็บค่าต้องรอ `condition` |
 
-ที่ระดับ `COMPLETE` รอบ 3 เพิ่ม `are_even.unexpected_index_list` กับ `are_even.unexpected_index_query` ส่วนรอบ 0 ถึง 2 เหมือนเดิม การเรียกครั้งที่ห้า (รอบ 4) ที่ดักได้เป็นรายการว่าง ไม่มี metric ให้คำนวณ
+ที่ระดับ `COMPLETE` รอบ 3 เพิ่ม `are_even.unexpected_index_list` กับ `are_even.unexpected_index_query` ส่วนรอบ 0 ถึง 2 เหมือนเดิม ส่วนการเรียกครั้งที่ห้า (รอบ 4) ที่ดักได้เป็นรายการว่าง เพราะไม่มี Metric ให้คำนวณแล้ว
 
-จากนั้น `_validate` ของ `ColumnMapExpectation` ตัดสิน ข้อมูลนี้ได้ `element_count=4`, `missing_count=1` (null ไม่นับเป็นผิด), `unexpected_count=1` และ `partial_unexpected_list=[7.0]` ขั้นตัดสินเอาจำนวนแถวที่ไม่ใช่ null เป็นฐาน แล้วเทียบอัตราแถวที่ถูกกับ `mostly` อ่านจากซอร์สยังไม่ได้ทดลองแยก ที่ทดลองคือผลของ `mostly` ในตารางหน้าแรก
+จากนั้น `_validate` ของ `ColumnMapExpectation` จะตัดสิน ซึ่งข้อมูลนี้ได้ `element_count=4`, `missing_count=1` (Null ไม่นับเป็นผิด), `unexpected_count=1` และ `partial_unexpected_list=[7.0]` ขั้นตัดสินเอาจำนวนแถวที่ไม่ใช่ Null เป็นฐาน แล้วเทียบอัตราแถวที่ถูกกับ `mostly` ส่วนนี้อ่านจากซอร์สและยังไม่ได้ทดลองแยก สิ่งที่ทดลองคือผลของ `mostly` ในตารางหน้าแรก
 
-ทุกอย่างนี้ทดลองบน pandas ส่วน Spark ยังไม่ได้ทดลอง
+ทุกอย่างนี้ทดลองบน Pandas ส่วน Spark ยังไม่ได้ทดลอง
 
 </Step>
 
@@ -100,7 +100,7 @@ return ~meets_expectation_series              # 2. กลับค่า: True �
 
 ## SQL ที่ GX สร้างจากเงื่อนไขนั้น
 
-เงื่อนไข `column % 2 == 0` ที่คุณเขียนถูกกลับค่าและเติมการตัด null ตอนไปถึง SQLite ผลจาก `unexpected_index_query` (ตาราง `numbers` ที่มี `2, 4, NULL, 7, 10, 11`)
+เงื่อนไข `column % 2 == 0` ที่คุณเขียนจะถูกกลับค่าและเติมการตัด Null ตอนไปถึง SQLite ซึ่งผลจาก `unexpected_index_query` (ตาราง `numbers` ที่มี `2, 4, NULL, 7, 10, 11`) เป็นดังนี้
 
 ```sql
 SELECT n
@@ -108,9 +108,9 @@ FROM numbers
 WHERE n IS NOT NULL AND n % 2 != 0;
 ```
 
-ผลของ SQLite ได้ `unexpected_list: [7, 11]` และ `missing_count: 1` ฝั่ง pandas ค่าเดียวกันคืนเป็นโค้ด `df.filter(items=[3, 5], axis=0)` (ตำแหน่งแถวที่ผิดในตารางตัวอย่าง `[2, 4, 6, 7, 10, 11]`)
+ผลของ SQLite ได้ `unexpected_list: [7, 11]` และ `missing_count: 1` ส่วนฝั่ง Pandas ค่าเดียวกันคืนเป็นโค้ด `df.filter(items=[3, 5], axis=0)` (ตำแหน่งแถวที่ผิดในตารางตัวอย่าง `[2, 4, 6, 7, 10, 11]`)
 
-เงื่อนไขในรูป `column % 2 == 0` ใช้ได้ทั้งสอง engine เพราะ pandas Series กับนิพจน์ SQLAlchemy ต่างรองรับตัวดำเนินการ `%` และ `==` เหมือนกัน ถ้ากฎของคุณใช้ฟังก์ชันเฉพาะ เช่น `str.contains` ของ pandas ต้องเขียนส่วนของ SQL เป็นฟังก์ชันของ SQLAlchemy แยก
+เงื่อนไขในรูป `column % 2 == 0` ใช้ได้ทั้งสอง Engine เพราะ Pandas Series กับนิพจน์ SQLAlchemy ต่างรองรับตัวดำเนินการ `%` และ `==` เหมือนกัน ถ้ากฎของคุณใช้ฟังก์ชันเฉพาะ เช่น `str.contains` ของ Pandas ต้องเขียนส่วนของ SQL เป็นฟังก์ชันของ SQLAlchemy แยก
 
 </Step>
 
@@ -118,7 +118,7 @@ WHERE n IS NOT NULL AND n % 2 != 0;
 
 ## ผลลัพธ์ระดับ COMPLETE ทีละช่อง
 
-ข้อมูล `[2, 4, 6, 7, 10, 11]` กับ `result_format="COMPLETE"` บน pandas
+ถ้าใช้ข้อมูล `[2, 4, 6, 7, 10, 11]` กับ `result_format="COMPLETE"` บน Pandas จะได้ผลดังนี้
 
 ```python
 element_count: 6
@@ -133,13 +133,13 @@ unexpected_index_list: [3, 5]
 unexpected_index_query: df.filter(items=[3, 5], axis=0)
 ```
 
-ฟิลด์ที่มีคำว่า `partial` ถูกตัดความยาวไว้สำหรับอ่านเร็ว ส่วน `unexpected_list` และ `unexpected_index_list` คือทั้งหมด ที่ระดับ BASIC จะไม่มีรายการดัชนีเพราะ expectation ไม่ได้ขอ metric ตัวนั้น (ดูตารางขั้นแรก)
+ฟิลด์ที่มีคำว่า `partial` ถูกตัดความยาวไว้เพื่อให้อ่านเร็ว ส่วน `unexpected_list` และ `unexpected_index_list` เป็นรายการทั้งหมด และที่ระดับ BASIC จะไม่มีรายการดัชนี เพราะ Expectation ไม่ได้ขอ Metric ตัวนั้น (ดูตารางขั้นแรก)
 
 </Step>
 
 <Step>
 
-## กรณีขอบ: ตารางว่าง และคอลัมน์ที่เป็น null ทั้งหมด
+## กรณีขอบ: ตารางว่าง และคอลัมน์ที่เป็น Null ทั้งหมด
 
 ซอร์สของ `ColumnMapExpectation._validate` มีบรรทัดนี้
 
@@ -149,16 +149,16 @@ if unexpected_count is None or total_count == 0 or nonnull_count == 0:
     success = True
 ```
 
-คำว่า vacuously true คือผ่านเพราะไม่มีอะไรให้ตัดสิน ผลที่ทดลอง (ใช้ `ExpectColumnValuesToBeEven` กับตาราง pandas)
+คำว่า Vacuously True แปลว่าผ่านเพราะไม่มีอะไรให้ตัดสิน ซึ่งผลที่ทดลอง (ใช้ `ExpectColumnValuesToBeEven` กับตาราง Pandas) เป็นดังนี้
 
-| ข้อมูล | success | element_count | missing_count | unexpected_count |
+| ข้อมูล | Success | element_count | missing_count | unexpected_count |
 |---|---|---|---|---|
 | ตารางว่าง | True | 0 | 0 | 0 |
-| null ล้วน 3 แถว | True | 3 | 3 | 0 |
+| Null ล้วน 3 แถว | True | 3 | 3 | 0 |
 | เลขคู่ล้วน | True | 3 | 0 | 0 |
 | `[2, None, 7, None]` | False | 4 | 2 | 1 |
 
-สองแถวบนผ่านทั้งที่ข้อมูลไม่มีอะไรน่าไว้ใจ ถ้ากฎของคุณต้องการ "ต้องมีข้อมูล" ให้เพิ่ม `ExpectTableRowCountToBeBetween` หรือ `ExpectColumnValuesToNotBeNull` คู่กัน custom expectation ตัวนี้จับให้ไม่ได้
+สองแถวบนผ่านทั้งที่ข้อมูลไม่มีอะไรน่าไว้ใจ ดังนั้นถ้ากฎของคุณต้องการให้ "ต้องมีข้อมูล" ก็ให้เพิ่ม `ExpectTableRowCountToBeBetween` หรือ `ExpectColumnValuesToNotBeNull` คู่กันไปด้วย เพราะ Custom Expectation ตัวนี้จับให้ไม่ได้
 
 </Step>
 
@@ -166,7 +166,7 @@ if unexpected_count is None or total_count == 0 or nonnull_count == 0:
 
 ## กับดัก: filter_column_isnull = False
 
-ตัวห่อมีสวิตช์ที่ปิดการตัด null ได้ ตั้งเป็นแอตทริบิวต์ของคลาส metric
+ตัวห่อมีสวิตช์ที่ปิดการตัด Null ได้ โดยตั้งเป็นแอตทริบิวต์ของคลาส Metric
 
 ```python
 class ColumnValuesAreEvenNullsToo(ColumnMapMetricProvider):
@@ -178,14 +178,14 @@ class ColumnValuesAreEvenNullsToo(ColumnMapMetricProvider):
         return column.notnull() & (column % 2 == 0)
 ```
 
-เจตนาคือให้ null นับเป็นค่าที่ผิดด้วย ผลที่ทดลองกับ `[2, None, 7, None]` บน GX 1.24.1 คือ `success=False` และ `result` ว่าง พร้อม `exception_info` ที่ขึ้นต้นว่า `Invalid result values were found when trying to instantiate an ExpectationValidationResult`
+เจตนาของโค้ดนี้คือให้ Null นับเป็นค่าที่ผิดด้วย แต่ผลที่ทดลองกับ `[2, None, 7, None]` บน GX 1.24.1 คือ `success=False` และ `result` ว่าง พร้อม `exception_info` ที่ขึ้นต้นว่า `Invalid result values were found when trying to instantiate an ExpectationValidationResult`
 
-เหตุผลอยู่ในสองจุดของโค้ด จุดแรก `_validate` คำนวณ `nonnull_count = total_count - null_count` เสมอ ไม่ดูสวิตช์นี้ จุดที่สอง metric `unexpected_count` ตอนนี้นับ null รวมเข้ามา ข้อมูลตัวอย่างจึงได้ unexpected 3 แถว (ค่า `7` กับ null สองแถว) บนแถวที่ไม่ใช่ null เพียง 2 แถว เปอร์เซ็นต์ออกมา 150 GX สร้างผลที่เปอร์เซ็นต์เกิน 100 ไม่ได้
+เหตุผลอยู่ในสองจุดของโค้ด จุดแรกคือ `_validate` คำนวณ `nonnull_count = total_count - null_count` เสมอโดยไม่ดูสวิตช์นี้ ส่วนจุดที่สองคือ Metric `unexpected_count` ตอนนี้นับ Null รวมเข้ามาด้วย ข้อมูลตัวอย่างจึงได้ Unexpected 3 แถว (ค่า `7` กับ Null สองแถว) บนแถวที่ไม่ใช่ Null เพียง 2 แถว เปอร์เซ็นต์จึงออกมา 150 ซึ่ง GX สร้างผลที่เปอร์เซ็นต์เกิน 100 ไม่ได้
 
 บน GX 1.9.3 กรณีเดียวกันก็ล้มเหมือนกัน แต่ด้วยข้อความ `Object of type int64 is not JSON serializable` ซึ่งไม่บอกสาเหตุจริงเลย
 
-<Callout type="tip" title="ถ้าอยากให้ null เป็นความผิด">
-เพิ่ม `ExpectColumnValuesToNotBeNull` ลงใน suite ข้างๆ expectation ของคุณ แต่ละข้อรายงานผลของตัวเอง ทำให้รู้ว่าผิดเพราะ null หรือเพราะค่า และสูตร `mostly` ของแต่ละข้อยังถูกต้อง
+<Callout type="tip" title="ถ้าอยากให้ Null เป็นความผิด">
+เพิ่ม `ExpectColumnValuesToNotBeNull` ลงใน Suite ข้าง ๆ Expectation ของคุณ เพราะแต่ละข้อจะรายงานผลของตัวเอง เราจึงรู้ได้ว่าผิดเพราะ Null หรือเพราะค่า และสูตร `mostly` ของแต่ละข้อยังถูกต้อง
 </Callout>
 
 </Step>
@@ -194,7 +194,7 @@ class ColumnValuesAreEvenNullsToo(ColumnMapMetricProvider):
 
 ## เงื่อนไขที่มีพารามิเตอร์
 
-กฎ "หารด้วย k ลงตัว" ที่ k เปลี่ยนได้ ต้องบอก metric ว่ารับพารามิเตอร์ชื่ออะไร (`condition_value_keys`) และบอก expectation ว่าพารามิเตอร์นั้นมีผลต่อ success (`success_keys`)
+กฎ "หารด้วย k ลงตัว" ที่ k เปลี่ยนได้ ต้องบอก Metric ว่ารับพารามิเตอร์ชื่ออะไร (`condition_value_keys`) และบอก Expectation ว่าพารามิเตอร์นั้นมีผลต่อ Success (`success_keys`)
 
 ```python
 class ColumnValuesDivisibleBy(ColumnMapMetricProvider):
@@ -213,7 +213,7 @@ class ExpectColumnValuesToBeDivisibleBy(ColumnMapExpectation):
     args_keys: ClassVar[tuple] = ("column", "divisor")
 ```
 
-ข้อมูล `[5, 10, 15, 22, 30]` (ทดลองแล้ว)
+ลองใช้ข้อมูล `[5, 10, 15, 22, 30]` (ทดลองแล้ว)
 
 | ตั้งค่า | ผล |
 |---|---|
@@ -221,6 +221,6 @@ class ExpectColumnValuesToBeDivisibleBy(ColumnMapExpectation):
 | `divisor=3` | `success=False`, ผิด 3 แถว (`5`, `10`, `22`) |
 | `divisor=5` แต่ลืมใส่ `divisor` ใน `success_keys` | `success=False`, `result` ว่าง, ข้อผิดพลาด `unsupported operand type(s) for %: 'int' and 'NoneType'` |
 
-กรณีที่สามอันตรายเพราะไม่มี exception ขึ้นมาที่โค้ดของคุณ `run()` ไม่ raise ผลที่ได้แค่ล้มพร้อม `result` ว่าง และสาเหตุซ่อนอยู่ใน `exception_info` GX ส่ง `divisor` ให้ metric จาก `success_keys` ถ้าไม่อยู่ในรายการ metric จะได้ `None` ฟิลด์ `divisor: int` ในคลาส expectation มีไว้ตรวจชนิดตอนสร้างเท่านั้น ไม่ได้ส่งต่อให้ metric เอง
+กรณีที่สามอันตรายเพราะไม่มี Exception ขึ้นมาที่โค้ดของคุณเลย `run()` ไม่ Raise ผลที่ได้แค่ล้มพร้อม `result` ว่าง และสาเหตุซ่อนอยู่ใน `exception_info` โดย GX จะส่ง `divisor` ให้ Metric จาก `success_keys` ถ้าไม่อยู่ในรายการ Metric ก็จะได้ `None` ส่วนฟิลด์ `divisor: int` ในคลาส Expectation มีไว้ตรวจชนิดตอนสร้างเท่านั้น และไม่ได้ส่งต่อให้ Metric เอง
 
 </Step>

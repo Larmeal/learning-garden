@@ -1,6 +1,6 @@
 ---
 title: อ่านผลและกับดัก
-summary: ผล validation มีอะไรบ้าง ผ่านไม่ได้แปลว่าข้อมูลดี และ expectation ที่พังจะไม่ raise
+summary: ผล Validation มีอะไรบ้าง ผ่านไม่ได้แปลว่าข้อมูลดี และ Expectation ที่พังจะไม่ Raise
 order: 4
 phase: A
 level: 2
@@ -22,15 +22,15 @@ import ResultLab from '../../../../components/labs/great-expectations/ResultLab'
 
 | ส่วน | ความหมาย |
 |---|---|
-| `success` | True เมื่อทุก expectation ผ่าน |
+| `success` | True เมื่อทุก Expectation ผ่าน |
 | `statistics` | จำนวนที่ประเมิน ผ่าน ไม่ผ่าน และ `success_percent` |
-| `results` | รายการผลต่อ expectation |
+| `results` | รายการผลต่อ Expectation |
 | `results[i].success` | ผ่านหรือไม่ของข้อนั้น |
 | `results[i].result` | รายละเอียด เช่น `unexpected_count`, `observed_value` |
-| `results[i].exception_info` | ถ้า expectation ประเมินไม่ได้ จะมีข้อความและ traceback |
+| `results[i].exception_info` | ถ้า Expectation ประเมินไม่ได้ จะมีข้อความและ Traceback |
 | `meta` | `run_id`, เวลา, `batch_spec`, `batch_parameters` |
 
-ผลถูกเก็บลง validation results store ทุกครั้งที่รัน ([บทที่ 5](/great-expectations/context-stores/#store-ที่เก็บของทุกอย่าง))
+ผลเหล่านี้จะถูกเก็บลง validation results store ทุกครั้งที่รัน ([บทที่ 5](/great-expectations/context-stores/#store-ที่เก็บของทุกอย่าง))
 
 </Step>
 
@@ -38,29 +38,29 @@ import ResultLab from '../../../../components/labs/great-expectations/ResultLab'
 
 ## กับดักที่ 1: ผ่านโดยไม่มีข้อมูลให้ตรวจ
 
-expectation แบบ column map ที่ไม่มีแถวให้พิจารณา จะให้ `success=True` โดยปริยาย (ในซอร์สเรียก vacuously true: ไม่มีแถวผิด เพราะไม่มีแถว) เกิดได้สองแบบ: ตารางว่าง และคอลัมน์ที่เป็น null ทั้งหมดสำหรับ expectation ที่ไม่นับ null
+Expectation แบบ Column Map ที่ไม่มีแถวให้พิจารณา จะให้ `success=True` โดยปริยาย (ในซอร์สเรียกว่า Vacuously True คือไม่มีแถวผิด เพราะไม่มีแถวอยู่เลย) กรณีนี้เกิดได้สองแบบ คือตารางว่าง และคอลัมน์ที่เป็น Null ทั้งหมดสำหรับ Expectation ที่ไม่นับ Null
 
 <ResultLab client:visible initial="empty" withRowCount={false} />
 
-ผลที่ได้จาก GX 1.24.1 จริง
+ตารางนี้คือผลที่ได้จาก GX 1.24.1 จริง
 
-| ข้อมูล | not null `age` | between `age` | row count ≥ 1 |
+| ข้อมูล | Not Null `age` | Between `age` | Row Count ≥ 1 |
 |---|---|---|---|
 | ปกติ | ผ่าน | ผ่าน | ผ่าน |
-| มี null | ไม่ผ่าน | ผ่าน | ผ่าน |
+| มี Null | ไม่ผ่าน | ผ่าน | ผ่าน |
 | ค่านอกช่วง | ผ่าน | ไม่ผ่าน | ผ่าน |
 | ตารางว่าง | ผ่าน | ผ่าน | ไม่ผ่าน |
-| `age` null ทั้งหมด | ไม่ผ่าน | ผ่าน | ผ่าน |
+| `age` Null ทั้งหมด | ไม่ผ่าน | ผ่าน | ผ่าน |
 
-วิธีกัน: ใส่ expectation ที่รู้ว่าตารางต้องมีแถว (`ExpectTableRowCountToBeBetween(min_value=1)`) และ `ExpectColumnValuesToNotBeNull` สำหรับคอลัมน์ที่ห้ามว่าง
+วิธีกันคือใส่ Expectation ที่รู้ว่าตารางต้องมีแถว (`ExpectTableRowCountToBeBetween(min_value=1)`) และใส่ `ExpectColumnValuesToNotBeNull` สำหรับคอลัมน์ที่ห้ามว่าง
 
 </Step>
 
 <Step>
 
-## กับดักที่ 2: expectation ที่พังไม่ raise
+## กับดักที่ 2: Expectation ที่พังไม่ Raise
 
-ถ้า expectation ประเมินไม่ได้ เช่นอ้างคอลัมน์ที่ไม่มี GX ไม่ raise แต่ใส่ `success=False` พร้อม `exception_info` ในผลของข้อนั้น และข้ออื่นยังถูกประเมินต่อ (เพราะ `catch_exceptions` ของ expectation ตั้งไว้เป็น true)
+ถ้า Expectation ประเมินไม่ได้ เช่นอ้างถึงคอลัมน์ที่ไม่มีอยู่ GX จะไม่ Raise แต่ใส่ `success=False` พร้อม `exception_info` ไว้ในผลของข้อนั้น และข้ออื่นก็ยังถูกประเมินต่อไป (เพราะ `catch_exceptions` ของ Expectation ตั้งไว้เป็น True)
 
 ```python
 suite.add_expectation(gxe.ExpectColumnValuesToNotBeNull(column="no_such_column"))
@@ -69,10 +69,10 @@ result = vd.run(batch_parameters={"dataframe": df})
 # result.success = False, ประเมิน 2 ข้อ: ข้อแรก False (มี exception_info), ข้อสองผ่าน
 ```
 
-ผลคือ "ข้อมูลไม่ผ่าน" กับ "expectation พัง" หน้าตาเหมือนกันที่ `success=False` ต้องดู `exception_info` เพื่อแยก ไม่งั้นจะตามหาข้อมูลเสียทั้งที่ปัญหาคือคอลัมน์เปลี่ยนชื่อ
+เพราะฉะนั้น "ข้อมูลไม่ผ่าน" กับ "Expectation พัง" จึงมีหน้าตาเหมือนกันตรงที่ `success=False` เราต้องดู `exception_info` เพื่อแยกสองแบบนี้ออกจากกัน ไม่อย่างนั้นเราอาจตามหาข้อมูลเสียอยู่ทั้งที่ปัญหาจริง ๆ คือคอลัมน์เปลี่ยนชื่อ
 
 <Callout type="tip" title="ทำเป็นนิสัย">
-เมื่อ suite ไม่ผ่าน ให้ลูปดู `result.results` แล้วแยกสองกลุ่ม: ข้อที่มี `exception_info` ที่เป็น error จริง (ปัญหาที่ expectation หรือโครงสร้างข้อมูล) กับข้อที่ล้มตามปกติ (ปัญหาที่ค่าข้อมูล)
+เมื่อ Suite ไม่ผ่าน ให้ลูปดู `result.results` แล้วแยกเป็นสองกลุ่ม กลุ่มแรกคือข้อที่มี `exception_info` เป็น Error จริง (ปัญหาอยู่ที่ Expectation หรือโครงสร้างข้อมูล) ส่วนอีกกลุ่มคือข้อที่ล้มตามปกติ (ปัญหาอยู่ที่ค่าข้อมูล)
 </Callout>
 
 </Step>
@@ -81,18 +81,18 @@ result = vd.run(batch_parameters={"dataframe": df})
 
 ## result_format: ยิ่งละเอียด ยิ่งแพง
 
-`result_format` กำหนดรายละเอียดของผล และมีผลต่อ จำนวน metric ที่ต้องคำนวณ ด้วย
+`result_format` กำหนดรายละเอียดของผล และยังมีผลต่อ จำนวน Metric ที่ต้องคำนวณ ด้วย
 
-| ค่า | ได้อะไร | metric ใน suite ตัวอย่าง (5 ข้อ, pandas)* |
+| ค่า | ได้อะไร | Metric ใน Suite ตัวอย่าง (5 ข้อ, Pandas)* |
 |---|---|---|
 | `BOOLEAN_ONLY` | ผ่าน/ไม่ผ่าน | 10 |
 | `BASIC` | เพิ่มตัวอย่างค่าที่ผิด | 13 |
 | `SUMMARY` | เพิ่มสรุปและดัชนี (ค่าเริ่มต้นของ `ValidationDefinition.run`) | 19 |
 | `COMPLETE` | ผลละเอียดสุด | 19 |
 
-\* วัดจาก GX 1.24.1 ใน `02_metric_rounds.py` (ใน 1.9.3 ได้ 11, 14, 20) ที่มาของตัวเลขอธิบายใน[บทที่ 8](/great-expectations/metrics-engines/#ลองดูมันคำนวณ)
+\* วัดจาก GX 1.24.1 ใน `02_metric_rounds.py` (ใน 1.9.3 ได้ 11, 14, 20) ส่วนที่มาของตัวเลขอธิบายไว้ใน[บทที่ 8](/great-expectations/metrics-engines/#ลองดูมันคำนวณ)
 
-ผลละเอียดต้องแลกด้วยการคำนวณเพิ่ม ข้อมูลเล็กไม่รู้สึก ส่วนข้อมูลใหญ่ไม่ได้วัดไว้ในเส้นทางนี้ ถ้า pipeline ต้องการแค่ผ่านหรือไม่ผ่าน `BOOLEAN_ONLY` เหมาะกว่า
+ยิ่งผลละเอียด เราก็ต้องแลกด้วยการคำนวณที่เพิ่มขึ้น ข้อมูลเล็กอาจไม่รู้สึกถึงความต่าง ส่วนข้อมูลใหญ่เรายังไม่ได้วัดไว้ในเส้นทางนี้ ถ้า Pipeline ต้องการแค่ผ่านหรือไม่ผ่าน `BOOLEAN_ONLY` จะเหมาะกว่า
 
 </Step>
 
@@ -100,9 +100,9 @@ result = vd.run(batch_parameters={"dataframe": df})
 
 ## เช็กตัวเอง
 
-- suite ผ่านทั้งหมด พิสูจน์ได้ไหมว่าตารางมีข้อมูล เพราะอะไร
-- `success=False` ข้อหนึ่งมี `exception_info` ที่เป็น error จริง ควรสงสัยอะไรเป็นอย่างแรก
-- ข้อมูลใหญ่มากและ pipeline ต้องการแค่ผ่านหรือไม่ ควรตั้ง `result_format` เป็นอะไร
+- ถ้า Suite ผ่านทั้งหมด จะพิสูจน์ได้ไหมว่าตารางมีข้อมูล เพราะอะไร
+- ถ้า `success=False` ข้อหนึ่งมี `exception_info` ที่เป็น Error จริง เราควรสงสัยอะไรเป็นอย่างแรก
+- ถ้าข้อมูลใหญ่มากและ Pipeline ต้องการแค่ผ่านหรือไม่ เราควรตั้ง `result_format` เป็นอะไร
 
 </Step>
 
@@ -110,8 +110,8 @@ result = vd.run(batch_parameters={"dataframe": df})
 
 ## หน้าย่อยของบทนี้
 
-1. result_format ทีละระดับ: key ที่เพิ่มขึ้นทีละระดับ และตัวเลือกหาแถวที่ผิด
+1. result_format ทีละระดับ: Key ที่เพิ่มขึ้นทีละระดับ และตัวเลือกหาแถวที่ผิด
 2. ผ่านโดยไม่มีข้อมูล ใครผ่านบ้าง: แปดกฎบนตารางว่างและคอลัมน์ว่าง
-3. อ่านผลที่ไม่ผ่านอย่างเป็นระบบ: ลำดับคำถามและฟังก์ชัน triage ที่ทดลองแล้ว
+3. อ่านผลที่ไม่ผ่านอย่างเป็นระบบ: ลำดับคำถามและฟังก์ชัน Triage ที่ทดลองแล้ว
 
 </Step>

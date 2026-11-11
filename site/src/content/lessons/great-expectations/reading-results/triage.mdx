@@ -1,6 +1,6 @@
 ---
 title: อ่านผลที่ไม่ผ่านอย่างเป็นระบบ
-summary: success=False ไม่ได้มีความหมายเดียว ลำดับคำถามที่แยกสาเหตุ ฟังก์ชันที่ทดลองแล้ว และกับดักตอนใช้ expectation ตัวเดียวกันในหลาย suite
+summary: success=False ไม่ได้มีความหมายเดียว ลำดับคำถามที่แยกสาเหตุ ฟังก์ชันที่ทดลองแล้ว และกับดักตอนใช้ Expectation ตัวเดียวกันในหลาย Suite
 order: 3
 stage: sprout
 format: steps
@@ -15,16 +15,16 @@ import Decision from '../../../../components/labs/great-expectations/Decision';
 
 ## ผลหนึ่งผล สี่ความหมาย
 
-เมื่ออ่านผลของ suite มีสี่แบบที่ต้องแยกออก เพราะแต่ละแบบต้องการการตอบสนองต่างกัน
+เวลาอ่านผลของ Suite เราต้องแยกให้ออกว่าเป็นแบบไหนในสี่แบบนี้ เพราะแต่ละแบบต้องรับมือต่างกัน
 
 | แบบ | เกิดจาก | ควรทำอะไร |
 |---|---|---|
 | ข้อมูลมีปัญหา | ค่าในข้อมูลผิดกฎ (`success=False`) | ตามหาแถวที่ผิด ตัดสินใจหยุดหรือกักข้อมูล |
-| expectation พัง | กฎใช้ไม่ได้ เช่นคอลัมน์หาย (`success=False` พร้อม `exception_info`) | แก้กฎ หรือสืบว่าโครงสร้างข้อมูลเปลี่ยนไหม |
-| suite ว่าง | ไม่มีกฎให้ประเมินเลย (`success=True`, `evaluated_expectations=0`) | ถือว่าล้ม หาสาเหตุที่กฎหาย |
-| ผ่านเงียบบนตารางว่าง | ทุกกฎเป็นแบบ column map (`success=True`) | เพิ่มกฎจำนวนแถว ดูหน้า "[ผ่านโดยไม่มีข้อมูล](/great-expectations/reading-results/vacuous/)" |
+| Expectation พัง | กฎใช้ไม่ได้ เช่นคอลัมน์หาย (`success=False` พร้อม `exception_info`) | แก้กฎ หรือสืบว่าโครงสร้างข้อมูลเปลี่ยนไหม |
+| Suite ว่าง | ไม่มีกฎให้ประเมินเลย (`success=True`, `evaluated_expectations=0`) | ถือว่าล้ม หาสาเหตุที่กฎหาย |
+| ผ่านเงียบบนตารางว่าง | ทุกกฎเป็นแบบ Column Map (`success=True`) | เพิ่มกฎจำนวนแถว ดูหน้า "[ผ่านโดยไม่มีข้อมูล](/great-expectations/reading-results/vacuous/)" |
 
-สองแบบหลังทำให้ `success` เป็น `True` ทั้งที่ยังไม่ได้ตรวจอะไรจริง การดูแค่ค่า `success` จึงไม่พอ
+สองแบบหลังทำให้ `success` เป็น `True` ทั้งที่ยังไม่ได้ตรวจอะไรจริง ๆ เพราะฉะนั้นการดูแค่ค่า `success` จึงไม่พอ
 
 </Step>
 
@@ -32,7 +32,7 @@ import Decision from '../../../../components/labs/great-expectations/Decision';
 
 ## ลำดับคำถาม
 
-ลำดับมีผล ต้องเช็กว่ามีกฎให้ประเมินก่อน แล้วเช็ก exception แล้วจึงอ่านว่าข้อมูลผิดหรือไม่
+ลำดับของคำถามมีผลนะ เราต้องเช็กก่อนว่ามีกฎให้ประเมินหรือไม่ จากนั้นเช็ก Exception แล้วจึงอ่านว่าข้อมูลผิดหรือเปล่า
 
 <Decision
   client:visible
@@ -82,28 +82,28 @@ def triage(result) -> str:
     return "ok"
 ```
 
-ผลจาก `21_formats_empty.py` ส่วนที่ 5 (GX 1.24.1)
+ตารางนี้คือผลจาก `21_formats_empty.py` ส่วนที่ 5 (GX 1.24.1)
 
 | กรณี | ผลของ `triage` |
 |---|---|
 | ข้อมูลดี กฎ `age` ไม่ว่าง | `ok` |
 | ค่า 20 เกินกฎ `max=15` | `data problem` |
 | กฎอ้างคอลัมน์ `nope` ที่ไม่มี | `broken expectation (1)` |
-| suite ที่ไม่มี expectation เลย | `empty suite` |
+| Suite ที่ไม่มี Expectation เลย | `empty suite` |
 
-โค้ดต้องเดินผ่านค่าของ `exception_info` และกรองด้วย `isinstance(v, dict)` เพราะรูปของมันต่างกันสองแบบ ข้อที่พังได้ dict ที่ key คือ metric ที่ล้ม (เห็นในหน้า "[ข้อมูลเสียแบบไหน GX จับได้](/great-expectations/foundations/defects/)" ของ[บทที่ 0](/great-expectations/foundations/)) ส่วนข้อที่ไม่พังได้ dict แบน `raised_exception: False, exception_traceback: None, exception_message: None` ซึ่งค่าเป็น boolean และ `None` ไม่ใช่ dict
+โค้ดต้องเดินผ่านค่าของ `exception_info` และกรองด้วย `isinstance(v, dict)` เพราะรูปของมันต่างกันสองแบบ ข้อที่พังจะได้ Dict ที่ Key คือ Metric ที่ล้ม (ดูได้ในหน้า "[ข้อมูลเสียแบบไหน GX จับได้](/great-expectations/foundations/defects/)" ของ[บทที่ 0](/great-expectations/foundations/)) ส่วนข้อที่ไม่พังจะได้ Dict แบน `raised_exception: False, exception_traceback: None, exception_message: None` ซึ่งค่าข้างในเป็น Boolean และ `None` ไม่ใช่ Dict
 
 <Callout type="note" title="ขอบเขต">
-ทดลองบน pandas และ context แบบ ephemeral ฟังก์ชันนี้เป็นตัวอย่างการจัดกลุ่ม ไม่ใช่ API ของ GX
+เราทดลองบน Pandas และ Context แบบ Ephemeral เท่านั้น ฟังก์ชันนี้เป็นเพียงตัวอย่างการจัดกลุ่ม ไม่ใช่ API ของ GX
 </Callout>
 
 </Step>
 
 <Step>
 
-## expectation ตัวเดียวใช้สอง suite ไม่ได้
+## Expectation ตัวเดียวใช้สอง Suite ไม่ได้
 
-เมื่อ expectation ถูกเพิ่มเข้า suite หนึ่งแล้ว เอาไปเพิ่มใน suite อื่นตรงๆ ไม่ได้ (ส่วนที่ 6 ของสคริปต์)
+เมื่อ Expectation ถูกเพิ่มเข้า Suite หนึ่งแล้ว เราจะเอาไปเพิ่มใน Suite อื่นตรง ๆ ไม่ได้ (ส่วนที่ 6 ของสคริปต์)
 
 ```text
 RuntimeError: Cannot add Expectation because it already belongs to an ExpectationSuite.
@@ -112,6 +112,6 @@ RuntimeError: Cannot add Expectation because it already belongs to an Expectatio
 after copy + id=None: second suite has 1 expectation(s)
 ```
 
-ทางที่ทดลองแล้ว: `copied = shared.copy()` แล้วตั้ง `copied.id = None` ก่อน `add_expectation` ทำให้ suite ที่สองมีข้อนี้ 1 ข้อ ทางที่ง่ายกว่าคือสร้างอ็อบเจ็กต์ใหม่ด้วยพารามิเตอร์เดิมทุกครั้ง สคริปต์ `21` ใช้ฟังก์ชัน factory แบบนี้
+ทางที่เราทดลองแล้วคือ `copied = shared.copy()` จากนั้นตั้ง `copied.id = None` ก่อน `add_expectation` ซึ่งทำให้ Suite ที่สองมีข้อนี้ 1 ข้อ แต่ทางที่ง่ายกว่าคือสร้างอ็อบเจ็กต์ใหม่ด้วยพารามิเตอร์เดิมทุกครั้ง สคริปต์ `21` ก็ใช้ฟังก์ชัน Factory แบบนี้
 
 </Step>

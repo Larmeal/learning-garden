@@ -1,6 +1,6 @@
 ---
 title: Metric และ Execution Engine
-summary: expectation ไม่อ่านข้อมูลเอง มันขอ metric ให้ engine คำนวณ นี่คือเหตุผลที่ suite เดียวรันได้หลาย backend และเป็นที่มาของต้นทุน
+summary: Expectation ไม่อ่านข้อมูลเอง มันขอ Metric ให้ Engine คำนวณ นี่คือเหตุผลที่ Suite เดียวรันได้หลาย Backend และเป็นที่มาของต้นทุน
 order: 8
 phase: B
 level: 4
@@ -16,14 +16,14 @@ import MetricRounds from '../../../../components/labs/great-expectations/MetricR
 
 <Step>
 
-## expectation ไม่ได้อ่านข้อมูลเอง
+## Expectation ไม่ได้อ่านข้อมูลเอง
 
-ถ้า `ExpectColumnMaxToBeBetween` เขียนโค้ดอ่านข้อมูลเอง มันต้องรู้ว่าข้อมูลอยู่ใน pandas, Spark หรือฐานข้อมูล แล้ว expectation หกสิบตัวก็ต้องเขียนใหม่ทุก backend GX แก้ด้วยการแยกงานเป็นสองส่วน
+ลองคิดดูว่าถ้า `ExpectColumnMaxToBeBetween` เขียนโค้ดอ่านข้อมูลเอง มันก็ต้องรู้ว่าข้อมูลอยู่ใน Pandas, Spark หรือฐานข้อมูล และ Expectation หกสิบตัวก็ต้องถูกเขียนใหม่ทุก Backend GX จึงแก้ปัญหานี้ด้วยการแยกงานออกเป็นสองส่วน
 
-- expectation ประกาศว่าต้องใช้ metric อะไร (`column.max` ของคอลัมน์ `age`) แล้วตัดสินผลจากค่าที่ได้
-- execution engine (pandas, Spark, SQLAlchemy) รู้วิธีคำนวณ metric นั้นบน backend ของตัวเอง
+- Expectation เป็นฝ่ายประกาศว่าต้องใช้ Metric อะไร (`column.max` ของคอลัมน์ `age`) แล้วตัดสินผลจากค่าที่ได้กลับมา
+- Execution Engine (Pandas, Spark, SQLAlchemy) เป็นฝ่ายที่รู้วิธีคำนวณ Metric นั้นบน Backend ของตัวเอง
 
-metric คือข้อเท็จจริงที่มีชื่อเกี่ยวกับข้อมูล เช่น `table.row_count`, `column.max`, `column_values.nonnull.condition` expectation หลายข้อใช้ metric เดียวกันได้ นี่คือแกนของ GX ทั้งระบบ
+Metric คือข้อเท็จจริงที่มีชื่อเกี่ยวกับข้อมูล เช่น `table.row_count`, `column.max`, `column_values.nonnull.condition` และ Expectation หลายข้อก็ใช้ Metric เดียวกันได้ ซึ่งนี่เป็นแกนของ GX ทั้งระบบเลย
 
 </Step>
 
@@ -31,14 +31,14 @@ metric คือข้อเท็จจริงที่มีชื่อเ�
 
 ## ประกาศ แล้วค่อยตัดสิน
 
-ทุก expectation ต้องมีสองเมธอดในซอร์ส (`expectations/expectation.py`)
+ทุก Expectation ต้องมีสองเมธอดในซอร์ส (`expectations/expectation.py`)
 
-1. `get_validation_dependencies()`: คืนรายการ metric ที่ต้องใช้
-2. `_validate(metrics=...)`: รับค่า metric ที่ได้มาแล้วคืน `success` กับ `result`
+1. `get_validation_dependencies()` ทำหน้าที่คืนรายการ Metric ที่ต้องใช้
+2. `_validate(metrics=...)` ทำหน้าที่รับค่า Metric ที่คำนวณได้แล้ว และคืน `success` กับ `result`
 
-ระหว่างสองขั้นนี้ GX ทำงานแทน: รวมคำขอ metric จากทุก expectation ใน suite เป็นกราฟเดียว (`Validator.graph_validate`) แล้วให้ engine คำนวณ ตัว expectation เองไม่รู้ว่า backend คืออะไร
+ระหว่างสองขั้นนี้ GX จะทำงานแทนเรา โดยรวมคำขอ Metric จากทุก Expectation ใน Suite เป็นกราฟเดียว (`Validator.graph_validate`) แล้วให้ Engine เป็นคนคำนวณ ตัว Expectation เองจึงไม่ต้องรู้เลยว่า Backend คืออะไร
 
-ลองนึกถึงเส้นทาง Spark ในสวนนี้: DataFrame API ที่คุณเขียนเป็นแผน ไม่ได้ลงมือทันที Catalyst ปรับแผนก่อนรัน GX มีแนวคิดคล้ายกัน expectation เป็นคำขอ แล้ว GX รวมและจัดลำดับก่อนให้ engine ลงมือ
+ถ้าลองนึกถึงเส้นทาง Spark ในสวนนี้ DataFrame API ที่คุณเขียนก็เป็นแผน ไม่ได้ลงมือทันที แล้ว Catalyst จะปรับแผนก่อนรัน GX ก็มีแนวคิดคล้ายกัน คือ Expectation เป็นคำขอ แล้ว GX รวมและจัดลำดับให้ก่อนที่ Engine จะลงมือ
 
 </Step>
 
@@ -48,20 +48,20 @@ metric คือข้อเท็จจริงที่มีชื่อเ�
 
 <MetricRounds client:visible />
 
-สิ่งที่ควรสังเกตจากแล็บ (ทั้งหมดวัดจาก GX 1.24.1 จริง)
+มีสี่อย่างที่น่าสังเกตจากแล็บนี้ (ทั้งหมดวัดจาก GX 1.24.1 จริง)
 
-- ทุก expectation ระดับคอลัมน์ต้องมี metric พื้นฐานชุดเดียวกัน: `table.column_types`, `table.row_count` และ `table.columns` มาก่อนเสมอ ลองเลือก expectation ข้อเดียวแล้วดูรอบที่ 1 กับ 2 expectation จำนวนแถว (`ExpectTableRowCountToEqual`) ข้อเดียวใช้แค่ `table.row_count` ตัวเดียว
-- metric ที่ใช้ร่วมกันคำนวณครั้งเดียว: เลือก "not null id" กับ "unique id" ด้วยกัน จะเห็น `column_values.nonnull.condition` ของ `id` ปรากฏครั้งเดียว ทั้งที่สอง expectation ต่างใช้มัน
-- รอบกำหนดโดย dependency: metric ในรอบหนึ่งต้องไม่รอผลของกันและกัน รอบถัดไปใช้ผลของรอบก่อน (เช่น `unexpected_count` ต้องรอ `condition`)
-- result_format เปลี่ยนรอบสุดท้าย: สลับ BOOLEAN_ONLY เป็น SUMMARY แล้วดูรอบสุดท้ายโตขึ้นมาก เพราะต้องคำนวณตัวอย่างค่าที่ผิดและดัชนีของแถว
+- Expectation ระดับคอลัมน์ทุกข้อต้องใช้ Metric พื้นฐานชุดเดียวกัน คือ `table.column_types`, `table.row_count` และ `table.columns` ซึ่งถูกคำนวณมาก่อนเสมอ ลองเลือก Expectation ข้อเดียวแล้วดูรอบที่ 1 กับ 2 ส่วน Expectation จำนวนแถว (`ExpectTableRowCountToEqual`) ใช้แค่ `table.row_count` ตัวเดียว
+- Metric ที่ใช้ร่วมกันจะถูกคำนวณครั้งเดียว ถ้าเลือก "not null id" กับ "Unique id" ด้วยกัน เราจะเห็น `column_values.nonnull.condition` ของ `id` ปรากฏแค่ครั้งเดียว ทั้งที่ทั้งสอง Expectation ต่างก็ใช้มัน
+- จำนวนรอบถูกกำหนดโดย Dependency เพราะ Metric ในรอบเดียวกันต้องไม่รอผลของกันและกัน ส่วนรอบถัดไปจะใช้ผลของรอบก่อน (เช่น `unexpected_count` ต้องรอ `condition`)
+- result_format มีผลกับรอบสุดท้าย ลองสลับ BOOLEAN_ONLY เป็น SUMMARY แล้วจะเห็นรอบสุดท้ายโตขึ้นมาก เพราะต้องคำนวณตัวอย่างค่าที่ผิดและดัชนีของแถวด้วย
 
 </Step>
 
 <Step>
 
-## หนึ่งชื่อ หลาย implementation
+## หนึ่งชื่อ หลาย Implementation
 
-metric หนึ่งตัวถูกเขียนแยกตาม engine ตัวอย่างจริงจากซอร์ส `column.max`
+Metric หนึ่งตัวถูกเขียนแยกตาม Engine ยกตัวอย่างจริงจากซอร์สของ `column.max`
 
 ```python
 class ColumnMax(ColumnAggregateMetricProvider):
@@ -80,7 +80,7 @@ class ColumnMax(ColumnAggregateMetricProvider):
         return F.max(column)
 ```
 
-ตอนนิยามคลาส GX ลงทะเบียนแต่ละเมธอดเข้า registry ภายใต้ชื่อ `column.max` และคลาสของ engine ตอนรัน `get_metric_provider(metric_name, engine)` หา implementation ที่ตรงกับ engine (ถ้าไม่เจอตรง จะไล่ดูคลาสแม่ตาม MRO) ถ้าไม่มี implementation สำหรับ engine นั้นเลย expectation นั้นล้มด้วย `No provider found for ...` ([บทที่ 12](/great-expectations/custom-expectations/testing-shipping/#เงื่อนไขเดียวกัน-ผลต่างกันตาม-engine))
+ตอนนิยามคลาส GX จะลงทะเบียนแต่ละเมธอดเข้า Registry ภายใต้ชื่อ `column.max` และคลาสของ Engine แล้วตอนรัน `get_metric_provider(metric_name, engine)` จะหา Implementation ที่ตรงกับ Engine (ถ้าไม่เจอตรง ๆ ก็จะไล่ดูคลาสแม่ตาม MRO) แต่ถ้าไม่มี Implementation สำหรับ Engine นั้นเลย Expectation นั้นจะล้มด้วย `No provider found for ...` ([บทที่ 12](/great-expectations/custom-expectations/testing-shipping/#เงื่อนไขเดียวกัน-ผลต่างกันตาม-engine))
 
 </Step>
 
@@ -88,14 +88,14 @@ class ColumnMax(ColumnAggregateMetricProvider):
 
 ## สองแบบ: คำนวณทันที กับเลื่อนไว้รวม
 
-สังเกตว่า pandas ใช้ `column_aggregate_value` แต่ SQL กับ Spark ใช้ `column_aggregate_partial` ต่างกันอย่างเป็นระบบ
+ถ้าสังเกตดูจะเห็นว่า Pandas ใช้ `column_aggregate_value` แต่ SQL กับ Spark ใช้ `column_aggregate_partial` ซึ่งต่างกันอย่างเป็นระบบ
 
 | แบบ | ทำอะไร | ใช้กับ |
 |---|---|---|
-| value | คำนวณเดี๋ยวนั้นและคืนค่า | pandas (การคำนวณเกิดทันทีใน memory) |
-| partial (aggregate) | คืน "นิพจน์" ที่ยังไม่รัน เช่น `sa.func.max(column)` | SQL และ Spark ที่เลื่อนการรันได้ |
+| Value | คำนวณเดี๋ยวนั้นและคืนค่า | Pandas (การคำนวณเกิดทันทีใน Memory) |
+| Partial (Aggregate) | คืน "นิพจน์" ที่ยังไม่รัน เช่น `sa.func.max(column)` | SQL และ Spark ที่เลื่อนการรันได้ |
 
-เพราะ partial ยังไม่รัน GX จึง รวมหลาย metric ที่อยู่ใน domain เดียวกันเป็นคำสั่งเดียว ได้ จากการรันกับ SQLite (`05_sql_bundling.py`, suite 6 ข้อ, `BOOLEAN_ONLY`)
+เพราะ Partial ยังไม่รัน GX จึง รวมหลาย Metric ที่อยู่ใน Domain เดียวกันเป็นคำสั่งเดียว ได้ ดังที่เห็นจากการรันกับ SQLite (`05_sql_bundling.py`, Suite 6 ข้อ, `BOOLEAN_ONLY`)
 
 ```sql
 SELECT count(*) AS "table.row_count" FROM (SELECT * FROM users WHERE 1 = 1) AS anon_1
@@ -104,7 +104,7 @@ SELECT sum(CASE WHEN (id IS NULL) THEN 1 ELSE 0 END) AS "column_values.nonnull.u
        sum(CASE WHEN (age IS NULL) THEN 1 ELSE 0 END) AS "...", ... FROM (...) AS anon_1
 ```
 
-`avg` และ `max` ถูกส่งไปใน SELECT เดียวกัน และ null count ของหลายคอลัมน์รวมเป็นอีกคำสั่ง สำหรับ Spark ซอร์สทำแบบเดียวกันด้วย `df.agg(*aggregates).collect()` ครั้งเดียวต่อ domain (อ่านจากซอร์ส ยังไม่ได้รันยืนยัน)
+จะเห็นว่า `avg` และ `max` ถูกส่งไปใน SELECT เดียวกัน และ Null Count ของหลายคอลัมน์ก็รวมเป็นอีกคำสั่งหนึ่ง สำหรับ Spark ซอร์สทำแบบเดียวกันด้วย `df.agg(*aggregates).collect()` ครั้งเดียวต่อ Domain (อ่านจากซอร์ส ยังไม่ได้รันยืนยัน)
 
 </Step>
 
@@ -112,42 +112,42 @@ SELECT sum(CASE WHEN (id IS NULL) THEN 1 ELSE 0 END) AS "column_values.nonnull.u
 
 ## ต้นทุนมาจากไหน
 
-จากการวัด
+ตารางนี้สรุปสิ่งที่เราวัดได้
 
 | อะไร | เห็นอะไร |
 |---|---|
-| `result_format` | suite ตัวอย่าง (5 ข้อ) ใช้ 10, 13, 19, 19 metric สำหรับ BOOLEAN_ONLY, BASIC, SUMMARY, COMPLETE |
-| จำนวน expectation | ค่าเปิดโต๊ะจ่ายครั้งเดียว metric ของคอลัมน์เดียวกันใช้ร่วมกัน แต่ละคอลัมน์ใหม่เพิ่มของมันเอง |
-| รันซ้ำ | คำนวณใหม่ทั้งหมด (19 แล้ว 19) ไม่มี cache ข้ามรอบ |
-| backend | pandas: ทีละ metric ใน memory SQL: 6 expectation เหลือ 3 คำสั่ง (BOOLEAN_ONLY) หรือ 6 คำสั่ง (SUMMARY) |
+| `result_format` | Suite ตัวอย่าง (5 ข้อ) ใช้ 10, 13, 19, 19 Metric สำหรับ BOOLEAN_ONLY, BASIC, SUMMARY, COMPLETE |
+| จำนวน Expectation | ค่าเปิดโต๊ะจ่ายครั้งเดียว Metric ของคอลัมน์เดียวกันใช้ร่วมกัน แต่ละคอลัมน์ใหม่เพิ่มของมันเอง |
+| รันซ้ำ | คำนวณใหม่ทั้งหมด (19 แล้ว 19) ไม่มี Cache ข้ามรอบ |
+| Backend | Pandas: ทีละ Metric ใน Memory SQL: 6 Expectation เหลือ 3 คำสั่ง (BOOLEAN_ONLY) หรือ 6 คำสั่ง (SUMMARY) |
 
 <Callout type="note" title="ตัวเลขต่างกันตามรุ่น">
-ใน GX 1.9.3 ตัวเลขเดียวกันคือ 11, 14, 20 metric และ SQL 4 กับ 7 คำสั่ง เพราะ `table.row_count` ถูกคำนวณซ้ำหนึ่งตัวและส่งเป็นคำสั่งแยก ใน 1.24.1 ถูกรวมแล้ว หลักการเหมือนเดิม ตัวเลขขยับตามการปรับปรุงของแต่ละรุ่น อย่าเอาตัวเลขไปท่องเป็นค่าคงที่
+ใน GX 1.9.3 ตัวเลขเดียวกันคือ 11, 14, 20 Metric และ SQL 4 กับ 7 คำสั่ง เพราะ `table.row_count` ถูกคำนวณซ้ำหนึ่งตัวและส่งเป็นคำสั่งแยก ส่วนใน 1.24.1 ถูกรวมแล้ว หลักการยังเหมือนเดิม แต่ตัวเลขขยับตามการปรับปรุงของแต่ละรุ่น อย่าเอาตัวเลขไปท่องเป็นค่าคงที่นะ
 </Callout>
 
-บนข้อมูลใหญ่ ต้นทุนหลักคือจำนวนครั้งที่ต้องไปถึงข้อมูล กับขนาดของสิ่งที่ส่งกลับมา `BOOLEAN_ONLY` เมื่อไม่ต้องการรายละเอียด และการใช้ expectation กับคอลัมน์เดียวกันให้ได้ domain เดียวกัน ลดต้นทุนได้ทันที (วัดจำนวนคำสั่งไว้แล้ว ส่วนเวลาจริงบนข้อมูลใหญ่ไม่ได้วัด)
+บนข้อมูลใหญ่ ต้นทุนหลักอยู่ที่จำนวนครั้งที่ต้องไปถึงข้อมูล กับขนาดของสิ่งที่ส่งกลับมา ดังนั้นการใช้ `BOOLEAN_ONLY` เมื่อไม่ต้องการรายละเอียด และการใช้ Expectation กับคอลัมน์เดียวกันเพื่อให้ได้ Domain เดียวกัน จึงลดต้นทุนได้ทันที (เราวัดจำนวนคำสั่งไว้แล้ว ส่วนเวลาจริงบนข้อมูลใหญ่ไม่ได้วัด)
 
 </Step>
 
 <Step>
 
-## เมื่อ metric พัง
+## เมื่อ Metric พัง
 
-ใน `ValidationGraph` ถ้า metric หนึ่งคำนวณไม่สำเร็จ GX ลองซ้ำได้สูงสุด 3 ครั้ง (`MAX_METRIC_COMPUTATION_RETRIES`) ถ้ายังไม่ได้ จะ "ยกเลิก" metric นั้น แล้วทุก expectation ที่พึ่งมันได้ผล `success=False` พร้อม `exception_info` ส่วน expectation ที่ไม่เกี่ยวข้องยังถูกประเมินตามปกติ นี่คือกลไกเบื้องหลังที่[บทที่ 4](/great-expectations/reading-results/#กับดักที่-2-expectation-ที่พังไม่-raise) เห็นเป็น "expectation พังไม่ raise"
+ใน `ValidationGraph` ถ้า Metric หนึ่งคำนวณไม่สำเร็จ GX จะลองซ้ำได้สูงสุด 3 ครั้ง (`MAX_METRIC_COMPUTATION_RETRIES`) และถ้ายังไม่ได้ ก็จะ "ยกเลิก" Metric นั้น ทำให้ทุก Expectation ที่พึ่งมันได้ผล `success=False` พร้อม `exception_info` ส่วน Expectation ที่ไม่เกี่ยวข้องยังถูกประเมินตามปกติ นี่คือกลไกเบื้องหลังที่[บทที่ 4](/great-expectations/reading-results/#กับดักที่-2-expectation-ที่พังไม่-raise) เห็นเป็น "Expectation พังไม่ Raise"
 
-## ลองทำใน repo นี้
+## ลองทำใน Repo นี้
 
-เปิด `02_metric_rounds.py`
+ให้เปิด `02_metric_rounds.py` ขึ้นมา แล้วลองทำตามนี้
 
-1. เพิ่ม expectation ตัวที่หกที่ถามคอลัมน์ `name` แล้วดูว่ารอบและ metric เปลี่ยนไปเท่าไร
-2. เปลี่ยนเป็น `ResultFormat.BOOLEAN_ONLY` ทั้งสคริปต์ แล้วเทียบจำนวน metric
-3. รัน `05_sql_bundling.py` และอ่านคำสั่ง SQL ทีละบรรทัด หา `CASE WHEN` ของแต่ละ expectation
+1. เพิ่ม Expectation ตัวที่หกที่ถามคอลัมน์ `name` แล้วดูว่ารอบและ Metric เปลี่ยนไปเท่าไร
+2. เปลี่ยนเป็น `ResultFormat.BOOLEAN_ONLY` ทั้งสคริปต์ แล้วเทียบจำนวน Metric
+3. รัน `05_sql_bundling.py` แล้วอ่านคำสั่ง SQL ทีละบรรทัด โดยหา `CASE WHEN` ของแต่ละ Expectation
 
 ## เช็กตัวเอง
 
-- suite มี 3 expectation ที่ถาม `age` ทั้งหมด `table.row_count` ถูกคำนวณกี่ครั้ง
-- ทำไมบน pandas ไม่มีการ "รวมคำสั่ง" แต่บน SQL มี
-- ข้อมูลหลายร้อยล้านแถวบน Spark ปรับอะไรที่ฝั่ง GX เพื่อลดการคำนวณได้บ้าง
+- ถ้า Suite มี 3 Expectation ที่ถาม `age` ทั้งหมด `table.row_count` จะถูกคำนวณกี่ครั้ง
+- ทำไมบน Pandas ถึงไม่มีการ "รวมคำสั่ง" แต่บน SQL มี
+- ถ้าข้อมูลมีหลายร้อยล้านแถวบน Spark เราปรับอะไรที่ฝั่ง GX เพื่อลดการคำนวณได้บ้าง
 
 </Step>
 
@@ -155,8 +155,8 @@ SELECT sum(CASE WHEN (id IS NULL) THEN 1 ELSE 0 END) AS "column_values.nonnull.u
 
 ## หน้าย่อยของบทนี้
 
-1. ทะเบียน metric ในตัว GX: ค้นหา metric 315 ตัวว่ามีบน engine ไหน
-2. domain ของ metric และ row_condition: ทำไมเงื่อนไขกรองแถวทำให้คำสั่ง SQL เพิ่ม
-3. เมื่อ metric พัง GX ลองกี่ครั้ง: นับการเรียกฟังก์ชันที่พังเสมอ
+1. ทะเบียน Metric ในตัว GX: ค้นหา Metric 315 ตัวว่ามีบน Engine ไหน
+2. Domain ของ Metric และ row_condition: ทำไมเงื่อนไขกรองแถวทำให้คำสั่ง SQL เพิ่ม
+3. เมื่อ Metric พัง GX ลองกี่ครั้ง: นับการเรียกฟังก์ชันที่พังเสมอ
 
 </Step>

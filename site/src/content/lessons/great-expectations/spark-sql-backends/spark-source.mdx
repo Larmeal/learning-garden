@@ -1,5 +1,5 @@
 ---
-title: อ่านซอร์สของ Spark engine ทีละส่วน
+title: อ่านซอร์สของ Spark Engine ทีละส่วน
 summary: ยังไม่ได้รัน GX บน Spark จึงอ่านซอร์สของ resolve_metric_bundle แทน แบ่งเป็นสามส่วน พร้อมรายการสิ่งที่ต้องวัดเองเพื่อยืนยัน
 order: 3
 stage: sprout
@@ -15,7 +15,7 @@ import FlowFrames from '../../../../components/labs/great-expectations/FlowFrame
 
 ## ระดับหลักฐานของหน้านี้
 
-ทุกอย่างในหน้านี้เป็นระดับ "อ่านซอร์ส" ไม่มีสักข้อที่รันบน Spark ซอร์สที่อ่านคือ `execution_engine/sparkdf_execution_engine.py` ของ GX 1.24.1 เมธอด `resolve_metric_bundle` (บรรทัด 966 ถึง 1038) เป็นเมธอดเดียวกันกับเมธอดของ SQL ที่[บทที่ 8](/great-expectations/metrics-engines/#ลองดูมันคำนวณ) วัดผลไว้ ต่างกันที่วิธีรวมคำสั่ง
+ทุกอย่างในหน้านี้อยู่ในระดับ "อ่านซอร์ส" ไม่มีสักข้อที่รันบน Spark จริง ซอร์สที่เราอ่านคือ `execution_engine/sparkdf_execution_engine.py` ของ GX 1.24.1 โดยเมธอด `resolve_metric_bundle` (บรรทัด 966 ถึง 1038) มีชื่อเดียวกับเมธอดของ SQL ที่[บทที่ 8](/great-expectations/metrics-engines/#ลองดูมันคำนวณ) วัดผลไว้ แต่ต่างกันที่วิธีรวมคำสั่ง
 
 </Step>
 
@@ -23,7 +23,7 @@ import FlowFrames from '../../../../components/labs/great-expectations/FlowFrame
 
 ## สามส่วนของเมธอด
 
-โค้ดย่อให้เหลือโครง ตัดคอมเมนต์ log และ type hint ออก
+โค้ดข้างล่างนี้ย่อให้เหลือแค่โครง โดยตัดคอมเมนต์ Log และ Type Hint ออกไป
 
 ```python
 aggregates = {}
@@ -53,19 +53,19 @@ for aggregate in aggregates.values():
   width={760}
   height={260}
   boxes={[
-    { id: 'in', label: 'metric แบบ aggregate', sub: 'max, mean, null count ...', x: 10, y: 20, w: 190 },
-    { id: 'g', label: 'จัดกลุ่มตาม domain', sub: 'ตาราง + row_condition', x: 270, y: 20, w: 190 },
-    { id: 'agg', label: 'df.agg(*aggs).collect()', sub: 'ครั้งเดียวต่อ domain', x: 270, y: 140, w: 190 },
-    { id: 'row', label: 'แถวเดียว', sub: 'ค่าของทุก metric', x: 540, y: 140 },
-    { id: 'out', label: 'ค่าต่อ metric', sub: 'ส่งให้ expectation', x: 540, y: 20 },
+    { id: 'in', label: 'Metric แบบ Aggregate', sub: 'max, mean, null count ...', x: 10, y: 20, w: 190 },
+    { id: 'g', label: 'จัดกลุ่มตาม Domain', sub: 'ตาราง + row_condition', x: 270, y: 20, w: 190 },
+    { id: 'agg', label: 'df.agg(*aggs).collect()', sub: 'ครั้งเดียวต่อ Domain', x: 270, y: 140, w: 190 },
+    { id: 'row', label: 'แถวเดียว', sub: 'ค่าของทุก Metric', x: 540, y: 140 },
+    { id: 'out', label: 'ค่าต่อ Metric', sub: 'ส่งให้ Expectation', x: 540, y: 20 },
   ]}
-  arrows={[ { from: 'in', to: 'g' }, { from: 'g', to: 'agg', label: 'ต่อ domain' }, { from: 'agg', to: 'row' }, { from: 'row', to: 'out', label: 'แตกตามลำดับ' } ]}
+  arrows={[ { from: 'in', to: 'g' }, { from: 'g', to: 'agg', label: 'ต่อ Domain' }, { from: 'agg', to: 'row' }, { from: 'row', to: 'out', label: 'แตกตามลำดับ' } ]}
   frames={[
-    { title: 'รับ metric แบบ aggregate ที่เลื่อนการรันไว้', text: 'metric เหล่านี้ยังเป็นนิพจน์ของ Spark (เช่น F.max(column)) ยังไม่มีค่า', on: ['in'], arrows: [] },
-    { title: 'จัดกลุ่มตาม domain', text: 'ใช้ domain_kwargs เป็นกุญแจ metric ที่ domain เหมือนกันอยู่กลุ่มเดียวกัน (เหมือนฝั่ง SQL ที่หน้า "domain ของ metric" ของ[บทที่ 8](/great-expectations/metrics-engines/#ลองดูมันคำนวณ) ทดลองแล้ว)', on: ['in', 'g'], arrows: [0], tag: 'sparkdf_execution_engine.py ~บรรทัด 994-1012' },
-    { title: 'หนึ่ง agg ต่อหนึ่ง domain', text: 'df.agg(*รายการนิพจน์).collect() ครั้งเดียวต่อกลุ่ม ในมุมของ Spark: agg เป็น transformation และ collect เป็น action จึงเป็นหนึ่ง job ต่อกลุ่ม ถ้า Spark ไม่แตกเป็นหลาย job เอง (ข้อนี้ต้องวัด)', on: ['g', 'agg'], arrows: [1], tag: 'บรรทัด 1014-1020' },
-    { title: 'ได้แถวเดียว', text: 'โค้ด assert ว่าได้แถวเดียว ถ้า metric ไม่ใช่ค่าเดี่ยวจะล้มตรงนี้ ดังนั้นเฉพาะ aggregate ที่คืนค่าเดียวเข้าทางนี้', on: ['agg', 'row'], arrows: [2], tag: 'บรรทัด 1026' },
-    { title: 'แตกผลกลับเป็น metric', text: 'ค่าที่ idx ของแถวแปลงเป็นชนิดที่ serialize ได้ แล้วเก็บตาม id ของ metric', on: ['row', 'out'], arrows: [3], tag: 'บรรทัด 1031-1036' },
+    { title: 'รับ Metric แบบ Aggregate ที่เลื่อนการรันไว้', text: 'Metric เหล่านี้ยังเป็นนิพจน์ของ Spark (เช่น F.max(column)) และยังไม่มีค่า', on: ['in'], arrows: [] },
+    { title: 'จัดกลุ่มตาม Domain', text: 'ใช้ domain_kwargs เป็นกุญแจ ทำให้ Metric ที่ Domain เหมือนกันอยู่กลุ่มเดียวกัน (เหมือนฝั่ง SQL ที่หน้า "Domain ของ Metric" ของ[บทที่ 8](/great-expectations/metrics-engines/#ลองดูมันคำนวณ) ทดลองแล้ว)', on: ['in', 'g'], arrows: [0], tag: 'sparkdf_execution_engine.py ~บรรทัด 994-1012' },
+    { title: 'หนึ่ง agg ต่อหนึ่ง Domain', text: 'df.agg(*รายการนิพจน์).collect() ครั้งเดียวต่อกลุ่ม ในมุมของ Spark นั้น agg เป็น Transformation และ collect เป็น Action จึงเป็นหนึ่ง Job ต่อกลุ่ม ถ้า Spark ไม่แตกเป็นหลาย Job เอง (ข้อนี้ต้องวัด)', on: ['g', 'agg'], arrows: [1], tag: 'บรรทัด 1014-1020' },
+    { title: 'ได้แถวเดียว', text: 'โค้ด assert ว่าได้แถวเดียว ถ้า Metric ไม่ใช่ค่าเดี่ยวก็จะล้มตรงนี้ ดังนั้นเฉพาะ Aggregate ที่คืนค่าเดียวเท่านั้นที่เข้าทางนี้', on: ['agg', 'row'], arrows: [2], tag: 'บรรทัด 1026' },
+    { title: 'แตกผลกลับเป็น Metric', text: 'ค่าที่ idx ของแถวจะถูกแปลงเป็นชนิดที่ Serialize ได้ แล้วเก็บตาม id ของ Metric', on: ['row', 'out'], arrows: [3], tag: 'บรรทัด 1031-1036' },
   ]}
 />
 
@@ -75,15 +75,15 @@ for aggregate in aggregates.values():
 
 ## ถ้าจะวัดเอง
 
-เพื่อแปลงข้อสรุปข้างบนเป็นผลที่วัดได้ ต้องใช้ Spark ที่ติดตั้งแล้ว (เส้นทาง Spark ในสวนนี้มีโปรเจกต์ที่ `subjects/spark/code`) แล้วทำตามนี้ ทั้งหมดนี้ยังไม่ได้ทำ
+ถ้าอยากเปลี่ยนข้อสรุปข้างบนให้เป็นผลที่วัดได้ เราต้องมี Spark ที่ติดตั้งแล้ว (เส้นทาง Spark ในสวนนี้มีโปรเจกต์อยู่ที่ `subjects/spark/code`) จากนั้นทำตามขั้นตอนข้างล่างนี้ ซึ่งทั้งหมดยังไม่ได้ทำนะ
 
-1. สร้าง Spark DataFrame เล็กๆ รัน validation ที่มี suite 6 ข้อเดียวกับ `05_sql_bundling.py` (BOOLEAN_ONLY)
-2. เปิด Spark UI ก่อนและหลังรัน ดูแท็บ Jobs ว่ามี job เพิ่มกี่ตัว
-3. เทียบกับจำนวน domain ที่ suite มี (ตาราง, ตารางที่มี row_condition ฯลฯ) ถ้าคำอธิบายข้างบนถูก ควรเห็น job ของ aggregate ประมาณจำนวน domain บวก job ของ metric ที่ไม่ใช่ aggregate
-4. สลับ `result_format` เป็น SUMMARY แล้วเทียบอีกครั้ง
+1. สร้าง Spark DataFrame เล็ก ๆ ขึ้นมา แล้วรัน Validation ที่มี Suite 6 ข้อเดียวกับ `05_sql_bundling.py` (BOOLEAN_ONLY)
+2. เปิด Spark UI ก่อนและหลังรัน แล้วดูแท็บ Jobs ว่ามี Job เพิ่มขึ้นมากี่ตัว
+3. เอาตัวเลขนั้นไปเทียบกับจำนวน Domain ที่ Suite มี (ตาราง, ตารางที่มี row_condition ฯลฯ) ถ้าคำอธิบายข้างบนถูก เราควรเห็น Job ของ Aggregate ประมาณจำนวน Domain บวกกับ Job ของ Metric ที่ไม่ใช่ Aggregate
+4. สลับ `result_format` เป็น SUMMARY แล้วเทียบอีกครั้งหนึ่ง
 
 <Callout type="warn" title="ทำไมยังไม่ได้ทำ">
-การรัน GX บน Spark ไม่ได้อยู่ในสิ่งที่เส้นทางนี้ตรวจ หน้านี้จึงเป็นระดับซอร์สเท่านั้น ตัวเลขหรือพฤติกรรมใดเกี่ยวกับ Spark ให้ถือว่ายังไม่ยืนยันจนกว่าจะวัดตามขั้นข้างบน
+การรัน GX บน Spark ไม่ได้อยู่ในสิ่งที่เส้นทางนี้ตรวจ หน้านี้จึงอยู่ในระดับซอร์สเท่านั้น ดังนั้นตัวเลขหรือพฤติกรรมใดเกี่ยวกับ Spark ให้ถือว่ายังไม่ยืนยัน จนกว่าจะวัดตามขั้นตอนข้างบน
 </Callout>
 
 </Step>

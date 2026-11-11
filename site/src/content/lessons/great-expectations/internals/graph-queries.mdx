@@ -1,6 +1,6 @@
 ---
-title: ถามคำถามกับ knowledge graph
-summary: ใช้ Python สิบกว่าบรรทัดถาม graph ของ GX 1.9.3 ว่าไฟล์ไหนถูกนำเข้ามากที่สุด ใครนำเข้าไฟล์หนึ่ง และคลาสหนึ่งสืบทอดจากอะไร พร้อมสิ่งที่ graph ตอบไม่ได้
+title: ถามคำถามกับ Knowledge Graph
+summary: ใช้ Python สิบกว่าบรรทัดถาม Graph ของ GX 1.9.3 ว่าไฟล์ไหนถูกนำเข้ามากที่สุด ใครนำเข้าไฟล์หนึ่ง และคลาสหนึ่งสืบทอดจากอะไร พร้อมสิ่งที่ Graph ตอบไม่ได้
 order: 2
 stage: sprout
 format: steps
@@ -15,7 +15,7 @@ import BarList from '../../../../components/labs/great-expectations/BarList';
 
 ## หน้าตาของไฟล์
 
-`subjects/great-expectations/graphs/gx-current/knowledge-graph.json` เป็น JSON ที่มี 6 ส่วน: `version`, `project`, `nodes` (1,664), `edges` (5,462), `layers` (9) และ `tour` (14 ขั้น) แต่ละ node มี `id`, `type` (class 796, file 544, function 320, document 4), `name`, `filePath`, `summary`, `tags`, `complexity` และแต่ละ edge มี `source`, `target`, `type`, `weight` สคริปต์ `33_graph_queries.py` เปิดไฟล์นี้ด้วย `json.load` ธรรมดา
+`subjects/great-expectations/graphs/gx-current/knowledge-graph.json` เป็น JSON ที่มี 6 ส่วน คือ `version`, `project`, `nodes` (1,664), `edges` (5,462), `layers` (9) และ `tour` (14 ขั้น) โดยแต่ละ Node จะมี `id`, `type` (Class 796, File 544, Function 320, Document 4), `name`, `filePath`, `summary`, `tags`, `complexity` ส่วนแต่ละ Edge จะมี `source`, `target`, `type`, `weight` สคริปต์ `33_graph_queries.py` เปิดไฟล์นี้ด้วย `json.load` ธรรมดา ๆ ไม่ได้ใช้เครื่องมือพิเศษอะไร
 
 </Step>
 
@@ -23,7 +23,7 @@ import BarList from '../../../../components/labs/great-expectations/BarList';
 
 ## คำถามที่หนึ่ง: ไฟล์ไหนถูกนำเข้ามากที่สุด
 
-นับ edge ชนิด `imports` ที่ชี้ไปยังแต่ละไฟล์
+เราลองนับ Edge ชนิด `imports` ที่ชี้ไปยังแต่ละไฟล์ดูก่อน
 
 <BarList
   client:visible
@@ -41,7 +41,7 @@ import BarList from '../../../../components/labs/great-expectations/BarList';
   caption="ตัวเลขคือจำนวนไฟล์ที่ import ไฟล์นั้น ตามที่ graph บันทึก (ผลของ 33_graph_queries.py ส่วนที่ 2) ห้าจากแปดอันดับแรกเป็นชั้น compatibility และ exceptions ซึ่งสอดคล้องกับ layer Foundation and Compatibility"
 />
 
-ไฟล์ที่ถูกพึ่งพามากที่สุดเป็นชั้นรองรับ (shim ของไลบรารี) ไม่ใช่ตรรกะของ GX และส่วนนี้ไม่ควรอ่านก่อน
+จะเห็นว่าไฟล์ที่ถูกพึ่งพามากที่สุดเป็นชั้นรองรับ (Shim ของไลบรารี) ซึ่งไม่ได้เป็นตรรกะของ GX เอง เพราะฉะนั้นส่วนนี้ยังไม่ต้องรีบอ่านก่อนก็ได้
 
 </Step>
 
@@ -54,30 +54,30 @@ target = "file:great_expectations/core/validation_definition.py"
 who = [e["source"] for e in g["edges"] if e["type"] == "imports" and e["target"] == target]
 ```
 
-ได้ 4 ไฟล์: `__init__.py` (ที่ราก), `checkpoint/checkpoint.py`, `core/__init__.py` และ `core/factory/validation_definition_factory.py` ตรงกับแผนภาพของ[บทที่ 7](/great-expectations/validation-checkpoints/#สองชั้นของการรัน): checkpoint พึ่ง validation definition และ factory ของ context สร้างมัน
+จะได้ 4 ไฟล์ คือ `__init__.py` (ที่ราก), `checkpoint/checkpoint.py`, `core/__init__.py` และ `core/factory/validation_definition_factory.py` ซึ่งตรงกับแผนภาพของ[บทที่ 7](/great-expectations/validation-checkpoints/#สองชั้นของการรัน) ที่ว่า Checkpoint พึ่ง Validation Definition และ Factory ของ Context เป็นตัวสร้างมันขึ้นมา
 
 ## คำถามที่สาม: คลาสสืบทอดจากอะไร
 
-ไล่ edge ชนิด `inherits` ขึ้นไปจาก `ExpectColumnValuesToNotBeNull`
+คราวนี้เราไล่ Edge ชนิด `inherits` ขึ้นไปจาก `ExpectColumnValuesToNotBeNull`
 
 ```text
 ExpectColumnValuesToNotBeNull -> ColumnMapExpectation -> BatchExpectation -> Expectation
 ```
 
-ตรงกับที่[บทที่ 12](/great-expectations/custom-expectations/column-map/#ทำไมต้องเป็นสองคลาส) บอกว่า `ColumnMapExpectation` สืบจาก `BatchExpectation` ที่สืบจาก `Expectation` และเป็นสาเหตุที่ `get_validation_dependencies` ในบันทึกการเรียกถูกเรียกซ้อนกันสามระดับ (หน้า "[ตามรอยฟังก์ชันของ GX](/great-expectations/internals/trace-a-run/)")
+ผลนี้ตรงกับที่[บทที่ 12](/great-expectations/custom-expectations/column-map/#ทำไมต้องเป็นสองคลาส) บอกไว้ว่า `ColumnMapExpectation` สืบจาก `BatchExpectation` ที่สืบจาก `Expectation` อีกทอดหนึ่ง และเป็นสาเหตุที่ `get_validation_dependencies` ในบันทึกการเรียกถูกเรียกซ้อนกันสามระดับ (ดูได้ที่หน้า "[ตามรอยฟังก์ชันของ GX](/great-expectations/internals/trace-a-run/)")
 
 </Step>
 
 <Step>
 
-## สิ่งที่ graph ตอบไม่ได้
+## สิ่งที่ Graph ตอบไม่ได้
 
-จาก edge ทั้งหมด 5,462 เส้น มีเส้น `calls` เพียง 44 เส้น (ส่วนที่ 6 ของสคริปต์) graph จึงตอบคำถามเรื่องโครงสร้างได้ดี (ใครนำเข้าใคร ใครสืบทอดใคร ไฟล์ไหนอยู่ layer ไหน) แต่ตอบเรื่องลำดับการเรียกไม่ได้ ซึ่งต้องใช้การบันทึกอย่างหน้าก่อนหน้า
+จาก Edge ทั้งหมด 5,462 เส้น มีเส้น `calls` เพียง 44 เส้น (ส่วนที่ 6 ของสคริปต์) Graph จึงตอบคำถามเรื่องโครงสร้างได้ดี เช่น ใครนำเข้าใคร ใครสืบทอดใคร และไฟล์ไหนอยู่ Layer ไหน แต่ตอบเรื่องลำดับการเรียกไม่ได้ ซึ่งเราต้องใช้การบันทึกอย่างที่ทำในหน้าก่อนหน้า
 
-graph ยังเป็นของรุ่น 1.9.3 ไม่ใช่ 1.24.1 ไฟล์ที่เพิ่มหรือลบในรุ่นหลัง (หน้า "[สิ่งที่เปลี่ยนจาก 1.9.3 ถึง 1.24.1](/great-expectations/internals/version-diff/#ไฟล์ที่ถูกเพิ่มและลบ)") จึงไม่ตรง
+อีกอย่างคือ Graph นี้เป็นของรุ่น 1.9.3 ไม่ใช่ 1.24.1 ดังนั้นไฟล์ที่ถูกเพิ่มหรือลบในรุ่นหลัง (ดูหน้า "[สิ่งที่เปลี่ยนจาก 1.9.3 ถึง 1.24.1](/great-expectations/internals/version-diff/#ไฟล์ที่ถูกเพิ่มและลบ)") จึงไม่ตรงกับใน Graph
 
-<Callout type="note" title="tour ของ graph">
-graph มี tour 14 ขั้น ตั้งแต่ "Project Overview and Entry Point" จนถึง "Profiling, Metric Repository, Self-Check" เป็นลำดับอ่านที่สร้างตอนวิเคราะห์ มีประโยชน์เป็นหัวข้อ แต่เนื้อหาในแต่ละขั้นไม่ได้ตรวจเทียบกับการรัน
+<Callout type="note" title="Tour ของ Graph">
+Graph มี Tour 14 ขั้น ตั้งแต่ "Project Overview and Entry Point" จนถึง "Profiling, Metric Repository, Self-Check" ซึ่งเป็นลำดับอ่านที่สร้างขึ้นตอนวิเคราะห์ จึงมีประโยชน์ในฐานะหัวข้อให้เราไล่ตาม แต่เนื้อหาในแต่ละขั้นไม่ได้ตรวจเทียบกับการรันนะ
 </Callout>
 
 </Step>

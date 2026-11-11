@@ -16,16 +16,16 @@ import ObjectMap from '../../../../components/labs/great-expectations/ObjectMap'
 
 <Step>
 
-## สี่ขั้นของ workflow
+## สี่ขั้นของ Workflow
 
-เอกสารทางการแบ่งการใช้ GX เป็นสี่ขั้น
+เอกสารทางการแบ่งการใช้ GX ออกเป็นสี่ขั้น ได้แก่
 
-1. ตั้ง environment: สร้าง Data Context
-2. เชื่อมต่อข้อมูล: บอก GX ว่าข้อมูลอยู่ที่ไหนและจะหยิบก้อนไหน
-3. เขียน expectation: สิ่งที่ข้อมูลควรเป็น
-4. รัน validation: ตรวจและอ่านผล
+1. ตั้ง Environment โดยสร้าง Data Context
+2. เชื่อมต่อข้อมูล โดยบอก GX ว่าข้อมูลอยู่ที่ไหนและจะหยิบก้อนไหน
+3. เขียน Expectation ซึ่งก็คือสิ่งที่ข้อมูลควรเป็น
+4. รัน Validation เพื่อตรวจและอ่านผล
 
-แต่ละขั้นมี object เฉพาะของมัน บทนี้ไล่ทีละตัว ทุกบทหลังจากนี้เป็นการเจาะลึกลงไปในชิ้นใดชิ้นหนึ่งนี้
+แต่ละขั้นมี Object เฉพาะของมัน ในบทนี้เราจะไล่ดูทีละตัว และทุกบทหลังจากนี้ก็เป็นการเจาะลึกลงไปในชิ้นใดชิ้นหนึ่งเหล่านี้
 
 </Step>
 
@@ -45,17 +45,17 @@ import ObjectMap from '../../../../components/labs/great-expectations/ObjectMap'
 
 | ชิ้นส่วน | คืออะไร | สร้างอย่างไร |
 |---|---|---|
-| Data Context | object ที่ถือ config, ผลตรวจ และ metadata ของทั้ง workflow | `gx.get_context()` |
+| Data Context | Object ที่ถือ Config, ผลตรวจ และ Metadata ของทั้ง Workflow | `gx.get_context()` |
 | Data Source | ตัวแทนของที่เก็บข้อมูลหนึ่งแห่ง พร้อมวิธีเชื่อมต่อ | `context.data_sources.add_pandas(...)` |
-| Data Asset | กลุ่มของระเบียนใน data source (ตาราง, ไฟล์, DataFrame) | `source.add_dataframe_asset(...)` |
-| Batch Definition | วิธีแบ่งและหยิบระเบียนของ asset มาตรวจ | `asset.add_batch_definition_whole_dataframe(...)` |
+| Data Asset | กลุ่มของระเบียนใน Data Source (ตาราง, ไฟล์, DataFrame) | `source.add_dataframe_asset(...)` |
+| Batch Definition | วิธีแบ่งและหยิบระเบียนของ Asset มาตรวจ | `asset.add_batch_definition_whole_dataframe(...)` |
 | Batch | ระเบียนที่ถูกหยิบมาจริงตอนรัน | `batch_definition.get_batch(...)` |
 | Expectation | ข้อยืนยันที่ทดสอบได้หนึ่งข้อ | `gxe.ExpectColumnValuesToNotBeNull(column="id")` |
-| Expectation Suite | ชุดของ expectation | `context.suites.add(gx.ExpectationSuite(name=...))` |
-| Validation Definition | จับคู่ batch definition กับ suite | `gx.ValidationDefinition(name=..., data=..., suite=...)` |
-| Checkpoint | รัน validation definition หลายตัวด้วยพารามิเตอร์ร่วมกัน แล้วสั่ง action | `gx.Checkpoint(name=..., validation_definitions=[...])` |
+| Expectation Suite | ชุดของ Expectation | `context.suites.add(gx.ExpectationSuite(name=...))` |
+| Validation Definition | จับคู่ Batch Definition กับ Suite | `gx.ValidationDefinition(name=..., data=..., suite=...)` |
+| Checkpoint | รัน Validation Definition หลายตัวด้วยพารามิเตอร์ร่วมกัน แล้วสั่ง Action | `gx.Checkpoint(name=..., validation_definitions=[...])` |
 | Action | ขั้นตอนอัตโนมัติหลังตรวจ (แจ้งเตือน, อัปเดตรายงาน) | `gx.checkpoint.UpdateDataDocsAction(name=...)` |
-| Data Docs | หน้า HTML ของ suite และผลตรวจ | สร้างโดย `UpdateDataDocsAction` |
+| Data Docs | หน้า HTML ของ Suite และผลตรวจ | สร้างโดย `UpdateDataDocsAction` |
 
 </Step>
 
@@ -63,12 +63,12 @@ import ObjectMap from '../../../../components/labs/great-expectations/ObjectMap'
 
 ## สิ่งที่ถูกเก็บ กับสิ่งที่ส่งตอนรัน
 
-object ส่วนใหญ่ข้างบนถูก add เข้า context และเก็บไว้ใน store ของมัน ส่วนที่ไม่ถูกเก็บคือสิ่งที่ส่งตอนสั่งรัน ได้แก่ DataFrame (`batch_parameters={"dataframe": df}`), พารามิเตอร์เลือก batch และค่า `expectation_parameters`
+Object ส่วนใหญ่ข้างบนถูก Add เข้า Context และเก็บไว้ใน Store ของมัน ส่วนที่ไม่ถูกเก็บคือสิ่งที่ส่งตอนสั่งรัน ได้แก่ DataFrame (`batch_parameters={"dataframe": df}`), พารามิเตอร์เลือก Batch และค่า `expectation_parameters`
 
-เหตุผลที่แยกแบบนี้: คำจำกัดความของการตรวจ ("ตรวจตาราง `users` ด้วย suite นี้") อยู่นิ่งและเก็บเข้า git ได้ แต่ข้อมูลที่จะตรวจเปลี่ยนทุกรอบ
+เหตุผลที่แยกแบบนี้ก็คือ คำจำกัดความของการตรวจ ("ตรวจตาราง `users` ด้วย Suite นี้") อยู่นิ่งและเก็บเข้า Git ได้ แต่ข้อมูลที่จะตรวจเปลี่ยนทุกรอบ
 
 <Callout type="note" title="Batch Definition เป็นสูตร ไม่ใช่ข้อมูล">
-สร้าง context, data source, asset, batch definition และ suite ครบแล้ว ยังไม่มีการคำนวณใดๆ กับข้อมูลเลย (วัดจากการรัน: execution engine ถูกเรียก 0 ครั้ง) GX เริ่มแตะข้อมูลเมื่อสั่งรันจริง
+เมื่อสร้าง Context, Data Source, Asset, Batch Definition และ Suite ครบแล้ว ก็ยังไม่มีการคำนวณใด ๆ กับข้อมูลเลย (วัดจากการรัน: Execution Engine ถูกเรียก 0 ครั้ง) GX จะเริ่มแตะข้อมูลเมื่อสั่งรันจริง
 </Callout>
 
 </Step>
@@ -77,9 +77,9 @@ object ส่วนใหญ่ข้างบนถูก add เข้า cont
 
 ## ลำดับที่ทำให้ได้ผล
 
-ลำดับการประกอบ: context, แล้ว data source, asset, batch definition, แล้ว suite, แล้ว validation definition, แล้ว checkpoint วัตถุที่อ้างถึงกัน (validation definition อ้าง suite กับ batch definition) อ้างกันผ่านชื่อและ id ใน store จึงต้อง add ของที่ถูกอ้างเข้า context ก่อน ไม่งั้นรันไม่ได้ ([บทที่ 5](/great-expectations/context-stores/#ทำไมต้อง-add-ก่อนรัน) และ [7](/great-expectations/validation-checkpoints/) อธิบายละเอียด)
+ลำดับการประกอบคือ Context, แล้ว Data Source, Asset, Batch Definition, แล้ว Suite, แล้ว Validation Definition, แล้ว Checkpoint วัตถุที่อ้างถึงกัน (Validation Definition อ้าง Suite กับ Batch Definition) จะอ้างกันผ่านชื่อและ id ใน Store จึงต้อง Add ของที่ถูกอ้างเข้า Context ก่อน ไม่งั้นรันไม่ได้ ([บทที่ 5](/great-expectations/context-stores/#ทำไมต้อง-add-ก่อนรัน) และ [7](/great-expectations/validation-checkpoints/) อธิบายละเอียด)
 
-ถ้าวาดแผนที่นี้เองบนกระดาษได้โดยไม่ดู [บทต่อไป](/great-expectations/first-validation/)จะตามง่ายขึ้น
+ถ้าเราวาดแผนที่นี้เองบนกระดาษได้โดยไม่ต้องดู [บทต่อไป](/great-expectations/first-validation/) ก็จะตามได้ง่ายขึ้น
 
 </Step>
 
@@ -87,8 +87,8 @@ object ส่วนใหญ่ข้างบนถูก add เข้า cont
 
 ## หน้าย่อยของบทนี้
 
-1. ประกอบทีละบรรทัด: สถานะของ context และ id หลังทุกบรรทัด และ GX เริ่มแตะข้อมูลตอนไหน
-2. อ้างอิงกันด้วยชื่อและ id: json ของ validation definition และผลของชื่อซ้ำ
-3. error แรกที่ต้องเจอ: เจ็ดข้อความ error ที่ทดลองซ้ำได้ พร้อมทางแก้
+1. ประกอบทีละบรรทัด: สถานะของ Context และ id หลังทุกบรรทัด และ GX เริ่มแตะข้อมูลตอนไหน
+2. อ้างอิงกันด้วยชื่อและ id: Json ของ Validation Definition และผลของชื่อซ้ำ
+3. Error แรกที่ต้องเจอ: เจ็ดข้อความ Error ที่ทดลองซ้ำได้ พร้อมทางแก้
 
 </Step>

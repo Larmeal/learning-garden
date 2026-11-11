@@ -1,6 +1,6 @@
 ---
-title: SQL ที่ batch รายวันกลายเป็นจริงๆ
-summary: จับคำสั่งที่ GX ส่งให้ SQLite ตอนรัน batch รายวัน มีสามคำสั่ง ไม่ใช่สอง คำสั่งแรกคือการค้นหา batch ที่ต้องกวาดคอลัมน์วันที่ทั้งคอลัมน์
+title: SQL ที่ Batch รายวันกลายเป็นจริง ๆ
+summary: จับคำสั่งที่ GX ส่งให้ SQLite ตอนรัน Batch รายวัน มีสามคำสั่ง ไม่ใช่สอง คำสั่งแรกคือการค้นหา Batch ที่ต้องกวาดคอลัมน์วันที่ทั้งคอลัมน์
 order: 1
 stage: sprout
 format: steps
@@ -15,7 +15,7 @@ import FlowFrames from '../../../../components/labs/great-expectations/FlowFrame
 
 ## จับคำสั่งตามที่ SQLite เห็น
 
-ตาราง `sales` มีสี่แถว คอลัมน์ `d` เป็นข้อความวันที่ suite มีกฎเดียวคือ `amount` ไม่เป็น null รัน batch ของวันที่ 2024-01-02 สคริปต์ `30_sql_where_support.py` ครอบ `SqlAlchemyExecutionEngine.execute_query` แล้วคอมไพล์คำสั่งด้วย dialect ของ engine เอง ผลที่เห็นคือ SQL ที่ SQLite ได้รับจริง (GX 1.24.1)
+ตาราง `sales` มีสี่แถว โดยคอลัมน์ `d` เป็นข้อความวันที่ และ Suite มีกฎเดียวคือ `amount` ต้องไม่เป็น Null เมื่อรัน Batch ของวันที่ 2024-01-02 สคริปต์ `30_sql_where_support.py` จะครอบ `SqlAlchemyExecutionEngine.execute_query` ไว้ แล้วคอมไพล์คำสั่งด้วย Dialect ของ Engine เอง ผลที่เห็นจึงเป็น SQL ที่ SQLite ได้รับจริง (GX 1.24.1)
 
 ```sql
 -- 1. ค้นหา batch ที่มี
@@ -36,7 +36,7 @@ SELECT sum(CASE WHEN (amount IS NULL) THEN 1 ELSE 0 END) AS "column_values.nonnu
 FROM (SELECT * FROM sales WHERE ... เงื่อนไขเดิม ...) AS anon_1
 ```
 
-ผล `success: False` เพราะวันที่ 2 มีแถว `amount` เป็น null หนึ่งแถว
+ผลที่ได้คือ `success: False` เพราะวันที่ 2 มีแถวที่ `amount` เป็น Null อยู่หนึ่งแถว
 
 </Step>
 
@@ -46,23 +46,23 @@ FROM (SELECT * FROM sales WHERE ... เงื่อนไขเดิม ...) AS
 
 <FlowFrames
   client:visible
-  title="สามคำสั่งของการรัน batch รายวันหนึ่งครั้ง"
+  title="สามคำสั่งของการรัน Batch รายวันหนึ่งครั้ง"
   width={760}
   height={260}
   boxes={[
-    { id: 'run', label: 'vd.run(year, month, day)', sub: 'ขอ batch วันที่ 2', x: 10, y: 20, w: 190 },
-    { id: 'q1', label: 'คำสั่งที่ 1', sub: 'distinct วันที่ ทั้งตาราง', x: 270, y: 20 },
-    { id: 'q2', label: 'คำสั่งที่ 2', sub: 'row_count ของ batch', x: 270, y: 100 },
+    { id: 'run', label: 'vd.run(year, month, day)', sub: 'ขอ Batch วันที่ 2', x: 10, y: 20, w: 190 },
+    { id: 'q1', label: 'คำสั่งที่ 1', sub: 'Distinct วันที่ ทั้งตาราง', x: 270, y: 20 },
+    { id: 'q2', label: 'คำสั่งที่ 2', sub: 'row_count ของ Batch', x: 270, y: 100 },
     { id: 'q3', label: 'คำสั่งที่ 3', sub: 'sum(CASE WHEN null)', x: 270, y: 180 },
     { id: 'res', label: 'ผล', sub: 'success = False', x: 560, y: 100 },
   ]}
   arrows={[ { from: 'run', to: 'q1' }, { from: 'q1', to: 'q2' }, { from: 'q2', to: 'q3' }, { from: 'q3', to: 'res' } ]}
   frames={[
-    { title: 'ขอ batch ของวันที่ 2', text: 'ส่งพารามิเตอร์ year, month, day เป็นจำนวนเต็ม', on: ['run'], arrows: [] },
-    { title: 'คำสั่งที่ 1: หา batch ทั้งหมดที่มี', text: 'SELECT distinct บนนิพจน์วันที่ ต้องอ่านคอลัมน์วันที่ของทุกแถวในตาราง ไม่ผูกกับ batch ที่ขอ เพราะ GX ต้องรู้รายการ batch ก่อนเลือก', on: ['run', 'q1'], arrows: [0], tag: 'ไม่มี WHERE' },
-    { title: 'คำสั่งที่ 2: นับแถวของ batch', text: 'ใส่ WHERE ตามวันที่ที่ขอ นี่คือ table.row_count ที่ expectation ระดับคอลัมน์ทุกตัวต้องมี ([บทที่ 8](/great-expectations/metrics-engines/))', on: ['q1', 'q2'], arrows: [1] },
-    { title: 'คำสั่งที่ 3: คำนวณ metric ของกฎ', text: 'sum(CASE WHEN amount IS NULL ...) ในขอบเขตของ batch เดียวกัน ฐานข้อมูลกรองด้วย WHERE ก่อนนับ', on: ['q2', 'q3'], arrows: [2] },
-    { title: 'ได้ผล', text: 'ตัวเลขสามคำสั่งประกอบเป็น success=False พร้อมจำนวน null', on: ['q3', 'res'], arrows: [3], tag: '30_sql_where_support.py' },
+    { title: 'ขอ Batch ของวันที่ 2', text: 'ส่งพารามิเตอร์ year, month, day เป็นจำนวนเต็ม', on: ['run'], arrows: [] },
+    { title: 'คำสั่งที่ 1: หา Batch ทั้งหมดที่มี', text: 'SELECT distinct บนนิพจน์วันที่ ต้องอ่านคอลัมน์วันที่ของทุกแถวในตาราง ไม่ผูกกับ Batch ที่ขอ เพราะ GX ต้องรู้รายการ Batch ก่อนจึงจะเลือกได้', on: ['run', 'q1'], arrows: [0], tag: 'ไม่มี WHERE' },
+    { title: 'คำสั่งที่ 2: นับแถวของ Batch', text: 'ใส่ WHERE ตามวันที่ที่ขอ นี่คือ table.row_count ที่ Expectation ระดับคอลัมน์ทุกตัวต้องมี ([บทที่ 8](/great-expectations/metrics-engines/))', on: ['q1', 'q2'], arrows: [1] },
+    { title: 'คำสั่งที่ 3: คำนวณ Metric ของกฎ', text: 'sum(CASE WHEN amount IS NULL ...) ในขอบเขตของ Batch เดียวกัน โดยฐานข้อมูลจะกรองด้วย WHERE ก่อนนับ', on: ['q2', 'q3'], arrows: [2] },
+    { title: 'ได้ผล', text: 'ตัวเลขจากสามคำสั่งประกอบกันเป็น success=False พร้อมจำนวน Null', on: ['q3', 'res'], arrows: [3], tag: '30_sql_where_support.py' },
   ]}
 />
 
@@ -72,13 +72,13 @@ FROM (SELECT * FROM sales WHERE ... เงื่อนไขเดิม ...) AS
 
 ## สิ่งที่ควรสังเกต
 
-1. คำสั่งที่ 1 ไม่มี WHERE การหา batch ต้องกวาดคอลัมน์ `d` ทั้งตาราง บนตารางเล็กไม่รู้สึก บนตารางหลายร้อยล้านแถวนี่คือต้นทุนที่แยกออกมาต่างหากจากการตรวจ batch จริง ส่วนว่ารอบการรันครั้งถัดไปทำซ้ำหรือไม่ ไม่ได้ทดลอง
-2. คำสั่งที่ 2 และ 3 มี WHERE ฐานข้อมูลกรองก่อน ข้อมูลของวันอื่นไม่ถูกนับในผล
-3. นิพจน์วันที่ต่างกันตาม dialect บน SQLite เป็น `CAST(STRFTIME('%Y', d) AS INTEGER)` ฐานข้อมูลอื่นใช้ฟังก์ชันของมัน (ไม่ได้ทดลองกับฐานข้อมูลอื่น) นิพจน์ครอบคอลัมน์ `d` ทำให้ index บนคอลัมน์นี้ใช้ไม่ได้โดยทั่วไป ข้อนี้เป็นการอนุมานจากรูปของ SQL ไม่ได้ทดลองวัดแผนการรัน
-4. บทหลักเคยแสดง SQL แบบ `EXTRACT(year FROM d)` ซึ่งเป็นรูปกลางที่ SQLAlchemy คอมไพล์เมื่อไม่ระบุ dialect ตัวที่ SQLite ได้รับคือ `STRFTIME` ด้านบน
+1. คำสั่งที่ 1 ไม่มี WHERE เพราะการหา Batch ต้องกวาดคอลัมน์ `d` ทั้งตาราง บนตารางเล็กเราจะไม่รู้สึกอะไร แต่บนตารางหลายร้อยล้านแถว นี่เป็นต้นทุนที่แยกออกมาอีกก้อนหนึ่งนอกเหนือจากการตรวจ Batch จริง ส่วนรอบการรันครั้งถัดไปจะทำซ้ำหรือไม่ เรายังไม่ได้ทดลอง
+2. คำสั่งที่ 2 และ 3 มี WHERE ฐานข้อมูลจึงกรองก่อน และข้อมูลของวันอื่นก็ไม่ถูกนับรวมในผล
+3. นิพจน์วันที่จะต่างกันไปตาม Dialect โดยบน SQLite เป็น `CAST(STRFTIME('%Y', d) AS INTEGER)` ส่วนฐานข้อมูลอื่นก็ใช้ฟังก์ชันของตัวเอง (ไม่ได้ทดลองกับฐานข้อมูลอื่น) และเพราะนิพจน์ครอบคอลัมน์ `d` อยู่ โดยทั่วไป Index บนคอลัมน์นี้จึงใช้ไม่ได้ ข้อนี้เป็นการอนุมานจากรูปของ SQL ไม่ได้ทดลองวัดแผนการรัน
+4. บทหลักเคยแสดง SQL แบบ `EXTRACT(year FROM d)` ซึ่งเป็นรูปกลางที่ SQLAlchemy คอมไพล์ออกมาเมื่อไม่ระบุ Dialect แต่ตัวที่ SQLite ได้รับจริงคือ `STRFTIME` ด้านบน
 
 <Callout type="warn" title="ที่ไม่ได้ทดลอง">
-ไม่ได้ลองฐานข้อมูลที่ไม่ใช่ SQLite ไม่ได้ดูแผนการรัน (EXPLAIN) และไม่ได้วัดเวลาของคำสั่งที่ 1 เมื่อตารางโตขึ้น ข้อสรุปเรื่องต้นทุนจึงเป็นเรื่องรูปของคำสั่ง ไม่ใช่ตัวเลขที่วัด
+เรายังไม่ได้ลองกับฐานข้อมูลที่ไม่ใช่ SQLite ไม่ได้ดูแผนการรัน (EXPLAIN) และไม่ได้วัดเวลาของคำสั่งที่ 1 เมื่อตารางโตขึ้น ข้อสรุปเรื่องต้นทุนจึงมาจากรูปของคำสั่งเท่านั้น ไม่ใช่ตัวเลขที่วัดได้
 </Callout>
 
 </Step>

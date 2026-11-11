@@ -1,6 +1,6 @@
 ---
-title: validation definition หรือ checkpoint ใช้อะไรดี
-summary: เทียบการรันตรงกับการรันผ่าน checkpoint ในเรื่องที่ตรวจได้ ผลที่เก็บ checkpoint_id ใน meta result_format และ action ตอนนี้ result_format ตั้งที่ไหน
+title: Validation Definition หรือ Checkpoint ใช้อะไรดี
+summary: เทียบการรันตรงกับการรันผ่าน Checkpoint ในเรื่องที่ตรวจได้ ผลที่เก็บ checkpoint_id ใน Meta result_format และ Action ตอนนี้ result_format ตั้งที่ไหน
 order: 3
 stage: sprout
 format: steps
@@ -15,16 +15,16 @@ import Variants from '../../../../components/labs/great-expectations/Variants';
 
 ## ผลที่เหมือนกัน และที่ต่าง
 
-ทั้งสองทางตรวจข้อมูลและเก็บผลลง results store เหมือนกัน สคริปต์ `25_checkpoint_shapes.py` ส่วนที่ 5 และ 6 วัดความต่างที่มองเห็นได้ (GX 1.24.1)
+ทั้งสองทางตรวจข้อมูลและเก็บผลลง Results Store เหมือนกัน แต่ก็มีความต่างที่มองเห็นได้ ซึ่งสคริปต์ `25_checkpoint_shapes.py` ส่วนที่ 5 และ 6 วัดไว้ให้แล้ว (GX 1.24.1)
 
 | เรื่อง | `vd.run(...)` | `checkpoint.run(...)` |
 |---|---|---|
-| ผลที่เก็บลง store | 1 รายการต่อการรัน | 1 รายการต่อ validation (2 validation ได้ 2) |
+| ผลที่เก็บลง Store | 1 รายการต่อการรัน | 1 รายการต่อ Validation (2 Validation ได้ 2) |
 | `meta["checkpoint_id"]` ของผล | `None` | มีค่า |
 | คืนอะไร | `ExpectationSuiteValidationResult` | `CheckpointResult` (มี `run_results`) |
 | `result_format` ตั้งที่ไหน | พารามิเตอร์ของ `run()` | ฟิลด์ของ `Checkpoint(...)` (ไม่ใช่พารามิเตอร์ของ `run()`) |
 | พารามิเตอร์ของ `run()` (จาก `inspect.signature`) | `checkpoint_id`, `batch_parameters`, `expectation_parameters`, `result_format`, `run_id` | `batch_parameters`, `expectation_parameters`, `run_id` |
-| action | ไม่มี | ใส่ได้ที่ `Checkpoint(actions=[...])` ([บทที่ 9](/great-expectations/actions-data-docs/#action-คืออะไร)) |
+| Action | ไม่มี | ใส่ได้ที่ `Checkpoint(actions=[...])` ([บทที่ 9](/great-expectations/actions-data-docs/#action-คืออะไร)) |
 
 </Step>
 
@@ -32,11 +32,11 @@ import Variants from '../../../../components/labs/great-expectations/Variants';
 
 ## result_format ย้ายที่
 
-สลับแท็บดูว่า `result_format` ที่เคยส่งให้ `vd.run` ไปอยู่ที่ไหนเมื่อใช้ checkpoint
+ลองสลับแท็บดูว่า `result_format` ที่เคยส่งให้ `vd.run` ย้ายไปอยู่ที่ไหนเมื่อเราใช้ Checkpoint
 
 <Variants
   client:visible
-  title="result_format ตอนรันตรง กับตอนใช้ checkpoint"
+  title="result_format ตอนรันตรง กับตอนใช้ Checkpoint"
   variants={[
     {
       label: 'vd.run',
@@ -48,10 +48,10 @@ import Variants from '../../../../components/labs/great-expectations/Variants';
       label: 'checkpoint',
       code: `cp = gx.Checkpoint(\n    name="cp_COMPLETE",\n    validation_definitions=[vd],\n    result_format="COMPLETE")\ncp.run(batch_parameters={"dataframe": df})`,
       output: `Checkpoint.run parameters: ['batch_parameters', 'expectation_parameters', 'run_id']\nCheckpoint(result_format='BOOLEAN_ONLY') -> keys in the first result: 0\nCheckpoint(result_format='COMPLETE')     -> keys in the first result: 9`,
-      reading: 'result_format ตั้งตอนสร้าง Checkpoint แล้วใช้กับทุก validation ใน checkpoint นั้น ส่งให้ cp.run() ตรงๆ ไม่ได้ (TypeError)',
+      reading: 'result_format ตั้งตอนสร้าง Checkpoint แล้วใช้กับทุก Validation ใน Checkpoint นั้น ส่งให้ cp.run() ตรง ๆ ไม่ได้ (TypeError)',
     },
     {
-      label: 'ส่งให้ cp.run ตรงๆ',
+      label: 'ส่งให้ cp.run ตรง ๆ',
       code: `cp.run(batch_parameters={"dataframe": df},\n       result_format="BOOLEAN_ONLY")`,
       output: `TypeError: Checkpoint.run() got an unexpected keyword argument 'result_format'`,
       reading: 'ไม่ได้ผล ต้องตั้งที่ตัว Checkpoint',
@@ -60,7 +60,7 @@ import Variants from '../../../../components/labs/great-expectations/Variants';
   ]}
 />
 
-ตัวเลข 0 กับ 9 คือจำนวน key ใน `result` ของข้อแรกของ suite `vd_age` ที่ `BOOLEAN_ONLY` และ `COMPLETE` ตามลำดับ ตรงกับสิ่งที่[บทที่ 4](/great-expectations/reading-results/#result_format-ยิ่งละเอียด-ยิ่งแพง) เห็นว่า BOOLEAN_ONLY ทำให้ `result` ว่าง
+ตัวเลข 0 กับ 9 คือจำนวน Key ใน `result` ของข้อแรกของ Suite `vd_age` เมื่อใช้ `BOOLEAN_ONLY` และ `COMPLETE` ตามลำดับ ซึ่งตรงกับที่เราเห็นใน[บทที่ 4](/great-expectations/reading-results/#result_format-ยิ่งละเอียด-ยิ่งแพง) ว่า BOOLEAN_ONLY ทำให้ `result` ว่าง
 
 </Step>
 
@@ -71,12 +71,12 @@ import Variants from '../../../../components/labs/great-expectations/Variants';
 | สถานการณ์ | เลือก |
 |---|---|
 | ลองกฎ เขียนสคริปต์ทดลอง ตรวจครั้งเดียว | `vd.run(...)` หรือ `batch.validate(...)` ([บทที่ 6](/great-expectations/datasources-batches/#get_batch-เลือกไฟล์ไหน)) |
-| ตรวจประจำใน pipeline | `Checkpoint` เพราะรวมหลายตรวจเป็นรอบเดียว (`run_id` เดียวกัน) และแนบ action ได้ |
-| ต้องการรู้ว่าผลมาจาก checkpoint ไหน | `Checkpoint` (มี `checkpoint_id` ใน meta) |
-| ต้องการ `result_format` ต่างกันในแต่ละการตรวจ | สร้าง checkpoint แยกตามระดับที่ต้องการ |
+| ตรวจประจำใน Pipeline | `Checkpoint` เพราะรวมการตรวจหลายอันเป็นรอบเดียว (`run_id` เดียวกัน) และแนบ Action ได้ |
+| ต้องการรู้ว่าผลมาจาก Checkpoint ไหน | `Checkpoint` (มี `checkpoint_id` ใน Meta) |
+| ต้องการ `result_format` ต่างกันในแต่ละการตรวจ | สร้าง Checkpoint แยกตามระดับที่ต้องการ |
 
 <Callout type="note" title="สรุปที่ไม่ได้ทดลอง">
-ตารางนี้สรุปจากความต่างที่ทดลองแล้วในหัวข้อแรก ส่วนข้อดีข้อเสียเชิงการใช้งานอื่นๆ (เช่น ความง่ายในการ review checkpoint ใน git) มาจากโครงสร้างไฟล์ที่เห็นใน[บทที่ 5](/great-expectations/context-stores/#file-context-เขียนอะไรลงดิสก์) ไม่ได้ทดลองวัด
+ตารางนี้สรุปมาจากความต่างที่ทดลองแล้วในหัวข้อแรก ส่วนข้อดีข้อเสียเชิงการใช้งานอื่น ๆ (เช่น ความง่ายในการ Review Checkpoint ใน Git) มาจากโครงสร้างไฟล์ที่เห็นใน[บทที่ 5](/great-expectations/context-stores/#file-context-เขียนอะไรลงดิสก์) และยังไม่ได้ทดลองวัด
 </Callout>
 
 </Step>
