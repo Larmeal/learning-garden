@@ -1,6 +1,6 @@
 ---
 title: โปรเจกต์รวม
-summary: ประกอบทุกชิ้นจากบทก่อนหน้าทั้งหมด เป็น pipeline เล็กๆ หนึ่งสาย ที่รับข้อมูลรายวัน ตรวจ contract quarantine row เสีย monitor volume ตัดสินว่าจะ publish หรือหยุด และเปิด ticket ถึงเจ้าของ แล้วทดลองหกสถานการณ์
+summary: ประกอบทุกชิ้นจากบทก่อนหน้าทั้งหมดเข้าเป็น Pipeline เล็ก ๆ หนึ่งสาย ที่รับข้อมูลรายวัน ตรวจ Contract แล้ว Quarantine Row ที่เสีย จากนั้น Monitor Volume เพื่อตัดสินว่าจะ Publish หรือหยุด และเปิด Ticket ถึงเจ้าของ แล้วเราจะทดลองกับหกสถานการณ์
 order: 11
 phase: D
 level: 5
@@ -17,19 +17,19 @@ import Callout from '../../../../components/Callout.astro';
 
 ## โจทย์
 
-รับข้อมูล order รายวัน ตัดสินว่า**publish เข้ารายงานหรือหยุดไว้** และทำให้เจ้าของข้อมูลรู้เมื่อมีปัญหา โดยใช้เฉพาะสิ่งที่เรียนมา
+โจทย์ของเราคือรับข้อมูล Order รายวัน แล้วตัดสินว่าจะ**Publish เข้ารายงานหรือหยุดไว้** และทำให้เจ้าของข้อมูลรู้เมื่อมีปัญหา โดยใช้เฉพาะสิ่งที่เราเรียนมา
 
 | ขั้น | ทำอะไร | มาจากบท |
 |---|---|---|
-| 1 | ตรวจ schema ของชุดที่เข้ามาเทียบกับ contract ถ้าไม่ตรง ปฏิเสธก่อน load | 6 |
-| 2 | ถ้าไม่มี row เลย ถือว่าต้นทางเงียบ | 7 |
-| 3 | ตรวจทีละ row: ซ้ำ, ไม่มี customer_id, ไม่มี customer จริง, ยอดติดลบ แล้ว quarantine row ที่ไม่ผ่านพร้อมเหตุผล | 4, 5 |
-| 4 | ถ้า row เสียเกิน 10% ให้หยุด (circuit breaker) ถ้า row ที่ดีน้อยกว่า 50% ของ median วันเดียวกันในสัปดาห์ก่อนๆ ให้หยุด | 5, 7 |
-| 5 | publish หรือหยุดและเปิด ticket ถึงเจ้าของตามที่ contract ระบุ (ช่องทางแจ้ง, เวลาตอบสนอง) | 6, 9, 10 |
+| 1 | ตรวจ Schema ของชุดที่เข้ามาเทียบกับ Contract ถ้าไม่ตรง ปฏิเสธก่อน Load | 6 |
+| 2 | ถ้าไม่มี Row เลย ถือว่าต้นทางเงียบ | 7 |
+| 3 | ตรวจทีละ Row: ซ้ำ, ไม่มี customer_id, ไม่มี Customer จริง, ยอดติดลบ แล้ว Quarantine Row ที่ไม่ผ่านพร้อมเหตุผล | 4, 5 |
+| 4 | ถ้า Row เสียเกิน 10% ให้หยุด (Circuit Breaker) ถ้า Row ที่ดีน้อยกว่า 50% ของ Median วันเดียวกันในสัปดาห์ก่อน ๆ ให้หยุด | 5, 7 |
+| 5 | Publish หรือหยุดและเปิด Ticket ถึงเจ้าของตามที่ Contract ระบุ (ช่องทางแจ้ง, เวลาตอบสนอง) | 6, 9, 10 |
 
-threshold 10% และ 50% เป็นตัวอย่างที่ผู้เขียนตั้ง ไม่ได้มาจากหนังสือ ในงานจริงมาจากข้อตกลงกับ data consumer ([บท 1](/data-quality/assurance-basics/#quality-คือ-เหมาะกับการใช้งาน), [4](/data-quality/rule-design/#threshold-ที่ยอมรับ-ไม่ใช่ศูนย์เสมอไป), [10](/data-quality/ownership-scorecard/#รายงาน-data-quality-ให้ใคร-และรายงานอะไร))
+Threshold 10% และ 50% เป็นตัวอย่างที่ผู้เขียนตั้งเอง ไม่ได้มาจากหนังสือ ส่วนในงานจริงจะมาจากข้อตกลงกับ Data Consumer ([บท 1](/data-quality/assurance-basics/#quality-คือ-เหมาะกับการใช้งาน), [4](/data-quality/rule-design/#threshold-ที่ยอมรับ-ไม่ใช่ศูนย์เสมอไป), [10](/data-quality/ownership-scorecard/#รายงาน-data-quality-ให้ใคร-และรายงานอะไร))
 
-สายนี้อยู่ใน script `11_capstone.py` ประมาณ 100 บรรทัดที่ใช้ `dqlab.py`, `dqrules.py` และ `dqcontract.py` ที่เขียนไว้ในบทก่อนๆ
+สายนี้เขียนอยู่ใน Script `11_capstone.py` ยาวประมาณ 100 บรรทัด ซึ่งใช้ `dqlab.py`, `dqrules.py` และ `dqcontract.py` ที่เราเขียนไว้ในบทก่อน ๆ
 
 </Step>
 
@@ -37,27 +37,27 @@ threshold 10% และ 50% เป็นตัวอย่างที่ผู�
 
 ## หกสถานการณ์
 
-ข้อมูลของวันที่ 2026-10-20 (วันอังคาร) มี 30 row ค่า median ของวันอังคารสี่สัปดาห์ก่อนหน้าคือ 26 row ชุดข้อมูลที่ป้อนเข้าสายเป็นหกแบบ ทั้งหมดดัดแปลงจากข้อมูลวันเดียวกัน (รัน: `11_capstone.py`)
+ข้อมูลของวันที่ 2026-10-20 (วันอังคาร) มี 30 Row ส่วนค่า Median ของวันอังคารสี่สัปดาห์ก่อนหน้าคือ 26 Row เราป้อนชุดข้อมูลเข้าสายหกแบบ ซึ่งดัดแปลงมาจากข้อมูลของวันเดียวกันทั้งหมด (รัน: `11_capstone.py`)
 
 | # | สถานการณ์ | ผล | เหตุผล |
 |---|---|---|---|
-| 1 | วันปกติ | publish | volume 113% ของ baseline |
-| 2 | ซ้ำหนึ่ง row | publish และ quarantine row เสีย 1 row | ซ้ำ order_id 1 row อยู่ใต้ threshold 10% |
-| 3 | row เสียจำนวนมาก | **หยุด** | 26% ของ row ไม่ผ่านการตรวจ row (ซ้ำ 4, ยอดติดลบ 3, ไม่มี customer จริง 2) เกิน threshold 10% |
-| 4 | เปลี่ยนชื่อ column | **หยุด** | contract: ไม่มี column `total_amount` |
+| 1 | วันปกติ | Publish | Volume 113% ของ Baseline |
+| 2 | ซ้ำหนึ่ง Row | Publish และ Quarantine Row เสีย 1 Row | ซ้ำ order_id 1 Row อยู่ใต้ Threshold 10% |
+| 3 | Row เสียจำนวนมาก | **หยุด** | 26% ของ Row ไม่ผ่านการตรวจ Row (ซ้ำ 4, ยอดติดลบ 3, ไม่มี Customer จริง 2) เกิน Threshold 10% |
+| 4 | เปลี่ยนชื่อ Column | **หยุด** | Contract: ไม่มี Column `total_amount` |
 | 5 | ไม่มีข้อมูลมาเลย | **หยุด** | ต้นทางเงียบ |
-| 6 | load มาแค่บางส่วน (30%) | **หยุด** | volume 34% ของ baseline (threshold 50%) |
+| 6 | Load มาแค่บางส่วน (30%) | **หยุด** | Volume 34% ของ Baseline (Threshold 50%) |
 
-สี่สถานการณ์ที่หยุด เปิด ticket สี่ใบ ทุกใบถึงทีม `orders-platform` ทาง channel `#orders-data` ภายใน 2 ชั่วโมงตามที่ contract v1 ระบุ
+สี่สถานการณ์ที่หยุดจะเปิด Ticket สี่ใบ ซึ่งทุกใบถึงทีม `orders-platform` ทาง Channel `#orders-data` ภายใน 2 ชั่วโมงตามที่ Contract v1 ระบุ
 
 | จากสถานการณ์ | ความรุนแรง | เรื่อง |
 |---|---|---|
-| 3 | สูง | 26% ของ row ไม่ผ่านการตรวจ row |
-| 4 | สูง | contract: missing column total_amount |
-| 5 | สูง | no rows arrived (source silent) |
-| 6 | กลาง | volume เป็น 34% ของ baseline |
+| 3 | สูง | 26% ของ Row ไม่ผ่านการตรวจ Row |
+| 4 | สูง | Contract: missing column total_amount |
+| 5 | สูง | no rows arrived (Source Silent) |
+| 6 | กลาง | Volume เป็น 34% ของ Baseline |
 
-สถานการณ์ 1 และ 2 เป็นวันเดียวกัน การ publish ใช้วันเป็น key (upsert) ดังนั้นรันซ้ำแล้วแทนที่ row เดิม ไม่เพิ่ม row ใหม่ ซึ่งเป็นบทเรียนจาก[บท 8](/data-quality/reconciliation/#ออกแบบให้ตรวจย้อนได้) และ [9](/data-quality/incidents/#fix-ชั่วคราวก่อน-แล้วถาวร): การ load ซ้ำได้อย่างปลอดภัย
+สถานการณ์ 1 และ 2 เป็นวันเดียวกัน และการ Publish ใช้วันเป็น Key (Upsert) ดังนั้นเมื่อรันซ้ำ ระบบจะแทนที่ Row เดิม ไม่เพิ่ม Row ใหม่ ซึ่งเป็นบทเรียนจาก[บท 8](/data-quality/reconciliation/#ออกแบบให้ตรวจย้อนได้)และ [9](/data-quality/incidents/#fix-ชั่วคราวก่อน-แล้วถาวร) เรื่องการ Load ซ้ำได้อย่างปลอดภัย
 
 </Step>
 
@@ -67,12 +67,12 @@ threshold 10% และ 50% เป็นตัวอย่างที่ผู�
 
 โค้ดทำงานได้ แต่การตัดสินใจหลายอย่างในนั้นเป็นของผู้เขียน และไม่มีคำตอบเดียวที่ถูก
 
-- **row เสีย 10% หยุด** ถ้าธุรกิจรับได้ 20% ก็เลื่อน threshold ถ้ารับได้ 0% แต่ก็จะหยุดทุกวัน ([บท 4](/data-quality/rule-design/#threshold-ที่ยอมรับ-ไม่ใช่ศูนย์เสมอไป): threshold ที่ยอมรับ)
-- **volume ต่ำกว่า 50% หยุด แต่ 51% ผ่าน** วันที่ลดลงครึ่งหนึ่งผ่านแล้วคุณพอใจไหม ลองใช้ ThresholdLab ([บท 7](/data-quality/monitoring/#ขยับ-threshold-เอง)) ดูว่า threshold นี้เหมาะกับข้อมูลที่มีรอบสัปดาห์หรือไม่
-- **หยุดทั้งชุดเมื่อ row เสียมาก** อาจไม่เหมาะ ถ้า row ส่วนใหญ่ยังดี ทางเลือกคือ publish ส่วนที่ดีพร้อมประกาศว่าไม่ครบ ([บท 5](/data-quality/checkpoints/#เมื่อไม่ผ่าน-ปล่อยผ่าน-quarantine-หรือหยุด): intrusive กับ nonintrusive)
-- **ticket ทุกใบไปที่ทีมเดียวกัน** ในสถานการณ์ 3 ปัญหาอาจเกิดที่ทีม CRM หรือทีม payment ([บท 9](/data-quality/incidents/#respond-ใครคุม-ใครรู้): ไล่ lineage เพื่อหาเจ้าของจริง)
-- **ไม่มี monitor freshness ของ table รายงาน** ถ้า pipeline หยุด รายงานปลายทางจะเก่าลงเรื่อยๆ แต่ไม่มีอะไรแจ้ง ([บท 7](/data-quality/monitoring/#freshness-ช่วงที่ไม่มีข้อมูลยาวแค่ไหนจึงเป็นเหตุ))
-- **ไม่ได้ตรวจ accuracy** เทียบกับ payment system เพราะต้องรอข้อมูลฝั่ง payment มาถึง ([บท 8](/data-quality/reconciliation/#reconcile-ด้วยจำนวน-row-และผลรวม): reconciliation เป็นอีกขั้นหนึ่งที่รันทีหลัง)
+- เรากำหนดให้หยุดเมื่อ Row เสียเกิน 10% ถ้าธุรกิจรับได้ถึง 20% ก็เลื่อน Threshold ขึ้นได้ แต่ถ้ารับได้เพียง 0% ก็จะหยุดทุกวัน (เรื่อง Threshold ที่ยอมรับอยู่ใน[บท 4](/data-quality/rule-design/#threshold-ที่ยอมรับ-ไม่ใช่ศูนย์เสมอไป))
+- Volume ต่ำกว่า 50% จะหยุด แต่ 51% ผ่าน ถ้าวันที่ปริมาณลดลงครึ่งหนึ่งยังผ่านไปได้ คุณพอใจไหม ลองใช้ ThresholdLab ([บท 7](/data-quality/monitoring/#ขยับ-threshold-เอง)) ดูว่า Threshold นี้เหมาะกับข้อมูลที่มีรอบสัปดาห์หรือไม่
+- การหยุดทั้งชุดเมื่อ Row เสียมากอาจไม่เหมาะ ถ้า Row ส่วนใหญ่ยังดี ทางเลือกหนึ่งคือ Publish ส่วนที่ดีพร้อมประกาศว่าไม่ครบ (เรื่อง Intrusive กับ Nonintrusive อยู่ใน[บท 5](/data-quality/checkpoints/#เมื่อไม่ผ่าน-ปล่อยผ่าน-quarantine-หรือหยุด))
+- Ticket ทุกใบไปที่ทีมเดียวกัน ทั้งที่ในสถานการณ์ 3 ปัญหาอาจเกิดที่ทีม CRM หรือทีม Payment ก็ได้ (การไล่ Lineage เพื่อหาเจ้าของจริงอยู่ใน[บท 9](/data-quality/incidents/#respond-ใครคุม-ใครรู้))
+- เราไม่มี Monitor Freshness ของ Table รายงาน ถ้า Pipeline หยุด รายงานปลายทางจะเก่าลงเรื่อย ๆ แต่ไม่มีอะไรแจ้ง ([บท 7](/data-quality/monitoring/#freshness-ช่วงที่ไม่มีข้อมูลยาวแค่ไหนจึงเป็นเหตุ))
+- เราไม่ได้ตรวจ Accuracy เทียบกับ Payment System เพราะต้องรอข้อมูลฝั่ง Payment มาถึงก่อน (Reconciliation เป็นอีกขั้นหนึ่งที่รันทีหลัง ดู[บท 8](/data-quality/reconciliation/#reconcile-ด้วยจำนวน-row-และผลรวม))
 
 </Step>
 
@@ -80,17 +80,17 @@ threshold 10% และ 50% เป็นตัวอย่างที่ผู�
 
 ## โจทย์ต่อยอด
 
-ทำใน script ทีละข้อ แต่ละข้อใช้บทที่ระบุ
+ให้ลองทำใน Script ทีละข้อ โดยแต่ละข้อจะใช้บทที่ระบุไว้
 
-1. **เพิ่มสถานการณ์ที่ 7: schema drift แบบเงียบ** type ของ `customer_id` เปลี่ยนจาก BIGINT เป็น string ตัวเลข ([บท 6](/data-quality/agreements/#เปลี่ยน-contract-อย่างไรไม่ให้ใครพัง)) pipeline detect ไหม ถ้าไม่ ต้องเพิ่มอะไร
-2. **เพิ่ม reconciliation หลัง publish** เทียบจำนวน row และผลรวมของ row ที่ publish กับต้นทางที่ไม่รวม row ที่ quarantine ผลต่างต้องเท่ากับ row ที่ quarantine พอดี ([บท 8](/data-quality/reconciliation/#ส่วนต่างต้องอธิบายได้ครบ))
-3. **เพิ่ม rule เรื่อง freshness** ถ้า `order_ts` ล่าสุดเก่ากว่า 24 ชั่วโมงเมื่อเทียบกับเวลาที่รัน ให้เปิด ticket ([บท 6](/data-quality/agreements/#ตรวจข้อมูลเทียบกับ-contract), [7](/data-quality/monitoring/#freshness-ช่วงที่ไม่มีข้อมูลยาวแค่ไหนจึงเป็นเหตุ))
-4. **ทำให้ ticket ฉลาดขึ้น** แนบรายการ table downstream ที่ได้รับผลกระทบ (blast radius) จากกราฟ lineage แบบ[บท 9](/data-quality/incidents/#respond-ใครคุม-ใครรู้)
-5. **เขียน log วันละบรรทัด** เก็บผลของแต่ละวัน (publish/หยุด จำนวน row ที่ quarantine) ใน table หนึ่ง แล้วคิด data downtime รายเดือนเทียบกับ SLO ([บท 10](/data-quality/ownership-scorecard/#data-downtime-เป็น-slo))
-6. **ลองผูกกับ GX** เขียนขั้นตรวจ row ใหม่เป็น expectation suite ของ Great Expectations แล้วเทียบกับ SQL ของคุณ (ดูบท "[ใช้ใน pipeline จริง](/great-expectations/pipeline-integration/)" ในเส้นทาง Great Expectations)
+1. เพิ่มสถานการณ์ที่ 7 เป็น Schema Drift แบบเงียบ โดยเปลี่ยน Type ของ `customer_id` จาก BIGINT เป็น String ตัวเลข ([บท 6](/data-quality/agreements/#เปลี่ยน-contract-อย่างไรไม่ให้ใครพัง)) แล้วดูว่า Pipeline Detect ได้ไหม ถ้าไม่ได้ ต้องเพิ่มอะไร
+2. เพิ่ม Reconciliation หลัง Publish โดยเทียบจำนวน Row และผลรวมของ Row ที่ Publish กับต้นทางที่ไม่รวม Row ที่ Quarantine ซึ่งผลต่างต้องเท่ากับ Row ที่ Quarantine พอดี ([บท 8](/data-quality/reconciliation/#ส่วนต่างต้องอธิบายได้ครบ))
+3. เพิ่ม Rule เรื่อง Freshness โดยถ้า `order_ts` ล่าสุดเก่ากว่า 24 ชั่วโมงเมื่อเทียบกับเวลาที่รัน ให้เปิด Ticket ([บท 6](/data-quality/agreements/#ตรวจข้อมูลเทียบกับ-contract), [7](/data-quality/monitoring/#freshness-ช่วงที่ไม่มีข้อมูลยาวแค่ไหนจึงเป็นเหตุ))
+4. ทำให้ Ticket ฉลาดขึ้น โดยแนบรายการ Table Downstream ที่ได้รับผลกระทบ (Blast Radius) จากกราฟ Lineage แบบ[บท 9](/data-quality/incidents/#respond-ใครคุม-ใครรู้)
+5. เขียน Log วันละบรรทัด เก็บผลของแต่ละวัน (Publish/หยุด จำนวน Row ที่ Quarantine) ไว้ใน Table หนึ่ง แล้วคิด Data Downtime รายเดือนเทียบกับ SLO ([บท 10](/data-quality/ownership-scorecard/#data-downtime-เป็น-slo))
+6. ลองผูกกับ GX โดยเขียนขั้นตรวจ Row ใหม่เป็น Expectation Suite ของ Great Expectations แล้วเทียบกับ SQL ของคุณ (ดูบท "[ใช้ใน Pipeline จริง](/great-expectations/pipeline-integration/)" ในเส้นทาง Great Expectations)
 
-<Callout type="try" title="ลองทำใน repo นี้">
-เริ่มจากข้อ 2 ซึ่งเล็กที่สุด เพิ่ม reconciliation ต่อท้ายฟังก์ชัน `run_pipeline` แล้วทดสอบว่าสถานการณ์ 2 (ซ้ำหนึ่ง row) ได้ผลต่างเท่ากับ 1 row และสถานการณ์ 1 ได้ 0
+<Callout type="try" title="ลองทำใน Repo นี้">
+ลองเริ่มจากข้อ 2 ซึ่งเล็กที่สุด โดยเพิ่ม Reconciliation ต่อท้ายฟังก์ชัน `run_pipeline` แล้วทดสอบว่าสถานการณ์ 2 (ซ้ำหนึ่ง Row) ได้ผลต่างเท่ากับ 1 Row และสถานการณ์ 1 ได้ 0
 </Callout>
 
 </Step>
@@ -99,32 +99,32 @@ threshold 10% และ 50% เป็นตัวอย่างที่ผู�
 
 ## เส้นทางที่เรียนมา และสิ่งที่ยังไม่ได้ครอบคลุม
 
-ทบทวนสิ่งที่ได้ในแต่ละบท
+มาทบทวนกันว่าแต่ละบทได้อะไรไปบ้าง
 
 | บท | ได้อะไร |
 |---|---|
-| 1 | quality คือความเหมาะกับการใช้งาน; Assurance คือระบบที่รักษามัน |
-| 2 | dimension เป็นคำศัพท์; ตรวจแต่ละ dimension ด้วย SQL; รายงานทั้งส่วนผ่านและไม่ผ่าน |
-| 3 | ดู profile ก่อนเขียน rule; profile บอกว่ามีอะไร ไม่บอกว่าควรเป็นอะไร |
-| 4 | rule ต้องมีเจ้าของ threshold impact และคนยืนยัน |
-| 5 | ตรวจหลายจุด; เลือกระหว่างปล่อย quarantine หยุด |
-| 6 | contract เป็นข้อมูลที่ตรวจได้; แยกการเปลี่ยนที่ทำให้พัง |
-| 7 | monitor สิ่งที่ไม่ได้คาดไว้; ทุก threshold แลกกันระหว่างแจ้งผิดกับพลาด |
-| 8 | reconcile ทั้งสาย; ส่วนต่างต้องอธิบายได้ครบ; ทดสอบ SQL บนข้อมูลเล็ก |
-| 9 | รับมือ incident ด้วยห้าขั้น; postmortem ไม่โทษคน |
+| 1 | Quality คือความเหมาะกับการใช้งาน; Assurance คือระบบที่รักษามัน |
+| 2 | Dimension เป็นคำศัพท์; ตรวจแต่ละ Dimension ด้วย SQL; รายงานทั้งส่วนผ่านและไม่ผ่าน |
+| 3 | ดู Profile ก่อนเขียน Rule; Profile บอกว่ามีอะไร ไม่บอกว่าควรเป็นอะไร |
+| 4 | Rule ต้องมีเจ้าของ Threshold Impact และคนยืนยัน |
+| 5 | ตรวจหลายจุด; เลือกระหว่างปล่อย Quarantine หยุด |
+| 6 | Contract เป็นข้อมูลที่ตรวจได้; แยกการเปลี่ยนที่ทำให้พัง |
+| 7 | Monitor สิ่งที่ไม่ได้คาดไว้; ทุก Threshold แลกกันระหว่างแจ้งผิดกับพลาด |
+| 8 | Reconcile ทั้งสาย; ส่วนต่างต้องอธิบายได้ครบ; ทดสอบ SQL บนข้อมูลเล็ก |
+| 9 | รับมือ Incident ด้วยห้าขั้น; Postmortem ไม่โทษคน |
 | 10 | วัดอย่างไรไม่หลอกตัวเอง; ใครรับผิดชอบ; รับรองข้อมูล |
 
-สิ่งที่เส้นทางนี้**ยังไม่ครอบคลุม**
+ส่วนสิ่งที่เส้นทางนี้**ยังไม่ครอบคลุม**มีดังนี้
 
-- **Reasonability** (DMBOK2 Table 29 หน้า 459) มีหน้าเจาะลึกใต้[บท 2](/data-quality/dimensions/reasonability/#reasonability-ถามว่า-pattern-ของข้อมูลหน้าตาเป็นอย่างที่คาดไหม) และการ monitor volume กับ distribution เทียบกับอดีตใน[บท 7](/data-quality/monitoring/#volume-ฤดูกาลทำให้-z-score-หลง) แบบฝึก `13_dimension_pitfalls.py` จับวันเสียที่สร้างขึ้นใน copy เพราะ dataset ไม่มี defect ชนิดนี้ที่ฝังไว้ จึงเป็นหลักฐานที่อ่อนกว่า dimension อื่น
-- **ข้อมูลส่วนบุคคลและความเป็นส่วนตัว** (PII) มีเฉพาะระดับแนวคิดใน[บท 13](/data-quality/governance/#class-และ-policy) (class, policy, metadata ใน contract) ไม่มีแบบฝึก
-- **data quality สำหรับ machine learning model** ก็มีแค่คุยกันใน[บท 13](/data-quality/governance/#เมื่อข้อมูลป้อน-model) ส่วนข้อมูล streaming จริงแตะเบาๆ ใน[บท 5](/data-quality/checkpoints/#ตรวจที่ระดับไหน-และทำใน-stream-ได้หรือไม่) (การตรวจแบบ in-stream)
-- **เครื่องมือเฉพาะตัว** เส้นทางนี้ไม่สอนเครื่องมือใดโดยเฉพาะ ใช้ GX ในเส้นทาง Great Expectations
-- **วัฒนธรรมและการเมืองในองค์กร** เริ่มต้นไว้ใน[บท 12](/data-quality/ten-steps/#พาคนไปด้วย) (การสื่อสารและการ engage คนใน Ten Steps) และ[บท 13](/data-quality/governance/#ใคร-accountable) (accountability) DMBOK2 มีบทว่าด้วยการเปลี่ยนแปลงองค์กรที่เส้นทางนี้ไม่ได้ใช้
+- เรื่อง **Reasonability** (DMBOK2 Table 29 หน้า 459) มีหน้าเจาะลึกอยู่ใต้[บท 2](/data-quality/dimensions/reasonability/#reasonability-ถามว่า-pattern-ของข้อมูลหน้าตาเป็นอย่างที่คาดไหม) และมีการ Monitor Volume กับ Distribution เทียบกับอดีตใน[บท 7](/data-quality/monitoring/#volume-ฤดูกาลทำให้-z-score-หลง) ส่วนแบบฝึก `13_dimension_pitfalls.py` จับวันเสียที่สร้างขึ้นใน Copy เพราะ Dataset ไม่มี Defect ชนิดนี้ที่ฝังไว้ จึงเป็นหลักฐานที่อ่อนกว่า Dimension อื่น
+- เรื่อง**ข้อมูลส่วนบุคคลและความเป็นส่วนตัว** (PII) เรามีเฉพาะระดับแนวคิดใน[บท 13](/data-quality/governance/#class-และ-policy) (Class, Policy, Metadata ใน Contract) และไม่มีแบบฝึก
+- เรื่อง **Data Quality สำหรับ Machine Learning Model** ก็มีแค่คุยกันใน[บท 13](/data-quality/governance/#เมื่อข้อมูลป้อน-model) ส่วนข้อมูล Streaming จริงแตะเบา ๆ ใน[บท 5](/data-quality/checkpoints/#ตรวจที่ระดับไหน-และทำใน-stream-ได้หรือไม่) (การตรวจแบบ In-stream)
+- เรื่อง**เครื่องมือเฉพาะตัว** เส้นทางนี้ไม่ได้สอนเครื่องมือใดโดยเฉพาะ ส่วน GX จะใช้ในเส้นทาง Great Expectations
+- เรื่อง**วัฒนธรรมและการเมืองในองค์กร** เราเริ่มไว้ใน[บท 12](/data-quality/ten-steps/#พาคนไปด้วย) (การสื่อสารและการ Engage คนใน Ten Steps) และ[บท 13](/data-quality/governance/#ใคร-accountable) (Accountability) ส่วน DMBOK2 มีบทว่าด้วยการเปลี่ยนแปลงองค์กรที่เส้นทางนี้ไม่ได้ใช้
 
-เส้นทางนี้ใช้ข้อมูลสังเคราะห์ที่สะอาดกว่างานจริงมาก ทุกตัวเลขที่ "ได้ผลดี" ควรถูกมองเป็นตัวอย่างของวิธีคิด ไม่ใช่ผลที่จะได้ในที่ทำงานคุณ
+เส้นทางนี้ใช้ข้อมูลสังเคราะห์ที่สะอาดกว่างานจริงมาก ดังนั้นตัวเลขที่ "ได้ผลดี" ทุกตัว ให้มองเป็นตัวอย่างของวิธีคิดนะ ไม่ใช่ผลที่จะได้ในที่ทำงานของคุณ
 
-มีอีกสองบทให้เลือกเรียนต่อ [บท 12](/data-quality/ten-steps/) แสดงวิธีรันทั้งหมดนี้เป็น project ด้วยวิธี Ten Steps และ[บท 13](/data-quality/governance/) วางมันในกรอบ data governance
+ถ้าอยากเรียนต่อ ยังมีอีกสองบทให้เลือก คือ [บท 12](/data-quality/ten-steps/) ที่แสดงวิธีรันทั้งหมดนี้เป็น Project ด้วยวิธี Ten Steps และ[บท 13](/data-quality/governance/) ที่วางมันในกรอบ Data Governance
 
 </Step>
 
@@ -133,8 +133,8 @@ threshold 10% และ 50% เป็นตัวอย่างที่ผู�
 ## เช็กตัวเอง
 
 - ถ้าวันนี้ต้องเลือกทำเพียงสามอย่างจากเส้นทางนี้ในทีมของคุณ คุณเลือกอะไร และเพราะอะไร (คำใบ้: ดูตัวเลข TTD ใน[บท 10](/data-quality/ownership-scorecard/#data-downtime-เป็น-slo))
-- สายของคุณหยุด publish เมื่อไร และใครรู้ก่อนว่าหยุด consumer หรือทีม
-- dataset สำคัญชุดแรกของคุณคืออะไร และ contract ของมันอยู่ที่ไหน
+- สายของคุณหยุด Publish เมื่อไร และใครรู้ก่อนว่าหยุด Consumer หรือทีม
+- Dataset สำคัญชุดแรกของคุณคืออะไร และ Contract ของมันอยู่ที่ไหน
 
 </Step>
 
@@ -144,8 +144,8 @@ threshold 10% และ 50% เป็นตัวอย่างที่ผู�
 
 | ข้อความ | ที่มา |
 |---|---|
-| ผลหกสถานการณ์, ticket 4 ใบ, การ publish แบบ upsert | รัน: `11_capstone.py` |
+| ผลหกสถานการณ์, Ticket 4 ใบ, การ Publish แบบ Upsert | รัน: `11_capstone.py` |
 | แนวคิดของแต่ละขั้น | หนังสืออ้างอิงตามที่ระบุใน[บท 1](/data-quality/assurance-basics/) ถึง [10](/data-quality/ownership-scorecard/) |
-| ลำดับขั้นของสาย, threshold 10% และ 50%, โจทย์ต่อยอด, รายการที่ไม่ครอบคลุม | ผู้เขียน |
+| ลำดับขั้นของสาย, Threshold 10% และ 50%, โจทย์ต่อยอด, รายการที่ไม่ครอบคลุม | ผู้เขียน |
 
 </Step>
