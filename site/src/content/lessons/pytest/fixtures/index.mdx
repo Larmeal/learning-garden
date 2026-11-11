@@ -1,6 +1,6 @@
 ---
 title: Fixture
-summary: fixture คือฟังก์ชันที่เตรียมของให้ test ผ่านชื่อ parameter ทำให้ตัด setup ซ้ำและเก็บกวาดได้อัตโนมัติ บทนี้สอน yield, scope, conftest.py, tmp_path, autouse, factory และ fixture ที่มี params
+summary: Fixture คือฟังก์ชันที่เตรียมของให้ Test ผ่านชื่อ Parameter ทำให้ตัด Setup ซ้ำและเก็บกวาดได้อัตโนมัติ เราจะเรียน Yield, Scope, conftest.py, tmp_path, Autouse, Factory และ Fixture ที่มี Params
 order: 3
 phase: B
 level: 2
@@ -17,7 +17,7 @@ import Callout from '../../../../components/Callout.astro';
 
 ## ปัญหา: Setup เหมือนกันทุก Test
 
-test ของตะกร้าที่ต้องมีแอปเปิล 3 ผลกับลูกแพร์ 1 ผลก่อนเริ่ม จะเริ่มด้วยโค้ดชุดเดิมทุกตัว
+สมมติว่า Test ของตะกร้าต้องมีแอปเปิล 3 ผลกับลูกแพร์ 1 ผลก่อนเริ่ม เราก็ต้องเริ่มด้วยโค้ดชุดเดิมในทุก Test
 
 ```python
 def test_total():
@@ -27,7 +27,7 @@ def test_total():
     assert cart.total() == 50
 ```
 
-ถ้ามีสิบ test ก็คัดลอกสิบครั้ง และเมื่อ `Cart()` เปลี่ยนวิธีสร้างต้องแก้สิบที่ **fixture** คือฟังก์ชันที่เตรียมของให้ test โดย test ขอด้วยการใส่ชื่อ fixture เป็น parameter
+ถ้ามีสิบ Test ก็ต้องคัดลอกสิบครั้ง และเมื่อ `Cart()` เปลี่ยนวิธีสร้างก็ต้องแก้สิบที่ **Fixture** คือฟังก์ชันที่เตรียมของให้ Test โดย Test จะขอได้ด้วยการใส่ชื่อ Fixture เป็น Parameter
 
 ```python
 @pytest.fixture
@@ -44,7 +44,7 @@ def test_fixture_that_uses_another_fixture(filled_cart):
     assert filled_cart.total() == 50
 ```
 
-Pytest เห็นชื่อ `filled_cart` ใน parameter จึงรัน fixture ก่อน แล้วส่งค่าที่คืนเข้ามา
+เมื่อ Pytest เห็นชื่อ `filled_cart` ใน Parameter มันจะรัน Fixture ก่อน แล้วส่งค่าที่คืนเข้ามาให้ Test
 
 </Step>
 
@@ -52,7 +52,7 @@ Pytest เห็นชื่อ `filled_cart` ใน parameter จึงรั�
 
 ## แต่ละ Test ได้ของใหม่
 
-ค่าเริ่มต้นคือ fixture ทำงาน **ใหม่ทุก test** แบบฝึกยืนยันด้วยสอง test ที่ต่อกัน (รัน: `exercises/03_fixtures/test_fixtures.py`)
+ค่าเริ่มต้นคือ Fixture จะทำงาน **ใหม่ทุก Test** ซึ่งแบบฝึกยืนยันด้วยสอง Test ที่รันต่อกัน (รัน: `exercises/03_fixtures/test_fixtures.py`)
 
 ```python
 def test_every_test_gets_a_fresh_cart(filled_cart):
@@ -63,7 +63,7 @@ def test_the_previous_test_did_not_leak(filled_cart):
     assert filled_cart.qty("kiwi") == 0
 ```
 
-test แรกเพิ่ม kiwi test ที่สองไม่เห็น นี่คือเหตุผลที่ test อิสระต่อกัน ([บท 15](/pytest/test-design/#test-ต้องอิสระต่อกัน) จะกลับมาเรื่องนี้)
+Test แรกเพิ่ม Kiwi แต่ Test ที่สองไม่เห็น นี่คือเหตุผลที่ Test อิสระต่อกัน ([บท 15](/pytest/test-design/#test-ต้องอิสระต่อกัน) จะกลับมาเรื่องนี้)
 
 </Step>
 
@@ -71,9 +71,9 @@ test แรกเพิ่ม kiwi test ที่สองไม่เห็น 
 
 ## conftest.py: ใช้ร่วมกันโดยไม่ต้อง Import
 
-fixture ที่หลายไฟล์ใช้ ให้ใส่ใน `conftest.py` Pytest โหลดไฟล์นี้ให้เองและ test ทุกไฟล์ในโฟลเดอร์นั้น (และโฟลเดอร์ลูก) เรียกใช้ได้เลย ไม่ต้อง import ในแบบฝึก `cart` และ `filled_cart` อยู่ใน `exercises/03_fixtures/conftest.py` และ `test_fixtures.py` ใช้โดยไม่ import อะไร
+ถ้า Fixture ถูกใช้โดยหลายไฟล์ ให้ใส่ใน `conftest.py` Pytest จะโหลดไฟล์นี้ให้เอง และ Test ทุกไฟล์ในโฟลเดอร์นั้น (และโฟลเดอร์ลูก) เรียกใช้ได้เลยโดยไม่ต้อง Import ในแบบฝึก `cart` และ `filled_cart` อยู่ใน `exercises/03_fixtures/conftest.py` และ `test_fixtures.py` ใช้โดยไม่ Import อะไร
 
-ถ้ามีชื่อซ้ำ `conftest.py` ที่อยู่ใกล้ test กว่าชนะ และ fixture ที่เขียนในไฟล์ test เองชนะทั้งสองอย่าง ทำให้ override เฉพาะที่ได้ ในโฟลเดอร์ `nested/` ของแบบฝึกมี `cart` ที่ override สองชั้น และ test ได้ตะกร้าที่ใกล้ที่สุดเสมอ (รัน: `exercises/03_fixtures/nested`)
+ถ้ามีชื่อซ้ำ `conftest.py` ที่อยู่ใกล้ Test กว่าจะชนะ และ Fixture ที่เขียนในไฟล์ Test เองจะชนะทั้งสองอย่าง เราจึง Override เฉพาะที่ได้ ในโฟลเดอร์ `nested/` ของแบบฝึกมี `cart` ที่ Override สองชั้น และ Test จะได้ตะกร้าที่ใกล้ที่สุดเสมอ (รัน: `exercises/03_fixtures/nested`)
 
 </Step>
 
@@ -81,7 +81,7 @@ fixture ที่หลายไฟล์ใช้ ให้ใส่ใน `con
 
 ## Yield: Setup และ Teardown ในที่เดียว
 
-บางอย่างต้องเก็บกวาดหลัง test เช่น ปิด connection หรือลบไฟล์ ใช้ `yield` แทน `return` โค้ดก่อน `yield` คือ setup ส่วนหลัง `yield` คือ teardown ที่ **รันแม้ test ล้ม** (รัน: `demos/03_teardown` เหตุการณ์คือ setup แล้ว teardown แม้ test ล้ม)
+บางอย่างต้องเก็บกวาดหลัง Test เช่น ปิด Connection หรือลบไฟล์ ซึ่งเราใช้ `yield` แทน `return` ได้ โค้ดก่อน `yield` คือ Setup ส่วนโค้ดหลัง `yield` คือ Teardown ที่ **รันแม้ Test ล้ม** (รัน: `demos/03_teardown` เหตุการณ์คือ Setup แล้ว Teardown แม้ Test ล้ม)
 
 ```python
 @pytest.fixture
@@ -109,7 +109,7 @@ SETUP    M connection
 TEARDOWN M connection
 ```
 
-teardown ไล่ย้อนกลับจาก setup เสมอ (ตัวที่ตั้งทีหลังเก็บก่อน)
+Teardown จะไล่ย้อนกลับจาก Setup เสมอ (ตัวที่ตั้งทีหลังจะเก็บก่อน)
 
 </Step>
 
@@ -117,27 +117,27 @@ teardown ไล่ย้อนกลับจาก setup เสมอ (ตั�
 
 ## Scope: สร้างบ่อยแค่ไหน
 
-`connection` ด้านบนตั้ง `scope="module"` (ตัวอักษร `M` ในผล) ถูกสร้างครั้งเดียวสำหรับทั้งไฟล์ ส่วน `transaction` เป็น function scope (`F`) สร้างใหม่ทุก test
+`connection` ด้านบนตั้ง `scope="module"` (ตัวอักษร `M` ในผล) จึงถูกสร้างครั้งเดียวสำหรับทั้งไฟล์ ส่วน `transaction` เป็น Function Scope (`F`) ซึ่งสร้างใหม่ทุก Test
 
-| scope | สร้างใหม่เมื่อ | ใช้กับ |
+| Scope | สร้างใหม่เมื่อ | ใช้กับ |
 |---|---|---|
-| `function` (ค่าเริ่มต้น) | ทุก test | ของที่ test แก้ไขได้ เช่น ตะกร้า |
-| `class` | ทุก class | |
-| `module` | ทุกไฟล์ | ของที่สร้างแพง และ test ไม่แก้ |
-| `package` | ทุก package | |
-| `session` | ครั้งเดียวทั้งการรัน | เช่น เริ่ม database container |
+| `function` (ค่าเริ่มต้น) | ทุก Test | ของที่ Test แก้ไขได้ เช่น ตะกร้า |
+| `class` | ทุก Class | |
+| `module` | ทุกไฟล์ | ของที่สร้างแพง และ Test ไม่แก้ |
+| `package` | ทุก Package | |
+| `session` | ครั้งเดียวทั้งการรัน | เช่น เริ่ม Database Container |
 
-แบบฝึกพิสูจน์ด้วย list `EVENTS` (รัน: `exercises/03_fixtures/test_fixtures.py`)
+แบบฝึกพิสูจน์ด้วย List `EVENTS` (รัน: `exercises/03_fixtures/test_fixtures.py`)
 
 ```python
 def test_the_events_show_scope():
     assert EVENTS == ["connect", "begin", "test 1", "rollback", "begin", "test 2", "rollback"]
 ```
 
-connect ครั้งเดียว begin/rollback สองครั้ง และ disconnect ยังไม่เกิดจนกว่าไฟล์จะจบ
+จะเห็นว่า Connect เกิดครั้งเดียว Begin/Rollback เกิดสองครั้ง และ Disconnect ยังไม่เกิดจนกว่าไฟล์จะจบ
 
-<Callout type="warn" title="scope ใหญ่ขึ้นแลกกับการแชร์สถานะ">
-fixture ระดับ module หรือ session ที่คืน object ที่แก้ได้ (เช่น ตะกร้า) จะถูกแชร์ให้ทุก test ถ้า test หนึ่งแก้ test ถัดไปจะเห็น ซึ่งคือที่มาของ test ที่ผ่านเมื่อรันรวมแต่ล้มเมื่อรันเดี่ยว ([บท 15](/pytest/test-design/#test-ต้องอิสระต่อกัน)) ใช้ scope ใหญ่กับของที่ไม่ถูกแก้ หรือเตรียมให้ test รีเซ็ตด้วย fixture ระดับ function ซ้อนอีกชั้น
+<Callout type="warn" title="Scope ใหญ่ขึ้นแลกกับการแชร์สถานะ">
+Fixture ระดับ Module หรือ Session ที่คืน Object ที่แก้ได้ (เช่น ตะกร้า) จะถูกแชร์ให้ทุก Test ถ้า Test หนึ่งแก้ค่า Test ถัดไปก็จะเห็นค่าที่ถูกแก้ ซึ่งเป็นที่มาของ Test ที่ผ่านเมื่อรันรวมแต่ล้มเมื่อรันเดี่ยว ([บท 15](/pytest/test-design/#test-ต้องอิสระต่อกัน)) ดังนั้นให้ใช้ Scope ใหญ่กับของที่ไม่ถูกแก้ หรือเตรียมให้ Test รีเซ็ตด้วย Fixture ระดับ Function ซ้อนอีกชั้น
 </Callout>
 
 </Step>
@@ -146,7 +146,7 @@ fixture ระดับ module หรือ session ที่คืน object �
 
 ## Fixture ที่มากับ Pytest: tmp_path
 
-`tmp_path` ให้โฟลเดอร์ชั่วคราวที่ว่างและไม่ซ้ำกันต่อ test เหมาะกับโค้ดที่เขียนไฟล์ (รัน: `exercises/03_fixtures/test_fixtures.py`)
+`tmp_path` จะให้โฟลเดอร์ชั่วคราวที่ว่างและไม่ซ้ำกันต่อ Test เหมาะกับโค้ดที่เขียนไฟล์ (รัน: `exercises/03_fixtures/test_fixtures.py`)
 
 ```python
 def test_save_and_load_with_tmp_path(filled_cart, tmp_path):
@@ -157,7 +157,7 @@ def test_save_and_load_with_tmp_path(filled_cart, tmp_path):
     assert again.total() == filled_cart.total()
 ```
 
-test ไม่ต้องลบไฟล์เอง และไม่ชนกับ test อื่น fixture ที่มากับ Pytest ที่ใช้บ่อยตัวอื่นคือ `monkeypatch`, `capsys`, `caplog` ([บท 6](/pytest/isolation/#monkeypatch-แทนชั่วคราว-คืนให้เองหลังจบ)) และ `request` (ข้อมูลของ test ที่กำลังรัน)
+Test ไม่ต้องลบไฟล์เอง และไม่ชนกับ Test อื่น ส่วน Fixture ที่มากับ Pytest และใช้บ่อยตัวอื่น ๆ คือ `monkeypatch`, `capsys`, `caplog` ([บท 6](/pytest/isolation/#monkeypatch-แทนชั่วคราว-คืนให้เองหลังจบ)) และ `request` (ข้อมูลของ Test ที่กำลังรัน)
 
 </Step>
 
@@ -165,7 +165,7 @@ test ไม่ต้องลบไฟล์เอง และไม่ชน�
 
 ## Autouse, Factory และ Params
 
-**autouse** รันให้ทุก test ในขอบเขตโดยไม่ต้องขอ เหมาะกับสิ่งที่ต้องเกิดเสมอ (ล้างสถานะ ตั้งเวลา) ในแบบฝึกบันทึกชื่อ test ที่กำลังรัน
+**Autouse** จะรันให้ทุก Test ในขอบเขตโดยไม่ต้องขอ เหมาะกับสิ่งที่ต้องเกิดเสมอ (ล้างสถานะ ตั้งเวลา) ในแบบฝึกเราใช้บันทึกชื่อ Test ที่กำลังรัน
 
 ```python
 @pytest.fixture(autouse=True)
@@ -173,7 +173,7 @@ def count_tests(request):
     COUNT.append(request.node.name)
 ```
 
-**factory fixture** คืนฟังก์ชัน เมื่อ test ต้องการหลายตัวหรือกำหนดเนื้อหาเอง
+**Factory Fixture** จะคืนฟังก์ชันออกมา ใช้เมื่อ Test ต้องการหลายตัวหรือต้องกำหนดเนื้อหาเอง
 
 ```python
 @pytest.fixture
@@ -190,7 +190,7 @@ def test_factory_fixture(make_cart):
     assert make_cart(apple=10, pear=20).total() == 30
 ```
 
-**fixture ที่มี params** ทำให้ test ที่ใช้มันรันซ้ำหนึ่งครั้งต่อค่า
+**Fixture ที่มี Params** จะทำให้ Test ที่ใช้มันรันซ้ำหนึ่งครั้งต่อค่า
 
 ```python
 @pytest.fixture(params=["SAVE10", "SAVE20"])
@@ -198,10 +198,10 @@ def coupon(request):
     return request.param
 ```
 
-`test_a_parametrized_fixture_runs_the_test_once_per_param` จึงรัน 2 ครั้ง ทำให้ไฟล์ `test_fixtures.py` มีฟังก์ชัน test 11 ตัวแต่รายงาน **12 passed** (รัน: `exercises/03_fixtures/test_fixtures.py`) [บท 4](/pytest/parametrize/#test-เดียว-หลายค่า) สอนวิธีที่ตรงไปตรงมากว่าสำหรับกรณี test ทั่วไป
+`test_a_parametrized_fixture_runs_the_test_once_per_param` จึงรัน 2 ครั้ง ไฟล์ `test_fixtures.py` เลยมีฟังก์ชัน Test 11 ตัวแต่รายงาน **12 Passed** (รัน: `exercises/03_fixtures/test_fixtures.py`) ส่วน[บท 4](/pytest/parametrize/#test-เดียว-หลายค่า) จะสอนวิธีที่ตรงไปตรงมากว่าสำหรับกรณี Test ทั่วไป
 
-<Callout type="try" title="ลองทำใน repo นี้">
-รัน `uv run pytest exercises/03_fixtures/test_fixtures.py --setup-show` แล้วอ่านลำดับ ลองเปลี่ยน `scope="module"` ของ `connection` เป็น `"function"` แล้วดูว่า `test_the_events_show_scope` ล้มเพราะอะไร และ `EVENTS` ที่ได้หน้าตาอย่างไร
+<Callout type="try" title="ลองทำใน Repo นี้">
+ลองรัน `uv run pytest exercises/03_fixtures/test_fixtures.py --setup-show` แล้วอ่านลำดับดู จากนั้นลองเปลี่ยน `scope="module"` ของ `connection` เป็น `"function"` แล้วดูว่า `test_the_events_show_scope` ล้มเพราะอะไร และ `EVENTS` ที่ได้หน้าตาอย่างไร
 </Callout>
 
 </Step>
@@ -210,9 +210,9 @@ def coupon(request):
 
 ## เช็กตัวเอง
 
-- fixture ที่ต่อ database ควรเป็น scope ไหน ถ้าทุก test แก้ข้อมูลในตาราง และคุณจะกันไม่ให้ test รบกวนกันอย่างไร
-- teardown หลัง `yield` รันไหมถ้า test ล้ม แล้วถ้า setup ก่อน `yield` โยน exception ล่ะ
-- ทำไมการใส่ fixture ใน `conftest.py` ไม่ต้อง import แต่ helper function ธรรมดาต้อง import
+- Fixture ที่ต่อ Database ควรเป็น Scope ไหน ถ้าทุก Test แก้ข้อมูลในตาราง และคุณจะกันไม่ให้ Test รบกวนกันอย่างไร
+- Teardown หลัง `yield` รันไหมถ้า Test ล้ม แล้วถ้า Setup ก่อน `yield` โยน Exception ล่ะ
+- ทำไมการใส่ Fixture ใน `conftest.py` ไม่ต้อง Import แต่ Helper Function ธรรมดาต้อง Import
 
 </Step>
 
@@ -222,10 +222,10 @@ def coupon(request):
 
 | ข้อความ | ที่มา |
 |---|---|
-| fixture ขอ fixture อื่น, แต่ละ test ได้ของใหม่, conftest, tmp_path, factory, autouse, params (12 passed จาก 11 ฟังก์ชัน), conftest และไฟล์ test ที่ override (`nested/` มีอีก 2 test) | รัน: `exercises/03_fixtures/test_fixtures.py`, `verify.py` |
-| teardown รันแม้ test ล้ม | รัน: `demos/03_teardown` |
-| ลำดับ setup และ teardown, ตัวอักษร scope `M` และ `F` ใน `--setup-show` | รัน: `exercises/03_fixtures/test_fixtures.py`, `verify.py` |
-| รายการ `EVENTS` ที่พิสูจน์ scope ของ module เทียบกับ function | รัน: `exercises/03_fixtures/test_fixtures.py` |
-| ตารางห้า scope, คำแนะนำเรื่อง scope ใหญ่กับ object ที่แก้ได้ | ผู้เขียน |
+| Fixture ขอ Fixture อื่น, แต่ละ Test ได้ของใหม่, Conftest, tmp_path, Factory, Autouse, Params (12 Passed จาก 11 ฟังก์ชัน), Conftest และไฟล์ Test ที่ Override (`nested/` มีอีก 2 Test) | รัน: `exercises/03_fixtures/test_fixtures.py`, `verify.py` |
+| Teardown รันแม้ Test ล้ม | รัน: `demos/03_teardown` |
+| ลำดับ Setup และ Teardown, ตัวอักษร Scope `M` และ `F` ใน `--setup-show` | รัน: `exercises/03_fixtures/test_fixtures.py`, `verify.py` |
+| รายการ `EVENTS` ที่พิสูจน์ Scope ของ Module เทียบกับ Function | รัน: `exercises/03_fixtures/test_fixtures.py` |
+| ตารางห้า Scope, คำแนะนำเรื่อง Scope ใหญ่กับ Object ที่แก้ได้ | ผู้เขียน |
 
 </Step>

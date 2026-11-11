@@ -1,6 +1,6 @@
 ---
 title: เขียน Plugin
-summary: plugin คือไฟล์ Python ที่มีฟังก์ชันชื่อ pytest_ บทนี้เขียน plugin จริงที่เพิ่ม option, เลือก test ที่ช้า, วัดเวลา, แต่งข้อความ assert และมี fixture แล้วทดสอบมันด้วย pytester พร้อมดูว่า plugin ที่ติดตั้งถูกโหลดอย่างไร
+summary: Plugin คือไฟล์ Python ที่มีฟังก์ชันชื่อ pytest_ บทนี้เขียน Plugin จริงที่เพิ่ม Option, เลือก Test ที่ช้า, วัดเวลา, แต่งข้อความ Assert และมี Fixture แล้วทดสอบมันด้วย Pytester พร้อมดูว่า Plugin ที่ติดตั้งถูกโหลดอย่างไร
 order: 14
 phase: E
 level: 5
@@ -17,19 +17,19 @@ import Callout from '../../../../components/Callout.astro';
 
 ## Plugin คือไฟล์ที่มี Hook
 
-หลังสี่บทที่แล้วเรารู้ว่า pytest คือ plugin และ hook ทั้งหมด การเขียนของตัวเองจึงไม่ต้องใช้เครื่องมือพิเศษ plugin คือ module หรือ object ที่มีฟังก์ชันชื่อ `pytest_...` และถูกลงทะเบียนกับ plugin manager
+จากสี่บทที่แล้ว เราได้รู้ว่า Pytest ประกอบขึ้นจาก Plugin และ Hook ทั้งหมด การเขียนของตัวเองจึงไม่ต้องใช้เครื่องมือพิเศษอะไร เพราะ Plugin ก็คือ Module หรือ Object ที่มีฟังก์ชันชื่อ `pytest_...` และถูกลงทะเบียนกับ Plugin Manager
 
-แบบฝึกคือ `plugins/shop_plugin.py` (76 บรรทัด) ที่ทำหกอย่างพร้อมกัน
+แบบฝึกของเราคือ `plugins/shop_plugin.py` (76 บรรทัด) ซึ่งทำหกอย่างพร้อมกัน
 
-| อยากได้ | hook หรือกลไก |
+| อยากได้ | Hook หรือกลไก |
 |---|---|
-| option ใหม่ `--run-slow` และค่า ini `shop_slow_limit` | `pytest_addoption` |
-| marker `slow` ที่ลงทะเบียนเอง | `pytest_configure` |
-| ข้าม test ที่แปะ `slow` เว้นแต่ใส่ `--run-slow` | `pytest_collection_modifyitems` |
-| วัดเวลาแต่ละ test และเติมลงใน report | ตัวครอบ `pytest_runtest_makereport` |
-| ส่วนสรุปท้ายรายงาน "slow tests" | `pytest_terminal_summary` |
+| Option ใหม่ `--run-slow` และค่า Ini `shop_slow_limit` | `pytest_addoption` |
+| Marker `slow` ที่ลงทะเบียนเอง | `pytest_configure` |
+| ข้าม Test ที่แปะ `slow` เว้นแต่ใส่ `--run-slow` | `pytest_collection_modifyitems` |
+| วัดเวลาแต่ละ Test และเติมลงใน Report | ตัวครอบ `pytest_runtest_makereport` |
+| ส่วนสรุปท้ายรายงาน "Slow Tests" | `pytest_terminal_summary` |
 | ข้อความ `Cart == Cart` ที่อ่านง่าย | `pytest_assertrepr_compare` |
-| fixture `cart_factory` | `@pytest.fixture` ในไฟล์ plugin เอง |
+| Fixture `cart_factory` | `@pytest.fixture` ในไฟล์ Plugin เอง |
 
 </Step>
 
@@ -37,7 +37,7 @@ import Callout from '../../../../components/Callout.astro';
 
 ## ลงมือทีละ Hook
 
-**Option และ config** (source: `pytest_addoption` ใน `hookspec.py`)
+**Option และ Config** (Source: `pytest_addoption` ใน `hookspec.py`)
 
 ```python
 def pytest_addoption(parser):
@@ -46,11 +46,11 @@ def pytest_addoption(parser):
     parser.addini("shop_slow_limit", "seconds after which a test is listed in the slow section", default="0.05")
 ```
 
-`addoption` ใช้ argparse ส่วน `addini` ลงทะเบียนค่าที่ตั้งได้ใน `pytest.ini` หรือ `pyproject.toml` อ่านด้วย `config.getini("shop_slow_limit")` และ `config.getoption("--run-slow")`
+`addoption` ใช้ Argparse ส่วน `addini` ลงทะเบียนค่าที่ตั้งได้ใน `pytest.ini` หรือ `pyproject.toml` และเราอ่านค่าด้วย `config.getini("shop_slow_limit")` และ `config.getoption("--run-slow")`
 
-**Marker** ลงทะเบียนใน `pytest_configure` ด้วย `config.addinivalue_line("markers", "slow: ...")` เหตุผลคือจะได้ผ่าน `--strict-markers` (บท [Marker](/pytest/markers/#ลงทะเบียน-marker-กันพิมพ์ผิด)) แบบฝึกยืนยันว่ารัน `--strict-markers` กับ plugin นี้ผ่าน (รัน: `exercises/09_plugins`)
+ต่อมาคือ **Marker** ซึ่งเราลงทะเบียนใน `pytest_configure` ด้วย `config.addinivalue_line("markers", "slow: ...")` เหตุผลคือจะได้ผ่าน `--strict-markers` (บท [Marker](/pytest/markers/#ลงทะเบียน-marker-กันพิมพ์ผิด)) แบบฝึกยืนยันว่าเมื่อรัน `--strict-markers` กับ Plugin นี้แล้วผ่าน (รัน: `exercises/09_plugins`)
 
-**เลือก test** ใน `pytest_collection_modifyitems(config, items)` ซึ่งถูกเรียกหลัง collection ตามที่เห็นในบท [Pytest ทำงานอย่างไร](/pytest/how-pytest-runs/#ลำดับ-hook-จริงสำหรับ-test-สองตัว) test ที่มี `slow` ใน `item.keywords` ได้ marker `skip`
+ส่วนการ **เลือก Test** ทำใน `pytest_collection_modifyitems(config, items)` ซึ่งถูกเรียกหลัง Collection ตามที่เห็นในบท [Pytest ทำงานอย่างไร](/pytest/how-pytest-runs/#ลำดับ-hook-จริงสำหรับ-test-สองตัว) Test ที่มี `slow` ใน `item.keywords` จะได้ Marker `skip`
 
 ```python
 skip = pytest.mark.skip(reason="need --run-slow to run")
@@ -59,7 +59,7 @@ for item in items:
         item.add_marker(skip)
 ```
 
-ผลคือไม่มี `--run-slow` สอง test ผ่านและหนึ่ง skipped พร้อมเหตุผล และเมื่อใส่ `--run-slow` ผ่านทั้งสาม (รัน: `exercises/09_plugins`)
+ผลที่ได้คือถ้าไม่มี `--run-slow` สอง Test จะผ่านและหนึ่ง Test ถูก Skipped พร้อมเหตุผล แต่เมื่อใส่ `--run-slow` ก็ผ่านทั้งสาม (รัน: `exercises/09_plugins`)
 
 </Step>
 
@@ -67,7 +67,7 @@ for item in items:
 
 ## ตัวครอบ: ทำงานก่อนและหลัง Hook ตัวอื่น
 
-hook แบบ wrapper ใช้ `@pytest.hookimpl(wrapper=True)` และ `yield` หนึ่งครั้ง ส่วนก่อน `yield` รันก่อน implementation อื่น ส่วนหลัง `yield` รันหลังสุด และได้ผลลัพธ์ของทุกตัวที่รันไปแล้ว
+Hook แบบ Wrapper ใช้ `@pytest.hookimpl(wrapper=True)` และ `yield` หนึ่งครั้ง โค้ดส่วนก่อน `yield` จะรันก่อน Implementation อื่น ส่วนหลัง `yield` จะรันหลังสุด และได้ผลลัพธ์ของทุกตัวที่รันไปแล้ว
 
 ```python
 @pytest.hookimpl(wrapper=True)
@@ -79,11 +79,11 @@ def pytest_runtest_makereport(item, call):
     return report             # ต้องคืนค่า ไม่เช่นนั้นผลหาย
 ```
 
-นี่คือรูปแบบเดียวกับที่ plugin `skipping` ใช้เปลี่ยน outcome ของ xfail ([บท 12](/pytest/run-protocol/#skip-และ-xfail-เป็น-hook-ไม่ใช่เวทมนตร์)) แบบฝึกตรวจว่า report ของ test ได้ property `duration_ms` (รัน: `exercises/09_plugins`)
+นี่คือรูปแบบเดียวกับที่ Plugin `skipping` ใช้เปลี่ยน Outcome ของ Xfail ([บท 12](/pytest/run-protocol/#skip-และ-xfail-เป็น-hook-ไม่ใช่เวทมนตร์)) แบบฝึกตรวจว่า Report ของ Test ได้ Property `duration_ms` (รัน: `exercises/09_plugins`)
 
-ที่เก็บข้อมูลระหว่าง hook ใช้ `config.stash` กับ `StashKey` (`pytest.StashKey`) ซึ่งมีชนิดกำกับและไม่ชนกับ attribute ของคนอื่น ดีกว่าตัวแปร global หรือการแปะ attribute บน `config`
+ถ้าต้องการที่เก็บข้อมูลระหว่าง Hook ให้ใช้ `config.stash` กับ `StashKey` (`pytest.StashKey`) ซึ่งมีชนิดกำกับและไม่ชนกับ Attribute ของคนอื่น ดีกว่าตัวแปร Global หรือการแปะ Attribute บน `config`
 
-**ลำดับการเรียก** พิสูจน์ด้วยสคริปต์ที่ลงทะเบียนสอง plugin (รัน: `internals/14_hook_order_control.py`)
+ส่วน **ลำดับการเรียก** เราพิสูจน์ได้ด้วยสคริปต์ที่ลงทะเบียนสอง Plugin (รัน: `internals/14_hook_order_control.py`)
 
 | สถานการณ์ | ลำดับที่เรียก |
 |---|---|
@@ -92,7 +92,7 @@ def pytest_runtest_makereport(item, call):
 | `one` เป็น `trylast=True` | `two`, `one` |
 | มีตัวครอบคั่นกลาง | `wrapper before`, `two`, `one`, `wrapper after` |
 
-hook แบบ `firstresult` หยุดที่ตัวแรกที่คืนค่าไม่ใช่ `None` ในแบบฝึก plugin ที่คืน `True` จาก `pytest_ignore_collect` สำหรับ `test_a.py` ทำให้ไม่มี test เหลือ ผลคือ `no tests ran` และ exit code 5
+Hook แบบ `firstresult` จะหยุดที่ตัวแรกที่คืนค่าไม่ใช่ `None` ในแบบฝึก Plugin ที่คืน `True` จาก `pytest_ignore_collect` สำหรับ `test_a.py` ทำให้ไม่มี Test เหลือเลย ผลที่ได้คือ `no tests ran` และ Exit Code 5
 
 </Step>
 
@@ -100,7 +100,7 @@ hook แบบ `firstresult` หยุดที่ตัวแรกที่ค
 
 ## ส่วนสรุปและข้อความ Assert
 
-`pytest_terminal_summary(terminalreporter, config)` พิมพ์ส่วนของตัวเองท้ายรายงาน (ถูกเรียกหลัง `sessionfinish` ตามที่เห็นในบท [Pytest ทำงานอย่างไร](/pytest/how-pytest-runs/#ลำดับ-hook-จริงสำหรับ-test-สองตัว))
+`pytest_terminal_summary(terminalreporter, config)` ให้เราพิมพ์ส่วนของตัวเองท้ายรายงานได้ (ถูกเรียกหลัง `sessionfinish` ตามที่เห็นในบท [Pytest ทำงานอย่างไร](/pytest/how-pytest-runs/#ลำดับ-hook-จริงสำหรับ-test-สองตัว))
 
 ```python
 def pytest_terminal_summary(terminalreporter, config):
@@ -113,9 +113,9 @@ def pytest_terminal_summary(terminalreporter, config):
         terminalreporter.line(f"{duration * 1000:7.0f} ms  {nodeid}")
 ```
 
-test ที่หลับ 0.08 วินาทีขึ้นในส่วน `slow tests` ส่วน test ที่เร็วไม่ขึ้น และถ้าตั้ง `shop_slow_limit = 5` ใน ini ส่วนนี้หายไป (รัน: `exercises/09_plugins`)
+Test ที่หลับ 0.08 วินาทีจะขึ้นในส่วน `slow tests` ส่วน Test ที่เร็วจะไม่ขึ้น และถ้าตั้ง `shop_slow_limit = 5` ใน Ini ส่วนนี้ก็จะหายไป (รัน: `exercises/09_plugins`)
 
-`pytest_assertrepr_compare(op, left, right)` ที่เรียกจากโค้ดที่ถูกเขียนใหม่ ([บท 13](/pytest/assertion-rewriting/#โค้ดที่ถูกเขียนใหม่หน้าตาอย่างไร)) ให้เราคืน list ของบรรทัดสำหรับชนิดของเราเอง ในแบบฝึก `Cart == Cart` ที่ไม่เท่ากันแสดง (รัน: `exercises/09_plugins`)
+ส่วน `pytest_assertrepr_compare(op, left, right)` ซึ่งถูกเรียกจากโค้ดที่ถูกเขียนใหม่ ([บท 13](/pytest/assertion-rewriting/#โค้ดที่ถูกเขียนใหม่หน้าตาอย่างไร)) เปิดให้เราคืน List ของบรรทัดสำหรับชนิดของเราเองได้ ในแบบฝึก `Cart == Cart` ที่ไม่เท่ากันจะแสดงดังนี้ (รัน: `exercises/09_plugins`)
 
 ```text
 E       AssertionError: assert Cart == Cart
@@ -125,7 +125,7 @@ E           qty of kiwi: 0 != 1
 E           qty of pear: 1 != 0
 ```
 
-แทนที่จะเป็น `<shop.cart.Cart object at 0x...> == <shop.cart.Cart object at 0x...>` ซึ่งไม่บอกอะไรเลย (ต้องมี `Cart.__eq__` ด้วย ซึ่งเพิ่มไว้ในแบบฝึก)
+ซึ่งดีกว่า `<shop.cart.Cart object at 0x...> == <shop.cart.Cart object at 0x...>` ที่ไม่บอกอะไรเราเลย (ต้องมี `Cart.__eq__` ด้วย ซึ่งเพิ่มไว้ในแบบฝึกแล้ว)
 
 </Step>
 
@@ -133,25 +133,25 @@ E           qty of pear: 1 != 0
 
 ## ลงทะเบียนอย่างไร
 
-plugin ถูกโหลดได้หกทาง (source: `consider_*`, `import_plugin` ใน `config/__init__.py`)
+Plugin ถูกโหลดได้หกทาง (Source: `consider_*`, `import_plugin` ใน `config/__init__.py`)
 
 | ทาง | ใช้เมื่อ | ยืนยัน |
 |---|---|---|
-| `-p shop_plugin` | ลองหรือใช้ครั้งเดียว module ต้องหาเจอใน `sys.path` | รัน: `exercises/09_plugins`, `internals/07_entry_point.py` |
+| `-p shop_plugin` | ลองหรือใช้ครั้งเดียว Module ต้องหาเจอใน `sys.path` | รัน: `exercises/09_plugins`, `internals/07_entry_point.py` |
 | `conftest.py` | ใช้กับโฟลเดอร์หนึ่ง (และลูก) | บท [Fixture](/pytest/fixtures/#conftestpy-ใช้ร่วมกันโดยไม่ต้อง-import) |
-| `pytest_plugins = ["shop_plugin"]` ใน conftest ชั้นบนสุด | ใช้กับทั้งโปรเจกต์โดยไม่ต้องพิมพ์ `-p` | แบบฝึกใช้ `pytest_plugins = ["pytester"]` ใน `conftest.py` ราก |
-| entry point กลุ่ม `pytest11` ของ package ที่ลงด้วย pip | แจกจ่ายให้คนอื่น: ลงแล้วโหลดเอง | รัน: `internals/07_entry_point.py` |
-| `PYTEST_PLUGINS=shop_plugin` | ตั้งผ่าน environment | source: `consider_env` |
-| `pytest.main([...], plugins=[obj])` | ฝัง pytest ในโปรแกรม ส่ง object เข้าไปตรงๆ | รัน: `internals/02_hook_order.py` |
+| `pytest_plugins = ["shop_plugin"]` ใน Conftest ชั้นบนสุด | ใช้กับทั้งโปรเจกต์โดยไม่ต้องพิมพ์ `-p` | แบบฝึกใช้ `pytest_plugins = ["pytester"]` ใน `conftest.py` ราก |
+| Entry Point กลุ่ม `pytest11` ของ Package ที่ลงด้วย Pip | แจกจ่ายให้คนอื่น: ลงแล้วโหลดเอง | รัน: `internals/07_entry_point.py` |
+| `PYTEST_PLUGINS=shop_plugin` | ตั้งผ่าน Environment | Source: `consider_env` |
+| `pytest.main([...], plugins=[obj])` | ฝัง Pytest ในโปรแกรม ส่ง Object เข้าไปตรง ๆ | รัน: `internals/02_hook_order.py` |
 
-ทางที่สี่ทดลองโดยไม่ต้อง `pip install` ด้วย folder ที่มี `shop_plugin-0.1.dist-info/entry_points.txt` เขียนว่า `[pytest11]` / `shop = shop_plugin` แล้วใส่ folder นั้นใน `PYTHONPATH` (รัน: `internals/07_entry_point.py`)
+ทางที่สี่เราทดลองได้โดยไม่ต้อง `pip install` เพียงสร้าง Folder ที่มี `shop_plugin-0.1.dist-info/entry_points.txt` เขียนว่า `[pytest11]` / `shop = shop_plugin` แล้วใส่ Folder นั้นใน `PYTHONPATH` (รัน: `internals/07_entry_point.py`)
 
-- ไม่ต้องใส่ `-p` ก็โหลดเอง และ `--trace-config` แสดง `PLUGIN registered: <module 'shop_plugin' ...>`
-- `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` ทำให้ไม่อ่าน entry point เลย: fixture `cart_factory` หายไป (`fixture 'cart_factory' not found`)
-- `-p no:shop` ปิดเฉพาะตัวนี้ ด้วยชื่อ entry point (`shop` ไม่ใช่ `shop_plugin`)
-- ถ้าตั้ง autoload ปิดแล้วใส่ `-p shop_plugin` ก็กลับมาทำงาน
+- ไม่ต้องใส่ `-p` Pytest ก็โหลดให้เอง และ `--trace-config` จะแสดง `PLUGIN registered: <module 'shop_plugin' ...>`
+- ถ้าตั้ง `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` Pytest จะไม่อ่าน Entry Point เลย ทำให้ Fixture `cart_factory` หายไป (`fixture 'cart_factory' not found`)
+- ถ้าใช้ `-p no:shop` จะปิดเฉพาะตัวนี้ โดยใช้ชื่อ Entry Point (`shop` ไม่ใช่ `shop_plugin`)
+- ถ้าตั้ง Autoload ปิดแล้วใส่ `-p shop_plugin` Plugin ก็กลับมาทำงานได้
 
-ข้อสุดท้ายนี้สำคัญกับทีมที่ปิด autoload เพื่อความทำซ้ำได้: plugin ที่ต้องการให้ทำงานต้องระบุเองให้ชัด
+ข้อสุดท้ายนี้สำคัญกับทีมที่ปิด Autoload เพื่อให้ผลทำซ้ำได้ เพราะ Plugin ที่ต้องการให้ทำงานต้องระบุเองให้ชัดเจน
 
 </Step>
 
@@ -159,7 +159,7 @@ plugin ถูกโหลดได้หกทาง (source: `consider_*`, `imp
 
 ## ทดสอบ Plugin ด้วย `pytester`
 
-plugin ที่ไม่มี test เหมือนโค้ดอื่นที่ไม่มี test `pytester` เป็น plugin ในตัว (อยู่ใน `builtin_plugins` แต่ไม่ได้โหลดโดยค่าเริ่มต้น) เปิดด้วย `pytest_plugins = ["pytester"]` ใน `conftest.py` ชั้นบนสุด (source: `config/__init__.py`) มันให้ fixture `pytester` ที่สร้างโฟลเดอร์ชั่วคราว เขียนไฟล์ แล้วรัน pytest ให้ ตัว `runpytest` รันในโปรเซสเดียวกันโดยค่าเริ่มต้น (source: `Pytester.runpytest` เลือกวิธีตาม `--runpytest`)
+Plugin ที่ไม่มี Test ก็เหมือนโค้ดอื่นที่ไม่มี Test คือยังไว้ใจไม่ได้ `pytester` เป็น Plugin ในตัว (อยู่ใน `builtin_plugins` แต่ไม่ได้โหลดโดยค่าเริ่มต้น) เราเปิดด้วย `pytest_plugins = ["pytester"]` ใน `conftest.py` ชั้นบนสุด (Source: `config/__init__.py`) แล้วมันจะให้ Fixture `pytester` ที่สร้างโฟลเดอร์ชั่วคราว เขียนไฟล์ แล้วรัน Pytest ให้ โดย `runpytest` จะรันในโปรเซสเดียวกันเป็นค่าเริ่มต้น (Source: `Pytester.runpytest` เลือกวิธีตาม `--runpytest`)
 
 ```python
 def test_slow_tests_are_skipped_by_default(pytester):
@@ -169,18 +169,18 @@ def test_slow_tests_are_skipped_by_default(pytester):
     result.stdout.fnmatch_lines(["*need --run-slow to run*"])
 ```
 
-เครื่องมือที่ใช้บ่อยในแบบฝึก (รัน: `exercises/09_plugins` ทั้งโฟลเดอร์ 9 test ผ่าน)
+เครื่องมือที่ใช้บ่อยในแบบฝึกมีดังนี้ (รัน: `exercises/09_plugins` ทั้งโฟลเดอร์ 9 Test ผ่าน)
 
 | ต้องการ | ใช้ |
 |---|---|
-| สร้างไฟล์ test, ini, conftest | `makepyfile`, `makeini`, `makeconftest` |
-| รัน pytest แล้วได้ผล | `runpytest(...)` คืน `RunResult` |
-| เช็กจำนวน passed, failed ฯลฯ | `result.assert_outcomes(passed=2, skipped=1)` |
-| เช็กข้อความที่พิมพ์ | `result.stdout.fnmatch_lines([...])` (glob ทีละบรรทัดตามลำดับ) |
-| ดักรายงานเป็นข้อมูล | `inline_run(..., plugins=[obj])` แล้วอ่านจาก hook |
+| สร้างไฟล์ Test, Ini, Conftest | `makepyfile`, `makeini`, `makeconftest` |
+| รัน Pytest แล้วได้ผล | `runpytest(...)` คืน `RunResult` |
+| เช็กจำนวน Passed, Failed ฯลฯ | `result.assert_outcomes(passed=2, skipped=1)` |
+| เช็กข้อความที่พิมพ์ | `result.stdout.fnmatch_lines([...])` (Glob ทีละบรรทัดตามลำดับ) |
+| ดักรายงานเป็นข้อมูล | `inline_run(..., plugins=[obj])` แล้วอ่านจาก Hook |
 
-<Callout type="try" title="ลองทำใน repo นี้">
-เพิ่ม option `--slow-only` ใน `plugins/shop_plugin.py` ที่ทำตรงข้าม `--run-slow` คือข้าม test ที่ **ไม่** มี marker `slow` เขียน test ใน `exercises/09_plugins/test_shop_plugin.py` ก่อนด้วย `pytester` แล้วค่อยเขียนโค้ดให้ผ่าน จากนั้นลองรัน `internals/14_hook_order_control.py` โดยเปลี่ยนตัวที่เป็น `tryfirst` ดูผล
+<Callout type="try" title="ลองทำใน Repo นี้">
+ลองเพิ่ม Option `--slow-only` ใน `plugins/shop_plugin.py` ที่ทำตรงข้ามกับ `--run-slow` คือข้าม Test ที่ **ไม่** มี Marker `slow` โดยเขียน Test ใน `exercises/09_plugins/test_shop_plugin.py` ก่อนด้วย `pytester` แล้วค่อยเขียนโค้ดให้ผ่าน จากนั้นลองรัน `internals/14_hook_order_control.py` โดยเปลี่ยนตัวที่เป็น `tryfirst` แล้วดูผล
 </Callout>
 
 </Step>
@@ -189,9 +189,9 @@ def test_slow_tests_are_skipped_by_default(pytester):
 
 ## เช็กตัวเอง
 
-- plugin A ลงทะเบียนก่อน plugin B ทั้งคู่ implement `pytest_sessionstart` ตัวไหนถูกเรียกก่อน และจะให้ A ก่อนต้องทำอะไร
+- Plugin A ลงทะเบียนก่อน Plugin B ทั้งคู่ Implement `pytest_sessionstart` ตัวไหนถูกเรียกก่อน และจะให้ A ก่อนต้องทำอะไร
 - ทำไมตัวครอบของ `pytest_runtest_makereport` ต้อง `return report`
-- ทีมปิด `PYTEST_DISABLE_PLUGIN_AUTOLOAD` ใน CI plugin ที่ลงด้วย pip จะยังทำงานไหม และแก้อย่างไร
+- ทีมปิด `PYTEST_DISABLE_PLUGIN_AUTOLOAD` ใน CI Plugin ที่ลงด้วย Pip จะยังทำงานไหม และแก้อย่างไร
 
 </Step>
 
@@ -201,10 +201,10 @@ def test_slow_tests_are_skipped_by_default(pytester):
 
 | ข้อความ | ที่มา |
 |---|---|
-| plugin 76 บรรทัดที่ทำหกอย่างและ fixture, option และ ini, marker, skip ตาม `--run-slow`, ตัวครอบวัดเวลา, ส่วน `slow tests`, ข้อความ `Cart == Cart`, fixture, pytester 9 test | รัน: `exercises/09_plugins` (`plugins/shop_plugin.py`) |
+| Plugin 76 บรรทัดที่ทำหกอย่างและ Fixture, Option และ Ini, Marker, Skip ตาม `--run-slow`, ตัวครอบวัดเวลา, ส่วน `slow tests`, ข้อความ `Cart == Cart`, Fixture, Pytester 9 Test | รัน: `exercises/09_plugins` (`plugins/shop_plugin.py`) |
 | ลำดับการเรียก (ลงทะเบียนทีหลังถูกเรียกก่อน, `tryfirst`, `trylast`, ตัวครอบ, `firstresult`) | รัน: `internals/14_hook_order_control.py` |
-| plugin ที่ติดตั้ง: entry point `pytest11`, `PYTEST_DISABLE_PLUGIN_AUTOLOAD`, `-p no:<entry point name>`, `-p` กู้คืน | รัน: `internals/07_entry_point.py` |
-| `pytest_plugins` ใน conftest ชั้นบนสุด, `PYTEST_PLUGINS`, `pytester` ไม่ได้โหลดโดยค่าเริ่มต้น, `runpytest` เลือกวิธีตาม `--runpytest` | source: `_pytest/config/__init__.py`, `_pytest/pytester.py` |
-| `config.stash` ดีกว่า global | ผู้เขียน |
+| Plugin ที่ติดตั้ง: Entry Point `pytest11`, `PYTEST_DISABLE_PLUGIN_AUTOLOAD`, `-p no:<entry point name>`, `-p` กู้คืน | รัน: `internals/07_entry_point.py` |
+| `pytest_plugins` ใน Conftest ชั้นบนสุด, `PYTEST_PLUGINS`, `pytester` ไม่ได้โหลดโดยค่าเริ่มต้น, `runpytest` เลือกวิธีตาม `--runpytest` | Source: `_pytest/config/__init__.py`, `_pytest/pytester.py` |
+| `config.stash` ดีกว่า Global | ผู้เขียน |
 
 </Step>

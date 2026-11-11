@@ -1,6 +1,6 @@
 ---
 title: Mock และ Monkeypatch แบบเจาะลึก
-summary: Mock ที่รับทุกอย่างเทียบกับ spec และ autospec, side_effect ทั้งสามแบบ, การอ่านการเรียก, patch.dict, ส่วนที่เหลือของ monkeypatch และ fixture ที่กันการเรียกเครือข่ายจริงในทุก test ทุกข้อรันจริง 16 test
+summary: Mock ที่รับทุกอย่างเทียบกับ Spec และ Autospec, side_effect ทั้งสามแบบ, การอ่านการเรียก, patch.dict, ส่วนที่เหลือของ Monkeypatch และ Fixture ที่กันการเรียกเครือข่ายจริงในทุก Test ทุกข้อรันจริง 16 Test
 order: 10
 stage: sprout
 format: steps
@@ -14,7 +14,7 @@ import Callout from '../../../../components/Callout.astro';
 
 ## Mock ธรรมดารับทุกอย่าง แม้พิมพ์ผิด
 
-`mock.Mock()` สร้าง attribute และ method ให้เองทุกชื่อ ผลคือ test ที่เรียกชื่อผิดก็ผ่าน (รัน: `exercises/06_isolation/test_mocking_in_depth.py`)
+`mock.Mock()` สร้าง Attribute และ Method ให้เองทุกชื่อที่เราเรียก ผลก็คือ Test ที่เรียกชื่อผิดก็ยังผ่านได้ (รัน: `exercises/06_isolation/test_mocking_in_depth.py`)
 
 ```python
 gateway = mock.Mock()
@@ -22,14 +22,14 @@ gateway.chargee(100, "A-1")      # พิมพ์ผิดจาก charge แ�
 gateway.chargee.assert_called_once()
 ```
 
-test นี้ผ่าน แต่ไม่ได้พิสูจน์อะไรเกี่ยวกับ gateway จริง มีสองระดับของการป้องกัน
+Test นี้ผ่าน แต่ไม่ได้พิสูจน์อะไรเกี่ยวกับ Gateway จริงเลย เราป้องกันเรื่องนี้ได้สองระดับ
 
 | วิธี | ผล |
 |---|---|
-| `mock.Mock(spec=["charge"])` | เรียกชื่ออื่นเกิด `AttributeError` แต่ไม่ตรวจ argument |
-| `mock.create_autospec(RealGateway, instance=True)` | ตรวจทั้งชื่อ **และ signature** ตามคลาสจริง |
+| `mock.Mock(spec=["charge"])` | ถ้าเรียกชื่ออื่นจะเกิด `AttributeError` แต่ไม่ตรวจ Argument |
+| `mock.create_autospec(RealGateway, instance=True)` | ตรวจทั้งชื่อ **และ Signature** ตามคลาสจริง |
 
-ด้วย autospec การเรียก `gateway.charge(1)` (ขาด `order_id`) เกิด `TypeError` ตามที่ signature ของ `RealGateway.charge(amount, order_id)` กำหนด (รัน) และใช้กับ `checkout(...)` ได้ปกติเมื่อเรียกถูก autospec ทำให้ mock พังตามเมื่อคลาสจริงเปลี่ยน signature ซึ่งเป็นสิ่งที่เราอยากให้เกิด
+เมื่อใช้ Autospec การเรียก `gateway.charge(1)` (ที่ขาด `order_id`) จะเกิด `TypeError` ตามที่ Signature ของ `RealGateway.charge(amount, order_id)` กำหนด (รัน) และถ้าเรียกถูก ก็ใช้กับ `checkout(...)` ได้ตามปกติ ข้อดีคือ Mock จะพังตามเมื่อคลาสจริงเปลี่ยน Signature ซึ่งเป็นสิ่งที่เราอยากให้เกิดอยู่แล้ว
 
 </Step>
 
@@ -37,7 +37,7 @@ test นี้ผ่าน แต่ไม่ได้พิสูจน์อ�
 
 ## side_effect: ตอบต่างกันแต่ละครั้ง
 
-`return_value` ให้คำตอบเดียวเสมอ `side_effect` มีสามแบบ (รัน)
+`return_value` ให้คำตอบเดียวเสมอ แต่ `side_effect` ทำได้สามแบบ (รัน)
 
 ```python
 fake = mock.Mock(side_effect=[0.03, 0.04])                  # รายการ: ค่าหนึ่งต่อการเรียก
@@ -47,7 +47,7 @@ fake = mock.Mock(side_effect=ConnectionError("down"))       # exception: โย�
 fake = mock.Mock(side_effect=lambda c: {"USD": 0.03, "EUR": 0.025}[c])   # ฟังก์ชัน: คำนวณคำตอบ
 ```
 
-รูปแบบที่มีประโยชน์มากคือ **ล้มก่อนแล้วฟื้น** ใช้ list ที่ผสม exception กับค่า
+รูปแบบที่มีประโยชน์มากอีกแบบคือ **ล้มก่อนแล้วฟื้น** ซึ่งทำได้โดยใช้ List ที่ผสม Exception กับค่าเข้าด้วยกัน
 
 ```python
 fake = mock.Mock(side_effect=[ConnectionError("blip"), {"rate": 0.03}])
@@ -57,7 +57,7 @@ assert fake() == {"rate": 0.03}
 assert fake.call_count == 2
 ```
 
-ใช้ทดสอบโค้ดที่ retry: ครั้งแรกเครือข่ายสะดุด ครั้งที่สองผ่าน และ `call_count` ยืนยันว่าเรียกสองครั้งพอดี
+แบบนี้ใช้ทดสอบโค้ดที่ Retry ได้ เพราะครั้งแรกเครือข่ายสะดุด ครั้งที่สองผ่าน และ `call_count` ก็ยืนยันว่าเรียกสองครั้งพอดี
 
 </Step>
 
@@ -65,7 +65,7 @@ assert fake.call_count == 2
 
 ## อ่านการเรียก
 
-mock จำทุกการเรียก (รัน)
+Mock จำทุกการเรียก (รัน)
 
 ```python
 fake = mock.Mock(return_value=True)
@@ -77,17 +77,17 @@ fake.assert_any_call(1, "a", flag=True)                     # มีการเ
 fake.assert_called_with(2, "b")                             # การเรียกล่าสุดต้องเป็นแบบนี้
 ```
 
-จำง่าย: `assert_called_with` ดูแค่ครั้งล่าสุด `assert_any_call` ดูทุกครั้ง และ `call_args_list` ให้ทั้งรายการเพื่อเช็กลำดับ
+จำได้ง่าย ๆ ว่า `assert_called_with` ดูแค่ครั้งล่าสุด ส่วน `assert_any_call` ดูทุกครั้ง และ `call_args_list` จะให้ทั้งรายการมาเพื่อเช็กลำดับ
 
 </Step>
 
 <Step>
 
-## `patch.dict` และ `patch` แบบ decorator
+## `patch.dict` และ `patch` แบบ Decorator
 
-`mock.patch.dict(os.environ, {...})` ตั้งค่าใน dict ชั่วคราวและคืนค่าตอนออกจากบล็อก (รัน: `SHOP_MODE` ไม่อยู่ใน `os.environ` หลังบล็อก) เทียบกับ `monkeypatch.setenv` ที่ผูกกับอายุของ test
+`mock.patch.dict(os.environ, {...})` ตั้งค่าใน Dict ชั่วคราวแล้วคืนค่าให้ตอนออกจากบล็อก (รัน: `SHOP_MODE` ไม่อยู่ใน `os.environ` หลังบล็อก) ซึ่งต่างจาก `monkeypatch.setenv` ที่ผูกกับอายุของ Test
 
-`mock.patch.object(...)` ใช้เป็น decorator ได้ mock ถูกส่งเป็น argument **ตัวแรก** ของ test
+`mock.patch.object(...)` ใช้เป็น Decorator ได้ด้วย โดย Mock จะถูกส่งเข้ามาเป็น Argument **ตัวแรก** ของ Test
 
 ```python
 @mock.patch.object(rates, "fetch_rate", return_value=0.5)
@@ -96,7 +96,7 @@ def test_patch_as_a_decorator_passes_the_mock_as_an_argument(fake):
     fake.assert_called_once_with("USD")
 ```
 
-ข้อควรระวังเมื่อใช้ร่วมกับ fixture: argument จาก decorator มาก่อน fixture ในลำดับ parameter
+มีข้อควรระวังเมื่อใช้ร่วมกับ Fixture คือ Argument จาก Decorator จะมาก่อน Fixture ในลำดับ Parameter
 
 </Step>
 
@@ -109,14 +109,14 @@ def test_patch_as_a_decorator_passes_the_mock_as_an_argument(fake):
 | เมธอด | ทำอะไร |
 |---|---|
 | `delenv("X")` | ลบตัวแปร ถ้าไม่มีเกิด `KeyError` ยกเว้น `raising=False` |
-| `setitem(d, k, v)` | ตั้งค่าใน dict ชั่วคราว |
+| `setitem(d, k, v)` | ตั้งค่าใน Dict ชั่วคราว |
 | `chdir(path)` | เปลี่ยนโฟลเดอร์ทำงาน (ใช้คู่กับ `tmp_path`) |
-| `syspath_prepend(path)` | เพิ่มโฟลเดอร์ใน `sys.path` ทำให้ import module ใหม่ได้ |
+| `syspath_prepend(path)` | เพิ่มโฟลเดอร์ใน `sys.path` ทำให้ Import Module ใหม่ได้ |
 | `setattr("shop.rates.fetch_rate", fn)` | ระบุเป้าเป็นสตริงได้ |
 | `setattr(rates, "no_such_attribute", 1)` | ค่าเริ่มต้น `raising=True` เกิด `AttributeError` กันพิมพ์ชื่อผิด |
-| `pytest.MonkeyPatch.context()` | ใช้นอก test: คืนค่าเมื่อออกจากบล็อก ไม่ต้องรอ test จบ |
+| `pytest.MonkeyPatch.context()` | ใช้นอก Test: คืนค่าเมื่อออกจากบล็อก ไม่ต้องรอ Test จบ |
 
-ตัวสุดท้ายมีประโยชน์ใน fixture ที่ scope ใหญ่กว่า function (ซึ่งใช้ fixture `monkeypatch` ไม่ได้) และเมื่อต้องการยกเลิกการแทนกลางทางใน test
+ตัวสุดท้ายมีประโยชน์ใน Fixture ที่ Scope ใหญ่กว่า Function (ซึ่งใช้ Fixture `monkeypatch` ไม่ได้) และใช้ได้เมื่อเราต้องการยกเลิกการแทนกลางทางใน Test
 
 </Step>
 
@@ -124,7 +124,7 @@ def test_patch_as_a_decorator_passes_the_mock_as_an_argument(fake):
 
 ## กันเครือข่ายจริงในทุก Test
 
-ตั้ง fixture `autouse` ที่แทนจุดเรียกเครือข่ายด้วยตัวที่ล้มดังๆ เพื่อให้ test ที่ลืมแทนไม่แอบเรียกของจริง
+เราตั้ง Fixture `autouse` ที่แทนจุดเรียกเครือข่ายด้วยตัวที่ล้มดัง ๆ ได้ เพื่อไม่ให้ Test ที่ลืมแทนแอบเรียกของจริง
 
 ```python
 @pytest.fixture(autouse=True)
@@ -134,12 +134,12 @@ def no_real_network(monkeypatch):
     monkeypatch.setattr(net, "fetch_json", refuse)
 ```
 
-ในแบบฝึกยืนยันสองสิ่ง (รัน) ข้อแรก ถ้า `rates` import ชื่อมาเองด้วย `from shop.net import fetch_json` การแทนที่ `net` ไม่ถึง `rates.fetch_json` ซึ่งยังเป็นตัวเดิมที่โยน `ConnectionError` นี่คือกฎ "patch ที่ที่ชื่อถูกใช้" จาก[บทแยก Test](/pytest/isolation/#unittestmock-และกฎข้อสำคัญ-patch-ที่ที่ชื่อถูกใช้) ข้อสอง เมื่อ patch ถูกที่ (`monkeypatch.setattr(rates, "fetch_json", net.fetch_json)` ซึ่ง `net.fetch_json` ตอนนั้นคือตัว guard) test ล้มด้วยข้อความ `a test tried to reach the network`
+ในแบบฝึกยืนยันไว้สองอย่าง (รัน) อย่างแรก ถ้า `rates` Import ชื่อมาเองด้วย `from shop.net import fetch_json` การแทนที่ `net` จะไม่ไปถึง `rates.fetch_json` ซึ่งยังเป็นตัวเดิมที่โยน `ConnectionError` นี่คือกฎ "Patch ที่ที่ชื่อถูกใช้" จาก[บทแยก Test](/pytest/isolation/#unittestmock-และกฎข้อสำคัญ-patch-ที่ที่ชื่อถูกใช้) อย่างที่สอง เมื่อ Patch ถูกที่ (`monkeypatch.setattr(rates, "fetch_json", net.fetch_json)` ซึ่ง `net.fetch_json` ตอนนั้นคือตัว Guard) Test จะล้มด้วยข้อความ `a test tried to reach the network`
 
-บทเรียน: guard ที่ patch แค่ที่นิยามไม่พอ ต้องครอบทุกจุดที่ชื่อถูกใช้ หรือเลือกออกแบบให้ส่ง dependency เข้ามาเป็น parameter แทน (บท [แยก Test](/pytest/isolation/#fake-ที่ส่งเข้าไปเอง-มักง่ายกว่า-patch))
+สิ่งที่ได้เรียนรู้คือ Guard ที่ Patch แค่ที่นิยามนั้นไม่พอ เราต้องครอบทุกจุดที่ชื่อถูกใช้ หรือไม่ก็ออกแบบให้ส่ง Dependency เข้ามาเป็น Parameter แทน (บท [แยก Test](/pytest/isolation/#fake-ที่ส่งเข้าไปเอง-มักง่ายกว่า-patch))
 
-<Callout type="try" title="ลองทำใน repo นี้">
-ใน fixture `no_real_network` ของ `test_mocking_in_depth.py` เปลี่ยน `monkeypatch.setattr(net, "fetch_json", refuse)` ให้ patch `rates` แทน `net` แล้วดูว่า test ที่ชื่อ `test_the_guard_turns_a_forgotten_replacement_into_a_clear_failure` ผลเปลี่ยนอย่างไร จากนั้นเขียน test ใหม่ที่ใช้ `side_effect` แบบ "ล้มก่อนแล้วฟื้น" กับ `rates.fetch_json` เพื่อดูว่า `convert` ที่ไม่มี retry ล้มทันที
+<Callout type="try" title="ลองทำใน Repo นี้">
+ลองแก้ Fixture `no_real_network` ใน `test_mocking_in_depth.py` ให้ `monkeypatch.setattr(net, "fetch_json", refuse)` Patch `rates` แทน `net` แล้วดูว่า Test ที่ชื่อ `test_the_guard_turns_a_forgotten_replacement_into_a_clear_failure` ให้ผลเปลี่ยนไปอย่างไร จากนั้นลองเขียน Test ใหม่ที่ใช้ `side_effect` แบบ "ล้มก่อนแล้วฟื้น" กับ `rates.fetch_json` เพื่อดูว่า `convert` ที่ไม่มี Retry จะล้มทันที
 </Callout>
 
 </Step>
@@ -150,10 +150,10 @@ def no_real_network(monkeypatch):
 
 | ข้อความ | ที่มา |
 |---|---|
-| Mock ธรรมดารับชื่อพิมพ์ผิด, `spec`, `create_autospec` ตรวจ signature (`TypeError`) | รัน: `exercises/06_isolation/test_mocking_in_depth.py` |
+| Mock ธรรมดารับชื่อพิมพ์ผิด, `spec`, `create_autospec` ตรวจ Signature (`TypeError`) | รัน: `exercises/06_isolation/test_mocking_in_depth.py` |
 | `side_effect` ทั้งสามแบบ, ล้มก่อนแล้วฟื้น, `call_args`, `call_args_list`, `assert_any_call` | รัน: เหมือนข้างบน |
-| `patch.dict`, `patch.object` แบบ decorator, `delenv`, `setitem`, `chdir`, `syspath_prepend`, `setattr` ด้วยสตริง และ `raising`, `MonkeyPatch.context()` | รัน: เหมือนข้างบน |
-| fixture กันเครือข่ายและข้อจำกัดของการ patch ที่นิยาม | รัน: เหมือนข้างบน |
-| ลำดับ argument ของ decorator กับ fixture, ข้อสังเกตเรื่อง `MonkeyPatch.context()` ใน fixture scope ใหญ่ | ผู้เขียน |
+| `patch.dict`, `patch.object` แบบ Decorator, `delenv`, `setitem`, `chdir`, `syspath_prepend`, `setattr` ด้วยสตริง และ `raising`, `MonkeyPatch.context()` | รัน: เหมือนข้างบน |
+| Fixture กันเครือข่ายและข้อจำกัดของการ Patch ที่นิยาม | รัน: เหมือนข้างบน |
+| ลำดับ Argument ของ Decorator กับ Fixture, ข้อสังเกตเรื่อง `MonkeyPatch.context()` ใน Fixture Scope ใหญ่ | ผู้เขียน |
 
 </Step>

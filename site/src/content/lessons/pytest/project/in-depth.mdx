@@ -1,6 +1,6 @@
 ---
 title: Config, Rootdir และ Import แบบเจาะลึก
-summary: ไฟล์ config ไหนชนะเมื่อมีหลายไฟล์, rootdir หาจากไหน, ลำดับของ -o กับ PYTEST_ADDOPTS, key ที่พิมพ์ผิด, import mode ของ pytest เมื่อชื่อไฟล์ซ้ำ และการซ้อน conftest.py ทุกข้อรันบนโปรเจกต์ชั่วคราว
+summary: ไฟล์ Config ไหนชนะเมื่อมีหลายไฟล์, Rootdir หาจากไหน, ลำดับของ -o กับ PYTEST_ADDOPTS, Key ที่พิมพ์ผิด, Import Mode ของ Pytest เมื่อชื่อไฟล์ซ้ำ และการซ้อน conftest.py ทุกข้อรันบนโปรเจกต์ชั่วคราว
 order: 10
 stage: sprout
 format: steps
@@ -14,21 +14,21 @@ import Callout from '../../../../components/Callout.astro';
 
 ## ไฟล์ Config ไหนชนะ
 
-pytest ใช้ไฟล์ config ไฟล์เดียว ไม่รวมหลายไฟล์ ถ้ามีหลายชนิดในโฟลเดอร์เดียว ลำดับคือ `pytest.ini`, `pyproject.toml` (ที่มี `[tool.pytest]`), `tox.ini` แล้ว `setup.cfg` (ใน `setup.cfg` ใช้หัวข้อ `[tool:pytest]`) พิสูจน์ด้วยโปรเจกต์ที่มีครบสี่ไฟล์ แต่ละไฟล์ตั้ง `minversion` ต่างกัน แล้วลบไฟล์ที่ชนะทีละไฟล์ (รัน: `internals/09_config_layout.py`)
+Pytest จะใช้ไฟล์ Config แค่ไฟล์เดียว และไม่รวมหลายไฟล์เข้าด้วยกัน ถ้ามีหลายชนิดอยู่ในโฟลเดอร์เดียว ลำดับความสำคัญคือ `pytest.ini`, `pyproject.toml` (ที่มี `[tool.pytest]`), `tox.ini` แล้วจึง `setup.cfg` (ใน `setup.cfg` ใช้หัวข้อ `[tool:pytest]`) เราพิสูจน์ได้ด้วยโปรเจกต์ที่มีครบสี่ไฟล์ โดยแต่ละไฟล์ตั้ง `minversion` ต่างกัน แล้วลบไฟล์ที่ชนะทีละไฟล์ (รัน: `internals/09_config_layout.py`)
 
-| ไฟล์ที่เหลืออยู่ | ไฟล์ที่ pytest ใช้ | `minversion` ที่เห็น |
+| ไฟล์ที่เหลืออยู่ | ไฟล์ที่ Pytest ใช้ | `minversion` ที่เห็น |
 |---|---|---|
 | ครบสี่ไฟล์ | `pytest.ini` | 1.0 |
 | ไม่มี `pytest.ini` | `pyproject.toml` | 2.0 |
 | ไม่มี `pyproject.toml` | `tox.ini` | 3.0 |
 | เหลือ `setup.cfg` | `setup.cfg` | 4.0 |
 
-กรณีพิเศษสองข้อที่ยืนยันแล้ว
+ยังมีกรณีพิเศษอีกสองข้อที่ยืนยันแล้ว
 
-- `pyproject.toml` ที่ **ไม่มี** ตาราง `[tool.pytest]` (หรือ `[tool.pytest.ini_options]`) ถูกข้าม และ `tox.ini` ชนะแทน
-- `pytest.ini` ที่ **ว่างเปล่า** ก็ยังชนะ `tox.ini` ที่มี `[pytest]` เพราะการมีไฟล์นี้คือการประกาศว่านี่คือ root ของโปรเจกต์
+- ถ้า `pyproject.toml` **ไม่มี** ตาราง `[tool.pytest]` (หรือ `[tool.pytest.ini_options]`) Pytest จะข้ามไฟล์นั้น และ `tox.ini` จะชนะแทน
+- ถ้า `pytest.ini` **ว่างเปล่า** ก็ยังชนะ `tox.ini` ที่มี `[pytest]` เพราะการมีไฟล์นี้คือการประกาศว่านี่คือ Root ของโปรเจกต์
 
-แบบฝึกของเส้นทางนี้ใช้ `[tool.pytest.ini_options]` ใน `pyproject.toml` ซึ่งใช้ได้เช่นกัน
+ส่วนแบบฝึกของเส้นทางนี้ใช้ `[tool.pytest.ini_options]` ใน `pyproject.toml` ซึ่งใช้ได้เช่นกัน
 
 </Step>
 
@@ -36,11 +36,11 @@ pytest ใช้ไฟล์ config ไฟล์เดียว ไม่รว�
 
 ## Rootdir
 
-**rootdir** คือโฟลเดอร์ที่ pytest ถือเป็นราก ใช้เป็นฐานของ node id, ที่เก็บ `.pytest_cache` และขอบเขตของการหา `conftest.py` pytest หาไฟล์ config โดยไล่ขึ้นจากโฟลเดอร์ของ argument ที่ให้ และ rootdir คือโฟลเดอร์ที่มีไฟล์นั้น
+**Rootdir** คือโฟลเดอร์ที่ Pytest ถือเป็นราก โดยใช้เป็นฐานของ Node id, ที่เก็บ `.pytest_cache` และขอบเขตของการหา `conftest.py` Pytest หาไฟล์ Config โดยไล่ขึ้นจากโฟลเดอร์ของ Argument ที่ให้ และ Rootdir ก็คือโฟลเดอร์ที่มีไฟล์นั้น
 
-ในแบบฝึกวาง `pytest.ini` ไว้ที่ราก และ test ไว้ใน `sub/` แล้วรัน pytest จาก `sub/` ผลคือยังใช้ `pytest.ini` ของราก และ rootdir เป็นโฟลเดอร์ราก ไม่ใช่ `sub` (รัน) หัวรายงานของ pytest พิมพ์ `rootdir:` และ `configfile:` ให้ดูทุกครั้ง
+ในแบบฝึกเราวาง `pytest.ini` ไว้ที่ราก และวาง Test ไว้ใน `sub/` แล้วรัน Pytest จาก `sub/` ผลที่ได้คือ Pytest ยังใช้ `pytest.ini` ของราก และ Rootdir เป็นโฟลเดอร์ราก ไม่ใช่ `sub` (รัน) หัวรายงานของ Pytest จะพิมพ์ `rootdir:` และ `configfile:` ให้ดูทุกครั้ง
 
-ถ้าไม่มีไฟล์ config เลย `inipath` เป็น `None` (รัน) และ rootdir มาจากบรรทัดคำสั่ง จึงควรมีไฟล์ config อย่างน้อยไฟล์ว่าง เพื่อให้ rootdir ไม่ขึ้นกับว่ารันจากที่ไหน
+ถ้าไม่มีไฟล์ Config เลย `inipath` จะเป็น `None` (รัน) และ Rootdir จะมาจากบรรทัดคำสั่ง เราจึงควรมีไฟล์ Config อย่างน้อยหนึ่งไฟล์ แม้จะเป็นไฟล์ว่าง เพื่อให้ Rootdir ไม่ขึ้นกับว่ารันจากที่ไหน
 
 </Step>
 
@@ -51,10 +51,10 @@ pytest ใช้ไฟล์ config ไฟล์เดียว ไม่รว�
 | ชั้น | ตัวอย่าง | ผลที่ยืนยัน |
 |---|---|---|
 | `addopts` ในไฟล์ | `addopts = -v` | ผลรันมี `PASSED` |
-| `PYTEST_ADDOPTS` | `PYTEST_ADDOPTS=-v` (environment) | ผลรันมี `PASSED` แม้ไฟล์ไม่มี `addopts` |
+| `PYTEST_ADDOPTS` | `PYTEST_ADDOPTS=-v` (Environment) | ผลรันมี `PASSED` แม้ไฟล์ไม่มี `addopts` |
 | `-o key=value` บนบรรทัดคำสั่ง | `-o minversion=9.0` | ชนะค่าในไฟล์ `minversion` เป็น `9.0` |
 
-(รัน: `internals/09_config_layout.py`) `-o` ใช้ทดลองค่าโดยไม่แก้ไฟล์ และเหมาะกับ CI ที่อยากทับค่าชั่วคราว
+(รัน: `internals/09_config_layout.py`) เราใช้ `-o` ทดลองค่าโดยไม่ต้องแก้ไฟล์ได้ และเหมาะกับ CI ที่อยากทับค่าชั่วคราว
 
 </Step>
 
@@ -62,13 +62,13 @@ pytest ใช้ไฟล์ config ไฟล์เดียว ไม่รว�
 
 ## Key ที่พิมพ์ผิดใน Config
 
-key ที่ pytest ไม่รู้จักใน config ไม่ใช่ error แต่เป็น warning ที่เห็นได้ง่ายว่าพลาด (รัน)
+ถ้ามี Key ที่ Pytest ไม่รู้จักอยู่ใน Config Pytest จะไม่ถือเป็น Error แต่ขึ้นเป็น Warning ซึ่งเห็นได้ง่ายว่าพลาด (รัน)
 
 ```text
 PytestConfigWarning: Unknown config option: no_such_key
 ```
 
-test ยังรัน exit code ยังเป็น 0 ซึ่งเป็นปัญหา: พิมพ์ `testpath` แทน `testpaths` แล้วการตั้งค่าไม่มีผลโดยไม่มีใครแดง ใส่ `--strict-config` เพื่อให้ key ที่ไม่รู้จักทำให้ pytest จบด้วย exit code ไม่ใช่ศูนย์ (รัน) แนะนำให้ตั้งไว้ใน `addopts` คู่กับ `--strict-markers` ([บท 5](/pytest/markers/#ลงทะเบียน-marker-กันพิมพ์ผิด))
+Test ยังรันต่อ และ Exit Code ยังเป็น 0 ซึ่งก็เป็นปัญหาอยู่ เช่น ถ้าเราพิมพ์ `testpath` แทน `testpaths` การตั้งค่าจะไม่มีผล โดยที่ไม่มีอะไรขึ้นสีแดงเลย เราจึงใส่ `--strict-config` เพื่อให้ Key ที่ไม่รู้จักทำให้ Pytest จบด้วย Exit Code ที่ไม่ใช่ศูนย์ (รัน) และแนะนำให้ตั้งไว้ใน `addopts` คู่กับ `--strict-markers` ([บท 5](/pytest/markers/#ลงทะเบียน-marker-กันพิมพ์ผิด))
 
 </Step>
 
@@ -76,15 +76,15 @@ test ยังรัน exit code ยังเป็น 0 ซึ่งเป็�
 
 ## Import Mode: ชื่อไฟล์ซ้ำ
 
-pytest ต้อง import ไฟล์ test เป็น module โหมดเริ่มต้นคือ `prepend` ซึ่งใส่โฟลเดอร์ของไฟล์ไว้หน้า `sys.path` แล้ว import ด้วยชื่อไฟล์ ถ้ามีสองไฟล์ชื่อ `test_same.py` ในโฟลเดอร์ `a/` กับ `b/` ที่ไม่มี `__init__.py` ชื่อ module ชนกัน (รัน)
+Pytest ต้อง Import ไฟล์ Test เป็น Module โดยโหมดเริ่มต้นคือ `prepend` ซึ่งใส่โฟลเดอร์ของไฟล์ไว้หน้า `sys.path` แล้ว Import ด้วยชื่อไฟล์ ถ้ามีสองไฟล์ชื่อ `test_same.py` ในโฟลเดอร์ `a/` กับ `b/` ที่ไม่มี `__init__.py` ชื่อ Module จะชนกัน (รัน)
 
 | วิธี | ผล |
 |---|---|
-| ค่าเริ่มต้น (`prepend`) | ล้ม เกิด `import file mismatch` (exit code ไม่ใช่ 0) |
-| ใส่ `__init__.py` ในทั้ง `a/` และ `b/` | ผ่าน 2 test |
-| `--import-mode=importlib` | ผ่าน 2 test โดยไม่ต้องมี `__init__.py` |
+| ค่าเริ่มต้น (`prepend`) | ล้ม เกิด `import file mismatch` (Exit Code ไม่ใช่ 0) |
+| ใส่ `__init__.py` ในทั้ง `a/` และ `b/` | ผ่าน 2 Test |
+| `--import-mode=importlib` | ผ่าน 2 Test โดยไม่ต้องมี `__init__.py` |
 
-`importlib` ไม่แตะ `sys.path` จึงไม่ชนกัน แต่ test ที่ import ไฟล์ test อีกไฟล์โดยตรง (เช่น helper ที่วางข้างกัน) อาจ import ไม่ได้ เพราะโฟลเดอร์ไม่อยู่ใน `sys.path` ในโหมดนี้ ทางเลือกสำหรับโปรเจกต์ใหม่คือวางโค้ดไว้ใน package (เช่น `src/`) และตั้ง `pythonpath` ([บท 7](/pytest/project/#ตั้งค่าครั้งเดียว-ใน-pyprojecttoml)) แล้วตั้งชื่อไฟล์ test ไม่ให้ซ้ำ
+`importlib` ไม่แตะ `sys.path` จึงไม่ชนกัน แต่ Test ที่ Import ไฟล์ Test อีกไฟล์โดยตรง (เช่น Helper ที่วางข้างกัน) อาจ Import ไม่ได้ เพราะในโหมดนี้โฟลเดอร์ไม่อยู่ใน `sys.path` สำหรับโปรเจกต์ใหม่ ทางเลือกหนึ่งคือวางโค้ดไว้ใน Package (เช่น `src/`) แล้วตั้ง `pythonpath` ([บท 7](/pytest/project/#ตั้งค่าครั้งเดียว-ใน-pyprojecttoml)) และตั้งชื่อไฟล์ Test ไม่ให้ซ้ำกัน
 
 </Step>
 
@@ -92,7 +92,7 @@ pytest ต้อง import ไฟล์ test เป็น module โหมดเ
 
 ## conftest.py ซ้อนกัน
 
-`conftest.py` มีผลกับโฟลเดอร์ของมันและโฟลเดอร์ลูก ตัวที่ใกล้ test กว่าทับตัวที่ไกลกว่า แบบฝึกมี fixture `where` ใน `conftest.py` ราก (คืน `'root'`) และใน `sub/conftest.py` (คืน `'sub'`) (รัน)
+`conftest.py` มีผลกับโฟลเดอร์ของมันและโฟลเดอร์ลูก และตัวที่ใกล้ Test กว่าจะทับตัวที่ไกลกว่า แบบฝึกมี Fixture `where` ใน `conftest.py` ราก (คืน `'root'`) และใน `sub/conftest.py` (คืน `'sub'`) (รัน)
 
 ```text
 test_top.py          : where == 'root'
@@ -100,10 +100,10 @@ sub/test_deep.py     : where == 'sub'
 other/test_other.py  : where == 'root'     (โฟลเดอร์ที่ไม่มี conftest ของตัวเองใช้ตัวราก)
 ```
 
-3 test ผ่านทั้งหมด `conftest.py` ถูกโหลดเป็น plugin ที่ผูกกับโฟลเดอร์ ([บท 14](/pytest/plugins/#ลงทะเบียนอย่างไร)) และไม่ต้อง import ที่ไหน ข้อควรระวังคือ conftest ที่ซ้อนกันหลายชั้นทำให้ยากรู้ว่า fixture มาจากตัวไหน `pytest --fixtures-per-test` หรือ `--setup-show` ช่วยบอก
+ทั้ง 3 Test ผ่านหมด เพราะ `conftest.py` ถูกโหลดเป็น Plugin ที่ผูกกับโฟลเดอร์ ([บท 14](/pytest/plugins/#ลงทะเบียนอย่างไร)) เราจึงไม่ต้อง Import ที่ไหนเลย ข้อควรระวังคือถ้า Conftest ซ้อนกันหลายชั้น จะยากที่จะรู้ว่า Fixture มาจากตัวไหน ซึ่ง `pytest --fixtures-per-test` หรือ `--setup-show` ช่วยบอกได้
 
-<Callout type="try" title="ลองทำใน repo นี้">
-รัน `uv run python internals/09_config_layout.py` แล้วเพิ่มกรณีใหม่ในสคริปต์: ตั้ง `testpaths` ใน `pytest.ini` แล้วรัน pytest จากโฟลเดอร์ที่ไม่ใช่ราก ดูว่า pytest เลือก test อะไรบ้าง
+<Callout type="try" title="ลองทำใน Repo นี้">
+ลองรัน `uv run python internals/09_config_layout.py` แล้วเพิ่มกรณีใหม่ในสคริปต์ โดยตั้ง `testpaths` ใน `pytest.ini` แล้วรัน Pytest จากโฟลเดอร์ที่ไม่ใช่ราก เพื่อดูว่า Pytest เลือก Test อะไรบ้าง
 </Callout>
 
 </Step>
@@ -115,9 +115,9 @@ other/test_other.py  : where == 'root'     (โฟลเดอร์ที่ไ
 | ข้อความ | ที่มา |
 |---|---|
 | ลำดับ `pytest.ini` > `pyproject.toml` > `tox.ini` > `setup.cfg`, `pyproject.toml` ที่ไม่มีตารางถูกข้าม, `pytest.ini` ว่างชนะ | รัน: `internals/09_config_layout.py` |
-| รันจากโฟลเดอร์ย่อยแล้วใช้ไฟล์ของราก, ไม่มีไฟล์ config แล้ว `inipath` เป็น `None` | รัน: เหมือนข้างบน |
-| `addopts`, `PYTEST_ADDOPTS`, `-o`, key ที่ไม่รู้จัก, `--strict-config` | รัน: เหมือนข้างบน |
-| import mode: `prepend` ชนกัน, `__init__.py`, `importlib`, การซ้อน `conftest.py` | รัน: เหมือนข้างบน |
-| ข้อจำกัดของ `importlib` เมื่อ import ไฟล์ test อื่น, คำแนะนำให้มีไฟล์ config และ `--strict-config`, rootdir เป็นฐานของ `.pytest_cache` และ conftest, เหตุผลที่ `pytest.ini` ว่างยังชนะ | ผู้เขียน |
+| รันจากโฟลเดอร์ย่อยแล้วใช้ไฟล์ของราก, ไม่มีไฟล์ Config แล้ว `inipath` เป็น `None` | รัน: เหมือนข้างบน |
+| `addopts`, `PYTEST_ADDOPTS`, `-o`, Key ที่ไม่รู้จัก, `--strict-config` | รัน: เหมือนข้างบน |
+| Import Mode: `prepend` ชนกัน, `__init__.py`, `importlib`, การซ้อน `conftest.py` | รัน: เหมือนข้างบน |
+| ข้อจำกัดของ `importlib` เมื่อ Import ไฟล์ Test อื่น, คำแนะนำให้มีไฟล์ Config และ `--strict-config`, Rootdir เป็นฐานของ `.pytest_cache` และ Conftest, เหตุผลที่ `pytest.ini` ว่างยังชนะ | ผู้เขียน |
 
 </Step>

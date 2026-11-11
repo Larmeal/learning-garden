@@ -1,6 +1,6 @@
 ---
 title: "Run Protocol: Setup, Call, Teardown"
-summary: test หนึ่งตัวถูกรันเป็นสามเฟสที่แต่ละเฟสมีรายงานของตัวเอง บทนี้ดู runtestprotocol, CallInfo และ TestReport แล้วอธิบายว่าทำไม error กับ failure ต่างกัน และ skip กับ xfail เปลี่ยนผลได้อย่างไร
+summary: Test หนึ่งตัวถูกรันเป็นสามเฟสที่แต่ละเฟสมีรายงานของตัวเอง บทนี้ดู Runtestprotocol, CallInfo และ TestReport แล้วอธิบายว่าทำไม Error กับ Failure ต่างกัน และ Skip กับ Xfail เปลี่ยนผลได้อย่างไร
 order: 12
 phase: D
 level: 4
@@ -17,7 +17,7 @@ import Callout from '../../../../components/Callout.astro';
 
 ## สามเฟส สามรายงาน
 
-บท [Pytest ทำงานอย่างไร](/pytest/how-pytest-runs/#ลำดับ-hook-จริงสำหรับ-test-สองตัว) เห็นว่าแต่ละ test มี `makereport` สามครั้ง บทนี้ดูว่ามันมาจากไหน ตัวที่ควบคุมคือ `runtestprotocol` ใน `_pytest/runner.py` (source) ที่ย่อได้ดังนี้
+ในบท [Pytest ทำงานอย่างไร](/pytest/how-pytest-runs/#ลำดับ-hook-จริงสำหรับ-test-สองตัว) เราเห็นแล้วว่าแต่ละ Test มี `makereport` สามครั้ง คราวนี้เรามาดูกันว่ามันมาจากไหน ตัวที่ควบคุมอยู่คือ `runtestprotocol` ใน `_pytest/runner.py` (Source) ซึ่งย่อได้ดังนี้
 
 ```python
 rep = call_and_report(item, "setup", log)
@@ -28,12 +28,12 @@ if rep.passed:
 reports.append(call_and_report(item, "teardown", log, nextitem=nextitem))
 ```
 
-สองข้อที่อ่านได้จากโค้ดนี้
+จากโค้ดนี้เราอ่านได้สองข้อ
 
-- **เฟส call รันเมื่อ setup ผ่านเท่านั้น** ถ้า fixture พัง ตัว test ไม่ถูกเรียกเลย
-- **เฟส teardown รันเสมอ** แม้ setup หรือ call ล้ม เพื่อให้ของที่ตั้งไปแล้วถูกเก็บกวาด
+- เฟส Call จะรันก็ต่อเมื่อ Setup ผ่านเท่านั้น ถ้า Fixture พัง ตัว Test จะไม่ถูกเรียกเลย
+- เฟส Teardown จะรันเสมอ แม้ Setup หรือ Call จะล้ม เพื่อให้ของที่ตั้งไปแล้วถูกเก็บกวาด
 
-แต่ละเฟสผ่าน `call_and_report` ซึ่งเลือก hook ตามเฟส (`pytest_runtest_setup`, `pytest_runtest_call`, `pytest_runtest_teardown`) แล้วห่อการเรียกด้วย `CallInfo.from_call`
+แต่ละเฟสผ่าน `call_and_report` ซึ่งเลือก Hook ตามเฟส (`pytest_runtest_setup`, `pytest_runtest_call`, `pytest_runtest_teardown`) แล้วห่อการเรียกไว้ด้วย `CallInfo.from_call`
 
 </Step>
 
@@ -41,14 +41,14 @@ reports.append(call_and_report(item, "teardown", log, nextitem=nextitem))
 
 ## CallInfo: จับ Exception ไว้เป็นข้อมูล
 
-`CallInfo.from_call(func, when)` เรียกฟังก์ชัน จับเวลา และถ้ามี exception ก็เก็บไว้เป็น `excinfo` แทนที่จะปล่อยให้ลอยขึ้นไป (source: `CallInfo` ใน `runner.py`) field ที่มีคือ `result`, `excinfo`, `start`, `stop`, `duration` และ `when` (`collect`, `setup`, `call` หรือ `teardown`)
+`CallInfo.from_call(func, when)` จะเรียกฟังก์ชัน จับเวลา และถ้ามี Exception ก็เก็บไว้เป็น `excinfo` แทนที่จะปล่อยให้ลอยขึ้นไป (Source: `CallInfo` ใน `runner.py`) Field ที่มีคือ `result`, `excinfo`, `start`, `stop`, `duration` และ `when` (`collect`, `setup`, `call` หรือ `teardown`)
 
-exception ส่วนใหญ่ถูกจับ เหตุผลคือ test ที่ล้มต้องไม่ทำให้ session ตาย ข้อยกเว้นมีสองชนิดที่ `from_call` โยนซ้ำ (source: `get_reraise_exceptions`)
+Exception ส่วนใหญ่จะถูกจับ เพราะ Test ที่ล้มต้องไม่ทำให้ Session ตาย มีข้อยกเว้นสองชนิดที่ `from_call` โยนซ้ำ (Source: `get_reraise_exceptions`)
 
-- `Exit` จาก `pytest.exit()` ที่ตั้งใจให้หยุดทั้ง session
-- `KeyboardInterrupt` ยกเว้นเมื่อใช้ `--pdb` เพราะ debugger ต้องจัดการเอง
+- `Exit` จาก `pytest.exit()` ที่ตั้งใจให้หยุดทั้ง Session
+- `KeyboardInterrupt` ยกเว้นเมื่อใช้ `--pdb` เพราะ Debugger ต้องจัดการเอง
 
-ผลของการจับคือ exception ที่โค้ดของเราโยนกลายเป็น **ข้อมูลใน report** ซึ่งเป็นเหตุผลที่ plugin อ่านเหตุที่ล้มได้จาก `call.excinfo` โดยไม่ต้อง try/except
+เมื่อ Exception ถูกจับแบบนี้ สิ่งที่โค้ดของเราโยนจึงกลายเป็น **ข้อมูลใน Report** และนี่เป็นเหตุผลที่ Plugin อ่านเหตุที่ล้มได้จาก `call.excinfo` โดยไม่ต้อง Try/Except
 
 </Step>
 
@@ -56,15 +56,15 @@ exception ส่วนใหญ่ถูกจับ เหตุผลคือ
 
 ## แต่ละเฟสทำอะไรกับ Function
 
-สำหรับ test ที่เป็น `Function` สามเฟสคือ (source: `pytest_runtest_setup`, `pytest_runtest_call`, `pytest_runtest_teardown` ใน `runner.py`, `Function.setup` และ `pytest_pyfunc_call` ใน `python.py`)
+สำหรับ Test ที่เป็น `Function` สามเฟสคือ (Source: `pytest_runtest_setup`, `pytest_runtest_call`, `pytest_runtest_teardown` ใน `runner.py`, `Function.setup` และ `pytest_pyfunc_call` ใน `python.py`)
 
 | เฟส | ทำอะไร |
 |---|---|
-| setup | `SetupState.setup(item)` เรียก `setup()` ของ node ในสายตั้งแต่ Session ลงมา ตัว `Function.setup` เติม fixture ที่ test ขอ (บท [Fixture Engine](/pytest/fixture-engine/#รัน-fixture-หนึ่งตัว)) |
-| call | `item.runtest()` ซึ่งเรียก hook `pytest_pyfunc_call` ฟังก์ชันของเราถูกเรียกด้วย fixture ที่ได้เป็น keyword argument |
-| teardown | `SetupState.teardown_exact(nextitem)` ปิด node ที่หมดหน้าที่ตามกฎของ `nextitem` |
+| Setup | `SetupState.setup(item)` เรียก `setup()` ของ Node ในสายตั้งแต่ Session ลงมา ตัว `Function.setup` เติม Fixture ที่ Test ขอ (บท [Fixture Engine](/pytest/fixture-engine/#รัน-fixture-หนึ่งตัว)) |
+| Call | `item.runtest()` ซึ่งเรียก Hook `pytest_pyfunc_call` ฟังก์ชันของเราถูกเรียกด้วย Fixture ที่ได้เป็น Keyword Argument |
+| Teardown | `SetupState.teardown_exact(nextitem)` ปิด Node ที่หมดหน้าที่ตามกฎของ `nextitem` |
 
-มีรายละเอียดเล็กที่ `pytest_pyfunc_call` ทำ: ถ้า test คืนค่าที่ไม่ใช่ `None` pytest ออก `PytestReturnNotNoneWarning` ("Did you mean to use `assert` instead of `return`?") แบบฝึกยืนยันว่า test ที่ `return 1 == 2` ผ่านพร้อม warning ซึ่งเป็นกับดักที่เจอบ่อย (รัน: `exercises/08_design/test_smells.py`) ฟังก์ชัน async ถูกปฏิเสธ เพราะ pytest เองไม่รัน coroutine
+`pytest_pyfunc_call` ยังทำอีกเรื่องเล็ก ๆ คือถ้า Test คืนค่าที่ไม่ใช่ `None` Pytest จะออก `PytestReturnNotNoneWarning` ("Did you mean to use `assert` Instead of `return`?") แบบฝึกยืนยันว่า Test ที่ `return 1 == 2` ผ่านพร้อม Warning ซึ่งเป็นกับดักที่เจอบ่อย (รัน: `exercises/08_design/test_smells.py`) ส่วนฟังก์ชัน Async จะถูกปฏิเสธ เพราะ Pytest เองไม่รัน Coroutine
 
 </Step>
 
@@ -72,23 +72,23 @@ exception ส่วนใหญ่ถูกจับ เหตุผลคือ
 
 ## TestReport: ผลของหนึ่งเฟส
 
-`pytest_runtest_makereport(item, call)` สร้าง `TestReport` ต่อหนึ่งเฟส (source: `TestReport.from_item_and_call` ใน `reports.py`) field สำคัญคือ `nodeid`, `when`, `outcome` (`passed`, `failed`, `skipped`), `longrepr` (ข้อความที่พิมพ์ตอนล้ม), `sections` (ข้อความที่ดักได้), `duration` และ `user_properties` ที่ plugin เติมได้ report ถูกส่งไปทาง `pytest_runtest_logreport` ให้ terminal, junitxml และ plugin อื่นอ่าน
+`pytest_runtest_makereport(item, call)` สร้าง `TestReport` ขึ้นมาหนึ่งใบต่อหนึ่งเฟส (Source: `TestReport.from_item_and_call` ใน `reports.py`) Field สำคัญคือ `nodeid`, `when`, `outcome` (`passed`, `failed`, `skipped`), `longrepr` (ข้อความที่พิมพ์ตอนล้ม), `sections` (ข้อความที่ดักได้), `duration` และ `user_properties` ที่ Plugin เติมได้ แล้ว Report จะถูกส่งไปทาง `pytest_runtest_logreport` ให้ Terminal, Junitxml และ Plugin อื่นอ่าน
 
-`internals/05_reports.py` รันโปรเจกต์ที่มี test เก้าแบบ แล้วบันทึกรายงานทุกใบ (รัน: `internals/05_reports.py`)
+สคริปต์ `internals/05_reports.py` รันโปรเจกต์ที่มี Test เก้าแบบ แล้วบันทึกรายงานทุกใบไว้ (รัน: `internals/05_reports.py`)
 
-| test | รายงานของแต่ละเฟส |
+| Test | รายงานของแต่ละเฟส |
 |---|---|
-| ผ่านปกติ | setup:passed call:passed teardown:passed |
-| `assert` ผิด | setup:passed **call:failed** teardown:passed |
-| fixture พังตอน setup | **setup:failed** teardown:passed (ไม่มี call) |
-| fixture พังตอน teardown | setup:passed call:passed **teardown:failed** |
-| `pytest.skip()` ใน test | setup:passed **call:skipped** teardown:passed |
+| ผ่านปกติ | Setup:Passed Call:Passed Teardown:Passed |
+| `assert` ผิด | Setup:Passed **Call:Failed** Teardown:Passed |
+| Fixture พังตอน Setup | **Setup:Failed** Teardown:Passed (ไม่มี Call) |
+| Fixture พังตอน Teardown | Setup:Passed Call:Passed **Teardown:Failed** |
+| `pytest.skip()` ใน Test | Setup:Passed **Call:Skipped** Teardown:Passed |
 | `@pytest.mark.skip` | **setup:skipped** teardown:passed |
-| `@pytest.mark.xfail` ที่ล้ม | setup:passed call:skipped(xfail:known) teardown:passed |
-| `@pytest.mark.xfail` ที่ผ่าน | setup:passed call:passed(xfail:fixed already) teardown:passed |
-| `@pytest.mark.xfail(strict=True)` ที่ผ่าน | setup:passed **call:failed** teardown:passed |
+| `@pytest.mark.xfail` ที่ล้ม | Setup:Passed Call:skipped(Xfail:Known) Teardown:Passed |
+| `@pytest.mark.xfail` ที่ผ่าน | Setup:Passed Call:passed(Xfail:Fixed Already) Teardown:Passed |
+| `@pytest.mark.xfail(strict=True)` ที่ผ่าน | Setup:Passed **Call:Failed** Teardown:Passed |
 
-สรุปท้ายรายงานของโปรเจกต์นี้คือ `2 failed, 2 passed, 2 skipped, 1 xfailed, 1 xpassed, 2 errors` ตัวเลขแต่ละช่องมาจากรายงานต่างใบ: **failed** นับรายงาน call ที่ล้ม ส่วน **errors** นับรายงาน setup หรือ teardown ที่ล้ม นี่คือเหตุผลที่ test ที่ผ่านแต่ fixture พังตอนปิดถูกนับทั้ง passed และ error
+สรุปท้ายรายงานของโปรเจกต์นี้คือ `2 failed, 2 passed, 2 skipped, 1 xfailed, 1 xpassed, 2 errors` ตัวเลขแต่ละช่องมาจากรายงานคนละใบ โดย **Failed** นับรายงาน Call ที่ล้ม ส่วน **Errors** นับรายงาน Setup หรือ Teardown ที่ล้ม นี่เป็นเหตุผลที่ Test ที่ผ่านแต่ Fixture พังตอนปิดถูกนับทั้ง Passed และ Error
 
 </Step>
 
@@ -96,18 +96,18 @@ exception ส่วนใหญ่ถูกจับ เหตุผลคือ
 
 ## Skip และ Xfail เป็น Hook ไม่ใช่เวทมนตร์
 
-ทั้งสองอยู่ใน plugin `skipping` (source: `_pytest/skipping.py`) และใช้สองจุดต่อ
+ทั้งสองอยู่ใน Plugin `skipping` (Source: `_pytest/skipping.py`) และเกี่ยวกับ Hook สองจุด
 
-- **`pytest_runtest_setup`** ประเมิน marker `skip` และ `skipif` ถ้าเข้าเงื่อนไขก็โยน `skip.Exception` ผลคือ test ถูกรายงานเป็น skipped ที่ **เฟส setup** ก่อนที่ fixture ใดจะถูกเรียก (ตรงกับแถว `@pytest.mark.skip` ในตาราง) ส่วน `xfail` ถูกประเมินและเก็บไว้ใน `item.stash`
-- **ตัวครอบ `pytest_runtest_makereport`** ปล่อยให้ report ถูกสร้างตามปกติ (`yield`) แล้ว **เปลี่ยนผล** ตามที่ xfail ตั้งไว้ (source: ตัวครอบนี้ใน `skipping.py`)
-  - ล้มและเข้าเงื่อนไข (รวม `raises=`) เป็น `outcome = "skipped"` และมี `wasxfail`
-  - ล้มแต่ exception ไม่ตรง `raises=` ยังเป็น `failed`
-  - ผ่านและไม่ strict เป็น `passed` พร้อม `wasxfail` นี่คือ XPASS
-  - ผ่านและ strict เป็น `failed` พร้อมข้อความ `[XPASS(strict)] เหตุผล`
+- `pytest_runtest_setup` ประเมิน Marker `skip` และ `skipif` ถ้าเข้าเงื่อนไขก็โยน `skip.Exception` ผลคือ Test ถูกรายงานเป็น Skipped ที่ **เฟส Setup** ก่อนที่ Fixture ใดจะถูกเรียก (ตรงกับแถว `@pytest.mark.skip` ในตาราง) ส่วน `xfail` จะถูกประเมินแล้วเก็บไว้ใน `item.stash`
+- ตัวครอบ `pytest_runtest_makereport` ปล่อยให้ Report ถูกสร้างตามปกติ (`yield`) แล้วจึง **เปลี่ยนผล** ตามที่ Xfail ตั้งไว้ (Source: ตัวครอบนี้ใน `skipping.py`) โดยแบ่งได้เป็นสี่กรณี
+  - ถ้าล้มและเข้าเงื่อนไข (รวม `raises=`) จะเป็น `outcome = "skipped"` และมี `wasxfail`
+  - ถ้าล้มแต่ Exception ไม่ตรง `raises=` จะยังเป็น `failed`
+  - ถ้าผ่านและไม่ Strict จะเป็น `passed` พร้อม `wasxfail` ซึ่งก็คือ XPASS
+  - ถ้าผ่านและ Strict จะเป็น `failed` พร้อมข้อความ `[XPASS(strict)] เหตุผล`
 
-ตารางด้านบนยืนยันทุกแถว และตรงกับสิ่งที่บท [Marker](/pytest/markers/#xfail-รู้ว่าล้ม-แต่ยังรันอยู่) บรรยายจากภายนอก จุดสำคัญคือ **skipped ของ xfail เกิดจากการเปลี่ยน outcome ทีหลัง** ไม่ใช่ pytest ข้าม test ตัว test ถูกรันจริงในเฟส call
+ตารางด้านบนยืนยันทุกแถว และตรงกับสิ่งที่บท [Marker](/pytest/markers/#xfail-รู้ว่าล้ม-แต่ยังรันอยู่) บรรยายจากภายนอก จุดสำคัญคือ **Skipped ของ Xfail เกิดจากการเปลี่ยน Outcome ทีหลัง** Pytest ไม่ได้ข้าม Test ไป เพราะตัว Test ถูกรันจริงในเฟส Call
 
-`--runxfail` ทำให้ตัวครอบนี้ไม่ยุ่ง (source: เงื่อนไข `item.config.option.runxfail`) test ที่ทำเครื่องหมาย xfail จึงรายงานผลจริง ใช้ตอนอยากรู้ว่า bug ที่รู้แล้วยังอยู่ไหม
+ถ้าใส่ `--runxfail` ตัวครอบนี้จะไม่เข้ามายุ่ง (Source: เงื่อนไข `item.config.option.runxfail`) Test ที่ทำเครื่องหมาย Xfail จึงรายงานผลจริง เหมาะตอนอยากรู้ว่า Bug ที่รู้แล้วยังอยู่ไหม
 
 </Step>
 
@@ -115,12 +115,12 @@ exception ส่วนใหญ่ถูกจับ เหตุผลคือ
 
 ## เมื่อ Session ต้องหยุด
 
-หลัง `setup` และ `call` ถ้า `session.shouldfail` หรือ `session.shouldstop` ถูกตั้ง (เช่นจาก `-x` หรือ `--maxfail`) `runtestprotocol` ตั้ง `nextitem = None` ก่อนเรียก teardown (source: คอมเมนต์ในโค้ดบอกว่าเพื่อรายงาน teardown error ให้ถูก) ผลคือ teardown ปิดทั้ง stack ของ `SetupState` ทันที แทนที่จะรอ test ถัดไป ซึ่งจะไม่มีวันมา fixture ระดับ module และ session จึงถูกปิดแม้ run ถูกตัดกลางคัน
+หลัง `setup` และ `call` ถ้า `session.shouldfail` หรือ `session.shouldstop` ถูกตั้ง (เช่นจาก `-x` หรือ `--maxfail`) `runtestprotocol` จะตั้ง `nextitem = None` ก่อนเรียก Teardown (Source: คอมเมนต์ในโค้ดบอกว่าเพื่อรายงาน Teardown Error ให้ถูก) ผลคือ Teardown จะปิดทั้ง Stack ของ `SetupState` ทันที แทนที่จะรอ Test ถัดไปซึ่งจะไม่มีวันมา Fixture ระดับ Module และ Session จึงถูกปิดแม้ Run ถูกตัดกลางคัน
 
-`--maxfail=1 -q` ในแบบฝึกหยุดหลังล้มตัวแรกและสรุป `1 failed, 1 passed` พร้อมข้อความ `stopping after 1 failures` (รัน: `internals/08_output_flags.py`)
+ในแบบฝึก `--maxfail=1 -q` จะหยุดหลังล้มตัวแรกและสรุป `1 failed, 1 passed` พร้อมข้อความ `stopping after 1 failures` (รัน: `internals/08_output_flags.py`)
 
-<Callout type="try" title="ลองทำใน repo นี้">
-รัน `uv run python internals/05_reports.py` แล้วเพิ่ม test ใหม่ใน `FILES` ที่ใช้ `bad_setup` และ `bad_teardown` พร้อมกัน ดูว่ารายงานของมันมีกี่ใบ และ outcome ของแต่ละเฟสเป็นอะไร จากนั้นเพิ่ม `@pytest.mark.xfail(raises=KeyError)` บน test ที่โยน `ValueError` แล้วทำนายผลก่อนรัน
+<Callout type="try" title="ลองทำใน Repo นี้">
+ลองรัน `uv run python internals/05_reports.py` แล้วเพิ่ม Test ใหม่ใน `FILES` ที่ใช้ `bad_setup` และ `bad_teardown` พร้อมกัน เพื่อดูว่ารายงานของมันมีกี่ใบ และ Outcome ของแต่ละเฟสเป็นอะไร จากนั้นเพิ่ม `@pytest.mark.xfail(raises=KeyError)` บน Test ที่โยน `ValueError` แล้วลองทำนายผลก่อนรัน
 </Callout>
 
 </Step>
@@ -129,9 +129,9 @@ exception ส่วนใหญ่ถูกจับ เหตุผลคือ
 
 ## เช็กตัวเอง
 
-- fixture พังตอน setup ของ test หนึ่ง ผลสรุปนับเป็น failed หรือ error และ test ตัวนั้นถูกเรียกไหม
-- test ที่ `@pytest.mark.xfail` และล้มจริง รายงานเฟส call มี outcome อะไร และทำไมถึงเป็นอย่างนั้นทั้งที่ test รันจริง
-- ทำไม `-x` ถึงต้องตั้ง `nextitem = None` ตอน teardown
+- Fixture พังตอน Setup ของ Test หนึ่ง ผลสรุปนับเป็น Failed หรือ Error และ Test ตัวนั้นถูกเรียกไหม
+- Test ที่ `@pytest.mark.xfail` และล้มจริง รายงานเฟส Call มี Outcome อะไร และทำไมถึงเป็นอย่างนั้นทั้งที่ Test รันจริง
+- ทำไม `-x` ถึงต้องตั้ง `nextitem = None` ตอน Teardown
 
 </Step>
 
@@ -141,12 +141,12 @@ exception ส่วนใหญ่ถูกจับ เหตุผลคือ
 
 | ข้อความ | ที่มา |
 |---|---|
-| `runtestprotocol`, `call_and_report`, `CallInfo.from_call`, exception ที่โยนซ้ำ (`Exit`, `KeyboardInterrupt`), `nextitem = None` เมื่อ `shouldfail`/`shouldstop` | source: `_pytest/runner.py` |
-| ตัวครอบ `makereport` ของ xfail, ประเมิน skip ใน `pytest_runtest_setup`, `--runxfail` | source: `_pytest/skipping.py` |
-| `TestReport` และ field, `pytest_pyfunc_call` และ `PytestReturnNotNoneWarning` | source: `_pytest/reports.py`, `_pytest/python.py` |
+| `runtestprotocol`, `call_and_report`, `CallInfo.from_call`, Exception ที่โยนซ้ำ (`Exit`, `KeyboardInterrupt`), `nextitem = None` เมื่อ `shouldfail`/`shouldstop` | Source: `_pytest/runner.py` |
+| ตัวครอบ `makereport` ของ Xfail, ประเมิน Skip ใน `pytest_runtest_setup`, `--runxfail` | Source: `_pytest/skipping.py` |
+| `TestReport` และ Field, `pytest_pyfunc_call` และ `PytestReturnNotNoneWarning` | Source: `_pytest/reports.py`, `_pytest/python.py` |
 | ตารางรายงานเก้าแบบ และสรุป `2 failed, 2 passed, 2 skipped, 1 xfailed, 1 xpassed, 2 errors` | รัน: `internals/05_reports.py` |
-| `return` แทน `assert` ผ่านพร้อม warning | รัน: `exercises/08_design/test_smells.py` |
+| `return` แทน `assert` ผ่านพร้อม Warning | รัน: `exercises/08_design/test_smells.py` |
 | `--maxfail=1` หยุดแล้วสรุป `1 failed, 1 passed` | รัน: `internals/08_output_flags.py` |
-| เหตุผลที่ exception ถูกจับเป็นข้อมูล (test ที่ล้มต้องไม่ทำให้ session ตาย) | ผู้เขียน |
+| เหตุผลที่ Exception ถูกจับเป็นข้อมูล (Test ที่ล้มต้องไม่ทำให้ Session ตาย) | ผู้เขียน |
 
 </Step>

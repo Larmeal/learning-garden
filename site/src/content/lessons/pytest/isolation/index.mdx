@@ -1,6 +1,6 @@
 ---
 title: แยก Test ออกจากโลกภายนอก
-summary: test ที่เชื่อถือได้ต้องให้ผลเหมือนเดิมทุกเครื่อง บทนี้สอน monkeypatch, unittest.mock และกฎ patch ที่ที่ชื่อถูกใช้ การส่ง fake เข้าไปแทน mock การทดสอบโค้ดที่ผูกกับเวลา และการอ่านสิ่งที่โค้ด print หรือ log ด้วย capsys กับ caplog
+summary: Test ที่เชื่อถือได้ต้องให้ผลเหมือนเดิมไม่ว่าจะรันบนคอมพิวเตอร์เครื่องไหน บทนี้พาไปดู Monkeypatch, unittest.mock และกฎ Patch ที่ที่ชื่อถูกใช้ การส่ง Fake เข้าไปแทน Mock การทดสอบโค้ดที่ผูกกับเวลา และการอ่านสิ่งที่โค้ด Print หรือ Log ด้วย Capsys กับ Caplog
 order: 6
 phase: C
 level: 3
@@ -17,9 +17,9 @@ import Callout from '../../../../components/Callout.astro';
 
 ## Test ที่พึ่งโลกภายนอกจะเชื่อไม่ได้
 
-`rates.convert(100, "USD")` แปลงเงินบาทเป็นดอลลาร์ โดยถามอัตราแลกเปลี่ยนผ่านเครือข่าย ถ้า test เรียกของจริง ผลจะขึ้นกับอินเทอร์เน็ต เซิร์ฟเวอร์ปลายทาง และอัตราของวันนี้ test จะช้า ล้มแบบสุ่ม และให้ตัวเลขไม่เหมือนเดิม
+`rates.convert(100, "USD")` แปลงเงินบาทเป็นดอลลาร์ โดยจะถามอัตราแลกเปลี่ยนผ่านเครือข่าย ถ้า Test เรียกของจริง ผลที่ได้ก็จะขึ้นอยู่กับอินเทอร์เน็ต เซิร์ฟเวอร์ปลายทาง และอัตราของวันนี้ ซึ่งทำให้ Test ช้า ล้มแบบสุ่ม และให้ตัวเลขไม่เหมือนเดิม
 
-ในแบบฝึก `shop/net.py` โยน `ConnectionError` เสมอ เพื่อให้ test ที่ลืมแทนของจริงล้มดังๆ แทนที่จะเรียกออกไปจริง (รัน: `exercises/06_isolation/test_isolation.py`)
+ในแบบฝึก `shop/net.py` จะโยน `ConnectionError` เสมอ เพื่อให้ Test ที่ลืมแทนของจริงล้มดัง ๆ แทนที่จะเรียกออกไปจริง (รัน: `exercises/06_isolation/test_isolation.py`)
 
 ```python
 def test_without_a_replacement_the_network_call_fails():
@@ -27,7 +27,7 @@ def test_without_a_replacement_the_network_call_fails():
         rates.convert(100, "USD")
 ```
 
-บทนี้สอนแทนสามอย่างที่เปลี่ยนผลแบบควบคุมไม่ได้: **เครือข่าย**, **สภาพแวดล้อม (environment variable)**, และ **เวลา** รวมถึงการอ่านสิ่งที่โค้ดส่งออกทาง print และ log
+ในบทนี้เราจะลองแทนของสามอย่างที่ทำให้ผลเปลี่ยนไปโดยเราควบคุมไม่ได้ คือ **เครือข่าย**, **สภาพแวดล้อม (Environment Variable)** และ **เวลา** และจะดูวิธีอ่านสิ่งที่โค้ดส่งออกทาง Print และ Log ด้วย
 
 </Step>
 
@@ -35,7 +35,7 @@ def test_without_a_replacement_the_network_call_fails():
 
 ## Monkeypatch: แทนชั่วคราว คืนให้เองหลังจบ
 
-`monkeypatch` เป็น fixture ที่ Pytest ให้มา ทุกอย่างที่แก้ผ่านมันถูกคืนค่าเดิมเมื่อ test จบ ไม่ต้องเก็บกวาดเอง
+`monkeypatch` เป็น Fixture ที่ Pytest ให้มา ทุกอย่างที่เราแก้ผ่านมันจะถูกคืนค่าเดิมเมื่อ Test จบ เราจึงไม่ต้องเก็บกวาดเอง
 
 ```python
 def test_monkeypatch_replaces_the_function_used_by_convert(monkeypatch):
@@ -48,7 +48,7 @@ def test_monkeypatch_setenv_sets_the_default_currency(monkeypatch):
     assert rates.convert(100) == 50.0
 ```
 
-test ถัดไปไม่เห็นการแก้ แบบฝึกยืนยันว่า `SHOP_CURRENCY` ไม่อยู่ใน environment หลัง test ก่อนหน้าจบ (รัน: `exercises/06_isolation/test_isolation.py`) เมธอดที่ใช้บ่อย: `setattr`, `setenv`, `delenv`, `setitem`, `chdir`
+Test ถัดไปจึงไม่เห็นการแก้ไขนั้น แบบฝึกยืนยันไว้ว่า `SHOP_CURRENCY` ไม่อยู่ใน Environment หลังจาก Test ก่อนหน้าจบ (รัน: `exercises/06_isolation/test_isolation.py`) เมธอดที่ใช้บ่อยมี `setattr`, `setenv`, `delenv`, `setitem` และ `chdir`
 
 </Step>
 
@@ -56,13 +56,13 @@ test ถัดไปไม่เห็นการแก้ แบบฝึก�
 
 ## unittest.mock และกฎข้อสำคัญ: Patch ที่ที่ชื่อถูกใช้
 
-`unittest.mock` มากับ Python ใช้แทนของและบันทึกการเรียกได้ ปัญหาที่เจอบ่อยที่สุดคือ patch ผิดที่ `rates.py` เขียนว่า
+`unittest.mock` มากับ Python และใช้แทนของพร้อมบันทึกการเรียกได้ ปัญหาที่เจอบ่อยที่สุดคือ Patch ผิดที่ ลองดูตัวอย่างที่ `rates.py` เขียนว่า
 
 ```python
 from shop.net import fetch_json
 ```
 
-คำสั่งนี้ทำให้ `rates` มีชื่อ `fetch_json` เป็นของตัวเอง ชี้ไปที่ฟังก์ชันตัวเดียวกับใน `net` แต่เป็นคนละชื่อ ถ้า patch ที่ `net` แล้ว `rates` ยังเรียกตัวเดิม (รัน: `exercises/06_isolation/test_isolation.py`)
+คำสั่งนี้ทำให้ `rates` มีชื่อ `fetch_json` เป็นของตัวเอง ซึ่งชี้ไปที่ฟังก์ชันตัวเดียวกับใน `net` แต่เป็นคนละชื่อกัน ดังนั้นถ้า Patch ที่ `net` แล้ว `rates` ก็ยังเรียกตัวเดิมอยู่ (รัน: `exercises/06_isolation/test_isolation.py`)
 
 ```python
 def test_patching_the_wrong_place_does_nothing():
@@ -78,7 +78,7 @@ def test_patching_where_the_name_is_used_works():
     assert url.endswith("to=USD")
 ```
 
-กฎ: patch ที่โมดูลที่ **ใช้** ชื่อนั้น ไม่ใช่โมดูลที่นิยามมัน และ `fake.call_args` ให้ดูว่าถูกเรียกด้วยอะไร ซึ่งเป็นหลักฐานว่าโค้ดเราถามอัตราของสกุลที่ถูกต้อง
+กฎที่ต้องจำคือให้ Patch ที่โมดูลที่ **ใช้** ชื่อนั้น แทนที่จะ Patch ที่โมดูลซึ่งนิยามมัน นอกจากนี้เรายังดู `fake.call_args` ได้ว่าถูกเรียกด้วยอะไร ซึ่งเป็นหลักฐานว่าโค้ดของเราถามอัตราของสกุลเงินที่ถูกต้อง
 
 </Step>
 
@@ -86,7 +86,7 @@ def test_patching_where_the_name_is_used_works():
 
 ## Fake ที่ส่งเข้าไปเอง มักง่ายกว่า Patch
 
-`checkout(cart, gateway, order_id)` รับ gateway เป็น parameter test จึงส่งของปลอมเข้าไปได้เลย ไม่ต้อง patch อะไร
+`checkout(cart, gateway, order_id)` รับ Gateway เป็น Parameter ดังนั้น Test จึงส่งของปลอมเข้าไปได้เลย โดยไม่ต้อง Patch อะไร
 
 ```python
 class FakeGateway:
@@ -106,7 +106,7 @@ def test_a_declined_payment_keeps_the_cart():
     assert cart.qty("apple") == 1
 ```
 
-`FakeGateway` มี logic จริงเล็กน้อย (บันทึกการเรียก ตอบตามที่ตั้ง) ส่วน `mock.Mock()` เป็นวัตถุที่ยอมรับทุกการเรียกแล้วจำไว้
+`FakeGateway` มี Logic จริงอยู่เล็กน้อย (บันทึกการเรียกและตอบตามที่ตั้งไว้) ส่วน `mock.Mock()` เป็นวัตถุที่ยอมรับทุกการเรียกแล้วจำไว้
 
 ```python
 gateway = mock.Mock()
@@ -115,7 +115,7 @@ checkout(cart, gateway, "A-3")
 gateway.charge.assert_called_once_with(100, "A-3")
 ```
 
-ทั้งสองแบบผ่านในแบบฝึก (รัน: `exercises/06_isolation/test_isolation.py`) เลือกแบบไหน: ถ้าต้องการเช็ก **ผลลัพธ์** ของโค้ดของเรา fake อ่านง่ายกว่า ถ้าอยากเช็กแค่ว่ามีการเรียกด้วย argument ที่ถูก mock สั้นกว่า (ผู้เขียน) การออกแบบให้รับ dependency เป็น parameter ทำให้ทดสอบง่ายโดยไม่ต้อง patch
+ทั้งสองแบบผ่านในแบบฝึก (รัน: `exercises/06_isolation/test_isolation.py`) แล้วเราควรเลือกแบบไหน ถ้าต้องการเช็ก **ผลลัพธ์** ของโค้ดของเรา Fake จะอ่านง่ายกว่า แต่ถ้าอยากเช็กแค่ว่ามีการเรียกด้วย Argument ที่ถูกต้อง Mock จะสั้นกว่า (ผู้เขียน) และการออกแบบให้รับ Dependency เป็น Parameter ก็ทำให้ทดสอบง่ายโดยไม่ต้อง Patch
 
 </Step>
 
@@ -123,7 +123,7 @@ gateway.charge.assert_called_once_with(100, "A-3")
 
 ## เวลา
 
-`is_sale_day(today=None)` ใช้วันที่ที่ส่งเข้าไป ถ้าไม่ส่งจึงใช้วันนี้ test เลยไม่ต้องยุ่งกับนาฬิกา (รัน: `exercises/06_isolation/test_isolation.py`)
+`is_sale_day(today=None)` ใช้วันที่ที่ส่งเข้าไป และจะใช้วันนี้ก็ต่อเมื่อไม่ได้ส่งมา Test จึงไม่ต้องไปยุ่งกับนาฬิกา (รัน: `exercises/06_isolation/test_isolation.py`)
 
 ```python
 def test_an_argument_beats_patching_the_clock():
@@ -132,7 +132,7 @@ def test_an_argument_beats_patching_the_clock():
     assert not is_sale_day(dt.date(2026, 11, 12))
 ```
 
-ส่วน `greeting_now()` ฝังนาฬิกาไว้ในตัว test ต้องแทน `datetime` ด้วยคลาสที่คืนเวลาที่กำหนด
+ส่วน `greeting_now()` ฝังนาฬิกาไว้ในตัวเอง Test จึงต้องแทน `datetime` ด้วยคลาสที่คืนเวลาที่เรากำหนด
 
 ```python
 class FakeNow(dt.datetime):
@@ -144,7 +144,7 @@ monkeypatch.setattr("shop.sale.dt.datetime", FakeNow)
 assert greeting_now() == "good morning"
 ```
 
-ทำได้ แต่ยุ่งกว่ามาก และเตือนว่าโค้ดควรรับเวลาเป็น parameter ตั้งแต่ต้น เวลาเป็นหนึ่งในต้นเหตุหลักของ test ที่ล้มแบบสุ่ม (ผู้เขียน)
+วิธีนี้ทำได้ แต่ยุ่งกว่ามาก และเป็นสัญญาณเตือนว่าโค้ดควรรับเวลาเป็น Parameter ตั้งแต่ต้น เพราะเวลาเป็นหนึ่งในต้นเหตุหลักของ Test ที่ล้มแบบสุ่ม (ผู้เขียน)
 
 </Step>
 
@@ -152,7 +152,7 @@ assert greeting_now() == "good morning"
 
 ## อ่านสิ่งที่โค้ดพิมพ์และ Log
 
-ฟังก์ชันที่ไม่คืนค่าแต่ print หรือ log ทดสอบได้ด้วย `capsys` และ `caplog` (รัน: `exercises/06_isolation/test_isolation.py`)
+ฟังก์ชันที่ไม่คืนค่าแต่ Print หรือ Log นั้นทดสอบได้ด้วย `capsys` และ `caplog` (รัน: `exercises/06_isolation/test_isolation.py`)
 
 ```python
 def test_capsys_reads_what_was_printed(capsys):
@@ -171,12 +171,12 @@ def test_caplog_reads_what_was_logged(caplog):
     assert "large order" in caplog.text
 ```
 
-<Callout type="warn" title="อย่า mock จนไม่เหลืออะไรให้ทดสอบ">
-ถ้า test แทนทุกอย่างรอบฟังก์ชัน แล้วเช็กแค่ว่า mock ถูกเรียก test นั้นพิสูจน์แค่ว่าโค้ดเรียกตามที่เขียน ไม่ได้พิสูจน์ว่าระบบทำงานถูก แทนเฉพาะ **ขอบ** ของระบบ (เครือข่าย เวลา ดิสก์ ผู้ให้บริการภายนอก) และปล่อยโค้ดของเราเองทำงานจริง (ผู้เขียน)
+<Callout type="warn" title="อย่า Mock จนไม่เหลืออะไรให้ทดสอบ">
+ถ้า Test แทนทุกอย่างรอบฟังก์ชัน แล้วเช็กแค่ว่า Mock ถูกเรียก Test นั้นก็พิสูจน์ได้แค่ว่าโค้ดเรียกตามที่เขียนไว้ แต่ไม่ได้พิสูจน์ว่าระบบทำงานถูก เราควรแทนเฉพาะ **ขอบ** ของระบบ (เครือข่าย เวลา ดิสก์ ผู้ให้บริการภายนอก) แล้วปล่อยให้โค้ดของเราเองทำงานจริง (ผู้เขียน)
 </Callout>
 
-<Callout type="try" title="ลองทำใน repo นี้">
-ใน `test_patching_where_the_name_is_used_works` เปลี่ยน `rates` เป็น `net` ใน `mock.patch.object` แล้วรัน ดูว่าล้มด้วยอะไร จากนั้นเปลี่ยนกลับ
+<Callout type="try" title="ลองทำใน Repo นี้">
+ลองเปลี่ยน `rates` เป็น `net` ใน `mock.patch.object` ของ `test_patching_where_the_name_is_used_works` แล้วรัน เพื่อดูว่ามันล้มด้วยอะไร จากนั้นค่อยเปลี่ยนกลับ
 </Callout>
 
 </Step>
@@ -187,7 +187,7 @@ def test_caplog_reads_what_was_logged(caplog):
 
 - ทำไม `mock.patch.object(net, "fetch_json", ...)` ไม่ช่วยเมื่อ `rates` ใช้ `from shop.net import fetch_json`
 - อะไรทำให้ `is_sale_day(today)` ทดสอบง่ายกว่า `greeting_now()`
-- fake กับ mock ต่างกันอย่างไร และคุณเลือกอะไรสำหรับ test ที่เช็กว่า "ปฏิเสธการจ่ายแล้วตะกร้ายังอยู่"
+- Fake กับ Mock ต่างกันอย่างไร และคุณเลือกอะไรสำหรับ Test ที่เช็กว่า "ปฏิเสธการจ่ายแล้วตะกร้ายังอยู่"
 
 </Step>
 
@@ -197,8 +197,8 @@ def test_caplog_reads_what_was_logged(caplog):
 
 | ข้อความ | ที่มา |
 |---|---|
-| test ที่ลืมแทนเครือข่ายล้มด้วย ConnectionError, monkeypatch, setenv, การคืนค่า, patch ผิดที่ไม่มีผล, patch ถูกที่, `call_args` | รัน: `exercises/06_isolation/test_isolation.py` |
-| FakeGateway และ mock.Mock ผ่านทั้งสองแบบ, อาร์กิวเมนต์เวลา, การแทน datetime, capsys, caplog | รัน: `exercises/06_isolation/test_isolation.py` |
-| ข้อแนะนำเรื่องเลือก fake หรือ mock, ออกแบบให้รับเวลาเป็น parameter, การ mock เฉพาะขอบของระบบ | ผู้เขียน |
+| Test ที่ลืมแทนเครือข่ายล้มด้วย ConnectionError, Monkeypatch, Setenv, การคืนค่า, Patch ผิดที่ไม่มีผล, Patch ถูกที่, `call_args` | รัน: `exercises/06_isolation/test_isolation.py` |
+| FakeGateway และ mock.Mock ผ่านทั้งสองแบบ, อาร์กิวเมนต์เวลา, การแทน Datetime, Capsys, Caplog | รัน: `exercises/06_isolation/test_isolation.py` |
+| ข้อแนะนำเรื่องเลือก Fake หรือ Mock, ออกแบบให้รับเวลาเป็น Parameter, การ Mock เฉพาะขอบของระบบ | ผู้เขียน |
 
 </Step>

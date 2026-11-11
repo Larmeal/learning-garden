@@ -1,6 +1,6 @@
 ---
 title: Plugin ที่มากับ Pytest
-summary: ดักข้อความ print และ log, จัดการ warning, จำผลรอบก่อนด้วย cache, ออกรายงาน JUnit XML และแยกผลย่อยด้วย subtests บทนี้ไล่ plugin ในตัวที่ใช้บ่อยโดยรันทุกอย่างบนโปรเจกต์ชั่วคราวเพื่อดูผลจริง
+summary: ดักข้อความ Print และ Log, จัดการ Warning, จำผลรอบก่อนด้วย Cache, ออกรายงาน JUnit XML และแยกผลย่อยด้วย Subtests เราจะไล่ดู Plugin ในตัวที่ใช้บ่อย โดยรันทุกอย่างบนโปรเจกต์ชั่วคราวเพื่อดูผลจริง
 order: 8
 phase: C
 level: 3
@@ -17,9 +17,9 @@ import Callout from '../../../../components/Callout.astro';
 
 ## ทำไมต้องรู้จัก Plugin เหล่านี้
 
-บท [Pytest ทำงานอย่างไร](/pytest/how-pytest-runs/#ทุกอย่างเป็น-plugin) เห็นว่า pytest มี plugin ในตัว 30 ตัว หลายตัวคือสิ่งที่เราใช้ทุกวันโดยไม่รู้ตัว: ตอน test ล้มแล้วเห็นข้อความที่ test พิมพ์ นั่นคือ `capture` ตอนรัน `--lf` นั่นคือ `cacheprovider` บทนี้เปิดดูห้าตัวที่มีเรื่องให้ตัดสินใจมากที่สุด
+ในบท [Pytest ทำงานอย่างไร](/pytest/how-pytest-runs/#ทุกอย่างเป็น-plugin) เราเห็นแล้วว่า Pytest มี Plugin ในตัว 30 ตัว ซึ่งหลายตัวเราใช้ทุกวันโดยไม่รู้ตัว เช่น ตอน Test ล้มแล้วเห็นข้อความที่ Test พิมพ์ออกมา นั่นคือ `capture` และตอนรัน `--lf` นั่นคือ `cacheprovider` คราวนี้เราจะเปิดดูห้าตัวที่มีเรื่องให้ตัดสินใจมากที่สุด
 
-ผลทุกอย่างมาจาก `internals/10_builtin_plugins.py` ที่สร้างโปรเจกต์ชั่วคราวทีละเรื่องแล้วรัน pytest ใน interpreter ใหม่ (รัน: `internals/10_builtin_plugins.py`)
+ผลทุกอย่างในหน้านี้มาจาก `internals/10_builtin_plugins.py` ซึ่งสร้างโปรเจกต์ชั่วคราวขึ้นมาทีละเรื่อง แล้วรัน Pytest ใน Interpreter ใหม่ (รัน: `internals/10_builtin_plugins.py`)
 
 </Step>
 
@@ -27,7 +27,7 @@ import Callout from '../../../../components/Callout.astro';
 
 ## Capture: ทำไม Print ถึงหายไปตอน Test ผ่าน
 
-pytest ดักสิ่งที่ถูกเขียนไป stdout และ stderr ระหว่างรัน test และแสดงเฉพาะตอน test ล้ม (source: `_pytest/capture.py`) โปรเจกต์แบบฝึกมี test ที่ `print("hello from print")` แล้ว `assert False` ผลคือ (รัน)
+Pytest ดักสิ่งที่ถูกเขียนไป Stdout และ Stderr ระหว่างรัน Test และแสดงเฉพาะตอน Test ล้ม (Source: `_pytest/capture.py`) โปรเจกต์แบบฝึกมี Test ที่ `print("hello from print")` แล้ว `assert False` เมื่อรันจะได้ผลดังนี้ (รัน)
 
 ```text
 ------------------------------ Captured stdout call ------------------------------
@@ -36,16 +36,16 @@ hello from print
 to stderr
 ```
 
-test ที่ `print` แล้วผ่านไม่แสดงอะไร ใส่ `-s` (หรือ `--capture=no`) ถึงจะเห็น
+ส่วน Test ที่ `print` แล้วผ่านจะไม่แสดงอะไรเลย ต้องใส่ `-s` (หรือ `--capture=no`) ถึงจะเห็น
 
-มีสองระดับของการดัก (source: `FDCapture` กับ `SysCapture`)
+มีสองระดับของการดัก (Source: `FDCapture` กับ `SysCapture`)
 
-- **`sys`** ดักเฉพาะที่เขียนผ่าน `sys.stdout` และ `sys.stderr` ซึ่งคือ `print` ปกติ
-- **`fd`** (ค่าเริ่มต้น) ดักที่ file descriptor 1 และ 2 ด้วย จึงจับสิ่งที่โค้ด C หรือ subprocess เขียนได้
+- ระดับ `sys` ดักเฉพาะที่เขียนผ่าน `sys.stdout` และ `sys.stderr` ซึ่งก็คือ `print` ปกติ
+- ระดับ `fd` (ค่าเริ่มต้น) จะดักที่ File Descriptor 1 และ 2 ด้วย จึงจับสิ่งที่โค้ด C หรือ Subprocess เขียนได้
 
-ความต่างนี้เห็นชัดใน fixture สองตัว `capsys` ดักระดับ sys ส่วน `capfd` ดักระดับ fd แบบฝึกมี test ที่เขียนด้วย `os.write(1, b"...")` ตรงๆ `capfd.readouterr().out` เห็นข้อความ แต่ `capsys.readouterr().out` ได้สตริงว่าง
+ความต่างนี้เห็นชัดใน Fixture สองตัว คือ `capsys` ที่ดักระดับ Sys ส่วน `capfd` ดักระดับ fd ในแบบฝึกมี Test ที่เขียนด้วย `os.write(1, b"...")` ตรง ๆ ซึ่ง `capfd.readouterr().out` เห็นข้อความ แต่ `capsys.readouterr().out` ได้สตริงว่าง
 
-fixture `capsys` และ `capfd` ให้ `readouterr()` ที่คืน `(out, err)` และล้างตัวดักทุกครั้งที่เรียก
+Fixture `capsys` และ `capfd` ทั้งคู่มี `readouterr()` ที่คืน `(out, err)` และจะล้างตัวดักทุกครั้งที่เรียก
 
 </Step>
 
@@ -53,19 +53,19 @@ fixture `capsys` และ `capfd` ให้ `readouterr()` ที่คืน `
 
 ## Logging: ระดับเริ่มต้นที่ทำให้ INFO หาย
 
-plugin `logging` ดัก log ของ test ให้ใน section `Captured log call` ผลของโปรเจกต์ที่ log ทั้ง `info` และ `warning` แล้วล้ม (รัน)
+Plugin `logging` ดัก Log ของ Test แล้วแสดงใน Section `Captured log call` ลองดูผลของโปรเจกต์ที่ Log ทั้ง `info` และ `warning` แล้วล้ม (รัน)
 
 ```text
 ------------------------------ Captured log call -------------------------------
 WARNING  shop:test_log.py:7 this is a warning
 ```
 
-ไม่มีบรรทัด INFO เพราะ logger ราก (root logger) ของ Python มีระดับเริ่มต้นเป็น WARNING และ pytest ไม่เปลี่ยนมัน ปรับได้สองแบบ
+จะเห็นว่าไม่มีบรรทัด INFO เพราะ Logger ราก (Root Logger) ของ Python มีระดับเริ่มต้นเป็น WARNING และ Pytest ไม่ได้เปลี่ยนมัน ซึ่งเราปรับได้สองแบบ
 
-- `--log-level=INFO` หรือ `log_level = INFO` ใน config เพื่อให้ดักถึงระดับนั้น
-- **live log** ด้วย `log_cli = true` และ `log_cli_level = INFO` แสดง log ขณะ test รันแทนที่จะรอตอนล้ม แบบฝึกได้ `live log call` พร้อมบรรทัด `INFO     shop:test_log.py:6 this is info`
+- ใช้ `--log-level=INFO` หรือ `log_level = INFO` ใน Config เพื่อให้ดักถึงระดับนั้น
+- ใช้ Live Log ด้วย `log_cli = true` และ `log_cli_level = INFO` เพื่อแสดง Log ขณะ Test รันแทนที่จะรอตอนล้ม ในแบบฝึกได้ `live log call` พร้อมบรรทัด `INFO     shop:test_log.py:6 this is info`
 
-เมื่อต้องการเช็ก log ใน test ใช้ `caplog` (บท [แยก Test](/pytest/isolation/#อ่านสิ่งที่โค้ดพิมพ์และ-log)) ซึ่งมี `messages`, `records`, `text` และ `at_level(...)`
+ถ้าต้องการเช็ก Log ใน Test ให้ใช้ `caplog` (บท [แยก Test](/pytest/isolation/#อ่านสิ่งที่โค้ดพิมพ์และ-log)) ซึ่งมี `messages`, `records`, `text` และ `at_level(...)`
 
 </Step>
 
@@ -73,17 +73,17 @@ WARNING  shop:test_log.py:7 this is a warning
 
 ## Warnings: สรุปท้ายรายงาน
 
-plugin `warnings` เก็บ warning ที่เกิดระหว่างรัน test และพิมพ์สรุปท้ายรายงานแทนที่จะแสดงทันที (source: `_pytest/warnings.py`) โปรเจกต์ที่ฟังก์ชัน `noisy()` ออก `DeprecationWarning("old api")` ให้ส่วน `warnings summary` และข้อความ `DeprecationWarning: old api` (รัน)
+Plugin `warnings` เก็บ Warning ที่เกิดระหว่างรัน Test และพิมพ์สรุปท้ายรายงานแทนที่จะแสดงทันที (Source: `_pytest/warnings.py`) ในโปรเจกต์ที่ฟังก์ชัน `noisy()` ออก `DeprecationWarning("old api")` เราจะได้ส่วน `warnings summary` และข้อความ `DeprecationWarning: old api` (รัน)
 
-ควบคุมได้สามระดับ
+เราควบคุมได้สามระดับ
 
 | ระดับ | วิธี | ผลที่ยืนยัน |
 |---|---|---|
-| test เดียว | `@pytest.mark.filterwarnings("error")` | warning กลายเป็น exception: test นั้นล้ม |
-| test เดียว | `@pytest.mark.filterwarnings("ignore::DeprecationWarning")` | warning หายไปจากสรุป |
-| ทั้งโปรเจกต์ | `-o filterwarnings=ignore::DeprecationWarning` (หรือ `filterwarnings` ใน config) | ไม่มีส่วน `warnings summary` เลย |
+| Test เดียว | `@pytest.mark.filterwarnings("error")` | Warning กลายเป็น Exception ทำให้ Test นั้นล้ม |
+| Test เดียว | `@pytest.mark.filterwarnings("ignore::DeprecationWarning")` | Warning หายไปจากสรุป |
+| ทั้งโปรเจกต์ | `-o filterwarnings=ignore::DeprecationWarning` (หรือ `filterwarnings` ใน Config) | ไม่มีส่วน `warnings summary` เลย |
 
-แนวปฏิบัติที่ได้ผลคือตั้ง `filterwarnings = ["error"]` ใน config ให้ warning ทุกตัวเป็นความล้ม แล้วยกเว้นเฉพาะตัวที่รู้แล้วทีละตัว การเลื่อนอัปเกรดไลบรารีที่ประกาศเลิกใช้ฟังก์ชันจะถูกจับก่อนพังจริง (ผู้เขียน)
+แนวปฏิบัติที่ได้ผลคือตั้ง `filterwarnings = ["error"]` ใน Config ให้ Warning ทุกตัวทำให้ล้ม แล้วยกเว้นเฉพาะตัวที่เรารู้แล้วทีละตัว ด้วยวิธีนี้การเลื่อนอัปเกรดไลบรารีที่ประกาศเลิกใช้ฟังก์ชันจะถูกจับได้ก่อนที่มันจะพังจริง (ผู้เขียน)
 
 </Step>
 
@@ -91,23 +91,23 @@ plugin `warnings` เก็บ warning ที่เกิดระหว่า�
 
 ## Cache: Pytest จำอะไรไว้
 
-plugin `cacheprovider` เก็บผลไว้ในโฟลเดอร์ `.pytest_cache` ข้างโปรเจกต์ (source: `_pytest/cacheprovider.py`) หลังรันโปรเจกต์ที่มี `test_b` ล้ม ไฟล์ที่เกิดคือ (รัน)
+Plugin `cacheprovider` เก็บผลไว้ในโฟลเดอร์ `.pytest_cache` ข้างโปรเจกต์ (Source: `_pytest/cacheprovider.py`) หลังรันโปรเจกต์ที่มี `test_b` ล้ม จะได้ไฟล์ดังนี้ (รัน)
 
 ```text
 .gitignore   CACHEDIR.TAG   README.md   v/cache/lastfailed   v/cache/nodeids
 ```
 
-`v/cache/lastfailed` มี `{"test_cache.py::test_b": true}` มีไฟล์ `.gitignore` ในโฟลเดอร์เองจึงไม่ปนเข้า git ตัวเลือกที่ใช้ข้อมูลนี้
+ไฟล์ `v/cache/lastfailed` มี `{"test_cache.py::test_b": true}` อยู่ข้างใน และโฟลเดอร์นี้มีไฟล์ `.gitignore` ของตัวเอง จึงไม่ปนเข้า Git ส่วนตัวเลือกที่ใช้ข้อมูลนี้มีดังนี้
 
-| option | ทำอะไร | ผลที่ยืนยัน |
+| Option | ทำอะไร | ผลที่ยืนยัน |
 |---|---|---|
-| `--lf` | รันเฉพาะที่ล้มรอบก่อน | `1 failed` และไม่มี test อื่น |
+| `--lf` | รันเฉพาะที่ล้มรอบก่อน | `1 failed` และไม่มี Test อื่น |
 | `--ff` | รันที่ล้มก่อน แล้วตามด้วยที่เหลือ | ลำดับ `test_b`, `test_a`, `test_c` และข้อความ `run-last-failure: rerun previous 1 failure first` |
-| `--sw` (stepwise) | หยุดที่ตัวที่ล้ม รอบหน้าเริ่มต่อจากตรงนั้น | `Interrupted: Test failed, continuing from this test next run.` สรุป `1 failed, 1 passed` |
-| `--nf` | รัน test ใหม่ก่อน | |
-| `--cache-show` | แสดงเนื้อหา cache | พิมพ์ `cachedir:` |
+| `--sw` (Stepwise) | หยุดที่ตัวที่ล้ม รอบหน้าเริ่มต่อจากตรงนั้น | `Interrupted: Test failed, continuing from this test next run.` สรุป `1 failed, 1 passed` |
+| `--nf` | รัน Test ใหม่ก่อน | |
+| `--cache-show` | แสดงเนื้อหา Cache | พิมพ์ `cachedir:` |
 
-cache ของ plugin ของเราใช้ได้ผ่าน fixture `cache` (`cache.get(key, default)` และ `cache.set(key, value)`) สำหรับเก็บข้อมูลข้ามรอบ เช่น ลำดับ test ที่ช้า
+Plugin ที่เราเขียนเองก็ใช้ Cache ได้ผ่าน Fixture `cache` (`cache.get(key, default)` และ `cache.set(key, value)`) เพื่อเก็บข้อมูลข้ามรอบ เช่น ลำดับ Test ที่ช้า
 
 </Step>
 
@@ -115,9 +115,9 @@ cache ของ plugin ของเราใช้ได้ผ่าน fixture 
 
 ## JUnit XML: ส่งผลให้ CI
 
-`--junitxml=report.xml` เขียนผลเป็นไฟล์ XML ที่ CI ส่วนใหญ่อ่านเป็น (source: `_pytest/junitxml.py`) โปรเจกต์ที่มี 8 test สองตัวล้ม ให้ `<testsuite>` ที่มี `tests="8"`, `failures="2"`, `errors="0"` (รัน) แต่ละ test เป็น `<testcase classname=... name=...>` และตัวที่ล้มมี `<failure>` ข้างใน ในแบบฝึกชื่อที่ล้มตรงกับ `test_print_and_fail` และ `test_the_mark_turns_it_into_an_error`
+`--junitxml=report.xml` จะเขียนผลเป็นไฟล์ XML ซึ่ง CI ส่วนใหญ่อ่านเป็น (Source: `_pytest/junitxml.py`) ในโปรเจกต์ที่มี 8 Test และล้มสองตัว เราจะได้ `<testsuite>` ที่มี `tests="8"`, `failures="2"`, `errors="0"` (รัน) โดยแต่ละ Test จะเป็น `<testcase classname=... name=...>` และตัวที่ล้มจะมี `<failure>` อยู่ข้างใน ในแบบฝึกชื่อที่ล้มตรงกับ `test_print_and_fail` และ `test_the_mark_turns_it_into_an_error`
 
-การเติม property ในรายงานของเราเอง (`report.user_properties`) จะไปอยู่ใน XML ด้วย ซึ่งเป็นทางส่งข้อมูลเสริมให้ CI ([บท 14](/pytest/plugins/))
+ถ้าเราเติม Property ในรายงานเอง (`report.user_properties`) ค่านั้นก็จะไปอยู่ใน XML ด้วย ซึ่งเป็นทางส่งข้อมูลเสริมให้ CI ([บท 14](/pytest/plugins/))
 
 </Step>
 
@@ -125,7 +125,7 @@ cache ของ plugin ของเราใช้ได้ผ่าน fixture 
 
 ## Subtests: หลายผลใน Test เดียว
 
-ใน pytest 9.2.0 มี fixture `subtests` ที่ให้รายงานแต่ละรอบของ loop แยกกัน (source: `_pytest/subtests.py`)
+ใน Pytest 9.2.0 มี Fixture `subtests` ที่ช่วยให้รายงานแต่ละรอบของ Loop แยกกันได้ (Source: `_pytest/subtests.py`)
 
 ```python
 def test_each_row(subtests):
@@ -134,7 +134,7 @@ def test_each_row(subtests):
             assert n != 2
 ```
 
-ผลคือ (รัน)
+เมื่อรันจะได้ผลดังนี้ (รัน)
 
 ```text
 uuuuF
@@ -143,10 +143,10 @@ FAILED test_sub.py::test_each_row - contains 1 failed subtest
 2 failed, 3 subtests passed in 0.05s
 ```
 
-รอบที่ล้มไม่หยุด loop: อีกสามรอบยังรันและผ่าน (`u` คือ subtest ที่ผ่าน) ตัว test ถูกนับเป็นล้มเพราะมี subtest ล้ม และรอบที่ล้มแสดง `(n=2)` ตามที่ส่งเข้า `subtests.test` เทียบกับ `parametrize` ([บท 4](/pytest/parametrize/#test-เดียว-หลายค่า)): ใช้ parametrize เมื่อค่ารู้ก่อนรัน และใช้ subtests เมื่อค่ามาจากข้อมูลที่อ่านตอนรัน เช่น แถวในไฟล์
+รอบที่ล้มไม่ได้หยุด Loop อีกสามรอบยังรันและผ่าน (`u` คือ Subtest ที่ผ่าน) ส่วนตัว Test ถูกนับเป็นล้มเพราะมี Subtest ล้ม และรอบที่ล้มแสดง `(n=2)` ตามที่เราส่งเข้า `subtests.test` ถ้าเทียบกับ `parametrize` ([บท 4](/pytest/parametrize/#test-เดียว-หลายค่า)) ให้ใช้ Parametrize เมื่อรู้ค่าก่อนรัน และใช้ Subtests เมื่อค่ามาจากข้อมูลที่อ่านตอนรัน เช่น แถวในไฟล์
 
-<Callout type="try" title="ลองทำใน repo นี้">
-รัน `uv run python internals/10_builtin_plugins.py` แล้วเปลี่ยน `test_logs_and_fails` ให้ log ที่ระดับ `DEBUG` ด้วย แล้วลอง `--log-level=DEBUG` ดู section `Captured log call` จากนั้นเพิ่ม `-rA` เพื่อดูสรุปของทุก test รวมข้อความที่ดักไว้ของ test ที่ผ่าน
+<Callout type="try" title="ลองทำใน Repo นี้">
+ลองรัน `uv run python internals/10_builtin_plugins.py` แล้วเปลี่ยน `test_logs_and_fails` ให้ Log ที่ระดับ `DEBUG` ด้วย จากนั้นลอง `--log-level=DEBUG` แล้วดู Section `Captured log call` และเพิ่ม `-rA` เพื่อดูสรุปของทุก Test รวมข้อความที่ดักไว้ของ Test ที่ผ่านด้วย
 </Callout>
 
 </Step>
@@ -155,9 +155,9 @@ FAILED test_sub.py::test_each_row - contains 1 failed subtest
 
 ## เช็กตัวเอง
 
-- test ผ่านและมี `print` ข้างใน ทำไมถึงไม่เห็นข้อความ และมีสองวิธีที่จะเห็น
-- ทำไม log ระดับ INFO ไม่ขึ้นใน `Captured log call` ทั้งที่ test เรียก `log.info(...)`
-- ทีมอยากให้ warning ทุกตัวทำให้ CI แดง ตั้งค่าอย่างไร และจะยกเว้นตัวหนึ่งอย่างไร
+- Test ผ่านและมี `print` ข้างใน ทำไมถึงไม่เห็นข้อความ และมีสองวิธีที่จะเห็น
+- ทำไม Log ระดับ INFO ไม่ขึ้นใน `Captured log call` ทั้งที่ Test เรียก `log.info(...)`
+- ทีมอยากให้ Warning ทุกตัวทำให้ CI แดง ตั้งค่าอย่างไร และจะยกเว้นตัวหนึ่งอย่างไร
 
 </Step>
 
@@ -168,12 +168,12 @@ FAILED test_sub.py::test_each_row - contains 1 failed subtest
 | ข้อความ | ที่มา |
 |---|---|
 | `Captured stdout call` และ `Captured stderr call` เมื่อล้ม, `-s` ทำให้เห็น, `capfd` เห็น `os.write` แต่ `capsys` ไม่เห็น | รัน: `internals/10_builtin_plugins.py` |
-| log ระดับ WARNING ขึ้นแต่ INFO ไม่ขึ้น, live log ด้วย `log_cli` | รัน: `internals/10_builtin_plugins.py` |
-| `warnings summary`, `filterwarnings` ระดับ test และระดับ config | รัน: `internals/10_builtin_plugins.py` |
+| Log ระดับ WARNING ขึ้นแต่ INFO ไม่ขึ้น, Live Log ด้วย `log_cli` | รัน: `internals/10_builtin_plugins.py` |
+| `warnings summary`, `filterwarnings` ระดับ Test และระดับ Config | รัน: `internals/10_builtin_plugins.py` |
 | ไฟล์ใน `.pytest_cache`, `lastfailed`, ผลของ `--lf`, `--ff`, `--sw`, `--cache-show` | รัน: `internals/10_builtin_plugins.py` |
-| `--junitxml`: `tests="8"`, `failures="2"`, ชื่อ test ที่ล้ม | รัน: `internals/10_builtin_plugins.py` |
-| subtests: `uuuuF`, `SUBFAILED`, `2 failed, 3 subtests passed` | รัน: `internals/10_builtin_plugins.py` |
-| ระดับ `fd` เป็นค่าเริ่มต้น, ชื่อและหน้าที่ของ plugin แต่ละตัว, fixture `cache` | source: `_pytest/capture.py`, `warnings.py`, `cacheprovider.py`, `junitxml.py`, `subtests.py` |
+| `--junitxml`: `tests="8"`, `failures="2"`, ชื่อ Test ที่ล้ม | รัน: `internals/10_builtin_plugins.py` |
+| Subtests: `uuuuF`, `SUBFAILED`, `2 failed, 3 subtests passed` | รัน: `internals/10_builtin_plugins.py` |
+| ระดับ `fd` เป็นค่าเริ่มต้น, ชื่อและหน้าที่ของ Plugin แต่ละตัว, Fixture `cache` | Source: `_pytest/capture.py`, `warnings.py`, `cacheprovider.py`, `junitxml.py`, `subtests.py` |
 | แนวปฏิบัติ `filterwarnings = ["error"]` | ผู้เขียน |
 
 </Step>
