@@ -20,10 +20,10 @@ const DURATION = 15;
 const THREADS = 16;
 
 const MARKS_TH: Mark[] = [
-  { at: 0, name: 'สร้าง DataFrame', title: 'spark.range(...) คือการเรียก method ใน JVM ผ่าน Py4J', text: 'Python ส่งข้อความเล็กๆ ผ่าน socket JVM สร้าง Dataset (แค่แผน ยังไม่มีข้อมูล) แล้วส่ง handle กลับมา ตัวแปร df ใน Python เก็บแค่ handle นั้น (df._jdf เป็น JavaObject)' },
-  { at: 2.6, name: 'transformation', title: 'filter ก็คือเรียก method อีกครั้ง ได้ handle ใหม่', text: 'ไม่มีแถวข้อมูลข้าม gateway เลย ทุกอย่างที่ผ่านคือชื่อ method กับ argument เล็กๆ และ handle ที่ตอบกลับ ส่วนที่เป็นแผนอยู่ใน JVM ทั้งหมด จึงไม่ช้ากว่า Scala' },
-  { at: 5, name: 'action', title: 'action ทำให้ JVM รัน job: task เป็น thread ใน JVM เดียว (local mode)', text: 'ใน local[*] driver เป็น executor ตัวเดียว task ทุกตัวเป็น thread ใน JVM เดียวกัน ข้อมูลอ่านและกรองที่นั่น Python ยังรออยู่และยังไม่ได้ข้อมูลอะไร' },
-  { at: 8.4, name: 'ผลลัพธ์', title: 'สิ่งที่ข้ามกลับมาขึ้นกับ action ที่เลือก', text: 'collect และ toPandas ก๊อปผลทั้งหมดเข้า memory ของ driver (และถูกส่งมาที่ Python) show ส่งกลับแค่ข้อความที่พิมพ์ (20 แถวแรก) write ไม่ผ่าน driver เลย: executor เขียนไฟล์เอง' },
+  { at: 0, name: 'สร้าง DataFrame', title: 'spark.range(...) คือการเรียก method ใน JVM ผ่าน Py4J', text: 'Python ส่งข้อความเล็ก ๆ ผ่าน Socket ไปให้ JVM จากนั้น JVM จะสร้าง Dataset (เป็นแค่แผน ยังไม่มีข้อมูล) แล้วส่ง Handle กลับมา ตัวแปร df ใน Python จึงเก็บแค่ Handle นั้น (df._jdf เป็น JavaObject)' },
+  { at: 2.6, name: 'Transformation', title: 'filter ก็คือการเรียก Method อีกครั้ง และได้ Handle ใหม่กลับมา', text: 'ไม่มีแถวข้อมูลข้าม Gateway เลย สิ่งที่ผ่านไปมามีแค่ชื่อ Method กับ Argument เล็ก ๆ และ Handle ที่ตอบกลับ ส่วนที่เป็นแผนอยู่ใน JVM ทั้งหมด จึงไม่ช้ากว่า Scala' },
+  { at: 5, name: 'Action', title: 'Action ทำให้ JVM รัน Job โดย Task เป็น Thread ใน JVM เดียว (Local Mode)', text: 'ใน local[*] Driver เป็น Executor ตัวเดียว และ Task ทุกตัวเป็น Thread ใน JVM เดียวกัน ข้อมูลจะถูกอ่านและกรองที่นั่น ส่วน Python ยังรออยู่และยังไม่ได้รับข้อมูลอะไรเลย' },
+  { at: 8.4, name: 'ผลลัพธ์', title: 'สิ่งที่ข้ามกลับมาขึ้นอยู่กับ Action ที่เลือก', text: 'collect และ toPandas จะก๊อปผลทั้งหมดเข้า Memory ของ Driver (และส่งมาที่ Python) ส่วน show ส่งกลับมาแค่ข้อความที่พิมพ์ (20 แถวแรก) และ write ไม่ผ่าน Driver เลย เพราะ Executor เป็นคนเขียนไฟล์เอง' },
 ];
 
 const MARKS_EN: Mark[] = [
@@ -41,14 +41,14 @@ const TEXT: Record<Lang, {
   writeOwn: string; noDriver: string; jobResult: string; showSends: string; sendsOnAction: string; caption: string;
 }> = {
   th: {
-    title: 'PySpark คุยกับ JVM ผ่าน Py4J: อะไรข้าม อะไรไม่ข้าม', actionLabel: 'action', sizeLabel: 'จำนวนแถวหลังกรอง', small: 'กรองเหลือ 10 แถว', big: 'ไม่กรอง (1,000,000 แถว)',
-    svgLabel: 'ข้อความระหว่าง Python กับ JVM ผ่าน Py4J และข้อมูลที่ข้ามกลับ', python: 'Python (process ของคุณ)', printed: '→ None (พิมพ์แล้ว)',
-    handleNote1: 'ตัวแปรใน Python เก็บแค่ handle', handleNote2: '(df._jdf เป็น JavaObject) ไม่ใช่ข้อมูล', pyMem: 'memory ของ Python/driver ตอนนี้', rowsWord: 'แถว',
-    showOnly: 'เฉพาะที่พิมพ์ (ไม่เกิน 20)', fitDriver: 'ต้องพอดี memory ของ driver', gateway: 'Py4J (socket)', printedText: 'ข้อความที่พิมพ์', rowsBack: 'แถวข้ามกลับมา',
-    noRowsBack: 'ไม่มีแถวข้ามกลับ', calls: 'การเรียก Py4J', rowsBackCount: 'แถวข้ามกลับ', jvm: 'JVM (driver + executor ใน local[*])', datasetNote: 'Dataset ใน JVM (แผน ไม่ใช่ข้อมูล)',
-    threads: 'task = thread ใน JVM เดียวกัน (16 partition)', writeOwn: 'executor เขียนไฟล์เอง', noDriver: 'ไม่ผ่าน driver และไม่ผ่าน Python', jobResult: 'ผลของ job (อยู่ใน JVM ก่อน)',
-    showSends: 'ส่งแค่ 20 แถวแรก', sendsOnAction: 'ส่งเมื่อ action ขอ',
-    caption: 'การที่ DataFrame ใน Python เก็บแค่ handle (df._jdf) และ collect, show, toPandas, write ทำงานตามที่วาด ตรวจแล้วใน exercises/01_architecture.py ส่วนจำนวนแถวในภาพ ชื่อ handle (H1, H2) และชื่อ method ที่ Python ส่งไป เป็นภาพประกอบ ไม่ใช่ข้อความ Py4J จริงทุกตัวอักษร',
+    title: 'PySpark คุยกับ JVM ผ่าน Py4J อะไรข้ามไปมา และอะไรไม่ข้าม', actionLabel: 'Action', sizeLabel: 'จำนวนแถวหลังกรอง', small: 'กรองเหลือ 10 แถว', big: 'ไม่กรอง (1,000,000 แถว)',
+    svgLabel: 'ข้อความระหว่าง Python กับ JVM ผ่าน Py4J และข้อมูลที่ข้ามกลับ', python: 'Python (Process ของคุณ)', printed: '→ None (พิมพ์แล้ว)',
+    handleNote1: 'ตัวแปรใน Python เก็บแค่ Handle', handleNote2: '(df._jdf เป็น JavaObject) ไม่ได้เก็บข้อมูล', pyMem: 'Memory ของ Python/Driver ตอนนี้', rowsWord: 'แถว',
+    showOnly: 'เฉพาะที่พิมพ์ (ไม่เกิน 20)', fitDriver: 'ต้องพอดีกับ Memory ของ Driver', gateway: 'Py4J (socket)', printedText: 'ข้อความที่พิมพ์', rowsBack: 'แถวข้ามกลับมา',
+    noRowsBack: 'ไม่มีแถวข้ามกลับ', calls: 'การเรียก Py4J', rowsBackCount: 'แถวข้ามกลับ', jvm: 'JVM (Driver + Executor ใน local[*])', datasetNote: 'Dataset ใน JVM (เป็นแผน ไม่ใช่ข้อมูล)',
+    threads: 'Task = Thread ใน JVM เดียวกัน (16 Partition)', writeOwn: 'Executor เขียนไฟล์เอง', noDriver: 'ไม่ผ่าน Driver และไม่ผ่าน Python', jobResult: 'ผลของ Job (อยู่ใน JVM ก่อน)',
+    showSends: 'ส่งแค่ 20 แถวแรก', sendsOnAction: 'ส่งเมื่อ Action ขอ',
+    caption: 'เราตรวจใน exercises/01_architecture.py แล้วว่า DataFrame ใน Python เก็บแค่ Handle (df._jdf) และ collect, show, toPandas, write ทำงานตามที่วาดไว้ ส่วนจำนวนแถวในภาพ ชื่อ Handle (H1, H2) และชื่อ Method ที่ Python ส่งไปเป็นภาพประกอบ จึงไม่ได้ตรงกับข้อความ Py4J จริงทุกตัวอักษร',
   },
   en: {
     title: 'PySpark talks to the JVM through Py4J: what crosses and what does not', actionLabel: 'action', sizeLabel: 'Rows after the filter', small: 'Filter down to 10 rows', big: 'No filter (1,000,000 rows)',

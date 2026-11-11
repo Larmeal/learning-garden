@@ -32,13 +32,13 @@ interface S extends StepInfo {
 }
 
 const STEPS_TH: S[] = [
-  { name: 'ข้อมูล', title: 'ข้อมูลฝึก: x1, x2, c, label', text: 'ตัวเลขสองคอลัมน์ ข้อความหนึ่งคอลัมน์ (a, b, c) และ label 0 หรือ 1 เรียก pipeline.fit(train) ซึ่งเป็น action: Spark เริ่มรัน job (วัดจริง: 14 job)', stage: -1, fitted: 0, phase: 'fit' },
-  { name: 'StringIndexer', title: 'Estimator: fit ได้ StringIndexerModel', text: 'fit อ่านข้อมูลนับว่ามีค่า a, b, c อะไรบ้าง ได้ model ที่จำลำดับ [a, b, c] จากนั้น model.transform เติม c_idx (a เป็น 0.0, c เป็น 2.0) pipeline เอาผลนี้ส่งต่อให้ขั้นถัดไป', stage: 0, fitted: 1, phase: 'fit' },
-  { name: 'OneHotEncoder', title: 'Estimator: fit ได้ OneHotEncoderModel', text: 'fit หาจำนวน category (3) แล้ว model แปลง c_idx เป็นเวกเตอร์ sparse ค่าเริ่มต้นตัด category สุดท้ายทิ้ง (dropLast) จึงมีขนาด 2: c ได้ (2,[],[]) ที่เป็นศูนย์ทั้งหมด', stage: 1, fitted: 2, phase: 'fit' },
-  { name: 'VectorAssembler', title: 'Transformer: ไม่ต้อง fit', text: 'VectorAssembler รวม x1, x2 และ c_vec เป็น column เวกเตอร์เดียวชื่อ features ไม่มีอะไรให้เรียนรู้จากข้อมูล จึงเป็น Transformer ที่อยู่ใน PipelineModel ตามเดิม', stage: 2, fitted: 3, phase: 'fit' },
-  { name: 'LogisticRegression', title: 'Estimator ตัวสุดท้าย: ขั้นที่หนักที่สุด', text: 'fit วนปรับน้ำหนักซ้ำหลายรอบบนข้อมูล ซึ่งเป็นส่วนที่เกิดหลาย job ได้ model ที่ถือ coefficients [2.71, -1.87, 1.50, -0.14] และ intercept 0.118 ซึ่งตรงกับที่ข้อมูลถูกสร้าง (x1 ดันไปทาง 1, x2 ดันออก)', stage: 3, fitted: 4, phase: 'fit' },
-  { name: 'PipelineModel', title: 'ได้ PipelineModel: 3 model กับ 1 transformer', text: 'pipeline.fit คืน PipelineModel ที่มี stages = [StringIndexerModel, OneHotEncoderModel, VectorAssembler, LogisticRegressionModel] ต่อจากนี้ไม่มีอะไรต้องเรียนรู้อีก', stage: -1, fitted: 4, phase: 'fit' },
-  { name: 'transform(test)', title: 'model.transform(test): ใช้ทุก stage ตามลำดับ', text: 'เติม rawPrediction, probability, prediction ท้ายตาราง ขั้นนี้ไม่เกิด job เลย (วัดจริง: 0 job) เพราะ transform แค่ต่อแผน plan จริงเป็น Project ซ้อนกันที่เรียก UDF ของแต่ละ stage การรันเกิดตอนเรียก action เช่น evaluate (AUC บน test = 0.981)', stage: -1, fitted: 4, phase: 'transform' },
+  { name: 'ข้อมูล', title: 'ข้อมูลสำหรับฝึก: x1, x2, c, label', text: 'ข้อมูลมีสองคอลัมน์ที่เป็นตัวเลข หนึ่งคอลัมน์ที่เป็นข้อความ (a, b, c) และ label ที่เป็น 0 หรือ 1 เมื่อเราเรียก pipeline.fit(train) ซึ่งเป็น Action Spark ก็จะเริ่มรัน Job (ตอนวัดจริงได้ 14 Job)', stage: -1, fitted: 0, phase: 'fit' },
+  { name: 'StringIndexer', title: 'Estimator: fit แล้วได้ StringIndexerModel', text: 'fit จะอ่านข้อมูลเพื่อนับว่ามีค่า a, b, c อะไรบ้าง แล้วได้ Model ที่จำลำดับ [a, b, c] เอาไว้ จากนั้น model.transform จะเติม c_idx เข้าไป (a เป็น 0.0, c เป็น 2.0) และ Pipeline จะเอาผลนี้ส่งต่อให้ขั้นถัดไป', stage: 0, fitted: 1, phase: 'fit' },
+  { name: 'OneHotEncoder', title: 'Estimator: fit แล้วได้ OneHotEncoderModel', text: 'fit จะหาจำนวน Category (ได้ 3) แล้ว Model จะแปลง c_idx เป็นเวกเตอร์แบบ Sparse โดยค่าเริ่มต้นจะตัด Category สุดท้ายทิ้ง (dropLast) เวกเตอร์จึงมีขนาด 2 ทำให้ c ได้ (2,[],[]) ซึ่งเป็นศูนย์ทั้งหมด', stage: 1, fitted: 2, phase: 'fit' },
+  { name: 'VectorAssembler', title: 'Transformer: ไม่ต้อง fit', text: 'VectorAssembler จะรวม x1, x2 และ c_vec เข้าด้วยกันเป็น Column เวกเตอร์เดียวชื่อ features เพราะไม่มีอะไรให้เรียนรู้จากข้อมูล มันจึงเป็น Transformer ที่อยู่ใน PipelineModel ตามเดิม', stage: 2, fitted: 3, phase: 'fit' },
+  { name: 'LogisticRegression', title: 'Estimator ตัวสุดท้ายและเป็นขั้นที่หนักที่สุด', text: 'fit จะวนปรับน้ำหนักซ้ำหลายรอบบนข้อมูล ซึ่งเป็นส่วนที่ทำให้เกิดหลาย Job ได้ Model ที่ถือ coefficients [2.71, -1.87, 1.50, -0.14] และ intercept 0.118 ซึ่งตรงกับวิธีที่เราสร้างข้อมูล (x1 ดันไปทาง 1 ส่วน x2 ดันออก)', stage: 3, fitted: 4, phase: 'fit' },
+  { name: 'PipelineModel', title: 'ได้ PipelineModel: 3 Model กับ 1 Transformer', text: 'pipeline.fit จะคืน PipelineModel ที่มี stages = [StringIndexerModel, OneHotEncoderModel, VectorAssembler, LogisticRegressionModel] จากตรงนี้ไปไม่มีอะไรต้องเรียนรู้อีกแล้ว', stage: -1, fitted: 4, phase: 'fit' },
+  { name: 'transform(test)', title: 'model.transform(test): ใช้ทุก Stage ตามลำดับ', text: 'ขั้นนี้จะเติม rawPrediction, probability, prediction ต่อท้ายตาราง และไม่เกิด Job เลย (ตอนวัดจริงได้ 0 Job) เพราะ transform แค่ต่อแผนเพิ่ม โดย Plan จริงเป็น Project ที่ซ้อนกันและเรียก UDF ของแต่ละ Stage การรันจะเกิดขึ้นตอนเราเรียก Action เช่น evaluate (AUC บน test = 0.981)', stage: -1, fitted: 4, phase: 'transform' },
 ];
 
 const STEPS_EN: S[] = [
@@ -55,10 +55,10 @@ const STEPS: Record<Lang, S[]> = { th: STEPS_TH, en: STEPS_EN };
 
 const TEXT: Record<Lang, { title: string; chain: string; notFitted: string; caption: string }> = {
   th: {
-    title: 'Pipeline.fit แล้ว PipelineModel.transform: ข้อมูลเดินผ่านทีละ stage',
-    chain: 'stage ของ pipeline',
+    title: 'Pipeline.fit แล้ว PipelineModel.transform: ข้อมูลเดินผ่านทีละ Stage',
+    chain: 'Stage ของ Pipeline',
     notFitted: 'ยังไม่ fit',
-    caption: 'ตัวอย่างแถวเป็น 3 แถวจริงของผล transform บน test set (ปัดเศษ) ในการ fit จริง Spark ใช้ train set แต่หน้าตา column เหมือนกัน',
+    caption: 'แถวตัวอย่างเป็น 3 แถวจริงจากผล transform บน Test Set (ปัดเศษแล้ว) ส่วนตอน fit จริง Spark จะใช้ Train Set แต่หน้าตาของ Column ก็เหมือนกัน',
   },
   en: {
     title: 'Pipeline.fit, then PipelineModel.transform: the data moves through one stage at a time',

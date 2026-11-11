@@ -151,22 +151,22 @@ interface UiText {
 const TEXT: Record<Lang, UiText> = {
   th: {
     steps: [
-    { title: 'Parsed: แผนที่ได้จากตัวอักษรของ SQL', text: 'เครื่องหมาย \' หน้าชื่อ (\'Project, \'id) แปลว่ายังไม่รู้ว่าชื่อนี้คืออะไร view v มีจริงไหม id เป็นชนิดอะไร ตอนนี้เป็นแค่โครงของประโยค' },
-    { title: 'Analyzed: เติมความหมายให้ทุกชื่อ', text: 'Analyzer หา view v เจอ จึงขยายเป็นแผนข้างใน และผูก id กับ column จริง (id#2L) พร้อมชนิด bigint ตัวเลข 10 ถูกเติม cast ให้ชนิดตรงกัน (type coercion)', where: 'batch Resolution ใน Analyzer.scala' },
-    { title: 'Optimizer เริ่ม: ถอดชั้นที่ไม่ต้องใช้', text: 'SubqueryAlias มีไว้ให้ Analyzer ตามชื่อ view พอวิเคราะห์เสร็จก็ไม่มีประโยชน์ แผนจึงสั้นลงหนึ่งชั้น' },
-    { title: 'PushDownPredicates: ย้าย Filter ลงไปใกล้ข้อมูล', text: 'Filter ใช้แค่ id ซึ่งมีอยู่ก่อน Project ตัวล่าง จึงลงไปอยู่เหนือ Range ได้ ยิ่ง filter เร็ว ข้อมูลที่ต้องส่งต่อยิ่งน้อย' },
-    { title: 'ColumnPruning: ทิ้ง column ที่ไม่มีใครใช้', text: 'คำสั่งไม่เคยอ่าน dbl เลย จึงตัดออกจาก Project ตัวล่าง ถ้าข้างล่างเป็นไฟล์ Parquet นี่คือสิ่งที่ทำให้ไม่ต้องอ่าน column นั้นจาก disk' },
-    { title: 'CollapseProject: รวม Project ที่ซ้อนกัน', text: 'Project ตัวล่างเหลือแค่ส่ง id ผ่านเฉยๆ ตัวบนจึงอ่าน id ตรงจากข้างล่างได้เลย ลดหนึ่งขั้นของการคัดลอกแถว' },
-    { title: 'ConstantFolding: คิดค่าคงที่ให้เสร็จก่อนรัน', text: '1 + 2 กลายเป็น 3 และ 1 = 1 กลายเป็น true ไม่ต้องคำนวณซ้ำกับทุกแถว cast(10 as bigint) ก็กลายเป็น 10' },
-    { title: 'BooleanSimplification: true AND p เท่ากับ p', text: 'เงื่อนไข 1 = 1 หายไปใช้สองกฎต่อกัน (กฎแรกคิดให้เป็น true กฎที่สองตัดทิ้ง) ไม่ใช่กฎเดียว นี่คือภาพของ optimizer: กฎเล็กๆ หลายตัวต่อกัน' },
-    { title: 'Physical: เลือกวิธีรันจริง', text: 'Planner แปลงแต่ละ node เป็น operator ที่รันได้ และ CollapseCodegenStages ครอบสามตัวนี้เป็น codegen stage เดียว (*(1)) ที่คอมไพล์เป็น Java loop เดียว' },
+    { title: 'Parsed: แผนที่ได้จากตัวอักษรของ SQL', text: 'เครื่องหมาย \' หน้าชื่อ (\'Project, \'id) แปลว่า Spark ยังไม่รู้ว่าชื่อนี้คืออะไร ไม่ว่าจะเป็นเรื่องที่ว่า View v มีอยู่จริงไหม หรือ id เป็นชนิดอะไร ตอนนี้จึงเป็นแค่โครงของประโยคเท่านั้น' },
+    { title: 'Analyzed: เติมความหมายให้ทุกชื่อ', text: 'Analyzer หา View v เจอ จึงขยายออกเป็นแผนข้างใน และผูก id เข้ากับ Column จริง (id#2L) พร้อมชนิด bigint ส่วนตัวเลข 10 จะถูกเติม cast เพื่อให้ชนิดตรงกัน (Type Coercion)', where: 'batch Resolution ใน Analyzer.scala' },
+    { title: 'Optimizer เริ่มทำงาน: ถอดชั้นที่ไม่ต้องใช้', text: 'SubqueryAlias มีไว้ให้ Analyzer ใช้ตามชื่อ View พอวิเคราะห์เสร็จแล้วก็ไม่มีประโยชน์อีก แผนจึงสั้นลงไปหนึ่งชั้น' },
+    { title: 'PushDownPredicates: ย้าย Filter ลงไปใกล้ข้อมูล', text: 'Filter ใช้แค่ id ซึ่งมีอยู่ก่อนถึง Project ตัวล่าง จึงย้ายลงไปอยู่เหนือ Range ได้ ยิ่ง Filter ทำงานเร็วเท่าไร ข้อมูลที่ต้องส่งต่อก็ยิ่งน้อยลงเท่านั้น' },
+    { title: 'ColumnPruning: ทิ้ง Column ที่ไม่มีใครใช้', text: 'คำสั่งนี้ไม่เคยอ่าน dbl เลย จึงตัดออกจาก Project ตัวล่างได้ ถ้าข้างล่างเป็นไฟล์ Parquet ขั้นนี้เองที่ทำให้ Spark ไม่ต้องอ่าน Column นั้นจาก Disk' },
+    { title: 'CollapseProject: รวม Project ที่ซ้อนกัน', text: 'Project ตัวล่างเหลือหน้าที่แค่ส่ง id ผ่านไปเฉย ๆ Project ตัวบนจึงอ่าน id ตรงจากข้างล่างได้เลย ทำให้ลดการคัดลอกแถวไปหนึ่งขั้น' },
+    { title: 'ConstantFolding: คิดค่าคงที่ให้เสร็จก่อนรัน', text: '1 + 2 กลายเป็น 3 และ 1 = 1 กลายเป็น true จึงไม่ต้องคำนวณซ้ำกับทุกแถว ส่วน cast(10 as bigint) ก็กลายเป็น 10' },
+    { title: 'BooleanSimplification: true AND p เท่ากับ p', text: 'เงื่อนไข 1 = 1 หายไปได้เพราะใช้สองกฎต่อกัน (กฎแรกคิดให้เป็น true แล้วกฎที่สองค่อยตัดทิ้ง) ซึ่งก็เป็นภาพของ Optimizer ที่เอากฎเล็ก ๆ หลายตัวมาต่อกัน' },
+    { title: 'Physical: เลือกวิธีรันจริง', text: 'Planner จะแปลงแต่ละ Node เป็น Operator ที่รันได้ และ CollapseCodegenStages จะครอบสามตัวนี้เป็น Codegen Stage เดียว (*(1)) ซึ่งคอมไพล์เป็น Java Loop เดียว' },
     ],
     queryLabel: 'ดูแผนเปลี่ยนทีละกฎ:',
-    phasesLabel: 'ขั้นของ query pipeline',
+    phasesLabel: 'ขั้นของ Query Pipeline',
     planLabel: (name) => `แผนขั้น ${name}`,
     ruleActive: 'กฎที่ทำงาน',
     noRule: 'ยังไม่มีกฎไหนทำงาน',
-    caption: 'แผนจริงมี node มากกว่านี้เล็กน้อย (View, SubqueryAlias ของตาราง nums) และ expression id เปลี่ยนทุกครั้งที่รัน ลำดับกฎมาจาก plan change log ของ Spark 4.2.0',
+    caption: 'แผนจริงมี Node มากกว่านี้อีกเล็กน้อย (View, SubqueryAlias ของตาราง nums) และ Expression ID จะเปลี่ยนไปทุกครั้งที่รัน ส่วนลำดับของกฎมาจาก Plan Change Log ของ Spark 4.2.0',
   },
   en: {
     steps: [

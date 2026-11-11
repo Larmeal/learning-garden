@@ -84,7 +84,7 @@ export default function TubeLab({ lang = 'th' }: { lang?: 'th' | 'en' }) {
       <Slider label={Tr('ความยาวท่อ', 'Tube length')} value={len} min={10} max={25} step={0.5} unit=" cm" onChange={setLen} />
       <div className="viz-controls" style={{ gap: 18 }}>
         <Pills<End> label={Tr('ปลายท่อ', 'Ends of the tube')} value={end} onChange={setEnd} options={[{ value: 'quarter', text: Tr('ปิดที่เส้นเสียง เปิดที่ปาก', 'Closed at the vocal folds, open at the mouth') }, { value: 'half', text: Tr('เปิดทั้งสองข้าง (เทียบ)', 'Open at both ends (for comparison)') }]} />
-        <Pills<number> label={Tr('ดู resonance ที่', 'Show the resonance at')} value={n} onChange={setN} options={[1, 2, 3].map((k) => ({ value: k, text: `F${k} (${Math.round(fOf(k))} Hz)` }))} />
+        <Pills<number> label={Tr('ดู Resonance ที่', 'Show the resonance at')} value={n} onChange={setN} options={[1, 2, 3].map((k) => ({ value: k, text: `F${k} (${Math.round(fOf(k))} Hz)` }))} />
       </div>
       <div className="viz-box" style={{ overflowX: 'visible' }}>
         <svg viewBox="0 0 540 352" role="img" aria-label={Tr('ท่อตรงหนึ่งท่อ สีและจุดแสดงความดันและการเคลื่อนของอากาศในท่อ และกราฟการตอบสนองความถี่', 'One straight tube: color and dots show the pressure and the movement of air in the tube, and a graph of the frequency response')} style={{ width: '100%', minWidth: 0 }}>
@@ -123,9 +123,9 @@ export default function TubeLab({ lang = 'th' }: { lang?: 'th' | 'en' }) {
         </svg>
       </div>
       <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13.5, color: 'var(--muted)', display: 'grid', gap: 2 }}>
-        <li>{Tr('ภาพบน: ท่อที่ร้อง resonance ที่เลือก สีชมพูคืออากาศอัดแน่น สีฟ้าคืออากาศโปร่ง จุดคืออากาศที่ขยับไปมา (ช้ากว่าจริงหลายร้อยเท่า)', 'Top picture: the tube at the resonance you chose. Pink is compressed air, blue is rarefied air, and the dots are air moving back and forth (hundreds of times slower than real life).')}</li>
-        <li>{Tr('เส้นขาวคือความดันของอากาศตามความยาวท่อ ที่ปลายปิดอากาศชนผนัง ความดันจึงแกว่งแรงที่สุด ที่ปลายเปิดอากาศระบายออกข้างนอกได้ ความดันเลยนิ่งอยู่ที่เส้นกลางเสมอ', 'The white line is the air pressure along the tube. At the closed end the air hits a wall, so the pressure swings the most. At the open end the air can escape outside, so the pressure always stays at the middle line.')}</li>
-        <li>{Tr('ภาพล่าง: ถ้าส่งเสียงทุกความถี่เข้าไป ท่อจะขยายเฉพาะความถี่ที่คลื่นพอดีกับความยาวท่อ ยอดแต่ละยอดคือ formant', 'Bottom picture: if you send in sound of every frequency, the tube amplifies only the frequencies whose wave fits the length of the tube. Each peak is a formant.')}</li>
+        <li>{Tr('ภาพบนคือท่อที่กำลังสั่นที่ Resonance ซึ่งเราเลือก สีชมพูคืออากาศที่อัดแน่น สีฟ้าคืออากาศที่โปร่ง ส่วนจุดคืออากาศที่ขยับไปมา (ช้ากว่าจริงหลายร้อยเท่า)', 'Top picture: the tube at the resonance you chose. Pink is compressed air, blue is rarefied air, and the dots are air moving back and forth (hundreds of times slower than real life).')}</li>
+        <li>{Tr('เส้นขาวคือความดันของอากาศตลอดความยาวท่อ ที่ปลายปิดอากาศจะชนผนัง ความดันจึงแกว่งแรงที่สุด ส่วนที่ปลายเปิดอากาศระบายออกไปข้างนอกได้ ความดันก็เลยนิ่งอยู่ที่เส้นกลางเสมอ', 'The white line is the air pressure along the tube. At the closed end the air hits a wall, so the pressure swings the most. At the open end the air can escape outside, so the pressure always stays at the middle line.')}</li>
+        <li>{Tr('ภาพล่าง ถ้าเราส่งเสียงทุกความถี่เข้าไป ท่อจะขยายเฉพาะความถี่ที่คลื่นพอดีกับความยาวท่อ โดยยอดแต่ละยอดก็คือ Formant', 'Bottom picture: if you send in sound of every frequency, the tube amplifies only the frequencies whose wave fits the length of the tube. Each peak is a formant.')}</li>
       </ol>
       <div className="viz-now">
         <strong>
@@ -133,14 +133,14 @@ export default function TubeLab({ lang = 'th' }: { lang?: 'th' | 'en' }) {
         </strong>
         <span style={{ display: 'block' }}>
           {end === 'quarter'
-            ? Tr(`สูตร F(n) = (2n − 1) × c ÷ 4L ใช้ c = ${SOUND_SPEED.toLocaleString('en-US')} cm/s ท่อ 17.5 cm ได้ 500, 1500, 2500, 3500 Hz ห่างกันทีละ 1000 Hz ท่อยิ่งยาว formant ยิ่งต่ำและยิ่งถี่`, `The formula is F(n) = (2n − 1) × c ÷ 4L with c = ${SOUND_SPEED.toLocaleString('en-US')} cm/s. A 17.5 cm tube gives 500, 1500, 2500, 3500 Hz, 1000 Hz apart. The longer the tube, the lower and the closer together the formants are.`)
-            : Tr(`สูตร F(n) = n × c ÷ 2L ที่ความยาวเท่ากัน F1 สูงเป็นสองเท่าของท่อปิดหนึ่งข้าง เหมือนท่อออร์แกน (organ pipe) ที่เปิดปลายบนให้เสียงสูงกว่าท่อที่ปิดปลายบน`, `The formula is F(n) = n × c ÷ 2L. At the same length, F1 is twice as high as in a tube closed at one end, like an organ pipe that is open at the top, which gives a higher note than a pipe that is closed at the top.`)}
+            ? Tr(`สูตร F(n) = (2n − 1) × c ÷ 4L ใช้ c = ${SOUND_SPEED.toLocaleString('en-US')} cm/s ท่อ 17.5 cm ได้ 500, 1500, 2500, 3500 Hz ห่างกันทีละ 1000 Hz ท่อยิ่งยาว Formant ก็ยิ่งต่ำและยิ่งถี่`, `The formula is F(n) = (2n − 1) × c ÷ 4L with c = ${SOUND_SPEED.toLocaleString('en-US')} cm/s. A 17.5 cm tube gives 500, 1500, 2500, 3500 Hz, 1000 Hz apart. The longer the tube, the lower and the closer together the formants are.`)
+            : Tr(`สูตร F(n) = n × c ÷ 2L ที่ความยาวเท่ากัน F1 สูงเป็นสองเท่าของท่อปิดหนึ่งข้าง เหมือนท่อออร์แกน (Organ Pipe) ที่เปิดปลายบนจะให้เสียงสูงกว่าท่อที่ปิดปลายบน`, `The formula is F(n) = n × c ÷ 2L. At the same length, F1 is twice as high as in a tube closed at one end, like an organ pipe that is open at the top, which gives a higher note than a pipe that is closed at the top.`)}
         </span>
         <div className="viz-controls" style={{ marginTop: 8 }}>
           <button type="button" className="btn sm primary" onClick={() => setPlaying((p) => !p)}>{playing ? Tr('หยุดเสียง', 'Stop the sound') : Tr('ฟังเสียงบัซที่ผ่านท่อนี้', 'Hear a buzz passed through this tube')}</button>
         </div>
       </div>
-      <p className="viz-caption">{Tr('ช่องเสียงจริงไม่ใช่ท่อตรง กว้างแคบไม่เท่ากัน จึงให้ formant ที่ต่างจากสูตรนี้ แต่ลำดับและแนวโน้ม (ท่อยาวทำให้ formant ต่ำ) ใช้ได้ในการอธิบาย กราฟคำนวณจากท่อที่มีการสูญเสียพลังงานเล็กน้อย จึงเป็นยอดโค้ง ไม่ใช่เส้นแหลม', 'A real vocal tract is not a straight tube. Its width varies, so it gives formants that differ from this formula, but the order and the trend (a long tube lowers the formants) are good enough for explaining. The graph is computed for a tube with a small loss of energy, so the peaks are rounded and not sharp lines.')}</p>
+      <p className="viz-caption">{Tr('ช่องเสียงจริงไม่ได้เป็นท่อตรง และกว้างแคบไม่เท่ากัน จึงให้ Formant ที่ต่างจากสูตรนี้ แต่ลำดับและแนวโน้ม (ท่อยาวทำให้ Formant ต่ำ) ก็ยังใช้อธิบายได้ ส่วนกราฟคำนวณจากท่อที่มีการสูญเสียพลังงานเล็กน้อย ยอดจึงโค้งมน ไม่ได้เป็นเส้นแหลม', 'A real vocal tract is not a straight tube. Its width varies, so it gives formants that differ from this formula, but the order and the trend (a long tube lowers the formants) are good enough for explaining. The graph is computed for a tube with a small loss of energy, so the peaks are rounded and not sharp lines.')}</p>
     </figure>
   );
 }

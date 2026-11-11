@@ -68,12 +68,12 @@ export default function BreathLab({ lang = 'th' }: { lang?: 'th' | 'en' }) {
     breath = cap * 0.12 * (1 - smooth((t - T_IN - T_HOLD - phrase) / T_REC));
   }
 
-  const NAMES = { in: L('หายใจเข้า', 'Breathe in'), hold: L('หยุดสั้นๆ (suspension)', 'A short hold (suspension)'), out: L('หายใจออกพร้อมร้อง', 'Breathe out while singing'), rest: L('พัก (recovery)', 'Rest (recovery)') };
+  const NAMES = { in: L('หายใจเข้า', 'Breathe in'), hold: L('หยุดสั้น ๆ (Suspension)','A short hold (suspension)'), out: L('หายใจออกพร้อมร้อง', 'Breathe out while singing'), rest: L('พัก (Recovery)','Rest (recovery)') };
   const TIPS = {
-    in: mode === 'low' ? L('ผ่อนหน้าท้อง ซี่โครงขยายออกด้านข้างและด้านหลัง ไหล่นิ่ง หายใจเงียบๆ', 'Relax the abdomen, let the ribs expand to the sides and the back, keep the shoulders still, and breathe quietly.') : L('ไหล่ยกและอกส่วนบนขยับ แต่ได้ลมน้อยและคอเกร็ง', 'The shoulders rise and the upper chest moves, but you get little air and the neck gets tense.'),
-    hold: L('คงซี่โครงและหน้าท้องไว้ที่ตำแหน่งขยายโดยไม่ปิดเส้นเสียงแน่น', 'Keep the ribs and abdomen in the expanded position without closing the vocal folds tightly.'),
-    out: style === 'appoggio' ? L('ต้านไม่ให้ซี่โครงและหน้าท้องยุบเร็ว ให้ยุบจริงตอนปลายประโยค', 'Resist the ribs and abdomen collapsing fast, so that they really collapse only at the end of the phrase.') : L('ซี่โครงและหน้าท้องยุบเร็ว แรงลมต้นประโยคมากและปลายประโยคหมดแรง', 'The ribs and abdomen collapse quickly, so the air pressure is too strong at the start of the phrase and runs out at the end.'),
-    rest: L('ปล่อยกล้ามเนื้อที่ใช้หายใจให้คลายก่อนหายใจเข้าครั้งถัดไป', 'Let the muscles of breathing relax before the next breath in.'),
+    in: mode === 'low' ? L('ผ่อนหน้าท้องให้คลาย แล้วปล่อยให้ซี่โครงขยายออกไปทางด้านข้างและด้านหลัง โดยที่ไหล่นิ่งอยู่ และหายใจให้เงียบ ๆ','Relax the abdomen, let the ribs expand to the sides and the back, keep the shoulders still, and breathe quietly.') : L('ไหล่จะยกขึ้นและอกส่วนบนขยับ แต่เราได้ลมเข้าไปน้อย และคอก็เกร็งด้วย','The shoulders rise and the upper chest moves, but you get little air and the neck gets tense.'),
+    hold: L('คงซี่โครงและหน้าท้องไว้ในตำแหน่งที่ขยายออก โดยไม่ปิดเส้นเสียงให้แน่นเกินไป','Keep the ribs and abdomen in the expanded position without closing the vocal folds tightly.'),
+    out: style === 'appoggio' ? L('ต้านไว้ไม่ให้ซี่โครงและหน้าท้องยุบเร็ว แล้วให้ยุบลงจริง ๆ ตอนปลายประโยค','Resist the ribs and abdomen collapsing fast, so that they really collapse only at the end of the phrase.') : L('ซี่โครงและหน้าท้องยุบเร็ว ทำให้แรงลมตอนต้นประโยคมากเกินไป และพอถึงปลายประโยคก็หมดแรง','The ribs and abdomen collapse quickly, so the air pressure is too strong at the start of the phrase and runs out at the end.'),
+    rest: L('ปล่อยให้กล้ามเนื้อที่ใช้หายใจคลายลงก่อน แล้วค่อยหายใจเข้าครั้งถัดไป','Let the muscles of breathing relax before the next breath in.'),
   };
 
   // pressure chart over the phrase, u from 0 to 1
@@ -158,22 +158,22 @@ export default function BreathLab({ lang = 'th' }: { lang?: 'th' | 'en' }) {
             <text className="s" x={W - 10} y={H - 6} textAnchor="end">{L('ปลายประโยค', 'End of phrase')}</text>
             <text className="s" x="4" y="20" transform={`rotate(-90 8 ${H / 2})`} textAnchor="middle">{L('แรงดันลม', 'Air pressure')}</text>
             <text className="b" x={px(0.5)} y="26" fontSize="11" textAnchor="middle" fill={style === 'collapse' ? 'var(--wrong)' : 'var(--brand)'}>
-              {style === 'collapse' ? L('แรงดันตกลงเรื่อยๆ', 'The pressure keeps falling') : L('แรงดันคงที่ (เส้นเขียว)', 'Steady pressure (green line)')}
+              {style === 'collapse' ? L('แรงดันตกลงเรื่อย ๆ','The pressure keeps falling') : L('แรงดันคงที่ (เส้นเขียว)', 'Steady pressure (green line)')}
             </text>
           </svg>
           <p className="viz-caption" style={{ margin: 0 }}>
-            {L('เส้นประคือแรงที่อากาศในปอดดันกลับเอง (elastic recoil) แรงนี้สูงตอนปอดเต็มและเบาลงเมื่อลมหมด ถ้าไม่ทำอะไร แรงดันที่เส้นเสียงจะตกตาม ช่องว่างระหว่างเส้นประกับเส้นเขียวคือสิ่งที่กล้ามเนื้อต้องทำ ต้นประโยคต้านไม่ให้ลมออกแรงเกิน ปลายประโยคช่วยดันออก นี่คือ "การหายใจเข้าไปพร้อมๆ กับหายใจออก" ที่ Titze พูดถึง กราฟเป็นภาพร่างเชิงอธิบาย ไม่ใช่ข้อมูลที่วัดได้', 'The dashed line is the force with which the air in the lungs pushes back by itself (elastic recoil). It is high when the lungs are full and gets lighter as the air runs out. If you do nothing, the pressure at the vocal folds falls with it. The gap between the dashed line and the green line is what the muscles have to do: at the start of the phrase they resist so that the air does not come out too strongly, and at the end of the phrase they help push it out. This is the "breathing in at the same time as breathing out" that Titze talks about. The graph is a sketch for explanation and is not measured data.')}
+            {L('เส้นประคือแรงที่อากาศในปอดดันกลับออกมาเอง (Elastic Recoil) แรงนี้จะสูงตอนที่ปอดเต็มและเบาลงเมื่อลมใกล้หมด ถ้าเราไม่ทำอะไรเลย แรงดันที่เส้นเสียงก็จะตกลงตามไปด้วย ช่องว่างระหว่างเส้นประกับเส้นเขียวคือส่วนที่กล้ามเนื้อต้องทำ โดยตอนต้นประโยคกล้ามเนื้อต้องต้านไว้ไม่ให้ลมออกแรงเกินไป ส่วนตอนปลายประโยคก็ต้องช่วยดันลมออก ซึ่งตรงกับที่ Titze พูดถึงว่า "การหายใจเข้าไปพร้อม ๆ กับหายใจออก" นะ กราฟนี้เป็นภาพร่างไว้อธิบาย ไม่ได้เป็นข้อมูลที่วัดมาจริง','The dashed line is the force with which the air in the lungs pushes back by itself (elastic recoil). It is high when the lungs are full and gets lighter as the air runs out. If you do nothing, the pressure at the vocal folds falls with it. The gap between the dashed line and the green line is what the muscles have to do: at the start of the phrase they resist so that the air does not come out too strongly, and at the end of the phrase they help push it out. This is the "breathing in at the same time as breathing out" that Titze talks about. The graph is a sketch for explanation and is not measured data.')}
           </p>
         </div>
       </div>
 
       <div className="viz-now">
         <strong>{L('จับเวลาแบบฝึกฟู่ [s]', 'Time the hissing [s] exercise')}</strong>
-        <span style={{ display: 'block' }}>{L('สูดลมเข้าแบบที่ฝึกข้างบน กดเริ่มแล้วฟู่ให้เบาและสม่ำเสมอ ให้ซี่โครงและหน้าท้องยังอยู่ที่เดิมนานที่สุด กดหยุดเมื่อจบ', 'Breathe in the way you practiced above, press start, and hiss softly and steadily, keeping the ribs and abdomen where they are for as long as possible. Press stop when you finish.')}</span>
+        <span style={{ display: 'block' }}>{L('สูดลมเข้าแบบที่เราฝึกไว้ข้างบน แล้วกดเริ่ม จากนั้นฟู่ลมออกให้เบาและสม่ำเสมอ โดยพยายามให้ซี่โครงและหน้าท้องอยู่ที่เดิมให้นานที่สุด พอจบแล้วก็กดหยุด','Breathe in the way you practiced above, press start, and hiss softly and steadily, keeping the ribs and abdomen where they are for as long as possible. Press stop when you finish.')}</span>
         <div className="viz-controls" style={{ marginTop: 8 }}>
           <button type="button" className="btn sm primary" onClick={toggleSw}>{sw.running ? L('หยุด', 'Stop') : L('เริ่มจับเวลา', 'Start the timer')}</button>
           <b style={{ fontFamily: 'var(--mono)', fontSize: 18 }}>{sw.shown.toFixed(1)} s</b>
-          {best > 0 && <span className="gx-detail">{L('ดีที่สุดบนเครื่องนี้', 'Best on this device')} {best.toFixed(1)} s</span>}
+          {best > 0 && <span className="gx-detail">{L('ดีที่สุดบนอุปกรณ์นี้','Best on this device')} {best.toFixed(1)} s</span>}
         </div>
       </div>
     </figure>

@@ -26,7 +26,7 @@ const METERS: Record<string, Meter> = {
       { value: 3, text: { th: 'ไทรเพล็ต', en: 'Triplets' }, count: ['1', 'la', 'li'] },
     ],
     note: {
-      th: 'สี่จังหวะต่อห้อง นับ 1 2 3 4 จังหวะแรกหนักที่สุด จังหวะสามหนักรองลงมา',
+      th: 'ห้องหนึ่งมีสี่จังหวะ นับ 1 2 3 4 โดยจังหวะแรกจะหนักที่สุด และจังหวะสามจะหนักรองลงมา',
       en: 'Four beats per bar. Count 1 2 3 4. Beat one is the strongest, beat three is the next strongest.',
     },
   },
@@ -38,7 +38,7 @@ const METERS: Record<string, Meter> = {
       { value: 2, text: { th: 'ตัวเขบ็ตหนึ่งชั้น (8th)', en: 'Eighth notes (8th)' }, count: ['1', '&'] },
     ],
     note: {
-      th: 'สามจังหวะต่อห้อง หนัก เบา เบา เหมือนวอลทซ์',
+      th: 'ห้องหนึ่งมีสามจังหวะ หนัก เบา เบา เหมือนวอลทซ์',
       en: 'Three beats per bar: strong, weak, weak, like a waltz.',
     },
   },
@@ -47,7 +47,7 @@ const METERS: Record<string, Meter> = {
     beats: 2,
     subs: [{ value: 3, text: { th: 'ตัวเขบ็ตหนึ่งชั้นสามตัวต่อจังหวะ', en: 'Three eighth notes per beat' }, count: ['1', 'la', 'li'] }],
     note: {
-      th: 'หกตัวเขบ็ตต่อห้อง แต่หูได้ยินสองจังหวะ จังหวะละสามตัว (นับ 1 la li 2 la li) จึงเป็นสองจังหวะแบบสามส่วน ต่างจาก 3/4 ที่เป็นสามจังหวะแบบสองส่วน',
+      th: 'หกตัวเขบ็ตต่อห้อง แต่หูได้ยินเป็นสองจังหวะ จังหวะละสามตัว (นับ 1 la li 2 la li) จึงเป็นสองจังหวะแบบสามส่วน ซึ่งต่างจาก 3/4 ที่เป็นสามจังหวะแบบสองส่วน',
       en: 'Six eighth notes per bar, but the ear hears two beats of three notes each (count 1 la li 2 la li). So it is two beats divided in three, unlike 3/4, which is three beats divided in two.',
     },
   },
@@ -56,7 +56,7 @@ const METERS: Record<string, Meter> = {
 const PRESETS: Record<string, { name: Record<Lang, string>; steps: (meter: string, sub: number) => boolean[] }> = {
   all: { name: { th: 'ทุกช่อง', en: 'Every cell' }, steps: (m, s) => Array.from({ length: METERS[m].beats * s }, () => true) },
   beats: { name: { th: 'เฉพาะจังหวะลง', en: 'Downbeats only' }, steps: (m, s) => Array.from({ length: METERS[m].beats * s }, (_, i) => i % s === 0) },
-  off: { name: { th: 'เฉพาะจังหวะยก (off-beat)', en: 'Off-beats only' }, steps: (m, s) => Array.from({ length: METERS[m].beats * s }, (_, i) => s > 1 && i % s === Math.floor(s / 2)) },
+  off: { name: { th: 'เฉพาะจังหวะยก (Off-beat)', en: 'Off-beats only' }, steps: (m, s) => Array.from({ length: METERS[m].beats * s }, (_, i) => s > 1 && i % s === Math.floor(s / 2)) },
   sync: { name: { th: 'ซิงโคเพชัน', en: 'Syncopation' }, steps: (m, s) => Array.from({ length: METERS[m].beats * s }, (_, i) => (s === 2 ? [0, 3, 6].includes(i) : s === 4 ? [0, 3, 6, 10, 13].includes(i) : i % s === 0 || i % s === s - 1)) },
 };
 

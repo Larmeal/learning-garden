@@ -21,7 +21,7 @@ const TEXT: Record<Lang, {
     kbLabel: (name) => `คอร์ด ${name}`,
     formula: 'สูตร:',
     notes: 'โน้ต:',
-    distance: 'ระยะห่างจาก root (เสียงครึ่ง):',
+    distance: 'ระยะห่างจาก Root (เสียงครึ่ง):',
     together: 'ฟังพร้อมกัน',
     arp: 'ฟังทีละตัว (อาร์เปจโจ)',
   },

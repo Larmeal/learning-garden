@@ -77,10 +77,10 @@ const TEXT: Record<Lang, {
     good: 'Optimizer ช่วยได้',
     bad: 'ตรงนี้คือ barrier',
     cases: {
-      other: { label: 'filter คอลัมน์อื่น', verdict: 'Filter ลงไปอยู่ใต้ UDF ได้ เพราะไม่เกี่ยวกับผลของ UDF และ UDF เป็น deterministic แถวที่ถูกกรองออกไม่ต้องส่งไป Python เลย' },
-      output: { label: 'filter ผลของ UDF', verdict: 'Filter ที่ใช้ผลของ UDF ต้องอยู่เหนือ UDF และแผนมี ArrowEvalPython สองตัว: UDF ถูกคำนวณสองรอบ (หนึ่งรอบเพื่อ filter อีกรอบเพื่อ column u) ดูคำเตือนเรื่องการเรียกซ้ำใน docstring ของ udf' },
-      inside: { label: 'UDF อยู่ในเงื่อนไข filter', verdict: 'UDF ต้องรันกับทุกแถวก่อน แล้วค่อย filter ไม่มีทางเลี่ยงด้วยแผน ถ้าเงื่อนไขอื่นกรองได้ก่อน ให้เขียนไว้ก่อนและให้ UDF ตามหลัง' },
-      nondet: { label: 'UDF แบบ non-deterministic', verdict: 'ถ้าประกาศว่า UDF ไม่ deterministic Spark ไม่ย้าย filter ลงไปใต้มัน เพราะการกรองก่อนอาจเปลี่ยนผลของฟังก์ชัน (เช่นที่ใช้ตัวสุ่มหรือสถานะ)' },
+      other: { label: 'Filter คอลัมน์อื่น', verdict: 'Filter ลงไปอยู่ใต้ UDF ได้ เพราะไม่เกี่ยวกับผลของ UDF และ UDF เป็น Deterministic ทำให้แถวที่ถูกกรองออกไปไม่ต้องส่งไป Python เลย' },
+      output: { label: 'Filter ผลของ UDF', verdict: 'Filter ที่ใช้ผลของ UDF ต้องอยู่เหนือ UDF และแผนจะมี ArrowEvalPython สองตัว ซึ่งหมายความว่า UDF ถูกคำนวณสองรอบ (หนึ่งรอบเพื่อ Filter อีกรอบเพื่อ Column u) ดูคำเตือนเรื่องการเรียกซ้ำได้ใน docstring ของ udf' },
+      inside: { label: 'UDF อยู่ในเงื่อนไข Filter', verdict: 'UDF ต้องรันกับทุกแถวก่อน แล้วค่อย Filter ซึ่งไม่มีทางเลี่ยงด้วยแผน ถ้ามีเงื่อนไขอื่นที่กรองได้ก่อน ให้เขียนไว้ก่อนและให้ UDF ตามหลัง' },
+      nondet: { label: 'UDF แบบ Non-deterministic', verdict: 'ถ้าประกาศว่า UDF ไม่ Deterministic Spark จะไม่ย้าย Filter ลงไปใต้มัน เพราะการกรองก่อนอาจเปลี่ยนผลของฟังก์ชัน (เช่นฟังก์ชันที่ใช้ตัวสุ่มหรือสถานะ)' },
     },
   },
   en: {

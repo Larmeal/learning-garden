@@ -124,13 +124,13 @@ export function VowelMap({ lang = 'th' }: { lang?: 'th' | 'en' }) {
           {free ? L('จุดที่เลือกเอง', 'A point you chose') : L(`[${pick}] ${VOWELS[pick].thai} (เหมือนในคำว่า ${VOWELS[pick].word})`, `[${pick}] (as in "${VOWELS[pick].word}")`)}: F1 {Math.round(formants[0])} Hz, F2 {Math.round(formants[1])} Hz, F3 {Math.round(formants[2])} Hz
         </strong>
         <span style={{ display: 'block' }}>
-          {L('F1 ต่ำคือกรามค่อนข้างปิดและลิ้นสูง F2 สูงคือลิ้นเคลื่อนไปข้างหน้า [i] จึงอยู่ซ้ายบน [ɑ] อยู่ขวาล่าง [u] อยู่ขวาบน ลาก (หรือกด) บนแผนภาพเพื่อฟังสระระหว่างกลาง', 'A low F1 means the jaw is fairly closed and the tongue is high, and a high F2 means the tongue has moved forward. So [i] is at the upper left, [ɑ] at the lower right, and [u] at the upper right. Drag (or press) on the chart to hear the vowels in between.')}
+          {L('F1 ต่ำหมายถึงกรามค่อนข้างปิดและลิ้นสูง ส่วน F2 สูงหมายถึงลิ้นเคลื่อนไปข้างหน้า [i] จึงอยู่ซ้ายบน [ɑ] อยู่ขวาล่าง และ [u] อยู่ขวาบน คุณสามารถลาก (หรือกด) บนแผนภาพเพื่อฟังสระที่อยู่ระหว่างกลางได้', 'A low F1 means the jaw is fairly closed and the tongue is high, and a high F2 means the tongue has moved forward. So [i] is at the upper left, [ɑ] at the lower right, and [u] at the upper right. Drag (or press) on the chart to hear the vowels in between.')}
         </span>
         <div className="viz-controls" style={{ marginTop: 8 }}>
           <button type="button" className="btn sm primary" onClick={() => speak(formants, sex)}>{L('ฟังอีกครั้ง', 'Listen again')}</button>
         </div>
       </div>
-      <p className="viz-caption">{L('ค่า F1 ถึง F3 ของ i ɪ ɛ æ ɑ ɔ ʊ u ʌ เป็นค่าเฉลี่ยของ Peterson และ Barney (1952) ส่วน e o ə เป็นค่าที่ผู้เขียนบทเรียนกำหนดจากสระข้างเคียงและท่อเสียงมาตรฐาน เสียงเป็นเสียงสังเคราะห์ที่ pitch คงที่', 'The F1 to F3 values of i ɪ ɛ æ ɑ ɔ ʊ u ʌ are the averages of Peterson and Barney (1952). The values for e o ə were set by the author of the lesson from the neighboring vowels and the standard vocal tract. The sound is synthesized at a fixed pitch.')}</p>
+      <p className="viz-caption">{L('ค่า F1 ถึง F3 ของ i ɪ ɛ æ ɑ ɔ ʊ u ʌ เป็นค่าเฉลี่ยของ Peterson และ Barney (1952) ส่วน e o ə เป็นค่าที่ผู้เขียนบทเรียนกำหนดจากสระข้างเคียงและท่อเสียงมาตรฐาน เสียงที่ได้ยินเป็นเสียงสังเคราะห์ที่ Pitch คงที่', 'The F1 to F3 values of i ɪ ɛ æ ɑ ɔ ʊ u ʌ are the averages of Peterson and Barney (1952). The values for e o ə were set by the author of the lesson from the neighboring vowels and the standard vocal tract. The sound is synthesized at a fixed pitch.')}</p>
     </figure>
   );
 }
@@ -191,7 +191,7 @@ export function VowelModify({ lang = 'th' }: { lang?: 'th' | 'en' }) {
 
   return (
     <figure className="viz">
-      <div className="viz-title">{L('Soprano ขึ้นสูง: โน้ตต้องอยู่ใต้ F1 ไม่ใช่ข้ามมัน', 'A soprano going high: the note should stay under F1, not cross it')}</div>
+      <div className="viz-title">{L('Soprano ขึ้นสูง ให้โน้ตอยู่ใต้ F1 อย่าข้ามมัน', 'A soprano going high: the note should stay under F1, not cross it')}</div>
       <Pills<string> label={L('สระ', 'Vowel')} value={vowel} onChange={setVowel} options={['e', 'ɑ', 'i', 'u'].map((k) => ({ value: k, text: L(`[${k}] ${VOWELS[k].thai}`, `[${k}] "${VOWELS[k].word}"`) }))} />
       <div className="viz-box" style={{ overflowX: 'visible' }}>
         <svg viewBox={`0 0 ${CW} ${CH}`} role="img" aria-label={L('ความถี่ของโน้ตเทียบกับ F1 แบบไม่ปรับและแบบปรับตามโน้ต', 'The frequency of the note compared with F1, left unchanged and tuned with the note')} style={{ width: '100%', minWidth: 0 }}>
@@ -241,7 +241,7 @@ export function VowelModify({ lang = 'th' }: { lang?: 'th' | 'en' }) {
         </div>
       )}
       <p className="viz-caption">
-        {L('เมื่อโน้ตสูงกว่า F1 ของสระ ตัวฟังก์ชันกรองของช่องเสียงไม่ได้ขยาย harmonic แรกอีกต่อไป เสียงเบาลงและ (ในคนจริง) เสียงอาจแตกหรือเปลี่ยนสี การปรับสระคือลดกรามด้านหลังให้ F1 ขึ้นไปอยู่เหนือโน้ตเล็กน้อย ตามที่ Davids และ LaTour บทที่ 4 อธิบาย ตัวเลขความดังมาจากแบบจำลองเสียงสังเคราะห์ ไม่ใช่การวัดจากนักร้องจริง ค่า F1 ที่ปรับเป็น 1.18 เท่าของโน้ต (สูงสุด 1500 Hz) เป็นค่าที่ผู้เขียนบทเรียนเลือกเพื่อแสดงแนวคิด', 'When the note is higher than the F1 of the vowel, the filter of the vocal tract no longer amplifies the first harmonic, the sound gets softer, and (in a real person) the voice may break or change color. Adjusting the vowel means lowering the back of the jaw so that F1 sits a little above the note, as Davids and LaTour describe in chapter 4. The loudness numbers come from a synthesized-sound model and are not measured from real singers. The tuned F1 of 1.18 times the note (at most 1500 Hz) is a value the author of the lesson chose to show the idea.')}
+        {L('เมื่อโน้ตสูงกว่า F1 ของสระ ตัวกรองของช่องเสียงจะไม่ขยาย Harmonic แรกอีกต่อไป เสียงจึงเบาลง และ (ในคนจริง) เสียงอาจแตกหรือเปลี่ยนสีได้ การปรับสระคือการลดกรามด้านหลังเพื่อให้ F1 ขึ้นไปอยู่เหนือโน้ตเล็กน้อย ตามที่ Davids และ LaTour บทที่ 4 อธิบายไว้ ส่วนตัวเลขความดังมาจากแบบจำลองเสียงสังเคราะห์ ซึ่งไม่ได้วัดจากนักร้องจริง และค่า F1 ที่ปรับเป็น 1.18 เท่าของโน้ต (สูงสุด 1500 Hz) ก็เป็นค่าที่ผู้เขียนบทเรียนเลือกเอง เพื่อใช้แสดงแนวคิด', 'When the note is higher than the F1 of the vowel, the filter of the vocal tract no longer amplifies the first harmonic, the sound gets softer, and (in a real person) the voice may break or change color. Adjusting the vowel means lowering the back of the jaw so that F1 sits a little above the note, as Davids and LaTour describe in chapter 4. The loudness numbers come from a synthesized-sound model and are not measured from real singers. The tuned F1 of 1.18 times the note (at most 1500 Hz) is a value the author of the lesson chose to show the idea.')}
       </p>
     </figure>
   );

@@ -49,7 +49,7 @@ export default function PitchMirror({ lang = 'th' }: { lang?: 'th' | 'en' }) {
   const start = async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
       setState('error');
-      setError(L('เบราว์เซอร์นี้ไม่รองรับการใช้ไมโครโฟน หรือหน้านี้ไม่ได้เปิดผ่าน https', 'This browser does not support the microphone, or the page was not opened over https'));
+      setError(L('เบราว์เซอร์นี้ไม่รองรับการใช้ไมโครโฟน หรือไม่ก็หน้านี้ไม่ได้เปิดผ่าน https','This browser does not support the microphone, or the page was not opened over https'));
       return;
     }
     setState('starting');
@@ -96,7 +96,7 @@ export default function PitchMirror({ lang = 'th' }: { lang?: 'th' | 'en' }) {
       setState('on');
     } catch (e) {
       setState('error');
-      setError(e instanceof Error && e.name === 'NotAllowedError' ? L('ไม่ได้รับอนุญาตให้ใช้ไมโครโฟน ลองเปิดสิทธิ์ในเบราว์เซอร์แล้วกดใหม่', 'Permission to use the microphone was refused. Allow it in the browser and press again.') : L('เปิดไมโครโฟนไม่สำเร็จ', 'Could not open the microphone'));
+      setError(e instanceof Error && e.name === 'NotAllowedError' ? L('เบราว์เซอร์ยังไม่ได้อนุญาตให้ใช้ไมโครโฟน ลองเปิดสิทธิ์ในเบราว์เซอร์ แล้วกดอีกครั้งนะ','Permission to use the microphone was refused. Allow it in the browser and press again.') : L('เปิดไมโครโฟนไม่สำเร็จ', 'Could not open the microphone'));
     }
   };
 
@@ -144,19 +144,19 @@ export default function PitchMirror({ lang = 'th' }: { lang?: 'th' | 'en' }) {
           ))}
           {mode === 'target' && <rect x="40" y={y(target + 0.25)} width={W - 56} height={y(target - 0.25) - y(target + 0.25)} fill="color-mix(in srgb, var(--brand) 18%, transparent)" />}
           <path d={path} fill="none" stroke="var(--accent)" strokeWidth="3" strokeLinejoin="round" />
-          {state !== 'on' && <text x={W / 2} y={H / 2} textAnchor="middle" fill="var(--muted)">{L('กดเปิดไมโครโฟนแล้วลองร้องเสียงยาวๆ', 'Turn on the microphone and sing a long note')}</text>}
+          {state !== 'on' && <text x={W / 2} y={H / 2} textAnchor="middle" fill="var(--muted)">{L('กดเปิดไมโครโฟน แล้วลองร้องเสียงยาว ๆ ดู','Turn on the microphone and sing a long note')}</text>}
         </svg>
       </div>
       <div className="viz-now" aria-live="polite">
         <strong>
-          {now ? `${noteName(now.midi)} ${cents >= 0 ? '+' : ''}${Math.round(cents)} cents (${Math.round(midiToHz(now.midi))} Hz)` : state === 'on' ? L('ยังไม่ได้ยินเสียงที่ชัดพอ', 'I cannot hear a clear enough sound yet') : L('ยังไม่ได้เริ่ม', 'Not started')}
+          {now ? `${noteName(now.midi)} ${cents >= 0 ? '+' : ''}${Math.round(cents)} cents (${Math.round(midiToHz(now.midi))} Hz)` : state === 'on' ? L('ยังไม่ได้ยินเสียงที่ชัดพอ','I cannot hear a clear enough sound yet') : L('ยังไม่ได้เริ่ม', 'Not started')}
         </strong>
-        {mode === 'target' && onTarget !== null && <span style={{ display: 'block' }}>{L(`3 วินาทีล่าสุด อยู่ในช่วง ±25 cents ของโน้ตเป้า ${onTarget}% ของเวลา`, `In the last 3 seconds you were within ±25 cents of the target note ${onTarget}% of the time`)}</span>}
+        {mode === 'target' && onTarget !== null && <span style={{ display: 'block' }}>{L(`ใน 3 วินาทีล่าสุด เสียงของเราอยู่ในช่วง ±25 cents ของโน้ตเป้า ${onTarget}% ของเวลา`, `In the last 3 seconds you were within ±25 cents of the target note ${onTarget}% of the time`)}</span>}
         <span style={{ display: 'block' }}>
-          {vib ? L(`vibrato ที่ตรวจพบ: ประมาณ ${vib.rate.toFixed(1)} ครั้ง/วินาที กว้างประมาณ ${Math.round(vib.extent)} cents (ค่าประมาณ อาจคลาดเคลื่อนราว 10%)`, `Vibrato detected: about ${vib.rate.toFixed(1)} per second, about ${Math.round(vib.extent)} cents wide (an estimate that may be off by about 10%)`) : L('ถ้าร้องโน้ตยาวสองวินาทีขึ้นไปและมี vibrato จะแสดงความเร็วและความกว้างที่นี่', 'If you sing a note of two seconds or more with vibrato, its rate and extent are shown here')}
+          {vib ? L(`ตรวจพบ Vibrato ประมาณ ${vib.rate.toFixed(1)} ครั้ง/วินาที กว้างประมาณ ${Math.round(vib.extent)} cents (เป็นค่าประมาณ อาจคลาดเคลื่อนราว 10%)`, `Vibrato detected: about ${vib.rate.toFixed(1)} per second, about ${Math.round(vib.extent)} cents wide (an estimate that may be off by about 10%)`) : L('ถ้าเราร้องโน้ตยาวสองวินาทีขึ้นไปและมี Vibrato ด้วย ความเร็วและความกว้างจะแสดงตรงนี้','If you sing a note of two seconds or more with vibrato, its rate and extent are shown here')}
         </span>
       </div>
-      <p className="viz-caption">{L('ไม่มีการบันทึกหรือส่งเสียงออกจากหน้านี้ ตัวตรวจจับเหมาะกับเสียงร้องที่ชัดทีละโน้ต ใช้ในห้องเงียบ และเสียงดนตรีหรือเสียงพูดคุยรอบตัวจะทำให้ผลเพี้ยน ตัวตรวจจับนี้ทดสอบกับเสียงสังเคราะห์แล้ว (คลาดไม่เกินหนึ่ง cent) แต่ยังไม่ได้ทดสอบกับไมโครโฟนและเสียงคนจริง', 'Nothing is recorded or sent out of this page. The detector suits a clear voice singing one note at a time in a quiet room, and music or talking around you will spoil the result. It was tested with synthesized sound (off by no more than one cent) but has not been tested with a real microphone and real voices.')}</p>
+      <p className="viz-caption">{L('หน้านี้ไม่ได้บันทึกเสียงและไม่ได้ส่งเสียงออกไปที่ไหนเลย ตัวตรวจจับเหมาะกับเสียงร้องที่ชัดทีละโน้ตในห้องเงียบ ถ้ามีเสียงดนตรีหรือเสียงพูดคุยอยู่รอบตัว ผลที่ได้จะเพี้ยนไป ตัวตรวจจับนี้ผ่านการทดสอบกับเสียงสังเคราะห์แล้ว (คลาดไม่เกินหนึ่ง cent) แต่ยังไม่ได้ทดสอบกับไมโครโฟนและเสียงคนจริง ๆ','Nothing is recorded or sent out of this page. The detector suits a clear voice singing one note at a time in a quiet room, and music or talking around you will spoil the result. It was tested with synthesized sound (off by no more than one cent) but has not been tested with a real microphone and real voices.')}</p>
     </figure>
   );
 }

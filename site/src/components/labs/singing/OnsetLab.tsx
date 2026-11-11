@@ -17,9 +17,9 @@ interface Row {
 }
 
 const ROWS: Row[] = [
-  { kind: 'breathy', title: 'Breathy onset', what: 'หายใจออกก่อนแล้วเส้นเสียงค่อยปิด', sing: 'Ha, ha, ha: ค้างที่ "h" ให้รู้ว่าลมออกก่อน', hear: 'ได้ยินเสียงลมนำหน้า โน้ตเข้าช้าและลมเปลืองจนร้องประโยคยาวไม่ได้' },
-  { kind: 'coordinated', title: 'Coordinated onset (แนะนำ)', what: 'ลมกับการปิดเส้นเสียงเริ่มพร้อมกัน', sing: 'Ah, ah, ah: คิดภาพดึงผ้าเช็ดหน้าออกจากกล่องอย่างนุ่มนวล', hear: 'โน้ตเข้าตรงและนุ่ม ไม่มีเสียงนำหน้า' },
-  { kind: 'glottal', title: 'Glottal onset (กระแทก)', what: 'ปิดเส้นเสียงแน่นก่อนแล้วดันลมให้ระเบิดออก', sing: 'Uh, uh, uh: เหมือนไอเบาๆ ตอนเริ่มเสียง', hear: 'ได้ยินเสียงปะทุตอนเริ่ม และเสียงเริ่มต่ำกว่าโน้ตแล้วไต่ขึ้น' },
+  { kind: 'breathy', title: 'Breathy onset', what: 'หายใจออกก่อน แล้วเส้นเสียงถึงค่อยปิด', sing: 'Ha, ha, ha: ค้างที่ "h" ไว้สักครู่ จะรู้สึกได้ว่าลมออกไปก่อน', hear: 'เราจะได้ยินเสียงลมนำหน้ามาก่อน โน้ตเข้าช้า และลมก็เปลืองจนร้องประโยคยาว ๆ ไม่ไหว' },
+  { kind: 'coordinated', title: 'Coordinated onset (แนะนำ)', what: 'ลมกับการปิดเส้นเสียงเริ่มพร้อมกัน', sing: 'Ah, ah, ah: ลองนึกภาพว่าเรากำลังดึงผ้าเช็ดหน้าออกจากกล่องอย่างนุ่มนวล', hear: 'โน้ตเข้าตรงและนุ่ม โดยไม่มีเสียงอะไรนำหน้ามาก่อน' },
+  { kind: 'glottal', title: 'Glottal onset (กระแทก)', what: 'ปิดเส้นเสียงให้แน่นก่อน แล้วค่อยดันลมให้ระเบิดออกมา', sing: 'Uh, uh, uh: เหมือนกับไอเบา ๆ ตอนเริ่มเสียง', hear: 'เราจะได้ยินเสียงปะทุตอนเริ่ม และเสียงจะเริ่มต่ำกว่าโน้ตก่อนแล้วค่อยไต่ขึ้นไป' },
 ];
 
 const ROWS_EN: Record<OnsetKind, { title: string; what: string; sing: string; hear: string }> = {
@@ -123,7 +123,7 @@ export default function OnsetLab({ lang = 'th' }: { lang?: 'th' | 'en' }) {
           <span key={r.kind} style={{ display: 'block', marginBottom: 6 }}><b style={{ color: 'var(--fg)' }}>{r.title.replace(/ \(.*\)/, '')}</b> {r.hear} {L('ลองร้อง:', 'Try singing:')} {r.sing}</span>
         ))}
       </div>
-      <p className="viz-caption">{L('เสียงในแล็บนี้สังเคราะห์ขึ้นเพื่อแสดงลักษณะของแต่ละวิธี ไม่ใช่เสียงบันทึกของคนจริง การเริ่มเสียงแบบ glottal ในแบบจำลองมีเสียงปะทุและเริ่มต่ำกว่าโน้ตเล็กน้อย ซึ่งตรงกับสิ่งที่หนังสือบอกว่าเกิดได้ ไม่ได้แปลว่าทุกคนที่เริ่มเสียงแบบนี้จะเป็นเหมือนกัน', 'The sounds in this lab are synthesized to show the character of each method. They are not recordings of real people. The glottal onset in the model has a pop and starts a little below the note, which matches what the book says can happen. It does not mean that everyone who starts a sound this way will sound the same.')}</p>
+      <p className="viz-caption">{L('เสียงในแล็บนี้สังเคราะห์ขึ้นมาเพื่อแสดงลักษณะของแต่ละวิธี จึงไม่ได้เป็นเสียงที่บันทึกมาจากคนจริง ๆ นะ การเริ่มเสียงแบบ Glottal ในแบบจำลองจะมีเสียงปะทุและเริ่มต่ำกว่าโน้ตเล็กน้อย ซึ่งตรงกับที่หนังสือบอกว่าเกิดขึ้นได้ แต่ก็ไม่ได้หมายความว่าทุกคนที่เริ่มเสียงแบบนี้จะออกมาเหมือนกันหมด','The sounds in this lab are synthesized to show the character of each method. They are not recordings of real people. The glottal onset in the model has a pop and starts a little below the note, which matches what the book says can happen. It does not mean that everyone who starts a sound this way will sound the same.')}</p>
     </figure>
   );
 }

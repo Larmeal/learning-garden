@@ -10,11 +10,11 @@ import { ClockControls, prog, smooth, useClock, type Lang, type Mark } from './t
 const DURATION = 19;
 const STEPS: Record<Lang, { name: string; text: string }[]> = {
   th: [
-    { name: '1 ตัดเป็น query stage', text: 'ตัดแผนตรง Exchange' },
-    { name: '2 รัน stage ที่พร้อม', text: 'materialize เป็น job' },
-    { name: '3 ใส่ผลกลับในแผน', text: 'แทน stage ด้วยสถิติจริง' },
+    { name: '1 ตัดเป็น Query Stage', text: 'ตัดแผนตรง Exchange' },
+    { name: '2 รัน Stage ที่พร้อม', text: 'Materialize เป็น Job' },
+    { name: '3 ใส่ผลกลับในแผน', text: 'แทน Stage ด้วยสถิติจริง' },
     { name: '4 reOptimize', text: 'เขียนแผนใหม่ด้วยขนาดจริง' },
-    { name: '5 เทียบ cost', text: 'นับจำนวน Exchange' },
+    { name: '5 เทียบ Cost', text: 'นับจำนวน Exchange' },
     { name: '6 วนอีกรอบ', text: 'จนไม่มี Exchange ให้ตัด' },
   ],
   en: [
@@ -39,13 +39,13 @@ const PHASES: [number, number, number][] = [
 ];
 
 const MARKS_TH: Mark[] = [
-  { at: 0, name: 'ตัดเป็น stage', title: 'ข้อ 1: ตัดแผนตรง Exchange เป็น query stage', text: 'AQE หาจุดที่ต้อง shuffle (Exchange) แล้วหุ้มส่วนที่อยู่ใต้มันเป็น ShuffleQueryStage 0 ส่วนที่เหลือ (HashAggregate ตัวบน) ยังรอ เพราะต้องใช้ผลของ stage นั้น ตอนนี้ isFinalPlan=false' },
-  { at: 2.8, name: 'รัน stage', title: 'ข้อ 2: รัน stage ที่ไม่ต้องรอใคร (job แรก)', text: 'stage ที่พร้อมถูก materialize ก่อน แล้ว AQE หยุดรอ event ว่า stage ไหนเสร็จ (วัดจริง: action เดียวเริ่ม 2 job นี่คือ job แรก)' },
-  { at: 6.4, name: 'ใส่ผลกลับ', title: 'ข้อ 3: stage ที่เสร็จถูกใส่กลับพร้อมสถิติจริง', text: 'ตอนนี้ Spark รู้แล้วว่า shuffle เขียนข้อมูลแค่ 1,152 ไบต์ ซึ่งก่อนรันไม่มีทางรู้ (แผนตั้งต้นใช้เลข 200 partition จากค่า config)' },
-  { at: 8.4, name: 'reOptimize', title: 'ข้อ 4: วางแผนที่เหลือใหม่ด้วยขนาดจริง', text: 'AQE รัน logical rule ของมัน (AQEOptimizer) วางแผน physical ใหม่ แล้วรัน rule ระดับ physical อีกชุด หนึ่งในนั้นคือ CoalesceShufflePartitions ที่เห็นว่าข้อมูลเล็กมาก จึงครอบด้วย AQEShuffleRead coalesced' },
-  { at: 11, name: 'เทียบ cost', title: 'ข้อ 5: แผนใหม่ดีกว่าไหม? นับ Exchange', text: 'cost เริ่มต้น (SimpleCostEvaluator) คือจำนวน ShuffleExchangeLike ในแผน ไม่ดูขนาดหรือเวลา แผนเดิมมี 1 แผนใหม่มี 1 เท่ากัน แต่แผนต่างกัน กรณีนี้ AQE รับแผนใหม่' },
-  { at: 13, name: 'วนอีกรอบ', title: 'ข้อ 6 และวนกลับข้อ 1: ไม่เหลือ Exchange ให้ตัดแล้ว', text: 'ส่วนที่เหลือถูกหุ้มเป็น ResultQueryStage 1 (stage สุดท้าย มีใน Spark 4.2) แล้วรันเป็น job ที่สอง ผลคือ stage นี้อ่านแค่ 1 partition จึงมี 1 task' },
-  { at: 17, name: 'จบ', title: 'ไม่มี stage ค้าง: isFinalPlan = true', text: 'แผนสุดท้ายประกอบด้วย ResultQueryStage 1, AQEShuffleRead coalesced และ ShuffleQueryStage 0 และจากนี้ g.explain() จะแสดง Final Plan กับ Initial Plan (ใช้ได้กับ DataFrame ตัวที่รันเท่านั้น)' },
+  { at: 0, name: 'ตัดเป็น Stage', title: 'ข้อ 1: ตัดแผนตรง Exchange เป็น Query Stage', text: 'AQE จะหาจุดที่ต้อง Shuffle (Exchange) แล้วหุ้มส่วนที่อยู่ใต้จุดนั้นเป็น ShuffleQueryStage 0 ส่วนที่เหลือ (HashAggregate ตัวบน) ยังต้องรอ เพราะต้องใช้ผลของ Stage นั้น ตอนนี้ isFinalPlan=false' },
+  { at: 2.8, name: 'รัน Stage', title: 'ข้อ 2: รัน Stage ที่ไม่ต้องรอใคร (Job แรก)', text: 'Stage ที่พร้อมจะถูก Materialize ก่อน แล้ว AQE ก็หยุดรอ Event ว่า Stage ไหนเสร็จ (วัดจริง: Action เดียวเริ่ม 2 Job และนี่คือ Job แรก)' },
+  { at: 6.4, name: 'ใส่ผลกลับ', title: 'ข้อ 3: Stage ที่เสร็จถูกใส่กลับพร้อมสถิติจริง', text: 'ตอนนี้ Spark รู้แล้วว่า Shuffle เขียนข้อมูลแค่ 1,152 ไบต์ ซึ่งก่อนรันเราไม่มีทางรู้ได้เลย (แผนตั้งต้นใช้เลข 200 Partition จากค่า Config)' },
+  { at: 8.4, name: 'reOptimize', title: 'ข้อ 4: วางแผนที่เหลือใหม่ด้วยขนาดจริง', text: 'AQE จะรัน Logical Rule ของมันเอง (AQEOptimizer) วางแผน Physical ใหม่ แล้วรัน Rule ระดับ Physical อีกชุดหนึ่ง ซึ่งหนึ่งในนั้นคือ CoalesceShufflePartitions ที่เห็นว่าข้อมูลเล็กมาก จึงครอบด้วย AQEShuffleRead coalesced' },
+  { at: 11, name: 'เทียบ Cost', title: 'ข้อ 5: แผนใหม่ดีกว่าไหม? นับ Exchange', text: 'Cost เริ่มต้น (SimpleCostEvaluator) คือจำนวน ShuffleExchangeLike ในแผน โดยไม่ดูขนาดหรือเวลา แผนเดิมมี 1 และแผนใหม่ก็มี 1 เท่ากัน แต่แผนต่างกัน ในกรณีนี้ AQE จึงรับแผนใหม่' },
+  { at: 13, name: 'วนอีกรอบ', title: 'ข้อ 6 และวนกลับข้อ 1: ไม่เหลือ Exchange ให้ตัดแล้ว', text: 'ส่วนที่เหลือถูกหุ้มเป็น ResultQueryStage 1 (Stage สุดท้าย ซึ่งมีใน Spark 4.2) แล้วรันเป็น Job ที่สอง ผลคือ Stage นี้อ่านแค่ 1 Partition จึงมี 1 Task' },
+  { at: 17, name: 'จบ', title: 'ไม่มี Stage ค้างแล้ว: isFinalPlan = true', text: 'แผนสุดท้ายประกอบด้วย ResultQueryStage 1, AQEShuffleRead coalesced และ ShuffleQueryStage 0 และจากนี้ g.explain() จะแสดง Final Plan กับ Initial Plan (ใช้ได้กับ DataFrame ตัวที่รันเท่านั้น)' },
 ];
 
 const MARKS_EN: Mark[] = [
@@ -65,14 +65,14 @@ const TEXT: Record<Lang, {
   accepted: string; comparing: string; caption: string;
 }> = {
   th: {
-    title: 'ลูปของ AQE: ตัดเป็น stage รัน วัด วางแผนใหม่ แล้ววน',
-    svgLabel: 'ลูปหกขั้นของ AdaptiveSparkPlanExec บน query groupBy count',
-    plan: 'แผนของ g = range.groupBy(k).count()', round1: 'รอบที่ 1 ของลูป', round2: 'รอบที่ 2 ของลูป: stage สุดท้าย',
-    resultRunning: ' (กำลังรัน: 1 task)', shuffleDone: ' (เสร็จแล้ว)', shuffleRunning: ' (กำลังรัน)',
-    coalesceSub: '200 partition → 1', nothingHere: '(ยังไม่มีอะไรคั่นตรงนี้)', stats: 'สถิติจริงของ shuffle',
-    loopTitle: 'ลูปใน withFinalPlanUpdate', jobs: 'job ที่เริ่มแล้ว', costTitle: 'cost = จำนวน Exchange', costLine: 'แผนเดิม 1  แผนใหม่ 1',
+    title: 'ลูปของ AQE: ตัดเป็น Stage รัน วัด วางแผนใหม่ แล้ววน',
+    svgLabel: 'ลูปหกขั้นของ AdaptiveSparkPlanExec บน Query groupBy count',
+    plan: 'แผนของ g = range.groupBy(k).count()', round1: 'รอบที่ 1 ของลูป', round2: 'รอบที่ 2 ของลูป: Stage สุดท้าย',
+    resultRunning: ' (กำลังรัน: 1 Task)', shuffleDone: ' (เสร็จแล้ว)', shuffleRunning: ' (กำลังรัน)',
+    coalesceSub: '200 Partition → 1', nothingHere: '(ยังไม่มีอะไรคั่นตรงนี้)', stats: 'สถิติจริงของ Shuffle',
+    loopTitle: 'ลูปใน withFinalPlanUpdate', jobs: 'Job ที่เริ่มแล้ว', costTitle: 'Cost = จำนวน Exchange', costLine: 'แผนเดิม 1  แผนใหม่ 1',
     accepted: 'เท่ากันแต่ต่าง: รับ', comparing: 'กำลังเทียบ...',
-    caption: '2 job ต่อ 1 action, สถิติ 1,152 ไบต์ และผลรวมเหลือ 1 partition วัดจริงใน exercises/06_catalyst_aqe.py ส่วนลำดับหกขั้น ชื่อ rule และกฎ cost อ่านจากซอร์ส (AdaptiveSparkPlanExec, simpleCosting) จำนวน task ต่อ stage ในภาพวาดย่อ',
+    caption: 'เราวัดจริงใน exercises/06_catalyst_aqe.py ว่า 1 Action ได้ 2 Job, สถิติ 1,152 ไบต์ และผลรวมเหลือ 1 Partition ส่วนลำดับหกขั้น ชื่อ Rule และกฎ Cost อ่านมาจากซอร์ส (AdaptiveSparkPlanExec, simpleCosting) และจำนวน Task ต่อ Stage ในภาพวาดย่อไว้',
   },
   en: {
     title: 'The AQE loop: cut into stages, run, measure, re-plan, repeat',

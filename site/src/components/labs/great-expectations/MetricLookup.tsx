@@ -31,20 +31,20 @@ const TEXT: Record<
   }
 > = {
   th: {
-    title: 'ค้นหา metric ในทะเบียนของ GX',
-    search: 'ค้นหาชื่อ metric',
+    title: 'ค้นหา Metric ในทะเบียนของ GX',
+    search: 'ค้นหาชื่อ Metric',
     placeholder: 'เช่น column.max หรือ nonnull',
     filterLabel: 'ตัวกรอง',
-    filters: [['all', 'ทั้งหมด'], ['all3', 'มีครบสาม engine'], ['no-p', 'ไม่มี pandas'], ['no-s', 'ไม่มี SQL'], ['no-k', 'ไม่มี Spark']],
-    total: 'metric ทั้งหมด',
+    filters: [['all', 'ทั้งหมด'], ['all3', 'มีครบสาม Engine'], ['no-p', 'ไม่มี pandas'], ['no-s', 'ไม่มี SQL'], ['no-k', 'ไม่มี Spark']],
+    total: 'Metric ทั้งหมด',
     inEngine: 'มีใน ',
     all3: 'ครบทั้งสาม',
-    none: 'ไม่พบ metric ที่ตรงกับเงื่อนไข',
+    none: 'ไม่พบ Metric ที่ตรงกับเงื่อนไข',
     cap1: 'แสดงสูงสุด 60 รายการจาก ',
-    cap2: ' ที่ตรงเงื่อนไข ข้อมูลมาจาก ',
+    cap2: ' ที่ตรงเงื่อนไข โดยข้อมูลมาจาก ',
     cap3: ' ของ GX ',
     cap4: ' ที่ติดตั้งจริง',
-    cap5: '(นับ implementation ที่ลงทะเบียนไว้ ไม่ได้ทดลองรันทุก metric บนทุก engine)',
+    cap5: '(นับ Implementation ที่ลงทะเบียนไว้ เราไม่ได้ทดลองรันทุก Metric บนทุก Engine)',
   },
   en: {
     title: 'Search the metrics in the registry of GX',

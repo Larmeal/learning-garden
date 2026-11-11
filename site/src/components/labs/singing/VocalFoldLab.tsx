@@ -23,7 +23,7 @@ const REG: Record<Reg, { text: string; register: number; falsetto: boolean; thic
 const LEVEL_NAME = (l: number, en = false) =>
   en
     ? l < 1.5 ? 'very loose (breathy)' : l < 2.5 ? 'loose' : l < 3.5 ? 'fairly loose (airy)' : l < 4.5 ? 'medium (classical / legit)' : l < 5.5 ? 'fairly firm (mix belt)' : l < 6.5 ? 'firm' : 'very firm (heavy belt)'
-    : l < 1.5 ? 'หลวมมาก (breathy)' : l < 2.5 ? 'หลวม' : l < 3.5 ? 'ค่อนข้างหลวม (airy)' : l < 4.5 ? 'ปานกลาง (classical / legit)' : l < 5.5 ? 'ค่อนข้างแน่น (mix belt)' : l < 6.5 ? 'แน่น' : 'แน่นมาก (heavy belt)';
+    : l < 1.5 ? 'หลวมมาก (Breathy)' : l < 2.5 ? 'หลวม' : l < 3.5 ? 'ค่อนข้างหลวม (Airy)' : l < 4.5 ? 'ปานกลาง (Classical / Legit)' : l < 5.5 ? 'ค่อนข้างแน่น (Mix Belt)' : l < 6.5 ? 'แน่น' : 'แน่นมาก (Heavy Belt)';
 
 const W = 440;
 const WF = { x: 6, y: 34, w: 428, h: 86 };
@@ -116,7 +116,7 @@ export default function VocalFoldLab({ lang = 'th' }: { lang?: 'th' | 'en' }) {
 
   return (
     <figure className="viz">
-      <div className="viz-title">{L('เส้นเสียงเปิดปิดช้าๆ และเสียงที่เกิดขึ้น', 'The vocal folds opening and closing slowly, and the sound they make')}</div>
+      <div className="viz-title">{L('เส้นเสียงเปิดปิดช้า ๆ และเสียงที่เกิดขึ้น', 'The vocal folds opening and closing slowly, and the sound they make')}</div>
       <div className="viz-box" style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start', overflowX: 'visible' }}>
         <div style={{ flex: '0 0 auto', display: 'grid', gap: 10, justifyItems: 'center', maxWidth: '100%' }}>
           <div style={{ fontSize: 13, color: 'var(--muted)' }}>{L('มองจากด้านบน', 'Seen from above')}</div>
@@ -125,21 +125,21 @@ export default function VocalFoldLab({ lang = 'th' }: { lang?: 'th' | 'en' }) {
           <Coronal open={open} openTop={openTop} thick={r.thick} width={250} lang={lang} />
         </div>
         <div style={{ flex: '1 1 340px', minWidth: 0 }}>
-          <svg viewBox={`0 0 ${W} 314`} role="img" aria-label={L('กราฟลมที่ไหลผ่านเส้นเสียงในสามรอบ และ harmonics ของลมนี้', 'A graph of the air flowing through the vocal folds over three cycles, and the harmonics of this air')} style={{ width: '100%', minWidth: 0 }}>
+          <svg viewBox={`0 0 ${W} 314`} role="img" aria-label={L('กราฟลมที่ไหลผ่านเส้นเสียงในสามรอบ และ Harmonics ของลมนี้', 'A graph of the air flowing through the vocal folds over three cycles, and the harmonics of this air')} style={{ width: '100%', minWidth: 0 }}>
             <text className="b" x={WF.x} y={WF.y - 12}>{L('ลมที่ไหลผ่านเส้นเสียง (3 รอบ)', 'Air flowing through the vocal folds (3 cycles)')}</text>
             <Axes fr={WF} fMax={3} ticks={false}>
               <path d={wave} fill="none" stroke="var(--accent)" strokeWidth="3" strokeLinejoin="round" />
               <line x1={cursorX} x2={cursorX} y1={WF.y + 4} y2={WF.y + WF.h - 4} stroke="var(--fg)" strokeWidth="1.5" strokeDasharray="3 3" />
             </Axes>
             <text className="s" x={WF.x + WF.w} y={WF.y + WF.h + 15} textAnchor="end">{L(`เส้นเสียงปิดสนิทประมาณ ${closedPct}% ของแต่ละรอบ`, `The vocal folds are fully closed for about ${closedPct}% of each cycle`)}</text>
-            <text className="b" x={HF.x} y={HF.y - 12}>{L('harmonics ของลมนี้ (เทียบกับตัวแรก, dB)', 'Harmonics of this air (relative to the first, dB)')}</text>
+            <text className="b" x={HF.x} y={HF.y - 12}>{L('Harmonics ของลมนี้ (เทียบกับตัวแรก, dB)', 'Harmonics of this air (relative to the first, dB)')}</text>
             <rect x={HF.x} y={HF.y} width={HF.w} height={HF.h} fill="var(--surface)" stroke="var(--line-strong)" strokeWidth="1.5" rx="6" />
             {/* the harmonic number replaces frequency on this axis; stems stay inside the frame (-66 dB at the bottom, +6 dB at the top) */}
             <Stems fr={{ x: HF.x + 4, y: HF.y, w: HF.w - 8, h: HF.h }} fMax={24 * 200 + 100} lo={-66} hi={6} points={stems.map((p) => ({ hz: p.hz, db: Math.max(-60, p.db) }))} width={8} />
             {[1, 2, 3, 4, 6, 8, 12, 16, 20, 24].map((k) => (
               <text key={k} className="s" x={HF.x + 4 + ((k * 200) / (24 * 200 + 100)) * (HF.w - 8)} y={HF.y + HF.h + 15} textAnchor="middle">{k}</text>
             ))}
-            <text className="s" x={HF.x + HF.w} y={HF.y + HF.h + 31} textAnchor="end">{L('หมายเลข harmonic (1 คือความถี่ของโน้ต)', 'Harmonic number (1 is the frequency of the note)')}</text>
+            <text className="s" x={HF.x + HF.w} y={HF.y + HF.h + 31} textAnchor="end">{L('หมายเลข Harmonic (1 คือความถี่ของโน้ต)', 'Harmonic number (1 is the frequency of the note)')}</text>
           </svg>
         </div>
       </div>
@@ -151,9 +151,9 @@ export default function VocalFoldLab({ lang = 'th' }: { lang?: 'th' | 'en' }) {
         <div style={{ flex: '1 1 300px', minWidth: 0, display: 'grid', gap: 10 }}>
           <strong style={{ fontFamily: 'var(--display)' }}>{L('ร่างกายตอบสนองอย่างไรกับเสียงนี้', 'How the body responds to this sound')}</strong>
           {[
-            [L('แรงดันลมใต้เส้นเสียง', 'Air pressure under the vocal folds'), pressure, L('ปิดแน่นขึ้นและโน้ตสูงขึ้น ต้องดันลมแรงขึ้น หน้าท้องและซี่โครงต้านลมไว้มากขึ้น', 'A firmer closure and a higher note need stronger air pressure, so the abdomen and ribs resist the air more.')],
-            [L('ปริมาณลมที่รั่วผ่าน', 'Amount of air that leaks through'), airflow, L('ปิดหลวมลมรั่วมาก ปอดหมดเร็ว ปิดแน่นลมผ่านน้อย ร้องได้นานกว่า', 'A loose closure leaks a lot of air and the lungs empty fast. A firm closure lets little air through and you can sing longer.')],
-            [L('กล่องเสียงยกขึ้น', 'Larynx raised'), climb, L('คนที่ไม่ได้ฝึกมักยกกล่องเสียงตามโน้ต นักร้องที่ฝึกมาจะพยายามรักษาให้ต่ำและผ่อน', 'Untrained people often raise the larynx with the note. Trained singers try to keep it low and relaxed.')],
+            [L('แรงดันลมใต้เส้นเสียง', 'Air pressure under the vocal folds'), pressure, L('ยิ่งปิดแน่นและโน้ตสูงขึ้น เราก็ต้องดันลมแรงขึ้น หน้าท้องและซี่โครงจึงต้องต้านลมไว้มากขึ้น', 'A firmer closure and a higher note need stronger air pressure, so the abdomen and ribs resist the air more.')],
+            [L('ปริมาณลมที่รั่วผ่าน', 'Amount of air that leaks through'), airflow, L('ถ้าปิดหลวม ลมจะรั่วมากและปอดหมดเร็ว แต่ถ้าปิดแน่น ลมจะผ่านน้อย เราจึงร้องได้นานกว่า', 'A loose closure leaks a lot of air and the lungs empty fast. A firm closure lets little air through and you can sing longer.')],
+            [L('กล่องเสียงยกขึ้น', 'Larynx raised'), climb, L('คนที่ไม่ได้ฝึกมักยกกล่องเสียงขึ้นตามโน้ต ส่วนนักร้องที่ฝึกมาแล้วจะพยายามรักษากล่องเสียงให้ต่ำและผ่อนคลายไว้', 'Untrained people often raise the larynx with the note. Trained singers try to keep it low and relaxed.')],
           ].map(([name, v, why]) => (
             <div key={name as string} style={{ display: 'grid', gap: 2 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', alignItems: 'center', gap: 8, fontSize: 13.5 }}>
@@ -165,16 +165,16 @@ export default function VocalFoldLab({ lang = 'th' }: { lang?: 'th' | 'en' }) {
               <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{why as string}</span>
             </div>
           ))}
-          <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{L('ลำตัวหายใจออกช้าๆ ทุกเก้าวินาทีในภาพ (กล่องเสียงขยับตามโน้ตที่เลือก) แท่งเป็นแนวโน้มที่หนังสือบรรยาย ไม่ใช่ค่าที่วัด (Davids และ LaTour บทที่ 2 หน้า 25 และบทที่ 4 หน้า 78)', 'The torso breathes out slowly over nine seconds in the picture (the larynx moves with the note you chose). The bars are trends that the book describes, not measured values (Davids and LaTour, chapter 2, page 25, and chapter 4, page 78).')}</span>
+          <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{L('ลำตัวในภาพหายใจออกช้า ๆ ทุกเก้าวินาที (กล่องเสียงขยับตามโน้ตที่เลือก) แท่งที่เห็นเป็นแนวโน้มที่หนังสือบรรยายไว้ ซึ่งไม่ได้เป็นค่าที่วัดจริง (Davids และ LaTour บทที่ 2 หน้า 25 และบทที่ 4 หน้า 78)', 'The torso breathes out slowly over nine seconds in the picture (the larynx moves with the note you chose). The bars are trends that the book describes, not measured values (Davids and LaTour, chapter 2, page 25, and chapter 4, page 78).')}</span>
         </div>
       </div>
 
       <div className="viz-now" aria-live="polite">
         <strong>
-          {L(`${noteName(midi)} (${Math.round(f0)} Hz) หมายถึงเส้นเสียงเปิดปิด ${Math.round(f0)} รอบต่อวินาที ภาพนี้ช้าลงประมาณ ${Math.round(f0)} เท่า`, `${noteName(midi)} (${Math.round(f0)} Hz) means the vocal folds open and close ${Math.round(f0)} times per second. This picture is slowed down by about ${Math.round(f0)} times.`)}
+          {L(`${noteName(midi)} (${Math.round(f0)} Hz) หมายความว่าเส้นเสียงเปิดปิด ${Math.round(f0)} รอบต่อวินาที และภาพนี้ถูกทำให้ช้าลงประมาณ ${Math.round(f0)} เท่า`, `${noteName(midi)} (${Math.round(f0)} Hz) means the vocal folds open and close ${Math.round(f0)} times per second. This picture is slowed down by about ${Math.round(f0)} times.`)}
         </strong>
         <span style={{ display: 'block' }}>
-          {L(`harmonic ที่ 2 แรงกว่า harmonic แรกอยู่ ${Math.max(-99, Math.round(20 * Math.log10(harm[1] / harm[0])))} dB และ harmonic ที่ 4 อยู่ที่ ${Math.round(20 * Math.log10(harm[3] / harm[0]))} dB ยิ่งปิดแน่นและปิดเร็ว harmonic สูงยิ่งแรง`, `Harmonic 2 is at ${Math.max(-99, Math.round(20 * Math.log10(harm[1] / harm[0])))} dB relative to harmonic 1, and harmonic 4 is at ${Math.round(20 * Math.log10(harm[3] / harm[0]))} dB. The firmer and faster the closure, the stronger the high harmonics.`)}
+          {L(`Harmonic ที่ 2 แรงกว่า Harmonic แรกอยู่ ${Math.max(-99, Math.round(20 * Math.log10(harm[1] / harm[0])))} dB และ Harmonic ที่ 4 อยู่ที่ ${Math.round(20 * Math.log10(harm[3] / harm[0]))} dB โดยยิ่งเราปิดเส้นเสียงแน่นและเร็วขึ้น Harmonic ที่สูงก็ยิ่งแรงขึ้น`, `Harmonic 2 is at ${Math.max(-99, Math.round(20 * Math.log10(harm[1] / harm[0])))} dB relative to harmonic 1, and harmonic 4 is at ${Math.round(20 * Math.log10(harm[3] / harm[0]))} dB. The firmer and faster the closure, the stronger the high harmonics.`)}
         </span>
         <div style={{ display: 'grid', gap: 6, marginTop: 10, maxWidth: 360 }}>
           {[
@@ -203,7 +203,7 @@ export default function VocalFoldLab({ lang = 'th' }: { lang?: 'th' | 'en' }) {
         <Pills<Reg> label="Register" value={reg} onChange={setReg} options={(Object.keys(REG) as Reg[]).map((k) => ({ value: k, text: REG[k].text }))} />
       </div>
       <p className="viz-caption">
-        {L('รูปร่างของลมเป็นแบบจำลองสำหรับสอน (pulse แบบ Rosenberg) ไม่ใช่การวัดจากเส้นเสียงจริง ค่าความหนาและการทำงานของ CT กับ TA เป็นภาพร่างที่แสดงแนวโน้มตามหนังสือ ไม่ใช่ตัวเลขจากการวัด เสียง "บัซ" คือสิ่งที่เส้นเสียงสร้างก่อนผ่านปากและคอ ฟังแล้วยังไม่เป็นสระ', 'The shape of the airflow is a teaching model (a Rosenberg-type pulse) and not a measurement of real vocal folds. The thickness and the action of the CT and TA are sketches that show the trends in the book, not measured numbers. The "buzz" is what the vocal folds make before the sound passes through the mouth and throat, and it does not yet sound like a vowel.')}
+        {L('รูปร่างของลมเป็นแบบจำลองสำหรับสอน (Pulse แบบ Rosenberg) ซึ่งไม่ได้วัดมาจากเส้นเสียงจริง ส่วนความหนาและการทำงานของ CT กับ TA ก็เป็นภาพร่างที่แสดงแนวโน้มตามหนังสือ ไม่ได้เป็นตัวเลขที่วัดมา เสียง "บัซ" คือเสียงที่เส้นเสียงสร้างขึ้นก่อนจะผ่านปากและคอ เราจึงฟังแล้วยังไม่เหมือนสระ', 'The shape of the airflow is a teaching model (a Rosenberg-type pulse) and not a measurement of real vocal folds. The thickness and the action of the CT and TA are sketches that show the trends in the book, not measured numbers. The "buzz" is what the vocal folds make before the sound passes through the mouth and throat, and it does not yet sound like a vowel.')}
       </p>
     </figure>
   );

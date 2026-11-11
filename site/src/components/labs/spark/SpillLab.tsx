@@ -9,12 +9,12 @@ type Lang = 'th' | 'en';
 
 const STEPS: Record<Lang, StepInfo[]> = {
   th: [
-    { name: 'เริ่ม', title: 'Task หนึ่งตัว sort ข้อมูลของ partition ตัวเอง', text: 'ทุก task ได้ส่วนแบ่งของ execution memory ใน pool ของ executor sorter ต้องเก็บแถวไว้ใน memory เพื่อ sort' },
-    { name: 'เก็บแถว', title: 'แถวไหลเข้า buffer', text: 'sorter ขอ memory เพิ่มจาก pool เป็นก้อนๆ เมื่อได้ครบก็เก็บแถวต่อ buffer ค่อยๆ เต็ม' },
-    { name: 'เต็ม', title: 'ขอ memory เพิ่มไม่ได้แล้ว', text: 'pool ไม่มี memory เหลือให้ task นี้ (เพื่อน task ก็ใช้อยู่) TaskMemoryManager จึงสั่งให้ consumer ที่ถือ memory ไปเขียนลง disk' },
-    { name: 'Spill', title: 'sort สิ่งที่มีอยู่ แล้วเขียนเป็น spill file', text: 'แถวใน buffer ถูก sort แล้วเขียนลงไฟล์ชั่วคราวบน disk memory ถูกคืนให้ pool นี่คือ spill: ช้าลงเพราะต้องเขียน disk แต่ไม่ใช่ error' },
-    { name: 'ทำซ้ำ', title: 'เก็บแถวต่อ เต็มอีก spill อีก', text: 'วนซ้ำจนอ่านข้อมูลหมด ได้ spill file หลายไฟล์ที่ sort แล้วทั้งหมด' },
-    { name: 'Merge', title: 'ไล่รวมไฟล์ที่เรียงแล้วเป็นผลลัพธ์เดียว', text: 'spill file ทุกไฟล์กับ buffer ที่เหลือถูก merge แบบ k-way ได้ข้อมูลเรียงลำดับ ใน Spark UI จะเห็น Spill (Memory) และ Spill (Disk) ของ stage นี้ (วัดจริง: 6 ล้านแถวบน memory 600 MB ได้ 280 MiB และ 232 MiB)' },
+    { name: 'เริ่ม', title: 'Task หนึ่งตัว Sort ข้อมูลของ Partition ตัวเอง', text: 'ทุก Task จะได้ส่วนแบ่งของ Execution Memory ใน Pool ของ Executor ซึ่ง Sorter ต้องเก็บแถวไว้ใน Memory เพื่อใช้ Sort' },
+    { name: 'เก็บแถว', title: 'แถวไหลเข้า Buffer', text: 'Sorter ขอ Memory เพิ่มจาก Pool ทีละก้อน ๆ และเมื่อได้ครบก็เก็บแถวต่อ ทำให้ Buffer ค่อย ๆ เต็ม' },
+    { name: 'เต็ม', title: 'ขอ Memory เพิ่มไม่ได้แล้ว', text: 'Pool ไม่มี Memory เหลือให้ Task นี้แล้ว เพราะ Task อื่นก็ใช้อยู่ด้วย TaskMemoryManager จึงสั่งให้ Consumer ที่ถือ Memory อยู่ไปเขียนลง Disk' },
+    { name: 'Spill', title: 'Sort สิ่งที่มีอยู่ แล้วเขียนเป็น Spill File', text: 'แถวใน Buffer ถูก Sort แล้วเขียนลงไฟล์ชั่วคราวบน Disk จากนั้น Memory จะถูกคืนให้ Pool นี่แหละคือ Spill ซึ่งจะช้าลงเพราะต้องเขียน Disk แต่ก็ไม่ได้เป็น Error' },
+    { name: 'ทำซ้ำ', title: 'เก็บแถวต่อ เต็มอีก Spill อีก', text: 'วนซ้ำแบบนี้จนอ่านข้อมูลหมด แล้วเราจะได้ Spill File หลายไฟล์ที่ Sort แล้วทั้งหมด' },
+    { name: 'Merge', title: 'ไล่รวมไฟล์ที่เรียงแล้วเป็นผลลัพธ์เดียว', text: 'Spill File ทุกไฟล์กับ Buffer ที่เหลือจะถูก Merge แบบ k-way ซึ่งได้ข้อมูลที่เรียงลำดับแล้ว ใน Spark UI เราจะเห็น Spill (Memory) และ Spill (Disk) ของ Stage นี้ (วัดจริง: 6 ล้านแถวบน Memory 600 MB ได้ 280 MiB และ 232 MiB)' },
   ],
   en: [
     { name: 'Start', title: 'One task sorts the data of its own partition', text: 'Every task gets a share of the execution memory in the executor pool. The sorter has to keep the rows in memory to sort them' },
@@ -28,17 +28,17 @@ const STEPS: Record<Lang, StepInfo[]> = {
 
 const TEXT: Record<Lang, { title: string; aria: (n: number) => string; mem: string; full: string; buffer: string; noMore: string; sortWrite: string; disk: string; merge: string; sorted: string; caption: string }> = {
   th: {
-    title: 'Spill: เมื่อ memory ของ task ไม่พอ',
-    aria: (n) => `ขั้นที่ ${n} ของ spill`,
-    mem: 'Execution memory ของ task',
+    title: 'Spill: เมื่อ Memory ของ Task ไม่พอ',
+    aria: (n) => `ขั้นที่ ${n} ของ Spill`,
+    mem: 'Execution Memory ของ Task',
     full: 'เต็ม!',
-    buffer: 'buffer ของแถวที่ยังไม่ sort',
-    noMore: 'pool ไม่มีให้เพิ่ม',
-    sortWrite: 'sort + เขียน',
-    disk: 'Disk: spill file (sort แล้ว)',
-    merge: 'merge',
+    buffer: 'Buffer ของแถวที่ยังไม่ Sort',
+    noMore: 'Pool ไม่มีให้เพิ่ม',
+    sortWrite: 'Sort + เขียน',
+    disk: 'Disk: Spill File (Sort แล้ว)',
+    merge: 'Merge',
     sorted: 'ผลลัพธ์เรียงลำดับ',
-    caption: 'ภาพเล่าลำดับเหตุการณ์ ไม่ได้วัดตามสัดส่วน กลไกอ้างจาก Spillable.maybeSpill และ UnsafeExternalSorter.spill ใน source ของ Spark 4.2.0',
+    caption: 'ภาพนี้เล่าลำดับเหตุการณ์ และไม่ได้วาดตามสัดส่วนจริง ส่วนกลไกอ้างจาก Spillable.maybeSpill และ UnsafeExternalSorter.spill ใน source ของ Spark 4.2.0',
   },
   en: {
     title: 'Spill: when the memory of a task is not enough',

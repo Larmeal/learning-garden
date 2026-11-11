@@ -36,21 +36,21 @@ const TEXT: Record<
   }
 > = {
   th: {
-    presets: { none: 'ไม่มี null', two: 'มี null สองแถว' },
+    presets: { none: 'ไม่มี Null', two: 'มี Null สองแถว' },
     conds: { even: 'เป็นเลขคู่ (n % 2 == 0)', big: 'มากกว่า 5 (n > 5)' },
-    title: 'ตามดูแถวหนึ่งๆ ว่าเงื่อนไขของคุณเห็นอะไร',
+    title: 'ตามดูแถวหนึ่ง ๆ ว่าเงื่อนไขของคุณเห็นอะไร',
     dataLabel: 'ข้อมูล',
     condLabel: 'เงื่อนไข',
     skipped: 'ถูกตัดออกก่อน เงื่อนไขของคุณไม่เคยเห็นแถวนี้',
     condTrue: (label) => `เงื่อนไขตอบ True: ${label}`,
-    nullBad: 'เงื่อนไขเห็น null และตอบ False จึงนับเป็น unexpected',
+    nullBad: 'เงื่อนไขเห็น Null และตอบ False จึงนับเป็น unexpected',
     valueBad: 'เงื่อนไขตอบ False จึงนับเป็น unexpected',
     nonnull: 'ใช้คิดสัดส่วน (nonnull)',
     impossibleTitle: 'GX ผ่านผลนี้ไม่ได้',
-    impossible: (u, n, pct) => `นับ unexpected ได้ ${u} จากแถวที่ไม่ใช่ null เพียง ${n} แถว (${pct}%) GX 1.24.1 สร้างผลไม่ได้และจับเป็น exception_info ที่ขึ้นต้นว่า "Invalid result values were found" ทดลองแล้วด้วยข้อมูลชุดมี null`,
+    impossible: (u, n, pct) => `นับ unexpected ได้ ${u} จากแถวที่ไม่ใช่ Null เพียง ${n} แถว (${pct}%) GX 1.24.1 จึงสร้างผลไม่ได้ และจับเป็น exception_info ที่ขึ้นต้นว่า "Invalid result values were found" ซึ่งทดลองแล้วด้วยข้อมูลชุดที่มี Null`,
     noBad: 'ไม่มีแถวที่ผิด',
     someBad: 'มีแถวที่ผิด และ mostly ค่าเริ่มต้นคือ 1 จึงไม่ผ่าน',
-    caption: 'ถ้าอยากให้ null นับเป็นความผิดด้วย ให้เพิ่ม ExpectColumnValuesToNotBeNull ไว้ข้างๆ แทนการปิด filter_column_isnull',
+    caption: 'ถ้าอยากให้ Null นับเป็นความผิดด้วย ให้เพิ่ม ExpectColumnValuesToNotBeNull ไว้ข้าง ๆ แทนการปิด filter_column_isnull',
   },
   en: {
     presets: { none: 'No null', two: 'Two null rows' },

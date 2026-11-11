@@ -33,16 +33,16 @@ const TEXT: Record<
         now: `source = context.data_sources.add_pandas("src")
 asset = source.add_dataframe_asset("users")
 bd = asset.add_batch_definition_whole_dataframe("all")`,
-        text: '0.18 ส่ง DataFrame เข้า Validator ทันที 1.x แยก "ข้อมูลอยู่ที่ไหน" (source, asset, batch definition) ออกจากตัวข้อมูลที่ส่งตอนรัน',
+        text: '0.18 ส่ง DataFrame เข้า Validator ทันที ส่วน 1.x จะแยก "ข้อมูลอยู่ที่ไหน" (source, asset, Batch Definition) ออกจากตัวข้อมูลที่ส่งตอนรัน',
       },
       {
         id: 'expect',
-        label: 'เขียน expectation',
+        label: 'เขียน Expectation',
         old: `result = validator.expect_column_values_to_not_be_null("age")
 # รันทันที ได้ผลคืนมา`,
         now: `exp = gxe.ExpectColumnValuesToNotBeNull(column="age")
 # เป็น object ยังไม่รัน`,
-        text: '0.18: expect_* เป็นเมธอดของ Validator ที่รันเดี๋ยวนั้น และข้อที่ล้มจะไม่ถูกเก็บใน suite (ทดลองแล้ว suite ว่าง 0 ข้อ) 1.x: expectation เป็นคลาส/object ที่สร้าง เก็บ และนำไปรันทีหลังได้',
+        text: '0.18: expect_* เป็นเมธอดของ Validator ที่รันเดี๋ยวนั้น และข้อที่ล้มจะไม่ถูกเก็บใน Suite (ทดลองแล้ว Suite ว่าง 0 ข้อ) ส่วน 1.x: Expectation เป็นคลาส/Object ที่สร้าง เก็บ และนำไปรันทีหลังได้',
       },
       {
         id: 'suite',
@@ -50,7 +50,7 @@ bd = asset.add_batch_definition_whole_dataframe("all")`,
         old: `validator.save_expectation_suite("my_suite")`,
         now: `suite = context.suites.add(gx.ExpectationSuite(name="my_suite"))
 suite.add_expectation(exp)`,
-        text: '1.x สร้าง suite ก่อนแล้วเติม expectation เข้าไป ถ้า suite ถูก add เข้า context แล้ว การเติมจะบันทึกให้เอง',
+        text: '1.x จะสร้าง Suite ก่อนแล้วเติม Expectation เข้าไป ถ้า Suite ถูก add เข้า Context แล้ว การเติมจะบันทึกให้เอง',
       },
       {
         id: 'run',
@@ -62,7 +62,7 @@ checkpoint.run()`,
         now: `vd = gx.ValidationDefinition(name="vd", data=bd, suite=suite)
 cp = context.checkpoints.add(gx.Checkpoint(name="cp", validation_definitions=[vd]))
 cp.run(batch_parameters={"dataframe": df})`,
-        text: '0.18 อ้าง suite ด้วยชื่อในค่า config (ทดลองแล้ว ชื่อ "default" ที่ไม่มีทำให้ DataContextError) 1.x มี ValidationDefinition เป็นตัวกลางจับคู่ข้อมูลกับ suite เป็น object',
+        text: '0.18 อ้าง Suite ด้วยชื่อในค่า Config (ทดลองแล้ว ชื่อ "default" ที่ไม่มีทำให้ DataContextError) ส่วน 1.x มี ValidationDefinition เป็นตัวกลางจับคู่ข้อมูลกับ Suite เป็น Object',
       },
       {
         id: 'result',
@@ -71,7 +71,7 @@ cp.run(batch_parameters={"dataframe": df})`,
 result.success`,
         now: `result = cp.run(batch_parameters={"dataframe": df})
 result.success   # ไม่ raise เมื่อข้อมูลไม่ผ่าน`,
-        text: 'ทั้งสองรุ่นให้ .success แต่ชื่อ class กับโครงผลต่างกัน ตัวอย่างบนเว็บส่วนใหญ่เป็นแบบ 0.x ให้ดูเลขเวอร์ชันของหน้าเอกสารเสมอ',
+        text: 'ทั้งสองรุ่นให้ .success เหมือนกัน แต่ชื่อ Class กับโครงผลต่างกัน ตัวอย่างบนเว็บส่วนใหญ่เป็นแบบ 0.x เราจึงควรดูเลขเวอร์ชันของหน้าเอกสารเสมอ',
       },
     ],
     title: 'สิ่งเดียวกัน เขียนต่างกันใน GX 0.18 และ 1.x',
@@ -80,7 +80,7 @@ result.success   # ไม่ raise เมื่อข้อมูลไม่ผ
     now: '1.x (ปัจจุบัน 1.24.1)',
     captionA: 'รันทั้งสองแบบจริง: ',
     captionB: ' สำหรับ 0.18 และ ',
-    captionC: ' สำหรับ 1.x เอกสารทางการแบ่งเวอร์ชันที่ docs.greatexpectations.io (1.24.1 ล่าสุด, 0.18.21 ไม่มีการดูแลแล้ว)',
+    captionC: ' สำหรับ 1.x ส่วนเอกสารทางการแบ่งเวอร์ชันไว้ที่ docs.greatexpectations.io (1.24.1 ล่าสุด, 0.18.21 ไม่มีการดูแลแล้ว)',
   },
   en: {
     pairs: [

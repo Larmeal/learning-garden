@@ -31,19 +31,19 @@ const TEXT: Record<
   }
 > = {
   th: {
-    title: 'suite เดียวกัน บน pandas และบน SQL ทำงานไม่เหมือนกัน',
+    title: 'Suite เดียวกัน บน pandas และบน SQL ทำงานไม่เหมือนกัน',
     presets: {
-      few: { label: 'not null 2 ข้อ', note: 'ตรวจ null ของ id และ age' },
-      agg: { label: 'ค่าสถิติ 3 ข้อ', note: 'max, mean และจำนวนแถว (aggregate ทั้งหมด)' },
-      mix: { label: 'ผสม 5 ข้อ', note: 'null, ช่วงค่า, max และจำนวนแถว' },
-      all: { label: 'ครบ 7 ข้อ', note: 'ทุก expectation ในตัวอย่าง' },
+      few: { label: 'Not Null 2 ข้อ', note: 'ตรวจ Null ของ id และ age' },
+      agg: { label: 'ค่าสถิติ 3 ข้อ', note: 'Max, Mean และจำนวนแถว (เป็น Aggregate ทั้งหมด)' },
+      mix: { label: 'ผสม 5 ข้อ', note: 'Null, ช่วงค่า, Max และจำนวนแถว' },
+      all: { label: 'ครบ 7 ข้อ', note: 'ทุก Expectation ในตัวอย่าง' },
     },
-    rounds: (m, r) => `${m} metric ใน ${r} รอบ (คำนวณในหน่วยความจำ ทีละ metric)`,
-    selects: (n) => `${n} คำสั่ง SELECT ส่งไปที่ database`,
-    spark: 'ยังไม่ได้วัด: ตามซอร์ส aggregate ใน domain เดียวกันรวมเป็น df.agg(...).collect() หนึ่งครั้ง',
-    caption1: '. จำนวน metric เท่ากันทุก backend แต่ SQL รวม metric แบบ aggregate (เช่น ',
+    rounds: (m, r) => `${m} Metric ใน ${r} รอบ (คำนวณในหน่วยความจำ ทีละ Metric)`,
+    selects: (n) => `${n} คำสั่ง SELECT ส่งไปที่ Database`,
+    spark: 'ยังไม่ได้วัด แต่ตามซอร์สแล้ว Aggregate ใน Domain เดียวกันจะถูกรวมเป็น df.agg(...).collect() หนึ่งครั้ง',
+    caption1: '. จำนวน Metric เท่ากันทุก Backend แต่ SQL รวม Metric แบบ Aggregate (เช่น ',
     caption2: ' กับ ',
-    caption3: (v) => `) ไว้ใน SELECT เดียว ทำให้จำนวนครั้งที่ไปถึงข้อมูลน้อยกว่าจำนวน metric ข้อมูลวัดจาก GX ${v}`,
+    caption3: (v) => `) ไว้ใน SELECT เดียว ทำให้จำนวนครั้งที่ไปถึงข้อมูลน้อยกว่าจำนวน Metric ซึ่งตัวเลขนี้วัดจาก GX ${v}`,
   },
   en: {
     title: 'The same suite runs differently on pandas and on SQL',

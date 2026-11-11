@@ -26,23 +26,23 @@ const TEXT: Record<Lang, {
   done: { name: string; title: (wall: string) => string; text: (util: number, sc: Scenario) => string };
 }> = {
   th: {
-    labels: { even: 'กระจายเท่ากัน', skew: 'key skew (วัดจริง)', salt: 'หลังเติม salt (วัดจริง)' },
-    title: 'ทำไม partition เดียวที่ใหญ่เกินไปทำให้ทั้ง stage ช้า', groupLabel: 'ลักษณะของข้อมูล',
-    svgLabel: (label) => `แกนเวลาของ 8 task บน 4 core: ${label}`, head: 'core ทั้ง 4 ตัวกับ task ของ stage เดียว',
-    sub: 'ความกว้างของแท่ง = จำนวนแถวใน partition นั้น (1 หน่วยเวลา = 100,000 แถว)', axis: 'เวลา (หน่วยเทียบกับจำนวนแถว ไม่ใช่วินาทีจริง)',
-    core: (n) => `core ${n}`, end: (wall, util) => `stage จบที่ ${wall} · ใช้ core จริง ${util}%`,
-    caption: 'จำนวนแถวต่อ partition ของแบบ skew และแบบ salt วัดจริงจาก exercises/07_performance_tuning.py ส่วนเวลาในภาพคิดจากจำนวนแถวโดยสมมติว่าทุกแถวใช้เวลาเท่ากัน จึงบอกสัดส่วนไม่ได้บอกวินาทีจริง',
-    start: { name: 'แจกงาน', title: '8 task เข้าคิว 4 core', text: 'task ที่ใช้เวลาเท่ากับจำนวนแถวใน partition ของมัน core ที่ว่างก่อนจะหยิบ task ถัดไปในคิว' },
+    labels: { even: 'กระจายเท่ากัน', skew: 'Key Skew (วัดจริง)', salt: 'หลังเติม Salt (วัดจริง)' },
+    title: 'ทำไม Partition เดียวที่ใหญ่เกินไปทำให้ทั้ง Stage ช้า', groupLabel: 'ลักษณะของข้อมูล',
+    svgLabel: (label) => `แกนเวลาของ 8 Task บน 4 Core: ${label}`, head: 'Core ทั้ง 4 ตัวกับ Task ของ Stage เดียว',
+    sub: 'ความกว้างของแท่ง = จำนวนแถวใน Partition นั้น (1 หน่วยเวลา = 100,000 แถว)', axis: 'เวลา (หน่วยเทียบกับจำนวนแถว ไม่ใช่วินาทีจริง)',
+    core: (n) => `Core ${n}`, end: (wall, util) => `Stage จบที่ ${wall} · ใช้ Core จริง ${util}%`,
+    caption: 'จำนวนแถวต่อ Partition ของแบบ Skew และแบบ Salt วัดจริงจาก exercises/07_performance_tuning.py ส่วนเวลาในภาพคิดจากจำนวนแถว โดยสมมติว่าทุกแถวใช้เวลาเท่ากัน จึงบอกได้แค่สัดส่วน ไม่ได้บอกเป็นวินาทีจริง',
+    start: { name: 'แจกงาน', title: '8 Task เข้าคิว 4 Core', text: 'Task แต่ละตัวใช้เวลาเท่ากับจำนวนแถวใน Partition ของมัน และ Core ที่ว่างก่อนจะหยิบ Task ถัดไปในคิวไปทำ' },
     idle: {
-      name: 'core แรกว่าง',
-      skewTitle: 'core ส่วนใหญ่ทำงานเสร็จแล้ว แต่ stage ยังไม่จบ', otherTitle: 'มี core แรกที่ไม่มีงานเหลือ',
-      skewText: 'ลายขีดคือเวลาที่ core นั่งรอ stage ถัดไปเริ่มไม่ได้จนกว่า task สุดท้ายจะเสร็จ ใน partition ที่ 6 มี 1,821,935 แถว ส่วนที่เหลือมีไม่เกิน 29,112',
-      otherText: 'task สุดท้ายที่ยังรันอยู่กำหนดเวลาจบของทั้ง stage ลายขีดคือเวลาที่ core ว่างระหว่างรอ',
+      name: 'Core แรกว่าง',
+      skewTitle: 'Core ส่วนใหญ่ทำงานเสร็จแล้ว แต่ Stage ยังไม่จบ', otherTitle: 'มี Core แรกที่ไม่มีงานเหลือ',
+      skewText: 'ลายขีดคือเวลาที่ Core นั่งรออยู่ เพราะ Stage ถัดไปจะเริ่มไม่ได้จนกว่า Task สุดท้ายจะเสร็จ โดย Partition ที่ 6 มี 1,821,935 แถว ส่วนที่เหลือมีไม่เกิน 29,112',
+      otherText: 'Task สุดท้ายที่ยังรันอยู่จะกำหนดเวลาจบของทั้ง Stage ส่วนลายขีดคือเวลาที่ Core ว่างระหว่างรอ',
     },
     done: {
-      name: 'stage จบ',
-      title: (wall) => `stage จบเมื่อ task ที่ช้าที่สุดจบ: ${wall} หน่วยเวลา`,
-      text: (util, sc) => `core ถูกใช้งานจริง ${util}% ของเวลาที่จองไว้ ${sc === 'skew' ? 'เพิ่ม core ก็ไม่ช่วย เพราะ task ใหญ่ยังเป็น task เดียว วิธีแก้คือทำให้ partition เล็กลง (เช่น salt หรือให้ AQE แบ่ง partition ที่ skew ในการ join)' : sc === 'salt' ? 'แถวของ key ใหญ่ถูกกระจายไปหลาย partition ตัวที่ใหญ่สุดเหลือ 362,896 แถว (จาก 1,821,935)' : 'ทุก task ขนาดใกล้กัน core จึงว่างพร้อมกัน นี่คือสภาพที่ต้องการ'}`,
+      name: 'Stage จบ',
+      title: (wall) => `Stage จบเมื่อ Task ที่ช้าที่สุดจบ: ${wall} หน่วยเวลา`,
+      text: (util, sc) => `Core ถูกใช้งานจริง ${util}% ของเวลาที่จองไว้ ${sc === 'skew' ? 'ต่อให้เพิ่ม Core ก็ไม่ช่วย เพราะ Task ใหญ่ยังเป็น Task เดียวอยู่ดี วิธีแก้คือทำให้ Partition เล็กลง (เช่น Salt หรือให้ AQE แบ่ง Partition ที่ Skew ในการ Join)' : sc === 'salt' ? 'แถวของ Key ใหญ่ถูกกระจายไปหลาย Partition ทำให้ตัวที่ใหญ่สุดเหลือ 362,896 แถว (จาก 1,821,935)' : 'ทุก Task มีขนาดใกล้กัน Core จึงว่างพร้อมกัน ซึ่งเป็นสภาพที่เราต้องการ'}`,
     },
   },
   en: {

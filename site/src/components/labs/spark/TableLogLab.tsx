@@ -33,13 +33,13 @@ const COMMITS = [
 ];
 
 const STEPS_TH: StepInfo[] = [
-  { name: 'v0 WRITE', title: 'เขียนครั้งแรก: 4 ไฟล์ 100 แถว', text: 'commit 0 บันทึก add ของทั้งสี่ไฟล์พร้อมสถิติ (numRecords, min, max ของแต่ละ column) ไฟล์ _delta_log/000...0.json คือ "ตาราง" จริงๆ ไฟล์ Parquet เป็นแค่ข้อมูลที่ log ชี้ไป' },
-  { name: 'v1 UPDATE', title: 'UPDATE: ไม่แก้ไฟล์เดิม เขียนไฟล์ใหม่', text: 'Parquet แก้ไขที่ไม่ได้ Delta จึงอ่าน f1 ทั้งไฟล์ เขียน f5 ที่ g = 99 แล้ว commit เป็น remove f1 และ add f5 f1 ยังอยู่บน disk ผู้ที่อ่าน Parquet ตรงๆ จะได้ 125 แถว (วัดจริง) ผู้ที่อ่านผ่าน log ได้ 100' },
-  { name: 'v2 DELETE', title: 'DELETE: เขียนไฟล์ที่เหลือใหม่', text: 'แถว id >= 90 อยู่ใน f4 ทั้งหมด Delta เขียน f6 ที่เหลือ 15 แถว และ commit remove f4 กับ add f6 (วัดจริง: 90 แถว)' },
-  { name: 'v3 MERGE', title: 'MERGE: เขียนซ้ำอีกรอบ', text: 'แถว id = 5 ที่อยู่ใน f5 ถูกแก้ จึงเกิด f7 แทน f5 version ละหนึ่ง commit ทุกครั้งที่ log เพิ่มไฟล์ใหม่หนึ่งไฟล์ ไม่มีไฟล์ไหนถูกแก้ไขที่เดิม (วัดจริง: time travel ที่ v0 เห็น g ของ id 5 เป็น 0 ส่วนปัจจุบันเป็น 7)' },
-  { name: 'v4 OPTIMIZE', title: 'OPTIMIZE: รวมไฟล์เล็กเป็นไฟล์เดียว', text: 'รวม f2 f3 f6 f7 เป็น f8 ไฟล์เดียว ลดงานตอนอ่าน (วัดจริง: ตารางที่มี 7 ไฟล์เหลือ 1) แต่ไฟล์เก่ายังไม่ถูกลบ บน disk ในภาพมี 8 ไฟล์ ตารางอ้างถึงแค่ f8' },
-  { name: 'VACUUM', title: 'VACUUM: ลบไฟล์ที่ log ไม่อ้างถึงแล้ว', text: 'ลบไฟล์ที่ถูก remove และเก่าพอ (ที่นี่ตั้ง RETAIN 0 HOURS เพื่อสาธิต ค่าเริ่มต้นเก็บ 7 วัน) disk เหลือไฟล์เดียวที่ตารางใช้ ที่ว่างคืนมา แต่ version เก่าที่ต้องอ่านไฟล์พวกนั้นหายไปด้วย' },
-  { name: 'time travel', title: 'time travel ไป v0 หลัง VACUUM: ล้มเหลว', text: 'log ยังบอกว่า v0 มี f1 ถึง f4 แต่ไฟล์ถูกลบไปแล้ว อ่านได้ error FILE_NOT_EXIST (วัดจริง) นี่คือราคาของ time travel: ยิ่งเก็บ version นานยิ่งเปลืองที่ เมื่อ VACUUM แล้วย้อนกลับไม่ได้' },
+  { name: 'v0 WRITE', title: 'เขียนครั้งแรก: 4 ไฟล์ 100 แถว', text: 'Commit 0 บันทึก add ของทั้งสี่ไฟล์พร้อมสถิติ (numRecords, min, max ของแต่ละ Column) ไฟล์ _delta_log/000...0.json คือ "ตาราง" จริง ๆ ส่วนไฟล์ Parquet เป็นแค่ข้อมูลที่ Log ชี้ไปหา' },
+  { name: 'v1 UPDATE', title: 'UPDATE: ไม่แก้ไฟล์เดิม แต่เขียนไฟล์ใหม่', text: 'Parquet แก้ไขในที่เดิมไม่ได้ Delta จึงอ่าน f1 ทั้งไฟล์ เขียน f5 ที่ g = 99 แล้ว Commit เป็น remove f1 และ add f5 ส่วน f1 ยังอยู่บน Disk ถ้าอ่าน Parquet ตรง ๆ จะได้ 125 แถว (วัดจริง) แต่ถ้าอ่านผ่าน Log จะได้ 100' },
+  { name: 'v2 DELETE', title: 'DELETE: เขียนไฟล์ที่เหลือใหม่', text: 'แถว id >= 90 อยู่ใน f4 ทั้งหมด Delta จึงเขียน f6 ที่เหลือ 15 แถว และ Commit remove f4 กับ add f6 (วัดจริง: 90 แถว)' },
+  { name: 'v3 MERGE', title: 'MERGE: เขียนซ้ำอีกรอบ', text: 'แถว id = 5 ที่อยู่ใน f5 ถูกแก้ จึงเกิด f7 มาแทน f5 โดย Version ละหนึ่ง Commit และทุกครั้งที่ Log จะเพิ่มไฟล์ใหม่หนึ่งไฟล์ ไม่มีไฟล์ไหนถูกแก้ไขในที่เดิม (วัดจริง: Time Travel ที่ v0 เห็น g ของ id 5 เป็น 0 ส่วนปัจจุบันเป็น 7)' },
+  { name: 'v4 OPTIMIZE', title: 'OPTIMIZE: รวมไฟล์เล็กเป็นไฟล์เดียว', text: 'รวม f2 f3 f6 f7 เป็น f8 ไฟล์เดียว ช่วยลดงานตอนอ่าน (วัดจริง: ตารางที่มี 7 ไฟล์เหลือ 1) แต่ไฟล์เก่ายังไม่ถูกลบ ทำให้บน Disk ในภาพมี 8 ไฟล์ โดยตารางอ้างถึงแค่ f8' },
+  { name: 'VACUUM', title: 'VACUUM: ลบไฟล์ที่ Log ไม่อ้างถึงแล้ว', text: 'VACUUM จะลบไฟล์ที่ถูก remove และเก่าพอ (ที่นี่ตั้ง RETAIN 0 HOURS เพื่อสาธิต ค่าเริ่มต้นเก็บ 7 วัน) ทำให้ Disk เหลือไฟล์เดียวที่ตารางใช้ และได้ที่ว่างคืนมา แต่ Version เก่าที่ต้องอ่านไฟล์พวกนั้นก็หายไปด้วย' },
+  { name: 'Time Travel', title: 'Time Travel ไป v0 หลัง VACUUM: ล้มเหลว', text: 'Log ยังบอกว่า v0 มี f1 ถึง f4 แต่ไฟล์ถูกลบไปแล้ว จึงอ่านได้แค่ Error FILE_NOT_EXIST (วัดจริง) นี่คือราคาของ Time Travel ซึ่งยิ่งเก็บ Version นานก็ยิ่งเปลืองที่ และเมื่อ VACUUM แล้วก็ย้อนกลับไม่ได้' },
 ];
 
 const STEPS_EN: StepInfo[] = [
@@ -59,10 +59,10 @@ const TEXT: Record<Lang, {
   ranges: Record<string, string>;
 }> = {
   th: {
-    title: 'Transaction log: ตาราง Delta คือ log ที่ชี้ไปหาไฟล์ Parquet',
-    disk: 'ไฟล์ Parquet บน disk',
+    title: 'Transaction Log: ตาราง Delta คือ Log ที่ชี้ไปหาไฟล์ Parquet',
+    disk: 'ไฟล์ Parquet บน Disk',
     rows: (n) => `${n} แถว`,
-    inLog: 'อยู่ใน log',
+    inLog: 'อยู่ใน Log',
     removedAt: (v) => `ถูก remove ที่ v${v}`,
     ranges: {
       f1: 'id 0 ถึง 24',
@@ -71,7 +71,7 @@ const TEXT: Record<Lang, {
       f4: 'id 75 ถึง 99',
       f5: 'id 0 ถึง 24 (g = 99)',
       f6: 'id 75 ถึง 89',
-      f7: 'id 0 ถึง 24 (merge)',
+      f7: 'id 0 ถึง 24 (Merge)',
       f8: 'id 0 ถึง 89 (รวมไฟล์)',
     },
   },

@@ -46,13 +46,13 @@ const WM = [null, m(11, 53), m(11, 53), m(11, 56), m(11, 56), m(12, 10), m(12, 1
 
 const STEPS: Record<Lang, StepInfo[]> = {
   th: [
-    { name: 'batch 0', title: 'batch 0: ไฟล์แรก (12:00:01 และ 12:03:00)', text: 'สอง event เข้า window 12:00 ถึง 12:05 นับได้ 2 ตอนนี้ยังไม่มี watermark (เริ่มจากศูนย์) พออ่านจบ Spark คำนวณ watermark ใหม่ = เวลา event ที่ใหม่สุด (12:03) ลบ 10 นาที = 11:53 เพื่อใช้ใน batch ถัดไป' },
-    { name: 'batch 1', title: 'batch 1: ไม่มีข้อมูลใหม่ แต่ยังรัน', text: 'watermark เปลี่ยนจาก 0 เป็น 11:53 Spark เลยรัน batch ที่ numInputRows = 0 เพื่อนำค่าไปใช้ (spark.sql.streaming.noDataMicroBatches.enabled เป็น true) ยังไม่มี window ไหนจบก่อน 11:53 จึงไม่ส่งอะไรออก' },
-    { name: 'batch 2', title: 'batch 2: ไฟล์ที่สอง (12:06:00)', text: 'event เข้า window 12:05 ถึง 12:10 ตอนนี้ state มีสอง window ในโหมด append ผลของ window ยังไม่ถูกเขียนออก เพราะอาจมี event ที่มาช้าเข้ามาเพิ่มได้ watermark ถัดไป = 12:06 ลบ 10 = 11:56' },
-    { name: 'batch 3', title: 'batch 3: รันเพื่อนำ watermark 11:56 ไปใช้', text: 'ยังไม่มี window ที่ปลายช่วงเกิน 11:56 จึงยังไม่ส่งอะไรออก (วัดจริง: ผลลัพธ์ของ memory sink ยังว่างหลังไฟล์ที่ 1 และ 2)' },
-    { name: 'batch 4', title: 'batch 4: ไฟล์ที่สาม (12:20:00)', text: 'event ที่ใหม่มากเข้ามา สร้าง window 12:20 ถึง 12:25 และเลื่อนเวลา event ที่ใหม่สุดเป็น 12:20 watermark ถัดไป = 12:20 ลบ 10 = 12:10' },
-    { name: 'batch 5', title: 'batch 5: watermark 12:10 ปิด window และส่งผลออก', text: 'window ที่ปลายช่วงไม่เกิน 12:10 ถือว่าจบ: 12:00 ถึง 12:05 (2) และ 12:05 ถึง 12:10 (1) ถูกเขียนลง sink และลบออกจาก state (วัดจริง: numRowsRemoved = 2) นี่คือครั้งแรกที่ append mode ปล่อยผลออกมา' },
-    { name: 'batch 6', title: 'batch 6: event ที่มาช้า (12:01:00) ถูกทิ้ง', text: 'event นี้เก่ากว่า watermark 12:10 Spark ไม่เปิด window เก่ากลับมา จึงทิ้งทันที (วัดจริง: numRowsDroppedByWatermark อย่างน้อย 1) ผลที่ส่งไปแล้วไม่เปลี่ยน' },
+    { name: 'Batch 0', title: 'Batch 0: ไฟล์แรก (12:00:01 และ 12:03:00)', text: 'Event สองตัวเข้า Window 12:00 ถึง 12:05 นับได้ 2 ตอนนี้ยังไม่มี Watermark (เริ่มจากศูนย์) พออ่านจบ Spark จะคำนวณ Watermark ใหม่ = เวลา Event ที่ใหม่สุด (12:03) ลบ 10 นาที = 11:53 เพื่อใช้ใน Batch ถัดไป' },
+    { name: 'Batch 1', title: 'Batch 1: ไม่มีข้อมูลใหม่ แต่ยังรัน', text: 'Watermark เปลี่ยนจาก 0 เป็น 11:53 Spark เลยรัน Batch ที่ numInputRows = 0 เพื่อนำค่าไปใช้ (spark.sql.streaming.noDataMicroBatches.enabled เป็น true) และเพราะยังไม่มี Window ไหนจบก่อน 11:53 จึงไม่ส่งอะไรออก' },
+    { name: 'Batch 2', title: 'Batch 2: ไฟล์ที่สอง (12:06:00)', text: 'Event เข้า Window 12:05 ถึง 12:10 ตอนนี้ State มีสอง Window ในโหมด Append ผลของ Window ยังไม่ถูกเขียนออก เพราะอาจมี Event ที่มาช้าเข้ามาเพิ่มได้ Watermark ถัดไป = 12:06 ลบ 10 = 11:56' },
+    { name: 'Batch 3', title: 'Batch 3: รันเพื่อนำ Watermark 11:56 ไปใช้', text: 'ยังไม่มี Window ที่ปลายช่วงเกิน 11:56 จึงยังไม่ส่งอะไรออก (วัดจริง: ผลลัพธ์ของ memory sink ยังว่างหลังไฟล์ที่ 1 และ 2)' },
+    { name: 'Batch 4', title: 'Batch 4: ไฟล์ที่สาม (12:20:00)', text: 'Event ที่ใหม่มากเข้ามา สร้าง Window 12:20 ถึง 12:25 และเลื่อนเวลา Event ที่ใหม่สุดเป็น 12:20 Watermark ถัดไป = 12:20 ลบ 10 = 12:10' },
+    { name: 'Batch 5', title: 'Batch 5: Watermark 12:10 ปิด Window และส่งผลออก', text: 'Window ที่ปลายช่วงไม่เกิน 12:10 ถือว่าจบ ได้แก่ 12:00 ถึง 12:05 (2) และ 12:05 ถึง 12:10 (1) ซึ่งถูกเขียนลง Sink และลบออกจาก State (วัดจริง: numRowsRemoved = 2) นี่คือครั้งแรกที่ Append Mode ปล่อยผลออกมา' },
+    { name: 'Batch 6', title: 'Batch 6: Event ที่มาช้า (12:01:00) ถูกทิ้ง', text: 'Event นี้เก่ากว่า Watermark 12:10 และ Spark จะไม่เปิด Window เก่ากลับมา จึงทิ้งทันที (วัดจริง: numRowsDroppedByWatermark อย่างน้อย 1) ผลที่ส่งไปแล้วไม่เปลี่ยน' },
   ],
   en: [
     { name: 'batch 0', title: 'batch 0: the first file (12:00:01 and 12:03:00)', text: 'Two events fall into the window 12:00 to 12:05, so the count is 2. There is no watermark yet (it starts at zero). When the read ends, Spark computes the new watermark = the newest event time (12:03) minus 10 minutes = 11:53, to use in the next batch.' },
@@ -67,19 +67,19 @@ const STEPS: Record<Lang, StepInfo[]> = {
 
 const TEXT = {
   th: {
-    title: 'Watermark: Spark รู้ได้อย่างไรว่า window ไหนปิดแล้ว',
+    title: 'Watermark: Spark รู้ได้อย่างไรว่า Window ไหนปิดแล้ว',
     aria: (n: number, title: string) => `ขั้นที่ ${n}: ${title}`,
-    axis: 'เวลาของ event (event time)',
+    axis: 'เวลาของ Event (Event Time)',
     to: 'ถึง',
     emitted: (n: number) => `ส่งออกแล้ว (${n})`,
-    inState: (n: number) => `ใน state: ${n}`,
+    inState: (n: number) => `ใน State: ${n}`,
     dropped: 'ทิ้ง (ช้าเกิน)',
-    rule: 'watermark = event time ที่ใหม่สุดที่เคยเห็น ลบ 10 นาที (ใช้ใน batch ถัดไป)',
-    sink: 'ผลที่ sink ได้รับ (append)',
+    rule: 'Watermark = Event Time ที่ใหม่สุดที่เคยเห็น ลบ 10 นาที (ใช้ใน Batch ถัดไป)',
+    sink: 'ผลที่ Sink ได้รับ (Append)',
     nothing: 'ยังไม่มีอะไร',
-    checkpoint: 'checkpoint ตอนนี้',
+    checkpoint: 'Checkpoint ตอนนี้',
     stateWindows: (n: number) => `state: ${n} window`,
-    caption: 'ทุก batch และเลข watermark มาจาก recentProgress ของการรันจริงใน exercises/09_streaming.py ขนาด window 5 นาที watermark 10 นาที โหมด append',
+    caption: 'ทุก Batch และเลข Watermark มาจาก recentProgress ของการรันจริงใน exercises/09_streaming.py โดยใช้ Window ขนาด 5 นาที Watermark 10 นาที และโหมด Append',
   },
   en: {
     title: 'Watermark: how Spark knows which window is closed',

@@ -22,22 +22,22 @@ const TEXT: Record<Lang, {
 }> = {
   th: {
     cfgLabel: { daemon: 'Linux / macOS (ค่าเริ่มต้น)', noreuse: 'ปิด spark.python.worker.reuse', windows: 'Windows' },
-    title: 'Python worker ถูกสร้างและใช้ซ้ำอย่างไร', groupLabel: 'การตั้งค่า', svgLabel: 'แท่งเวลาของ task และ Python worker บนสอง slot',
-    axis: 'เวลา (หน่วยสมมติ)', noDaemon: 'ไม่มี daemon: JVM เริ่ม process เอง', daemonLine: 'daemon.py (process ถาวร)', daemonBar: 'daemon: fork worker ให้ JVM',
-    reused: (n) => `worker #${n} ใช้ซ้ำทุก task`, startWord: 'เริ่ม', created: 'Python process ที่สร้างแล้ว', counterNote: 'n = counter ระดับ module',
-    caption: 'กฎการสร้างและคืน worker อ่านจากซอร์ส Spark 4.2.0 (PythonWorkerFactory, daemon.py) บน Windows เห็นจริงจากรายการ process ระหว่างรัน job (exercise 08) ส่วนพฤติกรรมของ daemon บน Linux และ macOS ยังไม่ได้ทดสอบบนเครื่องนี้ ความยาวของแท่งเป็นภาพประกอบ ไม่ใช่เวลาที่วัดได้',
+    title: 'Python Worker ถูกสร้างและใช้ซ้ำอย่างไร', groupLabel: 'การตั้งค่า', svgLabel: 'แท่งเวลาของ Task และ Python Worker บนสอง Slot',
+    axis: 'เวลา (หน่วยสมมติ)', noDaemon: 'ไม่มี Daemon: JVM เริ่ม Process เอง', daemonLine: 'daemon.py (Process ถาวร)', daemonBar: 'Daemon: Fork Worker ให้ JVM',
+    reused: (n) => `Worker #${n} ใช้ซ้ำทุก Task`, startWord: 'เริ่ม', created: 'Python Process ที่สร้างแล้ว', counterNote: 'n = Counter ระดับ Module',
+    caption: 'กฎการสร้างและคืน Worker อ่านจากซอร์ส Spark 4.2.0 (PythonWorkerFactory, daemon.py) บน Windows เห็นจริงจากรายการ Process ระหว่างรัน Job (exercise 08) ส่วนพฤติกรรมของ Daemon บน Linux และ macOS ยังไม่ได้ทดสอบบนคอมพิวเตอร์เครื่องนี้ ความยาวของแท่งเป็นภาพประกอบ ไม่ได้เป็นเวลาที่วัดได้',
     start: {
-      name: 'เริ่ม job', title: '8 task บน 2 slot: แต่ละ task ต้องมี Python worker',
-      text: (win) => (win ? 'บน Windows ไม่มี daemon (useDaemon = !isWindows && ...) JVM จึงสั่งเริ่ม process python.exe -m pyspark.worker เองสำหรับแต่ละ task' : 'บน Linux และ macOS มี daemon (pyspark/daemon.py) ที่เป็น process ถาวรของ executor คอย fork worker ให้ JVM'),
+      name: 'เริ่ม Job', title: '8 Task บน 2 Slot: แต่ละ Task ต้องมี Python Worker',
+      text: (win) => (win ? 'บน Windows ไม่มี Daemon (useDaemon = !isWindows && ...) JVM จึงสั่งเริ่ม Process python.exe -m pyspark.worker เองสำหรับแต่ละ Task' : 'บน Linux และ macOS จะมี Daemon (pyspark/daemon.py) ซึ่งเป็น Process ถาวรของ Executor คอย Fork Worker ให้ JVM'),
     },
     next: {
-      name: 'task ถัดไป',
-      title: (c) => (c === 'daemon' ? 'task ที่สองของ slot หยิบ worker ตัวเดิมที่ว่างอยู่ไปใช้' : 'task ถัดไปต้องการ worker ใหม่'),
-      text: (c) => (c === 'daemon' ? 'worker ที่ทำงานเสร็จปกติ (ตอบ END_OF_STREAM) ถูกคืนเข้า idle pool แล้ว task ต่อไปหยิบไปใช้ จึงไม่ต้องสร้าง process ใหม่ แต่ตัวแปรระดับ module ใน UDF ของคุณยังอยู่ (ตัวเลข n= บนแท่งคือค่าของ counter ที่ UDF เพิ่มทุก task)' : c === 'noreuse' ? 'reuse เป็น false: worker ออกหลังจบ task daemon ต้อง fork ตัวใหม่ทุกครั้ง state ของ module เริ่มใหม่ทุก task (n=1 เสมอ)' : 'worker ที่ไม่ใช่ daemon ถูกหยุดใน releaseWorker ทุกครั้ง บนเครื่องที่รันตอนเขียนบทนี้เห็น python.exe -m pyspark.worker เป็นลูกของ JVM และไม่เห็น pyspark.daemon'),
+      name: 'Task ถัดไป',
+      title: (c) => (c === 'daemon' ? 'Task ที่สองของ Slot หยิบ Worker ตัวเดิมที่ว่างอยู่ไปใช้' : 'Task ถัดไปต้องการ Worker ใหม่'),
+      text: (c) => (c === 'daemon' ? 'Worker ที่ทำงานเสร็จตามปกติ (ตอบ END_OF_STREAM) จะถูกคืนเข้า Idle Pool แล้ว Task ต่อไปก็หยิบไปใช้ จึงไม่ต้องสร้าง Process ใหม่ แต่ตัวแปรระดับ Module ใน UDF ของคุณก็ยังอยู่ด้วย (ตัวเลข n= บนแท่งคือค่าของ Counter ที่ UDF เพิ่มทุก Task)' : c === 'noreuse' ? 'reuse เป็น false ทำให้ Worker ออกหลังจบ Task และ Daemon ต้อง Fork ตัวใหม่ทุกครั้ง State ของ Module จึงเริ่มใหม่ทุก Task (n=1 เสมอ)' : 'Worker ที่ไม่ใช่ Daemon จะถูกหยุดใน releaseWorker ทุกครั้ง บนคอมพิวเตอร์ที่รันตอนเขียนบทนี้เห็น python.exe -m pyspark.worker เป็นลูกของ JVM และไม่เห็น pyspark.daemon'),
     },
     sum: {
-      name: 'สรุป', title: (created, tasks) => `สร้าง Python process ทั้งหมด ${created} ตัวสำหรับ ${tasks} task`,
-      text: (c) => (c === 'daemon' ? 'ได้เท่าจำนวน task ที่รันพร้อมกัน (2) ไม่ใช่จำนวน task ผลคือ UDF ไม่ควรพึ่ง state ที่แชร์ใน module เพราะผลขึ้นกับว่า task ไหนได้ worker ตัวไหน' : 'หนึ่ง task หนึ่ง process ได้เท่าจำนวน task (8) ต้นทุนการเริ่ม process ต่อ task บน Linux ยังไม่ได้วัดที่นี่ บน Windows ที่เห็นคือเริ่ม process ใหม่ทุก task'),
+      name: 'สรุป', title: (created, tasks) => `สร้าง Python Process ทั้งหมด ${created} ตัวสำหรับ ${tasks} Task`,
+      text: (c) => (c === 'daemon' ? 'จำนวนที่สร้างเท่ากับจำนวน Task ที่รันพร้อมกัน (2) ไม่ใช่จำนวน Task ทั้งหมด ดังนั้น UDF ไม่ควรพึ่ง State ที่แชร์ใน Module เพราะผลขึ้นอยู่กับว่า Task ไหนได้ Worker ตัวไหน' : 'หนึ่ง Task ต่อหนึ่ง Process จึงได้เท่าจำนวน Task (8) ส่วนต้นทุนการเริ่ม Process ต่อ Task บน Linux ยังไม่ได้วัดที่นี่ แต่บน Windows ที่เห็นคือเริ่ม Process ใหม่ทุก Task'),
     },
   },
   en: {

@@ -11,10 +11,10 @@ type Lang = 'th' | 'en';
 
 const STEPS: Record<Lang, StepInfo[]> = {
   th: [
-    { name: 'ข้อมูล skew', title: 'key เดียว 90% ของข้อมูล', text: 'hash(k) ส่งทุกแถวที่ k = 1 ไป partition เดียว partition ที่ 6 มี 1,821,935 แถว ส่วนที่เหลือมี 22,000 ถึง 29,000 แถว (วัดจริง)' },
-    { name: 'เติม salt', title: 'เติม column salt แบบสุ่ม 0 ถึง 63', text: 'แต่ละแถวได้ salt = floor(rand() * 64) key ที่ใช้ตัดสินใจจึงเป็นคู่ (k, salt) แทนที่จะเป็น k เดี่ยวๆ แถวของ k = 1 จึงกลายเป็น 64 กลุ่มย่อย' },
-    { name: 'repartition', title: 'repartition(8, "k", "salt")', text: 'กลุ่มย่อยของ k = 1 กระจายไปหลาย partition partition ที่ใหญ่สุดเหลือ 362,896 แถว จาก 1,821,935 ลดลงราว 5 เท่า (ไม่เท่ากันเป๊ะเพราะ hash ชนกันได้ จึงควรใช้ salt มากกว่าจำนวน partition)' },
-    { name: 'ขยายฝั่งเล็ก', title: 'ฝั่งเล็กต้องมีทุก salt', text: 'เพื่อให้ join ยังถูก ตารางเล็ก 1,003 แถวถูกทำสำเนา 64 ชุด (crossJoin กับ range(64)) เป็น 64,192 แถว join ด้วย (k, salt) ได้ผล 2,000,000 แถวเท่ากับ join ปกติ ราคาที่จ่ายคือฝั่งเล็กใหญ่ขึ้น 64 เท่า' },
+    { name: 'ข้อมูล Skew', title: 'Key เดียวมีข้อมูลถึง 90%', text: 'hash(k) จะส่งทุกแถวที่ k = 1 ไปที่ Partition เดียว ทำให้ Partition ที่ 6 มี 1,821,935 แถว ส่วน Partition ที่เหลือมีอยู่ 22,000 ถึง 29,000 แถว (ตอนวัดจริง)' },
+    { name: 'เติม Salt', title: 'เติม Column salt แบบสุ่ม 0 ถึง 63', text: 'แต่ละแถวจะได้ salt = floor(rand() * 64) ทำให้ Key ที่ใช้ตัดสินใจกลายเป็นคู่ (k, salt) แทนที่จะเป็น k เดี่ยว ๆ แถวของ k = 1 จึงแตกออกเป็น 64 กลุ่มย่อย' },
+    { name: 'repartition', title: 'repartition(8, "k", "salt")', text: 'กลุ่มย่อยของ k = 1 จะกระจายไปอยู่หลาย Partition ทำให้ Partition ที่ใหญ่สุดเหลือ 362,896 แถว จากเดิม 1,821,935 แถว ลดลงราว 5 เท่า (ไม่เท่ากันเป๊ะเพราะ Hash ชนกันได้ เราจึงควรใช้ Salt มากกว่าจำนวน Partition)' },
+    { name: 'ขยายฝั่งเล็ก', title: 'ฝั่งเล็กต้องมีทุก Salt', text: 'เพื่อให้ Join ยังให้ผลถูกต้อง ตารางเล็กที่มี 1,003 แถวจะถูกทำสำเนา 64 ชุด (crossJoin กับ range(64)) กลายเป็น 64,192 แถว แล้ว Join ด้วย (k, salt) ได้ผล 2,000,000 แถวเท่ากับ Join ปกติ ราคาที่ต้องจ่ายคือฝั่งเล็กใหญ่ขึ้น 64 เท่า' },
   ],
   en: [
     { name: 'Skewed data', title: 'One key has 90% of the data', text: 'hash(k) sends every row with k = 1 to a single partition. Partition 6 has 1,821,935 rows and the others have 22,000 to 29,000 rows (measured)' },
@@ -26,16 +26,16 @@ const STEPS: Record<Lang, StepInfo[]> = {
 
 const TEXT: Record<Lang, { title: string; aria: (n: number) => string; heading: string; after: string; before: string; sampleHead: string; small: string; smallRows: string; joinNote: string; caption: string }> = {
   th: {
-    title: 'Salting: กระจาย key ที่ใหญ่เกินไปออกเป็นหลายก้อน',
-    aria: (n) => `จำนวนแถวต่อ partition ขั้น ${n}`,
-    heading: 'แถวต่อ partition หลัง repartition(8, ...)',
-    after: 'หลัง salt: partition ใหญ่สุด 362,896 แถว',
-    before: 'ก่อน salt: partition ใหญ่สุด 1,821,935 แถว',
+    title: 'Salting: กระจาย Key ที่ใหญ่เกินไปออกเป็นหลายก้อน',
+    aria: (n) => `จำนวนแถวต่อ Partition ขั้น ${n}`,
+    heading: 'แถวต่อ Partition หลัง repartition(8, ...)',
+    after: 'หลัง Salt: Partition ใหญ่สุด 362,896 แถว',
+    before: 'ก่อน Salt: Partition ใหญ่สุด 1,821,935 แถว',
     sampleHead: 'ตัวอย่างแถวของ k = 1',
-    small: 'ฝั่งเล็ก (dimension)',
-    smallRows: '1,003 แถว  x  64 salt',
-    joinNote: 'join ด้วย (k, salt) ได้ 2,000,000 แถวเท่าเดิม',
-    caption: 'ตัวเลขทุกตัวมาจาก exercises/07_performance_tuning.py ค่าที่ partition ไหนได้เท่าไรขึ้นกับ hash ของ Spark เวอร์ชันนี้ ตำแหน่ง partition ในตัวอย่างแถวด้านขวาเป็นภาพประกอบ',
+    small: 'ฝั่งเล็ก (Dimension)',
+    smallRows: '1,003 แถว  x  64 Salt',
+    joinNote: 'Join ด้วย (k, salt) ได้ 2,000,000 แถวเท่าเดิม',
+    caption: 'ตัวเลขทุกตัวมาจาก exercises/07_performance_tuning.py ส่วน Partition ไหนจะได้กี่แถวนั้นขึ้นอยู่กับ Hash ของ Spark เวอร์ชันนี้ และตำแหน่ง Partition ในตัวอย่างแถวด้านขวาเป็นเพียงภาพประกอบ',
   },
   en: {
     title: 'Salting: split a key that is too big into many pieces',

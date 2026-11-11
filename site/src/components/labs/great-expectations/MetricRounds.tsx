@@ -52,19 +52,19 @@ const TEXT: Record<Lang, {
   none: string;
 }> = {
   th: {
-    title: 'เลือก expectation แล้วดูว่า GX คำนวณ metric อะไรบ้าง ในกี่รอบ',
-    suiteLabel: 'expectation ใน suite',
-    pickOne: 'เลือก expectation อย่างน้อยหนึ่งข้อ',
+    title: 'เลือก Expectation แล้วดูว่า GX คำนวณ Metric อะไรบ้าง ในกี่รอบ',
+    suiteLabel: 'Expectation ใน Suite',
+    pickOne: 'เลือก Expectation อย่างน้อยหนึ่งข้อ',
     playRounds: 'เล่นทีละรอบ',
     showAll: 'แสดงทั้งหมด',
     round: 'รอบที่',
     metricUnit: 'metric',
     totalPre: 'รวม',
-    totalMid: 'metric ใน',
+    totalMid: 'Metric ใน',
     totalPost: 'รอบ',
-    alone: 'ถ้ารันทีละ expectation แยกกัน:',
+    alone: 'ถ้ารันทีละ Expectation แยกกัน:',
     saved: 'ประหยัดเพราะใช้ร่วมกัน:',
-    sqlTitle: 'ถ้ารันกับ SQL (SQLite) suite เดียวกัน',
+    sqlTitle: 'ถ้ารันกับ SQL (SQLite) ด้วย Suite เดียวกัน',
     sqlSent: 'ส่ง',
     sqlCommands: 'คำสั่ง SQL',
     sqlAlone: 'ถ้าแยกรัน:',
@@ -228,9 +228,9 @@ export default function MetricRounds({ lang = 'th' }: { lang?: Lang }) {
           </>
         ) : (
           <>
-            ตัวเลขทั้งหมดมาจากการรัน GX {data.version} จริงกับตารางตัวอย่างสี่แถว ไม่ใช่การจำลอง metric ที่ขึ้นกับคอลัมน์เดียวกันถูกนับครั้งเดียว
-            (เช่นเลือกสอง expectation ที่ถาม <code>id</code> ทั้งคู่) ส่วน metric ของคนละคอลัมน์นับแยก ลองเลือก BOOLEAN_ONLY แล้วสลับเป็น SUMMARY
-            จะเห็นรอบสุดท้ายหนักขึ้นมาก
+            ตัวเลขทั้งหมดมาจากการรัน GX {data.version} จริงกับตารางตัวอย่างสี่แถว ไม่ได้จำลองขึ้นมา Metric ที่ขึ้นกับคอลัมน์เดียวกันจะถูกนับครั้งเดียว
+            (เช่นเมื่อเราเลือกสอง Expectation ที่ถามถึง <code>id</code> ทั้งคู่) ส่วน Metric ของคนละคอลัมน์จะนับแยกกัน ลองเลือก BOOLEAN_ONLY แล้วสลับเป็น SUMMARY
+            เราจะเห็นรอบสุดท้ายหนักขึ้นมาก
           </>
         )}
       </p>

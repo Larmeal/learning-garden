@@ -6,11 +6,11 @@ type Policy = 'ignore' | 'gate' | 'gate-rows';
 
 const SCENARIOS: Record<Lang, { id: Scenario; label: string; note: string }[]> = {
   th: [
-    { id: 'good', label: 'ข้อมูลดี', note: 'ทุก expectation ผ่าน' },
-    { id: 'bad', label: 'ข้อมูลเสีย', note: 'มีค่านอกช่วงและ null' },
-    { id: 'empty', label: 'ตารางว่าง', note: 'upstream ส่งไฟล์ว่างมา' },
-    { id: 'broken', label: 'expectation พัง', note: 'คอลัมน์ที่อ้างถึงหายไป' },
-    { id: 'late', label: 'action ล้ม', note: 'ข้อมูลเสีย แต่ Slack webhook ใช้ไม่ได้' },
+    { id: 'good', label: 'ข้อมูลดี', note: 'ทุก Expectation ผ่าน' },
+    { id: 'bad', label: 'ข้อมูลเสีย', note: 'มีค่านอกช่วงและ Null' },
+    { id: 'empty', label: 'ตารางว่าง', note: 'Upstream ส่งไฟล์ว่างมา' },
+    { id: 'broken', label: 'Expectation พัง', note: 'คอลัมน์ที่อ้างถึงหายไป' },
+    { id: 'late', label: 'Action ล้ม', note: 'ข้อมูลเสีย แต่ Slack Webhook ใช้ไม่ได้' },
   ],
   en: [
     { id: 'good', label: 'Good data', note: 'Every expectation passes' },
@@ -25,7 +25,7 @@ const POLICIES: Record<Lang, { id: Policy; label: string; code: string }[]> = {
   th: [
     { id: 'ignore', label: 'เรียกแล้วไม่เช็กผล', code: 'checkpoint.run(...)\npublish()' },
     { id: 'gate', label: 'หยุดเมื่อ success เป็น False', code: 'result = checkpoint.run(...)\nif not result.success:\n    raise ...\npublish()' },
-    { id: 'gate-rows', label: 'หยุด + มี expectation จำนวนแถว', code: '# suite มี ExpectTableRowCountToBeBetween(min_value=1)\nresult = checkpoint.run(...)\nif not result.success:\n    raise ...\npublish()' },
+    { id: 'gate-rows', label: 'หยุด และมี Expectation จำนวนแถว', code: '# suite มี ExpectTableRowCountToBeBetween(min_value=1)\nresult = checkpoint.run(...)\nif not result.success:\n    raise ...\npublish()' },
   ],
   en: [
     { id: 'ignore', label: 'Call it, ignore the result', code: 'checkpoint.run(...)\npublish()' },
@@ -54,21 +54,21 @@ const TEXT: Record<Lang, {
   allPass: string;
 }> = {
   th: {
-    title: 'pipeline ที่เรียก checkpoint: จะเกิดอะไรกับข้อมูลที่ตามมา',
+    title: 'Pipeline ที่เรียก Checkpoint จะเกิดอะไรขึ้นกับข้อมูลที่ตามมา',
     scenario: 'สถานการณ์',
-    code: 'โค้ดใน pipeline',
-    staging: 'โหลดเข้า staging',
-    lateHead: 'งานล้มด้วย exception จาก action',
-    lateText: 'Checkpoint.run() raise ก่อนจะถึงบรรทัดถัดไป จึงไม่มี publish ผลการตรวจถูกเก็บไว้แล้ว และถ้าเขียน gate ไว้ก็ไม่ได้ใช้ เพราะไม่มีโอกาสอ่าน result ลองดักด้วย try/except ถ้าต้องการแยก "ข้อมูลเสีย" ออกจาก "แจ้งเตือนล้ม"',
+    code: 'โค้ดใน Pipeline',
+    staging: 'โหลดเข้า Staging',
+    lateHead: 'งานล้มด้วย Exception จาก Action',
+    lateText: 'Checkpoint.run() จะ raise ก่อนถึงบรรทัดถัดไป จึงไม่มี publish ผลการตรวจถูกเก็บไว้แล้ว และถ้าเราเขียน Gate ไว้ก็ไม่ได้ใช้ เพราะไม่มีโอกาสได้อ่าน result ถ้าต้องการแยก "ข้อมูลเสีย" ออกจาก "แจ้งเตือนล้ม" ให้ลองดักด้วย try/except',
     alwaysHead: 'publish ทุกครั้ง',
     goodText: 'ข้อมูลดี จึงไม่มีผลเสีย',
-    badText: 'Checkpoint.run() ไม่ raise เมื่อข้อมูลไม่ผ่าน pipeline จึงเดินต่อและ publish ข้อมูลที่เสียออกไป',
+    badText: 'Checkpoint.run() ไม่ raise เมื่อข้อมูลไม่ผ่าน Pipeline จึงเดินต่อและ publish ข้อมูลที่เสียออกไป',
     stopHead: 'หยุดก่อน publish',
-    brokenText: 'หยุดถูก แต่สาเหตุคือ expectation พัง (ดู exception_info ของผล) ไม่ใช่ข้อมูลเสีย ควรแยกสองกรณีนี้ในข้อความเตือน',
-    emptyStopText: 'ตารางว่างล้มเพราะ suite มี expectation จำนวนแถว',
+    brokenText: 'หยุดถูกแล้ว แต่สาเหตุคือ Expectation พัง (ดู exception_info ของผล) ไม่ได้เกิดจากข้อมูลเสีย เราควรแยกสองกรณีนี้ออกจากกันในข้อความเตือน',
+    emptyStopText: 'ตารางว่างล้ม เพราะ Suite มี Expectation จำนวนแถว',
     failText: 'result.success เป็น False จึงหยุด',
     emptyPubHead: 'publish ตารางว่าง',
-    emptyPubText: 'expectation แบบ column map ผ่านโดยปริยายเมื่อไม่มีแถว result.success เป็น True ทั้งที่ไม่มีข้อมูลเลย ต้องมี expectation จำนวนแถว',
+    emptyPubText: 'Expectation แบบ Column Map จะผ่านโดยปริยายเมื่อไม่มีแถว ทำให้ result.success เป็น True ทั้งที่ไม่มีข้อมูลเลย เราจึงต้องมี Expectation จำนวนแถวด้วย',
     publish: 'publish',
     allPass: 'ทุกข้อผ่าน',
   },

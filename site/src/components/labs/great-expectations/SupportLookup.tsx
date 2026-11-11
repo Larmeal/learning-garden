@@ -8,17 +8,17 @@ const TEXT: Record<Lang, {
   none: (s: string) => string; caption1: string; caption2: string; caption3: string;
 }> = {
   th: {
-    title: 'expectation ที่ GX ระบุว่ารองรับ backend ของคุณ',
-    filterLabel: 'กรองชื่อ expectation',
+    title: 'Expectation ที่ GX ระบุว่ารองรับ Backend ของคุณ',
+    filterLabel: 'กรองชื่อ Expectation',
     filterPlaceholder: 'กรองชื่อที่ไม่รองรับ',
-    listed: 'expectation ในรายการ',
+    listed: 'Expectation ในรายการ',
     supports: (s) => `ระบุว่ารองรับ ${s}`,
     unlisted: 'ไม่ได้ระบุ',
     badge: 'ไม่ระบุ',
-    none: (s) => `ไม่มี expectation ที่ขาด ${s} ตามตัวกรองนี้`,
+    none: (s) => `ไม่มี Expectation ที่ขาด ${s} ตามตัวกรองนี้`,
     caption1: 'รายการมาจากตัวแปร ',
-    caption2: ' ในไฟล์ของแต่ละ expectation ของ GX ',
-    caption3: ' ซึ่งใช้สร้างเอกสาร ไม่ได้ทดลองรันทุกตัวบนทุก backend',
+    caption2: ' ในไฟล์ของแต่ละ Expectation ของ GX ',
+    caption3: ' ซึ่งใช้สร้างเอกสาร เราไม่ได้ทดลองรันทุกตัวบนทุก Backend',
   },
   en: {
     title: 'Expectations that GX says support your backend',

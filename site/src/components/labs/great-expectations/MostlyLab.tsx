@@ -7,16 +7,16 @@ const TEXT: Record<Lang, {
   calc: (considered: number, unexpected: number, ratio: string, pass: boolean, mostly: string) => string; cap1: string; cap2: string; cap3: string;
 }> = {
   th: {
-    title: 'ลองปรับ mostly: ข้อมูล 10 แถว ผิดกี่แถวจึงยังผ่าน',
-    aria: (n, b, g) => `แถว null ${n} แถว ผิด ${b} แถว ถูก ${g} แถว`,
-    nulls: 'แถวที่เป็น null: ',
-    bad: 'แถวที่ผิด (ไม่นับ null): ',
+    title: 'ลองปรับ mostly ดู ข้อมูล 10 แถว ผิดกี่แถวจึงยังผ่าน',
+    aria: (n, b, g) => `แถว Null ${n} แถว ผิด ${b} แถว ถูก ${g} แถว`,
+    nulls: 'แถวที่เป็น Null: ',
+    bad: 'แถวที่ผิด (ไม่นับ Null): ',
     pass: 'ผ่าน',
     fail: 'ไม่ผ่าน',
-    vacuous: 'ไม่มีแถวให้พิจารณา (ทุกแถวเป็น null) GX ถือว่าผ่านโดยปริยาย',
+    vacuous: 'ไม่มีแถวให้พิจารณา (ทุกแถวเป็น Null) GX จึงถือว่าผ่านโดยปริยาย',
     calc: (considered, unexpected, ratio, pass, mostly) => `สัดส่วนที่ถูก = (${considered} - ${unexpected}) / ${considered} = ${ratio} ${pass ? '≥' : '<'} mostly ${mostly}`,
-    cap1: 'แถวที่เป็น null ไม่ถูกนับในตัวหาร และไม่นับว่าผิด (สำหรับ expectation แบบ column map ส่วนใหญ่ เช่น ',
-    cap2: ') ถ้าต้องการจับ null ให้ใช้ ',
+    cap1: 'แถวที่เป็น Null จะไม่ถูกนับในตัวหาร และไม่นับว่าผิด (สำหรับ Expectation แบบ Column Map ส่วนใหญ่ เช่น ',
+    cap2: ') ถ้าต้องการจับ Null ให้ใช้ ',
     cap3: ' อีกข้อหนึ่ง',
   },
   en: {

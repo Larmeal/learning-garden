@@ -10,13 +10,13 @@ type Lang = 'th' | 'en';
 
 const STEPS: Record<Lang, StepInfo[]> = {
   th: [
-    { name: 'spark-submit', title: 'คุณรันโปรแกรม: driver เริ่มทำงาน', text: 'ใน client mode (ค่าเริ่มต้น) driver อยู่ในเครื่องที่คุณรัน spark-submit หรือ python script ตรงนั้น SparkContext ถูกสร้าง และเปิด Spark UI ที่พอร์ต 4040 (วัดจริง: executors ตอนนี้มีแต่ driver)' },
-    { name: 'ลงทะเบียน', title: 'driver ลงทะเบียน application กับ Master', text: 'StandaloneAppClient ส่งคำขอไปที่ Master พร้อมบอกว่าต้องการ executor แบบไหน (memory 512m, 1 core ต่อ executor) Master จดไว้ว่ามี application นี้' },
-    { name: 'รอทำงาน', title: 'ยังไม่มี executor เพราะยังไม่มีงาน', text: 'ตั้ง dynamicAllocation และ minExecutors = 0 ไว้ Spark จึงไม่ขอ executor จนกว่าจะมีงาน ประหยัด resource แต่งานแรกต้องรอ executor เริ่มทำงาน' },
-    { name: 'มี action', title: 'เรียก action: DAGScheduler สร้าง stage และ task', text: 'collect() ทำให้ได้ 1 job 2 stage 14 task (8 map task + 6 task หลัง shuffle) ExecutorAllocationManager เห็นว่ามีงานรออยู่ จึงขอ executor เพิ่ม' },
-    { name: 'เริ่ม executor', title: 'Master สั่ง Worker เปิด executor', text: 'Master เลือก Worker ที่มี core ว่าง (ที่นี่ 2 core) Worker ให้ ExecutorRunner เปิด JVM ใหม่ที่รัน CoarseGrainedExecutorBackend ได้ executor 2 ตัว ตัวละ 1 core' },
-    { name: 'รับ task', title: 'executor ลงทะเบียนกับ driver แล้วรับ task', text: 'executor ติดต่อกลับ driver โดยตรง (ไม่ผ่าน Master) TaskSchedulerImpl ส่ง task ให้ทีละ core ที่ว่าง 14 task ผ่าน executor 2 ตัว ผล shuffle เขียนลง disk ของ executor' },
-    { name: 'ว่าง', title: 'งานจบ: executor ที่ไม่มี shuffle data ถูกคืน', text: 'เมื่อ executor ว่างเกิน executorIdleTimeout (ตั้ง 4 วินาที) ถูกปล่อยคืน ถ้าไม่มี shuffle data (วัดจริง: job ที่ไม่มี shuffle ได้ executors กลับเหลือแต่ driver) แต่ถ้าเก็บ shuffle data ของ job ที่เพิ่งเสร็จไว้ shuffle tracking จะ **ไม่ปล่อย** (วัดจริง: รอ 8 วินาทีแล้วยังเหลือ 2 ตัว)' },
+    { name: 'spark-submit', title: 'คุณรันโปรแกรม: Driver เริ่มทำงาน', text: 'ใน Client Mode (ค่าเริ่มต้น) Driver จะอยู่ในคอมพิวเตอร์ที่คุณรัน spark-submit หรือ Python Script ซึ่งตรงนั้น SparkContext จะถูกสร้างขึ้น และเปิด Spark UI ที่พอร์ต 4040 (วัดจริง: Executors ตอนนี้มีแต่ Driver)' },
+    { name: 'ลงทะเบียน', title: 'Driver ลงทะเบียน Application กับ Master', text: 'StandaloneAppClient จะส่งคำขอไปที่ Master พร้อมบอกว่าต้องการ Executor แบบไหน (Memory 512m, 1 Core ต่อ Executor) แล้ว Master ก็จดไว้ว่ามี Application นี้' },
+    { name: 'รอทำงาน', title: 'ยังไม่มี Executor เพราะยังไม่มีงาน', text: 'เราตั้ง dynamicAllocation และ minExecutors = 0 ไว้ Spark จึงไม่ขอ Executor จนกว่าจะมีงาน ซึ่งช่วยประหยัด Resource แต่งานแรกจะต้องรอให้ Executor เริ่มทำงานก่อน' },
+    { name: 'มี action', title: 'เรียก Action: DAGScheduler สร้าง Stage และ Task', text: 'collect() ทำให้ได้ 1 Job 2 Stage 14 Task (8 Map Task + 6 Task หลัง Shuffle) จากนั้น ExecutorAllocationManager เห็นว่ามีงานรออยู่ จึงขอ Executor เพิ่ม' },
+    { name: 'เริ่ม executor', title: 'Master สั่ง Worker เปิด Executor', text: 'Master เลือก Worker ที่มี Core ว่าง (ที่นี่ 2 Core) แล้ว Worker จะให้ ExecutorRunner เปิด JVM ใหม่ที่รัน CoarseGrainedExecutorBackend ซึ่งได้ Executor 2 ตัว ตัวละ 1 Core' },
+    { name: 'รับ task', title: 'Executor ลงทะเบียนกับ Driver แล้วรับ Task', text: 'Executor จะติดต่อกลับ Driver โดยตรง (ไม่ผ่าน Master) แล้ว TaskSchedulerImpl จะส่ง Task ให้ทีละ Core ที่ว่าง รวม 14 Task ผ่าน Executor 2 ตัว และผล Shuffle จะถูกเขียนลง Disk ของ Executor' },
+    { name: 'ว่าง', title: 'งานจบ: Executor ที่ไม่มี Shuffle Data ถูกคืน', text: 'เมื่อ Executor ว่างเกิน executorIdleTimeout (ตั้ง 4 วินาที) ก็จะถูกปล่อยคืน ถ้าไม่มี Shuffle Data (วัดจริง: Job ที่ไม่มี Shuffle ได้ Executors กลับเหลือแต่ Driver) แต่ถ้ายังเก็บ Shuffle Data ของ Job ที่เพิ่งเสร็จไว้ Shuffle Tracking จะ **ไม่ปล่อย** (วัดจริง: รอ 8 วินาทีแล้วยังเหลือ 2 ตัว)' },
   ],
   en: [
     { name: 'spark-submit', title: 'You run the program: the driver starts', text: 'In client mode (the default) the driver runs on the machine where you run spark-submit or the python script. The SparkContext is created there and the Spark UI opens on port 4040 (measured: the executors list has only the driver now)' },
@@ -41,15 +41,15 @@ const TEXT: Record<Lang, {
   caption: string;
 }> = {
   th: {
-    title: 'spark-submit ถึง executor: ใครคุยกับใคร',
+    title: 'spark-submit ถึง Executor: ใครคุยกับใคร',
     aria: (n, title) => `ขั้นที่ ${n}: ${title}`,
-    yourMachine: 'เครื่องของคุณ: Driver',
+    yourMachine: 'คอมพิวเตอร์ของคุณ: Driver',
     knows: 'รู้ว่ามี Worker กี่ตัว',
-    runs: (n) => `รัน task ${n} ตัว`,
-    holds: 'เก็บ shuffle data อยู่ จึงยังไม่ถูกปล่อย',
-    tasksDirect: 'tasks (ตรงจาก driver)',
-    addExec: 'ขอ executor เพิ่ม',
-    caption: 'cluster ในภาพรันจริงใน WSL ด้วย spark-class ชุดเดียวกับที่ sbin/start-master.sh ใช้ YARN และ Kubernetes มีผู้เล่นต่างกัน (ResourceManager, API server) แต่ลำดับ driver ขอ executor แล้ว executor ติดต่อ driver เหมือนกัน',
+    runs: (n) => `รัน Task ${n} ตัว`,
+    holds: 'เก็บ Shuffle Data อยู่ จึงยังไม่ถูกปล่อย',
+    tasksDirect: 'Tasks (ตรงจาก Driver)',
+    addExec: 'ขอ Executor เพิ่ม',
+    caption: 'Cluster ในภาพรันจริงใน WSL ด้วย spark-class ชุดเดียวกับที่ sbin/start-master.sh ใช้ ส่วน YARN และ Kubernetes จะมีผู้เล่นต่างกัน (ResourceManager, API server) แต่ลำดับที่ Driver ขอ Executor แล้ว Executor ติดต่อ Driver นั้นเหมือนกัน',
   },
   en: {
     title: 'spark-submit to executor: who talks to whom',

@@ -29,18 +29,18 @@ const TEXT: Record<Lang, {
   caption2: string;
 }> = {
   th: {
-    title: 'Row group และ min/max: filter ข้ามส่วนของไฟล์ได้เมื่อไร',
+    title: 'Row Group และ Min/Max: Filter ข้ามส่วนของไฟล์ได้เมื่อไร',
     startAt: 'เริ่มที่ id',
     width: (w) => `กว้าง ${w} แถว`,
     sortedTitle: 'ไฟล์ที่เรียงตาม id',
-    sortedAria: 'row group ที่ต้องอ่านเมื่อไฟล์เรียงตาม id',
-    stat: (pct, groups) => ` แถวถูกอ่าน (${pct}) จาก row group ${groups} ก้อน`,
-    sortedHint: 'แต่ละก้อนมี id ช่วงของตัวเอง min/max ของก้อนที่ไม่ตรงกับ filter ถูกข้าม',
-    otherTitle: 'ข้อมูลชุดเดิมแต่เรียงตาม column อื่น',
-    otherAria: 'row group ที่ต้องอ่านเมื่อ id กระจาย',
-    otherHint: 'ทุกก้อนมี id ตั้งแต่เล็กถึงใหญ่ min/max ครอบทุก filter จึงข้ามไม่ได้เลย',
-    caption1: 'ค่าที่วัดจริงที่ตั้งต้นของแถบเลื่อน (id 1,000 ถึง 1,999): ไฟล์เรียง id อ่าน 2,072 แถว ไฟล์กระจายอ่าน 597,928 แถว ส่วนอื่นของแถบเลื่อนคำนวณจากช่วง id ของแต่ละ row group ตามกฎเดียวกัน',
-    caption2: 'การข้ามนี้ทำในระดับ row group เท่านั้น Filter ยังอยู่เหนือ scan และกรองแถวที่เหลือซ้ำ',
+    sortedAria: 'Row Group ที่ต้องอ่านเมื่อไฟล์เรียงตาม id',
+    stat: (pct, groups) => ` แถวถูกอ่าน (${pct}) จาก Row Group ${groups} ก้อน`,
+    sortedHint: 'แต่ละก้อนมีช่วง id เป็นของตัวเอง ก้อนไหนที่ Min/Max ไม่ตรงกับ Filter ก็จะถูกข้ามไป',
+    otherTitle: 'ข้อมูลชุดเดิมแต่เรียงตาม Column อื่น',
+    otherAria: 'Row Group ที่ต้องอ่านเมื่อ id กระจายกัน',
+    otherHint: 'ทุกก้อนมี id ตั้งแต่เล็กไปถึงใหญ่ Min/Max จึงครอบคลุมทุก Filter ทำให้ข้ามก้อนไหนไม่ได้เลย',
+    caption1: 'ค่าที่เราวัดจริงมาจากตำแหน่งเริ่มต้นของแถบเลื่อน (id 1,000 ถึง 1,999) ซึ่งไฟล์ที่เรียงตาม id อ่าน 2,072 แถว ส่วนไฟล์ที่กระจายอ่าน 597,928 แถว ส่วนตำแหน่งอื่นของแถบเลื่อนคำนวณจากช่วง id ของแต่ละ Row Group ด้วยกฎเดียวกัน',
+    caption2: 'การข้ามนี้ทำได้ในระดับ Row Group เท่านั้น ตัว Filter ยังอยู่เหนือ Scan และจะกรองแถวที่เหลืออีกรอบ',
   },
   en: {
     title: 'Row groups and min/max: when can a filter skip parts of a file',

@@ -37,14 +37,14 @@ const TEXT = {
   th: {
     noFilter: 'ไม่กรอง',
     noAgg: 'ไม่รวม',
-    title: 'ประกอบคำสั่ง แล้วดูผลลัพธ์กับโค้ดทั้งสองแบบ',
+    title: 'ลองประกอบคำสั่ง แล้วดูผลลัพธ์กับโค้ดทั้งสองแบบ',
     filterAria: 'เงื่อนไขกรอง',
     aggAria: 'ฟังก์ชันรวมค่า',
     source: 'ตารางต้นทาง (df)',
     result: 'ผลลัพธ์',
     noRows: 'ไม่มีแถว',
     sqlLabel: 'Spark SQL (หลัง createOrReplaceTempView("t"))',
-    caption: 'ลอง count(sales) เทียบกับ count(*) โดยไม่กรอง จะได้ 4 กับ 5 เพราะแถว osa มี sales เป็น NULL ส่วน sum ข้าม NULL ไปเฉยๆ จึงได้ 490 ส่วนเงื่อนไข sales > 100 ตัดแถว NULL ทิ้งด้วย เพราะ NULL เทียบกับตัวเลขได้ผลเป็น NULL ไม่ใช่ true',
+    caption: 'ลองเทียบ count(sales) กับ count(*) โดยไม่กรอง เราจะได้ 4 กับ 5 เพราะแถว osa มี sales เป็น NULL ส่วน sum จะข้าม NULL ไปเฉย ๆ จึงได้ 490 และเงื่อนไข sales > 100 ก็ตัดแถว NULL ทิ้งด้วย เพราะเมื่อเอา NULL ไปเทียบกับตัวเลข ผลที่ได้เป็น NULL ไม่ได้เป็น true',
   },
   en: {
     noFilter: 'No filter',

@@ -25,14 +25,14 @@ const TEXT: Record<Lang, {
   caption: string;
 }> = {
   th: {
-    title: 'heap ของ driver ไม่ได้เป็นของข้อมูลทั้งก้อน',
+    title: 'Heap ของ Driver ไม่ได้เป็นของข้อมูลทั้งก้อน',
     defaultTag: ' (ค่าเริ่มต้น, วัดจริง)',
-    aria: (heap) => `heap ${heap} GiB แบ่งเป็น reserved, user memory และส่วนที่ Spark จัดการ`,
-    segs: { reservedSub: '300 MiB ที่ Spark กันไว้', userSub: 'object อื่นของโปรแกรม', managed: 'Spark จัดการ', managedSub: 'storage + execution (บทที่ 13)' },
-    rows: { total: 'heap ทั้งหมด', minus: 'หัก reserved', managed: 'ส่วนที่ Spark จัดการ', user: 'user memory', rest: 'ที่เหลือ' },
-    checked: 'ค่า 455,501,414 B ตรงกับที่ UI รายงานจริง (ตรวจแล้ว)',
-    computed: 'ขนาดนี้คำนวณด้วยสูตรเดียวกัน ยังไม่ได้รันตั้งค่านี้',
-    caption: 'สูตร (heap - reserved) x 0.6 ตรวจกับ heap 1 GiB แล้วได้ 455,501,414 ไบต์เป๊ะ (exercises/01_architecture.py) ขนาดอื่นเป็นการแทนค่าในสูตรเดียวกัน บทที่ 13 อธิบายต่อว่าส่วนที่ Spark จัดการแบ่งเป็น storage กับ execution อย่างไร',
+    aria: (heap) => `Heap ${heap} GiB แบ่งเป็น Reserved, User Memory และส่วนที่ Spark จัดการ`,
+    segs: { reservedSub: '300 MiB ที่ Spark กันไว้', userSub: 'Object อื่นของโปรแกรม', managed: 'Spark จัดการ', managedSub: 'Storage + Execution (บทที่ 13)' },
+    rows: { total: 'Heap ทั้งหมด', minus: 'หัก Reserved', managed: 'ส่วนที่ Spark จัดการ', user: 'User Memory', rest: 'ที่เหลือ' },
+    checked: 'ค่า 455,501,414 B ตรงกับที่ UI รายงานออกมาจริง (ตรวจแล้ว)',
+    computed: 'ขนาดนี้คำนวณด้วยสูตรเดียวกัน แต่ยังไม่ได้รันด้วยการตั้งค่านี้',
+    caption: 'เราตรวจสูตร (heap - reserved) x 0.6 กับ Heap ขนาด 1 GiB แล้วได้ 455,501,414 ไบต์เป๊ะ (exercises/01_architecture.py) ส่วนขนาดอื่นเป็นการแทนค่าลงในสูตรเดียวกัน ซึ่งในบทที่ 13 จะอธิบายต่อว่าส่วนที่ Spark จัดการแบ่งเป็น Storage กับ Execution อย่างไร',
   },
   en: {
     title: 'The driver heap is not all for your data',

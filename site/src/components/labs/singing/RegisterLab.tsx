@@ -50,7 +50,7 @@ export default function RegisterLab({ view = 'registers', lang = 'th' }: { view?
   const zone = midi < vt.t1[0] ? 'chest' : midi <= vt.t1[1] ? 'passaggio1' : midi < vt.t2[0] ? 'mix' : midi <= vt.t2[1] ? 'passaggio2' : 'head';
   const register = belt ? 0 : zone === 'chest' ? 0 : zone === 'passaggio1' ? 0.25 : zone === 'mix' ? 0.5 : zone === 'passaggio2' ? 0.8 : 1;
   const level = belt ? 6.5 : zone === 'chest' ? 4.5 : zone === 'head' ? 3.5 : 4;
-  const label = { chest: L('Chest (TA เด่น)', 'Chest (TA dominant)'), passaggio1: L('ช่วงเปลี่ยนแรก (passaggio)', 'First transition (passaggio)'), mix: L('Mix (TA และ CT ผสม)', 'Mix (TA and CT blended)'), passaggio2: L('ช่วงเปลี่ยนที่สอง (passaggio)', 'Second transition (passaggio)'), head: L('Head (CT เด่น)', 'Head (CT dominant)') }[zone];
+  const label = { chest: L('Chest (TA เด่น)', 'Chest (TA dominant)'), passaggio1: L('ช่วงเปลี่ยนแรก (Passaggio)', 'First transition (passaggio)'), mix: L('Mix (TA และ CT ผสม)', 'Mix (TA and CT blended)'), passaggio2: L('ช่วงเปลี่ยนที่สอง (Passaggio)', 'Second transition (passaggio)'), head: L('Head (CT เด่น)', 'Head (CT dominant)') }[zone];
 
   // the pictures run in slow motion: `speed` is how many cycles of the folds are drawn per second
   const [phase, setPhase] = useState(0.3);
@@ -104,7 +104,7 @@ export default function RegisterLab({ view = 'registers', lang = 'th' }: { view?
         <>
           <Pills<string> label={L('ประเภทเสียง', 'Voice type')} value={typeKey} onChange={setTypeKey} options={TYPES.map((t) => ({ value: t.key, text: t.text }))} />
           <div className="viz-box" style={{ overflowX: 'visible' }}>
-            <svg viewBox={`0 0 ${W} 110`} role="img" aria-label={L('แถบ register ตามระดับเสียงของประเภทเสียงที่เลือก', 'A bar of the registers by pitch for the chosen voice type')} style={{ width: '100%', minWidth: 0 }}>
+            <svg viewBox={`0 0 ${W} 110`} role="img" aria-label={L('แถบ Register ตามระดับเสียงของประเภทเสียงที่เลือก', 'A bar of the registers by pitch for the chosen voice type')} style={{ width: '100%', minWidth: 0 }}>
               <rect x={x(LO)} y="30" width={x(vt.t1[0]) - x(LO)} height="26" fill="color-mix(in srgb, var(--accent) 55%, var(--surface))" />
               <rect x={x(vt.t1[0])} y="30" width={x(vt.t1[1] + 1) - x(vt.t1[0])} height="26" fill="var(--sun)" />
               <rect x={x(vt.t1[1] + 1)} y="30" width={x(vt.t2[0]) - x(vt.t1[1] + 1)} height="26" fill="color-mix(in srgb, var(--accent) 30%, var(--surface))" />
@@ -129,25 +129,25 @@ export default function RegisterLab({ view = 'registers', lang = 'th' }: { view?
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', marginTop: 8 }}>
             <button type="button" className="btn sm primary" onClick={() => setPlaying((p) => !p)}>{playing ? L('หยุดเสียง', 'Stop the sound') : L(`ฟังโน้ต ${noteName(midi)} (สังเคราะห์)`, `Hear the note ${noteName(midi)} (synthesized)`)}</button>
-            <button type="button" className="btn sm" aria-pressed={belt} onClick={() => setBelt((b) => !b)}>{belt ? L('กลับไปใช้ register ตามโน้ต', 'Go back to the register by note') : L('ลองแบก chest ขึ้นสูง', 'Try carrying chest up high')}</button>
+            <button type="button" className="btn sm" aria-pressed={belt} onClick={() => setBelt((b) => !b)}>{belt ? L('กลับไปใช้ Register ตามโน้ต', 'Go back to the register by note') : L('ลองแบก Chest ขึ้นสูง', 'Try carrying chest up high')}</button>
           </div>
           <Pills<number> label={L('ความเร็วภาพ', 'Picture speed')} value={speed} onChange={setSpeed} options={[{ value: 0, text: L('หยุด', 'Stop') }, { value: 0.2, text: L('ช้ามาก', 'Very slow') }, { value: 0.5, text: L('ช้า', 'Slow') }, { value: 1, text: L('เร็วขึ้น', 'Faster') }]} />
           <div className="viz-now" style={{ marginTop: 8 }} aria-live="polite">
-            <strong>{noteName(midi)}: {belt ? L('ร้องด้วยเสียง chest ขึ้นมาสูง (raw chest belt)', 'Singing chest voice up high (raw chest belt)') : label}</strong>
+            <strong>{noteName(midi)}: {belt ? L('ร้องด้วยเสียง Chest ขึ้นมาสูง (Raw Chest Belt)', 'Singing chest voice up high (raw chest belt)') : label}</strong>
             <span style={{ display: 'block' }}>
               {belt
-                ? L('เส้นเสียงหนาและปิดแน่นต่อไปแม้โน้ตสูงขึ้น แรงดันลมต้องสูงมาก (ใน chest belt สูงกว่าการร้องแบบคลาสสิกราว 50% ตามงานวิจัยที่หนังสือรายงาน) ถึงช่วงหนึ่งเสียงจะแตกหรือฝืนมาก', 'The vocal folds stay thick and firmly closed even as the note rises, and the air pressure has to be very high (in chest belt about 50% higher than in classical singing, according to the research the book reports). At some point the voice breaks or becomes very strained.')
+                ? L('เส้นเสียงยังคงหนาและปิดแน่นต่อไป แม้โน้ตจะสูงขึ้นแล้ว ทำให้แรงดันลมต้องสูงมาก (ใน Chest Belt สูงกว่าการร้องแบบคลาสสิกราว 50% ตามงานวิจัยที่หนังสือรายงานไว้) พอถึงช่วงหนึ่งเสียงก็จะแตกหรือฝืนมาก', 'The vocal folds stay thick and firmly closed even as the note rises, and the air pressure has to be very high (in chest belt about 50% higher than in classical singing, according to the research the book reports). At some point the voice breaks or becomes very strained.')
                 : zone === 'chest'
-                  ? L('เส้นเสียงหนา สัมผัสกันเป็นบริเวณกว้าง harmonic ที่สองเด่น เสียงดังและอุ่น', 'The vocal folds are thick and touch over a wide area, the second harmonic is strong, and the sound is loud and warm.')
+                  ? L('เส้นเสียงหนาและสัมผัสกันเป็นบริเวณกว้าง Harmonic ที่สองจึงเด่น เสียงที่ได้ก็ดังและอุ่น', 'The vocal folds are thick and touch over a wide area, the second harmonic is strong, and the sound is loud and warm.')
                   : zone === 'head'
-                    ? L('เส้นเสียงบางและยืด สัมผัสกันน้อยลง harmonic แรกเด่น เสียงเบากว่าแต่ขึ้นสูงได้', 'The vocal folds are thin and stretched and touch less, the first harmonic is strong, and the sound is softer but can go high.')
+                    ? L('เส้นเสียงบางและยืดออก สัมผัสกันน้อยลง Harmonic แรกจึงเด่น เสียงที่ได้เบากว่า แต่ร้องขึ้นสูงได้', 'The vocal folds are thin and stretched and touch less, the first harmonic is strong, and the sound is softer but can go high.')
                     : zone === 'mix'
-                      ? L('ผสม TA กับ CT ได้เสียงที่ซับซ้อนกว่า head แต่ไม่หนักเท่า chest ผู้หญิงมีช่วง mix กว้างกว่าผู้ชายมาก', 'Blending the TA and CT gives a sound more complex than head but not as heavy as chest. Women have a much wider mix range than men.')
-                      : L('นี่คือบริเวณที่เสียงมักเปลี่ยนสีหรือแตก ลดแรงดันลมและความแน่นของการปิดลงเล็กน้อยแล้วปรับสระ จะผ่านได้ง่ายขึ้น', 'This is the area where the voice often changes color or breaks. Reduce the air pressure and the firmness of closure a little and adjust the vowel, and it gets easier to pass through.')}
+                      ? L('เมื่อผสม TA กับ CT เราจะได้เสียงที่ซับซ้อนกว่า Head แต่ไม่หนักเท่า Chest โดยผู้หญิงมีช่วง Mix กว้างกว่าผู้ชายมาก', 'Blending the TA and CT gives a sound more complex than head but not as heavy as chest. Women have a much wider mix range than men.')
+                      : L('ตรงนี้เป็นบริเวณที่เสียงมักเปลี่ยนสีหรือแตก ถ้าเราลดแรงดันลมและความแน่นของการปิดลงเล็กน้อย แล้วปรับสระ ก็จะผ่านไปได้ง่ายขึ้น', 'This is the area where the voice often changes color or breaks. Reduce the air pressure and the firmness of closure a little and adjust the vowel, and it gets easier to pass through.')}
             </span>
           </div>
           <p className="viz-caption" style={{ margin: '10px 0 6px' }}>
-            {L('สี่ช่องข้างล่างใช้จังหวะเดียวกัน (ภาพนี้ช้ากว่าของจริงหลายร้อยเท่า) ดูที่แถวบนก่อน เส้นเสียงของ chest แตะกันนานและแน่น ส่วนของ head แตะกันแค่ชั่วครู่ แล้วดูแถวล่างว่าความต่างนั้นทำให้ harmonic ต่างกันอย่างไร', 'The four boxes below run on the same clock (this picture is hundreds of times slower than real life). Look at the top row first: the vocal folds of chest touch for a long time and firmly, while those of head touch only briefly. Then look at the bottom row to see how that difference makes the harmonics differ.')}
+            {L('สี่ช่องข้างล่างใช้จังหวะเดียวกัน (ภาพนี้ช้ากว่าของจริงหลายร้อยเท่า) ให้ดูที่แถวบนก่อน เส้นเสียงของ Chest จะแตะกันนานและแน่น ส่วนของ Head แตะกันแค่ชั่วครู่ แล้วค่อยดูแถวล่างว่าความต่างนั้นทำให้ Harmonic ต่างกันอย่างไร', 'The four boxes below run on the same clock (this picture is hundreds of times slower than real life). Look at the top row first: the vocal folds of chest touch for a long time and firmly, while those of head touch only briefly. Then look at the bottom row to see how that difference makes the harmonics differ.')}
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 12 }}>
             {CARDS.map((c) => (
@@ -155,7 +155,7 @@ export default function RegisterLab({ view = 'registers', lang = 'th' }: { view?
             ))}
           </div>
           <Slider label={`${L('โน้ต', 'Note')} ${noteName(midi)}`} value={midi} min={43} max={84} onChange={setMidi} />
-          <p className="viz-caption">{L('ช่วงเปลี่ยนมาจากตาราง 8.1 และ 8.2 ของ Davids และ LaTour ซึ่งเป็นค่าโดยประมาณ ตาราง 8.2 ของผู้หญิงมาจากประสบการณ์ของผู้เขียน ผู้เขียนบอกเองว่างานอื่นรายงานความต่างระหว่างประเภทเสียงของผู้หญิงที่น้อยกว่านี้ รูปเส้นเสียงเป็นภาพร่างและเสียงเป็นเสียงสังเคราะห์ที่แสดงแนวโน้ม ไม่ใช่การวัด', 'The transition areas come from Tables 8.1 and 8.2 of Davids and LaTour and are approximate. The table for women (8.2) comes from the authors\' own experience, and they say themselves that other work reports a smaller difference between the voice types of women. The picture of the vocal folds is a sketch and the sound is a synthesized sound that shows the trend. Neither is a measurement.')}</p>
+          <p className="viz-caption">{L('ช่วงเปลี่ยนมาจากตาราง 8.1 และ 8.2 ของ Davids และ LaTour ซึ่งเป็นค่าโดยประมาณ ส่วนตาราง 8.2 ของผู้หญิงมาจากประสบการณ์ของผู้เขียนเอง และผู้เขียนก็บอกไว้ว่างานอื่นรายงานความต่างระหว่างประเภทเสียงของผู้หญิงที่น้อยกว่านี้ รูปเส้นเสียงเป็นภาพร่าง และเสียงเป็นเสียงสังเคราะห์ที่แสดงแนวโน้ม ไม่ได้เป็นการวัดจริง', 'The transition areas come from Tables 8.1 and 8.2 of Davids and LaTour and are approximate. The table for women (8.2) comes from the authors\' own experience, and they say themselves that other work reports a smaller difference between the voice types of women. The picture of the vocal folds is a sketch and the sound is a synthesized sound that shows the trend. Neither is a measurement.')}</p>
         </>
       ) : (
         <>
@@ -164,7 +164,7 @@ export default function RegisterLab({ view = 'registers', lang = 'th' }: { view?
             {(() => {
               const r = RANGES.find((q) => q.key === (rangeKey || 'S'))!;
               const rows: [string, [number, number], string][] = [
-                [L('สบายที่สุด (comfortable)', 'Most comfortable'), r.comfy, 'var(--accent)'],
+                [L('สบายที่สุด (Comfortable)', 'Most comfortable'), r.comfy, 'var(--accent)'],
                 [L('กว้างสุดของคนร้องประสานเสียงทั่วไป', 'Widest for an average choir singer'), r.amateur, 'color-mix(in srgb, var(--accent) 55%, var(--surface))'],
                 [L('กว้างสุดของคนที่ผ่านการฝึกมาก', 'Widest for someone who has trained a lot'), r.pro, 'color-mix(in srgb, var(--accent) 28%, var(--surface))'],
               ];
@@ -186,7 +186,7 @@ export default function RegisterLab({ view = 'registers', lang = 'th' }: { view?
               );
             })()}
           </div>
-          <p className="viz-caption">{L('ตัวเลขจากตาราง 9.1 ของ Davids และ LaTour (ช่วงสูงสุดของผู้ฝึกมากอ้างจาก Titze 2000) ในดนตรีร่วมสมัยไม่ค่อยแบ่งประเภทเสียงอย่างเป็นทางการ ช่วงที่ร้องได้จริงขึ้นกับสไตล์ด้วย เช่น belt ผู้หญิงขึ้นได้ถึงราว G5 เท่านั้น', 'The numbers come from Table 9.1 of Davids and LaTour (the widest range for the highly trained is cited from Titze 2000). In contemporary music voice types are seldom formally classified. The range you can really sing also depends on the style, for example a woman can belt only up to about G5.')}</p>
+          <p className="viz-caption">{L('ตัวเลขมาจากตาราง 9.1 ของ Davids และ LaTour (ช่วงสูงสุดของผู้ฝึกมากอ้างจาก Titze 2000) ในดนตรีร่วมสมัยไม่ค่อยแบ่งประเภทเสียงอย่างเป็นทางการ และช่วงที่ร้องได้จริงก็ขึ้นกับสไตล์ด้วย ยกตัวอย่างเช่น Belt ของผู้หญิงขึ้นได้ถึงราว G5 เท่านั้น', 'The numbers come from Table 9.1 of Davids and LaTour (the widest range for the highly trained is cited from Titze 2000). In contemporary music voice types are seldom formally classified. The range you can really sing also depends on the style, for example a woman can belt only up to about G5.')}</p>
         </>
       )}
     </figure>
@@ -214,9 +214,9 @@ interface CardSpec {
 }
 const CARDS: CardSpec[] = [
   { key: 'chest', title: 'Chest', sub: 'เส้นเสียงหนาและสั้น แตะกันนาน', register: 0, level: 4.5, thick: 1 },
-  { key: 'mix', title: 'Mix', sub: 'หนาปานกลาง แตะกันสั้นลง', register: 0.5, level: 4, thick: 0.55 },
+  { key: 'mix', title: 'Mix', sub: 'หนาปานกลาง และแตะกันสั้นลง', register: 0.5, level: 4, thick: 0.55 },
   { key: 'head', title: 'Head', sub: 'บางและยืด แตะกันแค่ชั่วครู่', register: 1, level: 3.5, thick: 0.25 },
-  { key: 'belt', title: 'Chest belt', sub: 'หนา ปิดแน่นมาก ที่โน้ตสูง', register: 0, level: 6.5, thick: 1 },
+  { key: 'belt', title: 'Chest belt', sub: 'หนาและปิดแน่นมาก ทั้งที่โน้ตสูง', register: 0, level: 6.5, thick: 1 },
 ];
 
 const NH = 10;
@@ -261,7 +261,7 @@ function RegisterCard({ card, phase, on, onPick, lang = 'th' }: { card: CardSpec
       </div>
       <Coronal open={open} openTop={openTop} thick={card.thick} width={230} lang={lang} />
       <div aria-hidden="true" style={{ fontSize: 12.5, textAlign: 'center', fontWeight: 600, color: isClosed ? 'var(--brand)' : 'var(--muted)' }}>
-        {isClosed ? L('เส้นเสียงปิดสนิท ลมผ่านไม่ได้', 'The vocal folds are fully closed, no air passes') : L(`ช่องระหว่างเส้นเสียงเปิด ${Math.round(open * 100)}%`, `The gap between the vocal folds is ${Math.round(open * 100)}% open`)}
+        {isClosed ? L('เส้นเสียงปิดสนิท ลมจึงผ่านไม่ได้', 'The vocal folds are fully closed, no air passes') : L(`ช่องระหว่างเส้นเสียงเปิด ${Math.round(open * 100)}%`, `The gap between the vocal folds is ${Math.round(open * 100)}% open`)}
       </div>
       <svg viewBox={`0 0 ${W} 70`} role="img" aria-label={L(`ลมที่ผ่านเส้นเสียงในหนึ่งรอบของ ${card.title} เส้นเสียงปิดอยู่ ${Math.round((1 - shape.oq) * 100)} เปอร์เซ็นต์ของรอบ`, `The air through the vocal folds in one cycle of ${card.title}. The vocal folds are closed for ${Math.round((1 - shape.oq) * 100)} percent of the cycle`)} style={{ width: '100%', minWidth: 0 }}>
         <rect x={px(shape.oq)} y={yt - 4} width={r1(x1 - px(shape.oq))} height={yb - yt + 4} fill="color-mix(in srgb, var(--brand) 16%, transparent)" />
@@ -272,7 +272,7 @@ function RegisterCard({ card, phase, on, onPick, lang = 'th' }: { card: CardSpec
         <text className="s" x={x0} y="68">{L('ลมที่ผ่านเส้นเสียง ในหนึ่งรอบ', 'Air through the vocal folds in one cycle')}</text>
         <text className="s" x={x1} y="20" textAnchor="end" style={{ fill: 'var(--brand)' }}>{L('ปิด', 'closed')} {Math.round((1 - shape.oq) * 100)}%</text>
       </svg>
-      <svg viewBox={`0 0 ${W} 82`} role="img" aria-label={L(`harmonic ที่ 1 ถึง ${NH} ของ ${card.title} harmonic ที่สองต่ำกว่าตัวแรก ${Math.round(-db[1])} dB`, `Harmonics 1 to ${NH} of ${card.title}. The second harmonic is ${Math.round(-db[1])} dB below the first`)} style={{ width: '100%', minWidth: 0 }}>
+      <svg viewBox={`0 0 ${W} 82`} role="img" aria-label={L(`Harmonic ที่ 1 ถึง ${NH} ของ ${card.title} โดย Harmonic ที่สองต่ำกว่าตัวแรก ${Math.round(-db[1])} dB`, `Harmonics 1 to ${NH} of ${card.title}. The second harmonic is ${Math.round(-db[1])} dB below the first`)} style={{ width: '100%', minWidth: 0 }}>
         <line x1="8" x2={W - 8} y1="60" y2="60" stroke="var(--line-strong)" />
         {db.map((v, i) => (
           <g key={i}>

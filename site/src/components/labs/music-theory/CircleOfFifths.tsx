@@ -21,11 +21,11 @@ const TEXT: Record<Lang, {
     keyAria: (k) => `คีย์ ${k} เมเจอร์`,
     none: 'ไม่มี # ♭',
     clockwise: 'ตามเข็ม = ขึ้นหนึ่งคู่ห้า',
-    head: (k, minor) => `${k} เมเจอร์ · relative minor คือ ${minor}m`,
+    head: (k, minor) => `${k} เมเจอร์ · Relative Minor คือ ${minor}m`,
     noSig: 'ไม่มีเครื่องหมายแปลงเสียงเลย (โน้ตขาวทั้งหมด)',
     sig: (n, list) => `เครื่องหมายประจำคีย์ ${n} ตัว: ${list}`,
     scale: 'สเกล:',
-    near: (a, b, k) => `คีย์ข้างเคียง ${a} และ ${b} ใช้โน้ตร่วมกับ ${k} ถึง 6 จาก 7 ตัว นั่นคือคอร์ด IV และ V (พื้นสี) ที่ใช้ในเพลงเกือบทุกเพลง`,
+    near: (a, b, k) => `คีย์ข้างเคียง ${a} และ ${b} ใช้โน้ตร่วมกับ ${k} ถึง 6 จาก 7 ตัว ซึ่งก็คือคอร์ด IV และ V (พื้นสี) ที่ใช้ในเพลงเกือบทุกเพลง`,
   },
   en: {
     title: 'Circle of fifths: click a key to see its signature and chords',

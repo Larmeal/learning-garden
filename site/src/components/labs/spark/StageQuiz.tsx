@@ -13,17 +13,17 @@ const QUESTIONS: Record<Lang, Q[]> = {
     {
       code: 'df.filter(df.id > 1).select("v").write.parquet("out")',
       answer: 1,
-      why: 'filter และ select ทำกับข้อมูลในแต่ละ partition ได้เลย ไม่ต้องย้ายข้อมูลข้ามเครื่อง จึงไม่มี shuffle และรันจบใน stage เดียว',
+      why: 'filter และ select ทำงานกับข้อมูลในแต่ละ Partition ได้เลย โดยไม่ต้องย้ายข้อมูลข้ามคอมพิวเตอร์ จึงไม่เกิด Shuffle และรันจบใน Stage เดียว',
     },
     {
       code: 'df.groupBy("k").count().write.parquet("out")',
       answer: 2,
-      why: 'groupBy ต้องรวม key เดียวกันมาไว้ที่เดียวกัน เกิด shuffle 1 ครั้ง ตัดงานเป็น 2 stage (ก่อนและหลัง shuffle)',
+      why: 'groupBy ต้องรวม Key เดียวกันมาไว้ที่เดียวกัน จึงเกิด Shuffle 1 ครั้ง ซึ่งตัดงานออกเป็น 2 Stage (ก่อนและหลัง Shuffle)',
     },
     {
       code: 'df.groupBy("a").count()\n  .groupBy("count").count()\n  .write.parquet("out")',
       answer: 3,
-      why: 'groupBy สองครั้งบน key คนละตัว เกิด shuffle 2 ครั้ง ตัดงานเป็น 3 stage หลักนับคือ shuffle 1 ครั้ง ตัด 1 รอย',
+      why: 'groupBy สองครั้งบน Key คนละตัว ทำให้เกิด Shuffle 2 ครั้ง ซึ่งตัดงานออกเป็น 3 Stage หลักการนับคือ Shuffle 1 ครั้งจะตัดงาน 1 รอย',
     },
   ],
   en: [
@@ -47,12 +47,12 @@ const QUESTIONS: Record<Lang, Q[]> = {
 
 const TEXT: Record<Lang, { title: string; group: (n: number) => string; right: string; wrong: (a: number) => string; stage: (n: number) => string; caption: ReactNode }> = {
   th: {
-    title: 'ทายก่อนเฉลย: โค้ดนี้มีกี่ stage?',
+    title: 'ทายก่อนเฉลย: โค้ดนี้มีกี่ Stage?',
     group: (n) => `ตัวเลือกข้อ ${n}`,
     right: 'ถูก ',
-    wrong: (a) => `ยังไม่ใช่ คำตอบคือ ${a} stage `,
-    stage: () => 'stage',
-    caption: <>นี่คือหลักการนับ ในโปรแกรมจริงให้ยืนยันด้วย <code>explain()</code> และ Spark UI เพราะ optimizer อาจปรับแผนให้ต่างจากที่คิด</>,
+    wrong: (a) => `ยังไม่ใช่นะ คำตอบคือ ${a} Stage `,
+    stage: () => 'Stage',
+    caption: <>นี่คือหลักการนับเบื้องต้น ส่วนในโปรแกรมจริงเราควรยืนยันด้วย <code>explain()</code> และ Spark UI อีกครั้ง เพราะ Optimizer อาจปรับแผนให้ต่างจากที่เราคิดไว้</>,
   },
   en: {
     title: 'Guess before the answer: how many stages does this code have?',

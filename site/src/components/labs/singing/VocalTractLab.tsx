@@ -32,13 +32,13 @@ const SLIDERS_EN: Record<string, { label: string; hint: string }> = {
 };
 
 const SLIDERS: { key: keyof Pose; label: string; min: number; max: number; hint: string }[] = [
-  { key: 'jaw', label: 'กราม', min: 0, max: 1, hint: 'เปิดมากขึ้น F1 สูงขึ้น' },
-  { key: 'height', label: 'ลิ้นสูง', min: 0, max: 1, hint: 'จุดสูงสุดของลิ้นใกล้เพดานปาก' },
-  { key: 'front', label: 'ลิ้นไปหน้า', min: 0, max: 1, hint: 'ลิ้นไปข้างหน้า F2 สูงขึ้น' },
-  { key: 'lip', label: 'ริมฝีปาก', min: -1, max: 1, hint: 'ซ้ายคือยิ้มกว้าง ขวาคือจู๋' },
-  { key: 'larynx', label: 'กล่องเสียง', min: -1, max: 1, hint: 'ซ้ายคือต่ำ (หาว) ขวาคือสูง (กลืน)' },
-  { key: 'velum', label: 'เพดานอ่อน', min: 0, max: 1, hint: '0 ยกขึ้นปิดจมูก 1 ปล่อยลงให้เสียงผ่านจมูก' },
-  { key: 'epi', label: 'epilarynx แคบ', min: 0, max: 1, hint: 'แคบขึ้นจะเกิดเสียงแหลมใส (ring) ใกล้ 3 kHz' },
+  { key: 'jaw', label: 'กราม', min: 0, max: 1, hint: 'ยิ่งเปิดมาก F1 ยิ่งสูงขึ้น' },
+  { key: 'height', label: 'ลิ้นสูง', min: 0, max: 1, hint: 'จุดสูงสุดของลิ้นอยู่ใกล้เพดานปาก' },
+  { key: 'front', label: 'ลิ้นไปหน้า', min: 0, max: 1, hint: 'ยิ่งลิ้นไปข้างหน้า F2 ยิ่งสูงขึ้น' },
+  { key: 'lip', label: 'ริมฝีปาก', min: -1, max: 1, hint: 'ซ้ายคือยิ้มกว้าง ส่วนขวาคือจู๋ปาก' },
+  { key: 'larynx', label: 'กล่องเสียง', min: -1, max: 1, hint: 'ซ้ายคือต่ำ (เหมือนตอนหาว) ส่วนขวาคือสูง (เหมือนตอนกลืน)' },
+  { key: 'velum', label: 'เพดานอ่อน', min: 0, max: 1, hint: '0 คือยกขึ้นปิดจมูก ส่วน 1 คือปล่อยลงให้เสียงผ่านจมูกได้' },
+  { key: 'epi', label: 'epilarynx แคบ', min: 0, max: 1, hint: 'ถ้าแคบลงจะเกิดเสียงแหลมใส (Ring) ที่ใกล้ 3 kHz' },
 ];
 
 export default function VocalTractLab({ start = 'ɑ', lang = 'th' }: { start?: string; lang?: 'th' | 'en' }) {
@@ -117,9 +117,9 @@ export default function VocalTractLab({ start = 'ɑ', lang = 'th' }: { start?: s
   const len = tractLength(pose, sex);
 
   const stack = [
-    { y: 34, h: 82, title: L('ต้นกำเนิด (source): harmonics จากเส้นเสียง', 'Source: harmonics from the vocal folds') },
-    { y: 152, h: 82, title: L('ตัวกรอง (filter): ช่องเสียงและริมฝีปาก', 'Filter: the vocal tract and lips') },
-    { y: 270, h: 92, title: L('เสียงที่ได้ (output)', 'Output: the resulting sound') },
+    { y: 34, h: 82, title: L('ต้นกำเนิด (Source): Harmonics จากเส้นเสียง', 'Source: harmonics from the vocal folds') },
+    { y: 152, h: 82, title: L('ตัวกรอง (Filter): ช่องเสียงและริมฝีปาก', 'Filter: the vocal tract and lips') },
+    { y: 270, h: 92, title: L('เสียงที่ได้ (Output)', 'Output: the resulting sound') },
   ];
   const marks = shownFormants.slice(0, 5).map((hz, i) => ({ hz, text: `F${i + 1}` }));
   if (shownRing) marks.push({ hz: shownRing.hz, text: 'ring' });
@@ -127,7 +127,7 @@ export default function VocalTractLab({ start = 'ɑ', lang = 'th' }: { start?: s
 
   return (
     <figure className="viz">
-      <div className="viz-title">{L('ปรับท่าปากและลำคอ แล้วดู formant เคลื่อนที่', 'Adjust the mouth and throat and watch the formants move')}</div>
+      <div className="viz-title">{L('ปรับท่าปากและลำคอ แล้วดู Formant เคลื่อนที่', 'Adjust the mouth and throat and watch the formants move')}</div>
       <Pills<string>
         label={L('สระ', 'Vowel')}
         value={VOWEL_BUTTONS.find((v) => JSON.stringify(POSE_OF[v.key]) === JSON.stringify(pose))?.key ?? ''}
@@ -138,7 +138,7 @@ export default function VocalTractLab({ start = 'ɑ', lang = 'th' }: { start?: s
         <svg viewBox="0 0 400 440" role="img" aria-label={L('ภาพตัดขวางศีรษะและลำคอ ลิ้น กราม ริมฝีปาก เพดานอ่อน และกล่องเสียงเคลื่อนตามค่าที่ปรับ', 'Cross-section of the head and neck: the tongue, jaw, lips, soft palate and larynx move with the values you set')} style={{ flex: '0 0 250px', width: 250, minWidth: 0, maxWidth: '100%' }}>
           <SagittalHead pose={shown} folds="closed" />
         </svg>
-        <svg viewBox="0 0 460 392" role="img" aria-label={L('กราฟ source, filter และ output', 'Graphs of the source, the filter and the output')} style={{ flex: '1 1 400px', minWidth: 0 }}>
+        <svg viewBox="0 0 460 392" role="img" aria-label={L('กราฟ Source, Filter และ Output', 'Graphs of the source, the filter and the output')} style={{ flex: '1 1 400px', minWidth: 0 }}>
           {stack.map((s, i) => {
             const fr = { x: FR.x, y: s.y, w: FR.w, h: s.h };
             return (
@@ -180,9 +180,9 @@ export default function VocalTractLab({ start = 'ɑ', lang = 'th' }: { start?: s
       </div>
 
       <ol style={{ margin: '8px 0 0', paddingLeft: 20, fontSize: 13.5, color: 'var(--muted)', display: 'grid', gap: 2 }}>
-        <li>{L('กราฟบน: เส้นเสียงสร้าง harmonic ชุดเดียวกันทุกครั้ง ที่ความถี่ f0, 2 f0, 3 f0 และเบาลงเรื่อย ๆ', 'Top graph: the vocal folds always make the same set of harmonics, at the frequencies f0, 2 f0, 3 f0 and so on, getting softer and softer.')}</li>
-        <li>{L('กราฟกลาง: ช่องปากและลำคอเลือกขยายบางย่านความถี่ ยอดแต่ละยอดคือหนึ่ง formant (แถบสีจางคือย่านที่ถูกขยาย)', 'Middle graph: the mouth and throat choose to amplify some ranges of frequency. Each peak is one formant (the pale bands are the ranges that are amplified).')}</li>
-        <li>{L('กราฟล่าง: เอากราฟบนมาคูณกราฟกลาง harmonic ที่อยู่ในแถบสีจะดังขึ้น ที่เหลือเบาลง จึงได้ยินเป็นสระต่างกัน', 'Bottom graph: multiply the top graph by the middle graph. The harmonics that lie in the colored bands get louder and the rest get softer, so you hear different vowels.')}</li>
+        <li>{L('กราฟบนแสดงว่าเส้นเสียงสร้าง Harmonic ชุดเดียวกันทุกครั้ง ที่ความถี่ f0, 2 f0, 3 f0 ไปเรื่อย ๆ โดยแต่ละตัวจะเบาลงตามลำดับ', 'Top graph: the vocal folds always make the same set of harmonics, at the frequencies f0, 2 f0, 3 f0 and so on, getting softer and softer.')}</li>
+        <li>{L('กราฟกลางแสดงว่าช่องปากและลำคอเลือกขยายบางย่านความถี่ โดยยอดแต่ละยอดคือหนึ่ง Formant (แถบสีจางคือย่านที่ถูกขยาย)', 'Middle graph: the mouth and throat choose to amplify some ranges of frequency. Each peak is one formant (the pale bands are the ranges that are amplified).')}</li>
+        <li>{L('กราฟล่างได้จากการเอากราฟบนมาคูณกับกราฟกลาง Harmonic ที่อยู่ในแถบสีจะดังขึ้น ส่วนที่เหลือจะเบาลง เราจึงได้ยินเป็นสระที่ต่างกัน', 'Bottom graph: multiply the top graph by the middle graph. The harmonics that lie in the colored bands get louder and the rest get softer, so you hear different vowels.')}</li>
       </ol>
       <div className="viz-now" aria-live="polite">
         <strong>
@@ -190,12 +190,12 @@ export default function VocalTractLab({ start = 'ɑ', lang = 'th' }: { start?: s
           {ring ? `, ring ${Math.round(ring.hz)} Hz` : ''}
         </strong>
         <span style={{ display: 'block' }}>
-          {L(`ท่อเสียงยาวประมาณ ${len.toFixed(1)} cm (ท่อเปิดปิดหนึ่งท่อแบบง่ายให้ F1 ที่ ${Math.round(SOUND_SPEED / (4 * len))} Hz). ร้องที่ ${noteName(midi)} (${Math.round(f0)} Hz) harmonic ที่อยู่ใกล้ formant และต่ำกว่าจะดังขึ้น`, `The vocal tract is about ${len.toFixed(1)} cm long (a simple tube closed at one end gives F1 at ${Math.round(SOUND_SPEED / (4 * len))} Hz). Singing at ${noteName(midi)} (${Math.round(f0)} Hz), the harmonics that are close to a formant, and below it, get louder.`)}
+          {L(`ท่อเสียงยาวประมาณ ${len.toFixed(1)} cm (ถ้าเป็นท่อเปิดปิดแบบง่ายหนึ่งท่อ จะได้ F1 ที่ ${Math.round(SOUND_SPEED / (4 * len))} Hz) เมื่อร้องที่ ${noteName(midi)} (${Math.round(f0)} Hz) Harmonic ที่อยู่ใกล้ Formant และต่ำกว่าจะดังขึ้น`, `The vocal tract is about ${len.toFixed(1)} cm long (a simple tube closed at one end gives F1 at ${Math.round(SOUND_SPEED / (4 * len))} Hz). Singing at ${noteName(midi)} (${Math.round(f0)} Hz), the harmonics that are close to a formant, and below it, get louder.`)}
         </span>
         <div className="viz-controls" style={{ marginTop: 8 }}>
           <button type="button" className="btn sm primary" onClick={() => setPlaying((v) => !v)}>{playing ? L('หยุดเสียง', 'Stop the sound') : L('ฟังเสียงสังเคราะห์', 'Hear the synthesized sound')}</button>
           <button type="button" className="btn sm" onClick={classical}>{L('ทรงคลาสสิก (ท่อยาว ลึก)', 'Classical shape (long, deep tube)')}</button>
-          <button type="button" className="btn sm" onClick={bright}>{L('ทรงสว่าง (ท่อสั้น แบบ belt / pop)', 'Bright shape (short tube, belt / pop)')}</button>
+          <button type="button" className="btn sm" onClick={bright}>{L('ทรงสว่าง (ท่อสั้น แบบ Belt / Pop)', 'Bright shape (short tube, belt / pop)')}</button>
         </div>
       </div>
 
@@ -210,7 +210,7 @@ export default function VocalTractLab({ start = 'ɑ', lang = 'th' }: { start?: s
         <Pills<Sex> label={L('เสียง', 'Voice')} value={sex} onChange={(s) => { setSex(s); setMidi((m) => (s === 'female' && m < 52 ? m + 12 : s === 'male' && m >= 60 ? m - 12 : m)); }} options={[{ value: 'male', text: L('ผู้ชาย (ท่อ 17.5 cm)', 'Man (17.5 cm tube)') }, { value: 'female', text: L('ผู้หญิง (ท่อสั้นกว่า)', 'Woman (a shorter tube)') }]} />
       </div>
       <p className="viz-caption">
-        {L('นี่คือแบบจำลองเพื่อการสอน ไม่ใช่การวัดจากคนจริง สระและค่า formant มาจากตารางเฉลี่ยของ Peterson และ Barney ท่าปากแต่ละแบบคำนวณด้วยสูตรง่ายๆ ที่ทำให้ผลตรงกับสิ่งที่หนังสือบอก (กรามเปิด F1 สูง ลิ้นไปหน้า F2 สูง ท่อสั้นทำให้ formant สูงทุกตัว) เสียงที่ได้ยินสร้างจากตัวกรองชุดเดียวกับกราฟ', 'This is a model for teaching, not a measurement of a real person. The vowels and formant values come from the average table of Peterson and Barney. Each mouth shape is computed with a simple formula that makes the result agree with what the book says (jaw open, high F1; tongue forward, high F2; a short tube makes every formant high). The sound you hear is built from the same filter as the graphs.')}
+        {L('นี่เป็นแบบจำลองเพื่อการสอน ซึ่งไม่ได้วัดมาจากคนจริง สระและค่า Formant มาจากตารางค่าเฉลี่ยของ Peterson และ Barney ส่วนท่าปากแต่ละแบบคำนวณด้วยสูตรง่าย ๆ ที่ทำให้ผลตรงกับสิ่งที่หนังสือบอก (กรามเปิด F1 สูง ลิ้นไปหน้า F2 สูง ท่อสั้นทำให้ Formant สูงทุกตัว) และเสียงที่ได้ยินก็สร้างจากตัวกรองชุดเดียวกับกราฟ', 'This is a model for teaching, not a measurement of a real person. The vowels and formant values come from the average table of Peterson and Barney. Each mouth shape is computed with a simple formula that makes the result agree with what the book says (jaw open, high F1; tongue forward, high F2; a short tube makes every formant high). The sound you hear is built from the same filter as the graphs.')}
       </p>
     </figure>
   );

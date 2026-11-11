@@ -6,7 +6,7 @@ import { useState } from 'react';
 type Lang = 'th' | 'en';
 
 const TEXT: Record<Lang, { commit: string; noCommit: string; noContent: string }> = {
-  th: { commit: 'commit', noCommit: 'ไม่ commit', noContent: 'ไฟล์นี้ไม่ได้แสดงเนื้อหา' },
+  th: { commit: 'Commit', noCommit: 'ไม่ Commit', noContent: 'ไฟล์นี้ไม่ได้แสดงเนื้อหา' },
   en: { commit: 'commit', noCommit: 'not committed', noContent: 'The content of this file is not shown.' },
 };
 

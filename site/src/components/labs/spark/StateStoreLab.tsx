@@ -19,9 +19,9 @@ const DURATION = INPUT.length * PER + 1.2;
 const SNAP_AT = 11; // version at which the background job has merged the deltas (picture only)
 
 const MARKS_TH: Mark[] = [
-  { at: 0, name: 'batch 0', title: 'แถวใหม่เข้ามา: state ยังว่าง', text: 'ทุก batch ผ่านสามขั้นต่อ partition: Restore อ่านค่าเก่าของ key จาก state store, aggregate รวมกับแถวใหม่, Save เขียนค่าใหม่กลับและ commit เป็นเวอร์ชันถัดไป' },
-  { at: PER * 3, name: 'สะสม', title: 'state จำค่าข้าม batch', text: 'key a ที่เห็นใน batch ก่อนๆ มี count สะสมอยู่ แถวใหม่ของ a ถูกบวกเข้าไปจึงไม่เริ่มนับใหม่ นี่คือสิ่งที่ checkpoint ของ state เก็บไว้ให้รีสตาร์ทต่อได้' },
-  { at: PER * 9, name: 'snapshot', title: 'ไฟล์ delta สะสมจนถึง 10 แล้วรวมเป็น snapshot', text: 'ถ้าไม่รวม การกู้ state ต้องอ่าน delta ทุกเวอร์ชันตั้งแต่ต้น provider แบบ HDFS จึงให้งาน maintenance เบื้องหลังรวม delta เมื่อมีอย่างน้อย minDeltasForSnapshot (10, internal) ส่วน RocksDB เก็บ state บน disk ของ executor จึงรับ state ใหญ่กว่า memory ได้' },
+  { at: 0, name: 'Batch 0', title: 'แถวใหม่เข้ามา: State ยังว่าง', text: 'ทุก Batch จะผ่านสามขั้นต่อ Partition โดย Restore จะอ่านค่าเก่าของ Key จาก State Store แล้ว Aggregate รวมกับแถวใหม่ จากนั้น Save จะเขียนค่าใหม่กลับไปและ Commit เป็นเวอร์ชันถัดไป' },
+  { at: PER * 3, name: 'สะสม', title: 'State จำค่าข้าม Batch', text: 'Key a ที่เคยเห็นใน Batch ก่อน ๆ จะมี count สะสมอยู่แล้ว แถวใหม่ของ a จึงถูกบวกเข้าไปโดยไม่ต้องเริ่มนับใหม่ ซึ่งเป็นสิ่งที่ Checkpoint ของ State เก็บเอาไว้ เพื่อให้รีสตาร์ทแล้วทำงานต่อได้' },
+  { at: PER * 9, name: 'Snapshot', title: 'ไฟล์ Delta สะสมจนถึง 10 แล้วรวมเป็น Snapshot', text: 'ถ้าไม่รวม การกู้ State จะต้องอ่าน Delta ทุกเวอร์ชันตั้งแต่ต้น Provider แบบ HDFS จึงให้งาน Maintenance เบื้องหลังรวม Delta เมื่อมีอย่างน้อย minDeltasForSnapshot (10, internal) ส่วน RocksDB จะเก็บ State บน Disk ของ Executor จึงรับ State ที่ใหญ่กว่า Memory ได้' },
 ];
 
 const MARKS_EN: Mark[] = [
@@ -39,18 +39,18 @@ const TEXT: Record<Lang, {
 }> = {
   th: {
     boxes: [
-      { name: 'StateStoreRestoreExec', sub: 'อ่านค่าเก่าของ key (อ่านอย่างเดียว)' },
+      { name: 'StateStoreRestoreExec', sub: 'อ่านค่าเก่าของ Key (อ่านอย่างเดียว)' },
       { name: 'HashAggregate', sub: 'รวมค่าเก่ากับแถวใหม่' },
-      { name: 'StateStoreSaveExec', sub: 'เขียนค่าใหม่ แล้ว commit เวอร์ชันถัดไป' },
+      { name: 'StateStoreSaveExec', sub: 'เขียนค่าใหม่ แล้ว Commit เวอร์ชันถัดไป' },
     ],
-    title: 'Operator ที่มี state: Restore, รวม, Save ในทุก batch', groupLabel: 'provider ของ state', hdfsBtn: 'HDFSBackedStateStoreProvider (ค่าเริ่มต้น)',
-    svgLabel: 'การทำงานของ state store ในแต่ละ batch', incoming: 'แถวที่เข้ามา (1 แถวต่อ batch)',
-    store: (v) => `state store (เวอร์ชัน ${v})`, countLabel: 'count', readOld: (k, n) => `อ่านค่าเก่าของ ${k}: ${n}`, write: (k, n) => `เขียน ${k} = ${n}`,
-    stateDir: (hdfs) => `state/ ใน checkpoint (${hdfs ? 'HDFS-backed' : 'RocksDB'})`, snapshot: 'snapshot (รวม delta เก่าแล้ว)',
-    rocksExtra: '+ snapshot .zip และไฟล์ .sst ของ RocksDB (บน disk ของ executor)', restart: 'ถ้ารีสตาร์ทตอนนี้', load: (v) => `โหลดเวอร์ชัน ${v}`,
-    hdfsRecover: (snap, v) => (snap ? 'snapshot + delta ที่ใหม่กว่า' : `อ่าน delta 1 ถึง ${v}`), rocksRecover: 'โหลดจาก snapshot แล้ว replay changelog',
-    hdfsMem: 'state ใน memory ของ executor', rocksMem: 'state ใหญ่กว่า memory ได้',
-    caption: 'ขั้นตอน Restore, aggregate, Save และการ commit เป็นเวอร์ชันถัดไปอ่านจาก statefulOperators.scala และ StateStoreRDD.scala (Spark 4.2.0) ตรวจจริงว่า provider แบบ HDFS สร้างไฟล์ .delta และ RocksDB สร้าง .sst กับ .zip โดยผลนับเท่ากัน (exercises/09_streaming.py) ลำดับ key ในภาพเป็นตัวอย่าง และจังหวะที่ delta ถูกรวมเป็น snapshot เป็นภาพประกอบ (งานเบื้องหลังจริงไม่ได้เกิดที่ batch ตายตัว)',
+    title: 'Operator ที่มี State: Restore, รวม, Save ในทุก Batch', groupLabel: 'Provider ของ State', hdfsBtn: 'HDFSBackedStateStoreProvider (ค่าเริ่มต้น)',
+    svgLabel: 'การทำงานของ State Store ในแต่ละ Batch', incoming: 'แถวที่เข้ามา (1 แถวต่อ Batch)',
+    store: (v) => `State Store (เวอร์ชัน ${v})`, countLabel: 'count', readOld: (k, n) => `อ่านค่าเก่าของ ${k}: ${n}`, write: (k, n) => `เขียน ${k} = ${n}`,
+    stateDir: (hdfs) => `state/ ใน Checkpoint (${hdfs ? 'HDFS-backed' : 'RocksDB'})`, snapshot: 'Snapshot (รวม Delta เก่าแล้ว)',
+    rocksExtra: '+ Snapshot .zip และไฟล์ .sst ของ RocksDB (บน Disk ของ Executor)', restart: 'ถ้ารีสตาร์ทตอนนี้', load: (v) => `โหลดเวอร์ชัน ${v}`,
+    hdfsRecover: (snap, v) => (snap ? 'Snapshot + Delta ที่ใหม่กว่า' : `อ่าน Delta 1 ถึง ${v}`), rocksRecover: 'โหลดจาก Snapshot แล้ว Replay Changelog',
+    hdfsMem: 'State ใน Memory ของ Executor', rocksMem: 'State ใหญ่กว่า Memory ได้',
+    caption: 'ขั้นตอน Restore, Aggregate, Save และการ Commit เป็นเวอร์ชันถัดไปอ่านจาก statefulOperators.scala และ StateStoreRDD.scala (Spark 4.2.0) และเราตรวจจริงแล้วว่า Provider แบบ HDFS สร้างไฟล์ .delta ส่วน RocksDB สร้าง .sst กับ .zip โดยผลนับเท่ากัน (exercises/09_streaming.py) ลำดับ Key ในภาพเป็นตัวอย่าง และจังหวะที่ Delta ถูกรวมเป็น Snapshot เป็นภาพประกอบ (งานเบื้องหลังจริงไม่ได้เกิดที่ Batch ตายตัว)',
   },
   en: {
     boxes: [

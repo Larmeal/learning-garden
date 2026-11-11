@@ -13,7 +13,7 @@ const PRESETS: { name: string; degrees: number[]; note: Record<Lang, string> }[]
   { name: 'I–V–vi–IV', degrees: [0, 4, 5, 3], note: { th: 'ชุดที่ใช้มากที่สุดในเพลงป๊อป', en: 'The most used progression in pop songs' } },
   { name: 'vi–IV–I–V', degrees: [5, 3, 0, 4], note: { th: 'ชุดเดียวกันแต่เริ่มที่ vi ทำให้อารมณ์เศร้ากว่า', en: 'The same chords, but starting on vi makes the mood sadder' } },
   { name: 'I–vi–IV–V', degrees: [0, 5, 3, 4], note: { th: 'แบบ 50s ที่ได้ยินในเพลงรุ่นเก่า', en: 'The 50s style heard in old songs' } },
-  { name: 'ii–V–I', degrees: [1, 4, 0], note: { th: 'การเดินคอร์ดพื้นฐานของแจ๊ส ลองเปลี่ยนเป็นคอร์ด 7', en: 'The basic jazz progression. Try switching to seventh chords' } },
+  { name: 'ii–V–I', degrees: [1, 4, 0], note: { th: 'การเดินคอร์ดพื้นฐานของแจ๊ส ลองเปลี่ยนเป็นคอร์ด 7 ดูนะ', en: 'The basic jazz progression. Try switching to seventh chords' } },
   { name: 'I–IV–V–IV', degrees: [0, 3, 4, 3], note: { th: 'โครงของร็อกแอนด์โรลและบลูส์ยุคแรก', en: 'The basic pattern of rock and roll and early blues' } },
   { name: 'I–IV–I–V', degrees: [0, 3, 0, 4], note: { th: 'ฟังจบแล้วอยากวนต่อ เพราะจบที่ V', en: 'It makes you want to loop, because it ends on V' } },
 ];
@@ -33,7 +33,7 @@ const TEXT: Record<Lang, {
     stop: 'หยุด',
     play: 'เล่นวนซ้ำ',
     perChord: 'คอร์ดละ 2 จังหวะ',
-    caption: 'เปลี่ยนคีย์แล้วดู: ตัวเลขโรมันไม่เปลี่ยน ชื่อคอร์ดเปลี่ยน และเสียงสัมพันธ์ระหว่างคอร์ดก็เหมือนเดิม นี่คือเหตุผลที่นักดนตรีคุยกันด้วยตัวเลข',
+    caption: 'ลองเปลี่ยนคีย์ดู ตัวเลขโรมันจะไม่เปลี่ยน มีแค่ชื่อคอร์ดที่เปลี่ยน และเสียงสัมพันธ์ระหว่างคอร์ดก็ยังเหมือนเดิม นักดนตรีจึงคุยกันด้วยตัวเลข',
   },
   en: {
     title: 'Play a chord progression in the chosen key',

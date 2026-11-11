@@ -22,7 +22,7 @@ const ANCHOR: Record<Lang, Record<string, string>> = {
     m6: 'ธีม Love Story (Where Do I Begin)',
     M6: 'My Bonnie Lies over the Ocean',
     m7: 'Somewhere จาก West Side Story (ถ้านึกออก)',
-    M7: 'ไม่มีเพลงที่ชัดเจน จำเสียงว่า "เกือบถึงอ็อกเทฟแต่ขาดครึ่งเสียง"',
+    M7: 'ไม่มีเพลงที่ชัดเจน ให้จำเสียงว่า "เกือบถึงอ็อกเทฟแต่ขาดครึ่งเสียง"',
     P8: 'Somewhere Over the Rainbow',
   },
   en: {
@@ -53,7 +53,7 @@ const FEEL: Record<Lang, Record<string, string>> = {
     P5: 'แข็งแรง ว่างและเสถียร เป็นฐานของพาวเวอร์คอร์ด',
     m6: 'หวานปนเศร้า',
     M6: 'อบอุ่น สดใส',
-    m7: 'ค้างคา อยากไปต่อ เป็นเสียงของคอร์ด dominant',
+    m7: 'ค้างคา อยากไปต่อ เป็นเสียงของคอร์ด Dominant',
     M7: 'ตึงมาก ใกล้ถึงบ้านแต่ยังไม่ถึง',
     P8: 'โน้ตเดียวกันแต่สูงขึ้น',
   },

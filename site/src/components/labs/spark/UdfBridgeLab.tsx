@@ -25,25 +25,25 @@ const KINDS: Record<Lang, { id: Kind; label: string; sub: string }[]> = {
 const STEPS: Record<Lang, Record<Kind, StepInfo[]>> = {
   th: {
     pickle: [
-      { name: 'แถวใน JVM', title: 'แถวอยู่ในรูป InternalRow ของ JVM', text: 'executor อ่าน partition ของตัวเอง แต่ละแถวต้องแปลงเป็น object ที่ Python เข้าใจ' },
-      { name: 'pickle', title: 'จัดเป็นชุดละ 100 แถว แล้ว pickle', text: 'BatchEvalPythonExec แปลงแถวเป็น Java object แล้ว pickle ทีละ batch (ภาพใช้ 4 แถวต่อ batch) ค่าเริ่มต้นคือ 100 แถว' },
-      { name: 'socket', title: 'ส่งผ่าน socket ไปที่ Python worker', text: 'ทุก task มี Python worker process ของตัวเอง JVM ส่ง handshake (version, ไฟล์, broadcast, ตัวฟังก์ชันที่ pickle แล้ว) ตามด้วยข้อมูล' },
-      { name: 'เรียกฟังก์ชัน', title: 'worker เรียกฟังก์ชัน 1 ครั้งต่อ 1 แถว', text: 'unpickle แล้ววนทีละแถวเรียก f(x) ภาพนับ 8 ครั้งสำหรับ 8 แถว' },
-      { name: 'ส่งกลับ', title: 'pickle ผลกลับ แล้ว JVM แปลงเป็นแถว', text: 'ผลถูก pickle เป็น batch ส่งกลับ JVM unpickle แล้วแปลงเป็น InternalRow ตามชนิดที่ประกาศ ถ้าชนิดไม่ตรง ผลคือ NULL แบบเงียบๆ' },
+      { name: 'แถวใน JVM', title: 'แถวอยู่ในรูป InternalRow ของ JVM', text: 'Executor อ่าน Partition ของตัวเอง และแต่ละแถวต้องถูกแปลงเป็น Object ที่ Python เข้าใจ' },
+      { name: 'Pickle', title: 'จัดเป็นชุดละ 100 แถว แล้ว Pickle', text: 'BatchEvalPythonExec จะแปลงแถวเป็น Java Object แล้ว Pickle ทีละ Batch (ภาพใช้ 4 แถวต่อ Batch) ค่าเริ่มต้นคือ 100 แถว' },
+      { name: 'Socket', title: 'ส่งผ่าน Socket ไปที่ Python Worker', text: 'ทุก Task จะมี Python Worker Process ของตัวเอง โดย JVM ส่ง Handshake (version, ไฟล์, broadcast, ตัวฟังก์ชันที่ pickle แล้ว) ตามด้วยข้อมูล' },
+      { name: 'เรียกฟังก์ชัน', title: 'Worker เรียกฟังก์ชัน 1 ครั้งต่อ 1 แถว', text: 'Unpickle แล้ววนทีละแถวเรียก f(x) ภาพนับได้ 8 ครั้งสำหรับ 8 แถว' },
+      { name: 'ส่งกลับ', title: 'Pickle ผลกลับ แล้ว JVM แปลงเป็นแถว', text: 'ผลลัพธ์ถูก Pickle เป็น Batch ส่งกลับไปที่ JVM ซึ่งจะ Unpickle แล้วแปลงเป็น InternalRow ตามชนิดที่ประกาศไว้ ถ้าชนิดไม่ตรง ผลที่ได้คือ NULL แบบเงียบ ๆ' },
     ],
     arrow: [
       { name: 'แถวใน JVM', title: 'แถวอยู่ในรูป InternalRow ของ JVM', text: 'ขั้นเดียวกับเส้นทาง pickle' },
-      { name: 'Arrow batch', title: 'จัดเป็น Arrow batch สูงสุด 10,000 แถว', text: 'แถวถูกเขียนเป็น column (Arrow) ได้ทีละก้อนใหญ่ ถูกกว่าการ pickle แถวต่อแถว (ภาพใช้ 4 แถวต่อ batch)' },
-      { name: 'socket', title: 'ส่งผ่าน socket เป็น Arrow stream', text: 'ใช้ socket แบบเดียวกัน ต่างที่ข้อมูลเป็น Arrow ซึ่งอ่านเข้า memory ของ Python ได้โดยไม่ต้อง unpickle ทีละแถว' },
-      { name: 'เรียกฟังก์ชัน', title: 'worker ยังเรียกฟังก์ชันทีละแถว', text: 'worker แปลง column เป็น list แล้ว [f(*row) for row in rows] ดังนั้นฟังก์ชันของคุณถูกเรียก 8 ครั้ง เร็วขึ้นเพราะการขนส่ง ไม่ใช่เพราะฟังก์ชันเป็น vectorized' },
-      { name: 'ส่งกลับ', title: 'แปลงผลกลับเป็น Arrow แล้วส่ง', text: 'ผลถูกแปลงด้วยชนิดที่ประกาศ ถ้าไม่ตรงอาจถูก cast (1.5 เป็น int ได้ 1) หรือ error' },
+      { name: 'Arrow batch', title: 'จัดเป็น Arrow Batch สูงสุด 10,000 แถว', text: 'แถวถูกเขียนเป็น Column (Arrow) ได้ทีละก้อนใหญ่ ซึ่งถูกกว่าการ Pickle แถวต่อแถว (ภาพใช้ 4 แถวต่อ Batch)' },
+      { name: 'Socket', title: 'ส่งผ่าน Socket เป็น Arrow Stream', text: 'ใช้ Socket แบบเดียวกัน ต่างกันที่ข้อมูลเป็น Arrow ซึ่งอ่านเข้า Memory ของ Python ได้โดยไม่ต้อง Unpickle ทีละแถว' },
+      { name: 'เรียกฟังก์ชัน', title: 'Worker ยังเรียกฟังก์ชันทีละแถว', text: 'Worker แปลง Column เป็น list แล้ว [f(*row) for row in rows] ดังนั้นฟังก์ชันของคุณจะถูกเรียก 8 ครั้ง ที่เร็วขึ้นก็เพราะการขนส่ง ไม่ได้เป็นเพราะฟังก์ชันเป็น Vectorized' },
+      { name: 'ส่งกลับ', title: 'แปลงผลกลับเป็น Arrow แล้วส่ง', text: 'ผลลัพธ์ถูกแปลงด้วยชนิดที่ประกาศไว้ ถ้าไม่ตรงอาจถูก Cast (1.5 เป็น int ได้ 1) หรือเกิด Error' },
     ],
     pandas: [
       { name: 'แถวใน JVM', title: 'แถวอยู่ในรูป InternalRow ของ JVM', text: 'ขั้นเดียวกับสองเส้นทางแรก' },
-      { name: 'Arrow batch', title: 'จัดเป็น Arrow batch', text: 'เหมือน Arrow UDF: ส่งทีละ batch ใหญ่' },
-      { name: 'socket', title: 'ส่งผ่าน socket เป็น Arrow stream', text: 'ใช้เส้นทางเดียวกับ Arrow UDF' },
-      { name: 'เรียกฟังก์ชัน', title: 'worker เรียกฟังก์ชัน 1 ครั้งต่อ 1 batch', text: 'แต่ละ batch กลายเป็น pandas Series ฟังก์ชันของคุณรับทั้ง Series แล้วคำนวณแบบ vectorized ในครั้งเดียว ภาพนับ 2 ครั้ง สำหรับ 2 batch' },
-      { name: 'ส่งกลับ', title: 'ส่ง Series กลับเป็น Arrow', text: 'ต้องได้ Series ความยาวเท่าเดิม ชนิดที่คืนต้อง cast เข้ากับชนิดที่ประกาศได้ ไม่งั้น PythonException' },
+      { name: 'Arrow batch', title: 'จัดเป็น Arrow Batch', text: 'เหมือน Arrow UDF คือส่งทีละ Batch ใหญ่' },
+      { name: 'Socket', title: 'ส่งผ่าน Socket เป็น Arrow Stream', text: 'ใช้เส้นทางเดียวกับ Arrow UDF' },
+      { name: 'เรียกฟังก์ชัน', title: 'Worker เรียกฟังก์ชัน 1 ครั้งต่อ 1 Batch', text: 'แต่ละ Batch จะกลายเป็น pandas Series แล้วฟังก์ชันของคุณรับทั้ง Series ไปคำนวณแบบ Vectorized ในครั้งเดียว ภาพนับได้ 2 ครั้ง สำหรับ 2 Batch' },
+      { name: 'ส่งกลับ', title: 'ส่ง Series กลับเป็น Arrow', text: 'ต้องได้ Series ความยาวเท่าเดิม และชนิดที่คืนต้อง Cast เข้ากับชนิดที่ประกาศไว้ได้ ไม่อย่างนั้นจะเกิด PythonException' },
     ],
   },
   en: {
@@ -73,16 +73,16 @@ const STEPS: Record<Lang, Record<Kind, StepInfo[]>> = {
 
 const TEXT = {
   th: {
-    title: 'ข้อมูลเดินทางระหว่าง JVM กับ Python worker อย่างไร',
+    title: 'ข้อมูลเดินทางระหว่าง JVM กับ Python Worker อย่างไร',
     pick: 'เลือกชนิดของฟังก์ชัน',
     aria: (n: number) => `ขั้นที่ ${n} ของเส้นทางข้อมูล`,
-    worker: 'Python worker (process แยก)',
+    worker: 'Python Worker (Process แยก)',
     inJvm: 'InternalRow ในหน่วยความจำของ JVM',
     back: 'รับผลกลับเป็น InternalRow',
     format: (f: string) => `รูปแบบข้อมูล: ${f}`,
     wholeBatch: 'f(series)  # ทั้ง batch',
     calls: (n: number) => `เรียกฟังก์ชัน ${n} ครั้ง`,
-    caption: 'ภาพใช้ 8 แถวและ 4 แถวต่อ batch เพื่อให้อ่านง่าย ค่าจริงคือ 100 แถวต่อ batch ของ pickle และ 10,000 แถวต่อ batch ของ Arrow',
+    caption: 'ภาพใช้ 8 แถวและ 4 แถวต่อ Batch เพื่อให้อ่านง่าย ส่วนค่าจริงคือ 100 แถวต่อ Batch ของ Pickle และ 10,000 แถวต่อ Batch ของ Arrow',
   },
   en: {
     title: 'How data travels between the JVM and the Python worker',

@@ -18,9 +18,9 @@ const HOP = 0.8; // seconds to cross the socket
 type Lane = 'builtin' | 'udf' | 'pandas';
 const LANES: Record<Lang, { id: Lane; title: string; sub: string }[]> = {
   th: [
-    { id: 'builtin', title: 'ฟังก์ชันของ Spark (upper, +, ...)', sub: 'รันใน JVM ด้วย code ที่ generate ไว้' },
-    { id: 'udf', title: '@udf (Python UDF แบบ Arrow, ค่าเริ่มต้นของ 4.2)', sub: 'ส่งเป็น batch แต่เรียกฟังก์ชันทีละแถว' },
-    { id: 'pandas', title: '@pandas_udf', sub: 'ส่งเป็น batch และเรียกฟังก์ชันครั้งเดียวต่อ batch' },
+    { id: 'builtin', title: 'ฟังก์ชันของ Spark (upper, +, ...)', sub: 'รันใน JVM ด้วย Code ที่ Generate ไว้' },
+    { id: 'udf', title: '@udf (Python UDF แบบ Arrow, ค่าเริ่มต้นของ 4.2)', sub: 'ส่งเป็น Batch แต่เรียกฟังก์ชันทีละแถว' },
+    { id: 'pandas', title: '@pandas_udf', sub: 'ส่งเป็น Batch และเรียกฟังก์ชันครั้งเดียวต่อ Batch' },
   ],
   en: [
     { id: 'builtin', title: 'Spark function (upper, +, ...)', sub: 'runs in the JVM as generated code' },
@@ -40,10 +40,10 @@ const pyPos = (i: number, y0: number): [number, number] => [606 + (i % 4) * 24, 
 
 const MARKS: Record<Lang, Mark[]> = {
   th: [
-    { at: 0, name: 'ตั้งต้น', title: '24 แถวเท่ากัน ใช้ฟังก์ชันเดียวกัน แต่เดินทางไม่เหมือนกัน', text: 'เส้นประกลางภาพคือขอบระหว่าง JVM ของ executor กับ Python worker ซึ่งเป็น process แยก ทุกครั้งที่แถวต้องข้ามเส้นนี้มีต้นทุน: แปลงรูปแบบข้อมูล ส่งผ่าน socket และแปลงกลับ' },
-    { at: 1, name: 'ข้าม socket', title: 'แถวถูกจัดเป็น batch แล้วส่งไปที่ Python worker', text: 'ฟังก์ชันของ Spark ไม่ต้องข้ามเลย (แถวสีน้ำเงินกลายเป็นสีเขียวใน JVM ทันที) ส่วน Python UDF กับ pandas_udf ส่งครั้งละ 8 แถวในภาพ' },
-    { at: 2.2, name: 'เรียกฟังก์ชัน', title: 'ใน Python: ทีละแถว หรือทีละ batch', text: 'Arrow-optimized UDF แปลง column เป็นแถวแล้ววนเรียก f ทีละแถว (ตัวนับซ้ายล่างเดินทีละ 1) pandas_udf ส่ง batch ทั้งก้อนเป็น Series ให้ f ครั้งเดียว (ตัวนับกระโดดทีละก้อน)' },
-    { at: 7, name: 'สรุป', title: 'ความต่างอยู่ที่จำนวนครั้งที่ข้ามเส้น และจำนวนครั้งที่เรียก Python', text: 'ฟังก์ชันของ Spark ไม่ข้ามเลย @udf ข้าม 6 ครั้ง (ไปกลับ 3 batch) และเรียก 24 ครั้ง pandas_udf ข้าม 6 ครั้งเท่ากันแต่เรียกแค่ 3 ครั้ง ถ้ามีฟังก์ชันของ Spark ทำงานเดียวกัน ให้ใช้ตัวนั้นก่อน' },
+    { at: 0, name: 'ตั้งต้น', title: '24 แถวเท่ากัน ใช้ฟังก์ชันเดียวกัน แต่เดินทางไม่เหมือนกัน', text: 'เส้นประกลางภาพคือขอบระหว่าง JVM ของ Executor กับ Python Worker ซึ่งเป็น Process แยกกัน และทุกครั้งที่แถวต้องข้ามเส้นนี้จะมีต้นทุน ทั้งการแปลงรูปแบบข้อมูล การส่งผ่าน Socket และการแปลงกลับ' },
+    { at: 1, name: 'ข้าม socket', title: 'แถวถูกจัดเป็น Batch แล้วส่งไปที่ Python Worker', text: 'ฟังก์ชันของ Spark ไม่ต้องข้ามเลย (แถวสีน้ำเงินกลายเป็นสีเขียวใน JVM ทันที) ส่วน Python UDF กับ pandas_udf จะส่งครั้งละ 8 แถวในภาพ' },
+    { at: 2.2, name: 'เรียกฟังก์ชัน', title: 'ใน Python: ทีละแถว หรือทีละ Batch', text: 'Arrow-optimized UDF จะแปลง Column เป็นแถวแล้ววนเรียก f ทีละแถว (ตัวนับซ้ายล่างเดินทีละ 1) ส่วน pandas_udf จะส่ง Batch ทั้งก้อนเป็น Series ให้ f ครั้งเดียว (ตัวนับกระโดดทีละก้อน)' },
+    { at: 7, name: 'สรุป', title: 'ความต่างอยู่ที่จำนวนครั้งที่ข้ามเส้น และจำนวนครั้งที่เรียก Python', text: 'ฟังก์ชันของ Spark ไม่ข้ามเลย @udf ข้าม 6 ครั้ง (ไปกลับ 3 Batch) และเรียก 24 ครั้ง ส่วน pandas_udf ข้าม 6 ครั้งเท่ากันแต่เรียกแค่ 3 ครั้ง ถ้ามีฟังก์ชันของ Spark ที่ทำงานเดียวกันอยู่แล้ว ให้ใช้ตัวนั้นก่อนนะ' },
   ],
   en: [
     { at: 0, name: 'Start', title: 'The same 24 rows and the same function, but different journeys', text: 'The dashed line in the middle is the border between the executor JVM and the Python worker, which is a separate process. Every time a row crosses this line it costs something: converting the data format, sending it over a socket, and converting it back.' },
@@ -56,12 +56,12 @@ const MARKS: Record<Lang, Mark[]> = {
 const TEXT = {
   th: {
     title: 'ฟังก์ชันเดียวกัน 24 แถว: ฟังก์ชันของ Spark เทียบกับ Python UDF และ pandas_udf',
-    aria: 'สามเลนเทียบการเดินทางของแถวระหว่าง JVM กับ Python worker',
+    aria: 'สามเลนเทียบการเดินทางของแถวระหว่าง JVM กับ Python Worker',
     perRow: 'f(x) ต่อแถว',
-    perBatch: 'f(series) ต่อ batch',
+    perBatch: 'f(series) ต่อ Batch',
     crossings: (n: number) => `ข้ามเส้น ${n} ครั้ง`,
     calls: (n: number) => `เรียกฟังก์ชันใน Python ${n} ครั้ง`,
-    caption: 'สีน้ำเงินคือแถวที่ยังไม่ผ่านฟังก์ชัน สีเขียวคือผลแล้ว ภาพใช้ batch 8 แถวเพื่อให้เห็น ค่าจริงคือ 100 แถวสำหรับ pickle และ 10,000 สำหรับ Arrow ความยาวเวลาในภาพเป็นสัดส่วนกับจำนวนครั้งที่เรียก ไม่ใช่วินาทีที่วัดได้ สิ่งที่ตรวจจริงคือจำนวนครั้งที่เรียกฟังก์ชัน (exercises/08_udf.py)',
+    caption: 'สีน้ำเงินคือแถวที่ยังไม่ผ่านฟังก์ชัน ส่วนสีเขียวคือแถวที่ได้ผลแล้ว ภาพใช้ Batch ละ 8 แถวเพื่อให้เห็นง่าย ค่าจริงคือ 100 แถวสำหรับ Pickle และ 10,000 แถวสำหรับ Arrow ความยาวเวลาในภาพเป็นสัดส่วนกับจำนวนครั้งที่เรียก ไม่ได้เป็นวินาทีที่วัดได้ สิ่งที่ตรวจจริงคือจำนวนครั้งที่เรียกฟังก์ชัน (exercises/08_udf.py)',
   },
   en: {
     title: 'The same function on 24 rows: Spark function vs Python UDF and pandas_udf',

@@ -23,18 +23,18 @@ const BASE: { fn: string; file: string }[] = [
 
 const TEXT: Record<Lang, { title: string; tipLabel: string; caption: string; hops: { does: string; tip: string }[] }> = {
   th: {
-    title: 'เส้นทางเรียกจริงของ GX จากคำสั่งรันจนถึงผลของ expectation',
+    title: 'เส้นทางเรียกจริงของ GX จากคำสั่งรันจนถึงผลของ Expectation',
     tipLabel: 'ลองดู: ',
-    caption: 'knowledge graph มีแต่เส้น imports/contains/exports/inherits (เส้น calls มี 44 เส้น) จึงไม่เห็นลำดับนี้ ต้องอ่านซอร์ส ชื่อไฟล์และฟังก์ชันตรงกันทั้ง 1.9.3 และ 1.24.1 แต่เนื้อในบางไฟล์ต่างกัน',
+    caption: 'Knowledge Graph มีแต่เส้น imports/contains/exports/inherits (เส้น calls มี 44 เส้น) จึงไม่เห็นลำดับนี้ เราต้องอ่านซอร์สเอง ชื่อไฟล์และฟังก์ชันตรงกันทั้ง 1.9.3 และ 1.24.1 แต่เนื้อในบางไฟล์ต่างกัน',
     hops: [
-      { does: 'ตรวจว่าทุกอย่างถูก add, วนรัน validation definition, สร้าง CheckpointResult, แล้วรัน action', tip: 'ค้นหา _run_validation_definitions และ _run_actions' },
-      { does: 'เช็ก freshness, สร้าง Validator, ใส่ run_id ลง meta, เก็บผลลง validation results store', tip: 'ทุกอย่างอ้างผ่าน store: ดู _decode_suite และ _decode_data' },
-      { does: 'ตัวห่อบางๆ แปลง suite เป็นรายการ configuration แล้วส่งต่อให้ Validator ตัวเก่า คำนวณสถิติ success_percent', tip: 'มี _wrapped_validator ที่สร้างตอนใช้ครั้งแรก (จุดแรกที่แตะข้อมูล)' },
-      { does: 'ถาม expectation ทุกตัวว่าต้องใช้ metric อะไร รวมเป็นกราฟเดียว resolve แล้วให้ expectation ตัดสิน catch_exceptions ทำให้ error กลายเป็นผล fail', tip: 'อ่านสามเมธอด _generate_metric_dependency_subgraphs…, _generate_suite_level_graph…, _resolve_suite_level_graph…' },
-      { does: 'วนเป็นรอบ: หา metric ที่ dependency พร้อม (_parse) ส่งให้ engine ลองซ้ำสูงสุด 3 ครั้งต่อ metric', tip: 'MAX_METRIC_COMPUTATION_RETRIES = 3' },
-      { does: 'แยก metric เป็น direct (คำนวณทันที) กับ bundled (aggregate เลื่อนไว้รวมคำสั่ง) แล้วประมวลผล', tip: '_build_direct_and_bundled_metric_computation_configurations' },
-      { does: 'SQL: รวม aggregate ของ domain เดียวกันเป็น SELECT เดียว. Spark: เป็น df.agg(...).collect() ครั้งเดียว', tip: 'pandas ไม่มี bundle' },
-      { does: 'หยิบค่า metric ที่ resolve แล้วมาตัดสิน success และจัดรูปผลตาม result_format', tip: 'ColumnMapExpectation._validate มี "vacuous truth" เมื่อไม่มีแถวให้พิจารณา' },
+      { does: 'ตรวจว่าทุกอย่างถูก add, วนรัน Validation Definition, สร้าง CheckpointResult, แล้วรัน Action', tip: 'ค้นหา _run_validation_definitions และ _run_actions' },
+      { does: 'เช็ก Freshness, สร้าง Validator, ใส่ run_id ลง meta, เก็บผลลง Validation Results Store', tip: 'ทุกอย่างอ้างผ่าน Store ให้ดู _decode_suite และ _decode_data' },
+      { does: 'ตัวห่อบาง ๆ ที่แปลง Suite เป็นรายการ Configuration แล้วส่งต่อให้ Validator ตัวเก่า และคำนวณสถิติ success_percent', tip: 'มี _wrapped_validator ที่สร้างตอนใช้ครั้งแรก (จุดแรกที่แตะข้อมูล)' },
+      { does: 'ถาม Expectation ทุกตัวว่าต้องใช้ Metric อะไร แล้วรวมเป็นกราฟเดียว resolve จากนั้นให้ Expectation ตัดสิน โดย catch_exceptions จะทำให้ Error กลายเป็นผล fail', tip: 'อ่านสามเมธอด _generate_metric_dependency_subgraphs…, _generate_suite_level_graph…, _resolve_suite_level_graph…' },
+      { does: 'วนเป็นรอบ โดยหา Metric ที่ Dependency พร้อมแล้ว (_parse) ส่งให้ Engine และลองซ้ำสูงสุด 3 ครั้งต่อ Metric', tip: 'MAX_METRIC_COMPUTATION_RETRIES = 3' },
+      { does: 'แยก Metric เป็น direct (คำนวณทันที) กับ bundled (Aggregate ที่เลื่อนไว้รวมคำสั่ง) แล้วประมวลผล', tip: '_build_direct_and_bundled_metric_computation_configurations' },
+      { does: 'SQL จะรวม Aggregate ของ Domain เดียวกันเป็น SELECT เดียว ส่วน Spark จะเป็น df.agg(...).collect() ครั้งเดียว', tip: 'pandas ไม่มี bundle' },
+      { does: 'หยิบค่า Metric ที่ resolve แล้วมาตัดสิน success และจัดรูปผลตาม result_format', tip: 'ColumnMapExpectation._validate มี "vacuous truth" เมื่อไม่มีแถวให้พิจารณา' },
     ],
   },
   en: {

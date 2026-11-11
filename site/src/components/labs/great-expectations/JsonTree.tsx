@@ -6,7 +6,7 @@ import { useState } from 'react';
 type Lang = 'th' | 'en';
 
 const TEXT: Record<Lang, { pick: string; expand: string; noNote: string }> = {
-  th: { pick: 'กดชื่อ key เพื่อดูความหมาย', expand: 'กดลูกศรเพื่อขยายหรือยุบ', noNote: 'ไม่มีหมายเหตุสำหรับ key นี้' },
+  th: { pick: 'กดชื่อ Key เพื่อดูความหมาย', expand: 'กดลูกศรเพื่อขยายหรือยุบ', noNote: 'ไม่มีหมายเหตุสำหรับ Key นี้' },
   en: { pick: 'Click a key name to see what it means', expand: 'Click an arrow to expand or collapse', noNote: 'No note for this key' },
 };
 

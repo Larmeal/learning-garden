@@ -11,7 +11,7 @@ import { ClockControls, mix, prog, smooth, useClock, type Lang, type Mark } from
 type Scene = 'coalesce' | 'join' | 'skew';
 const SCENE_IDS: Scene[] = ['coalesce', 'join', 'skew'];
 const SCENE_LABEL: Record<Lang, Record<Scene, string>> = {
-  th: { coalesce: 'รวม partition เล็ก', join: 'เปลี่ยน join เป็น broadcast', skew: 'แยก partition ที่ skew' },
+  th: { coalesce: 'รวม Partition เล็ก', join: 'เปลี่ยน Join เป็น Broadcast', skew: 'แยก Partition ที่ Skew' },
   en: { coalesce: 'Merge small partitions', join: 'Switch join to broadcast', skew: 'Split a skewed partition' },
 };
 const DURATION = 12;
@@ -30,22 +30,22 @@ const PLAN: Record<Scene, { old: string; now: string }> = {
 
 const MARKS_TH: Record<Scene, Mark[]> = {
   coalesce: [
-    { at: 0, name: 'Stage แรก', title: 'ก่อนรัน Spark ไม่รู้ว่าข้อมูลหลัง shuffle จะมีเท่าไร', text: 'จึงวางแผนไว้ตามค่า spark.sql.shuffle.partitions = 200 ข้อมูลของ map task วิ่งเข้าช่อง partition ตาม hash ของ key (ในภาพมี 3 key จึงมีแค่ 3 ช่องที่ได้ข้อมูล ภาพวาด 24 ช่องแทน 200)' },
-    { at: T_MEASURE, name: 'วัดขนาด', title: 'Stage แรกจบ: รู้ขนาดจริงแล้ว', text: 'ข้อมูลทั้งหมดมีแค่ 1,152 ไบต์ (48 แถว) เป้าหมายคือ partition ละประมาณ 64 MB (ขั้นต่ำ 1 MB) ข้อมูลทั้งก้อนเล็กกว่าเป้าหมายมาก' },
-    { at: T_REPLAN, name: 'แผนใหม่', title: 'CoalesceShufflePartitions เขียนแผนใหม่', text: 'Exchange เดิมยังอยู่ แต่มี AQEShuffleRead coalesced ครอบอยู่ ซึ่งสั่งให้อ่าน partition ที่อยู่ติดกันรวมเป็นก้อนเดียว' },
-    { at: T_RUN2, name: 'Stage ถัดไป', title: 'จาก 200 task เหลือ 1 task', text: 'ถ้าไม่ปรับ 200 task ต้องเริ่มทีละตัว (ค่าเริ่ม task เสียทุกตัว) ทั้งที่ข้อมูลอยู่แค่ใน 3 partition ภาพช่วงแรกคือ task ว่างที่เสียเปล่า ภาพช่วงหลังคือ partition ที่ถูกรวม (วัดจริง: getNumPartitions = 1)' },
+    { at: 0, name: 'Stage แรก', title: 'ก่อนรัน Spark ไม่รู้ว่าข้อมูลหลัง Shuffle จะมีเท่าไร', text: 'Spark จึงวางแผนไว้ตามค่า spark.sql.shuffle.partitions = 200 โดยข้อมูลของ Map task จะวิ่งเข้าช่อง Partition ตาม Hash ของ Key (ในภาพมี 3 Key จึงมีแค่ 3 ช่องที่ได้ข้อมูล และภาพวาด 24 ช่องแทน 200)' },
+    { at: T_MEASURE, name: 'วัดขนาด', title: 'Stage แรกจบ: รู้ขนาดจริงแล้ว', text: 'ข้อมูลทั้งหมดมีแค่ 1,152 ไบต์ (48 แถว) ในขณะที่เป้าหมายคือ Partition ละประมาณ 64 MB (ขั้นต่ำ 1 MB) แปลว่าข้อมูลทั้งก้อนเล็กกว่าเป้าหมายมาก' },
+    { at: T_REPLAN, name: 'แผนใหม่', title: 'CoalesceShufflePartitions เขียนแผนใหม่', text: 'Exchange เดิมยังอยู่ แต่จะมี AQEShuffleRead coalesced มาครอบไว้ ซึ่งสั่งให้อ่าน Partition ที่อยู่ติดกันรวมเป็นก้อนเดียว' },
+    { at: T_RUN2, name: 'Stage ถัดไป', title: 'จาก 200 Task เหลือ 1 Task', text: 'ถ้าไม่ปรับ 200 Task ก็ต้องเริ่มทีละตัว (ค่าเริ่ม Task เสียทุกตัว) ทั้งที่ข้อมูลอยู่แค่ใน 3 Partition ภาพช่วงแรกคือ Task ว่างที่เสียเปล่า ส่วนภาพช่วงหลังคือ Partition ที่ถูกรวมแล้ว (วัดจริง: getNumPartitions = 1)' },
   ],
   join: [
-    { at: 0, name: 'Stage แรก', title: 'ก่อนรัน Spark เดาขนาดไม่ได้ จึงเลือก Sort Merge Join', text: 'join นี้มีสองตารางเข้า: left คือตารางใหญ่ (5,000,000 แถว) right คือผลของ groupBy(id % 5).count() ซึ่ง optimizer ไม่รู้ว่าจะเหลือกี่แถว จึงเลือก Sort Merge Join ที่ต้อง shuffle ทั้งสองตาราง ผลถูกเขียนเป็นไฟล์ shuffle บน executor (เลขในจุดคือ key = id % 5)' },
-    { at: T_MEASURE, name: 'วัดขนาด', title: 'Stage แรกจบ: ตาราง right เหลือ 5 แถว', text: 'ขนาดจริงเล็กกว่าเกณฑ์ broadcast (10 MB) มาก ตาราง left ยังใหญ่เหมือนเดิม' },
-    { at: T_REPLAN, name: 'แผนใหม่', title: 'DynamicJoinSelection เปลี่ยนเป็น Broadcast Hash Join', text: 'แผนเดิมจะส่งแถวของตาราง left ข้ามเครื่องเพื่อไปรวมกับ key เดียวกัน (ลูกศรสี) แผนใหม่ไม่ต้องแล้ว AQE ยอมรับแผนใหม่เพราะไม่ต้อง shuffle เพิ่ม' },
-    { at: T_RUN2, name: 'Stage ถัดไป', title: 'ส่งตารางเล็กไปทุกเครื่อง ตารางใหญ่อยู่ที่เดิม', text: 'ตาราง left shuffle ไปแล้ว AQE เลยไม่ทิ้ง แต่ให้ task อ่านไฟล์ shuffle ที่อยู่เครื่องเดียวกัน (AQEShuffleRead local) แล้วจับคู่กับสำเนาของ right ที่ key ตรงกัน (เส้นสี) ไม่ต้องดึงข้ามเครื่อง และไม่ต้อง sort' },
+    { at: 0, name: 'Stage แรก', title: 'ก่อนรัน Spark เดาขนาดไม่ได้ จึงเลือก Sort Merge Join', text: 'Join นี้มีสองตารางเข้ามา โดย left คือตารางใหญ่ (5,000,000 แถว) ส่วน right คือผลของ groupBy(id % 5).count() ซึ่ง Optimizer ไม่รู้ว่าจะเหลือกี่แถว จึงเลือก Sort Merge Join ที่ต้อง Shuffle ทั้งสองตาราง ผลถูกเขียนเป็นไฟล์ Shuffle บน Executor (เลขในจุดคือ Key = id % 5)' },
+    { at: T_MEASURE, name: 'วัดขนาด', title: 'Stage แรกจบ: ตาราง right เหลือ 5 แถว', text: 'ขนาดจริงเล็กกว่าเกณฑ์ Broadcast (10 MB) มาก ส่วนตาราง left ยังใหญ่เหมือนเดิม' },
+    { at: T_REPLAN, name: 'แผนใหม่', title: 'DynamicJoinSelection เปลี่ยนเป็น Broadcast Hash Join', text: 'แผนเดิมจะส่งแถวของตาราง left ข้ามคอมพิวเตอร์เพื่อไปรวมกับ Key เดียวกัน (ลูกศรสี) แต่แผนใหม่ไม่ต้องทำแบบนั้นแล้ว AQE จึงยอมรับแผนใหม่ เพราะไม่ต้อง Shuffle เพิ่ม' },
+    { at: T_RUN2, name: 'Stage ถัดไป', title: 'ส่งตารางเล็กไปทุกคอมพิวเตอร์ ตารางใหญ่อยู่ที่เดิม', text: 'ตาราง left ถูก Shuffle ไปแล้ว AQE เลยไม่ทิ้งผลนั้น แต่ให้ Task อ่านไฟล์ Shuffle ที่อยู่ในคอมพิวเตอร์เครื่องเดียวกัน (AQEShuffleRead local) แล้วจับคู่กับสำเนาของ right ที่ Key ตรงกัน (เส้นสี) จึงไม่ต้องดึงข้ามคอมพิวเตอร์ และไม่ต้อง Sort' },
   ],
   skew: [
-    { at: 0, name: 'Stage แรก', title: 'ก่อนรัน Spark ไม่รู้ว่า key ไหนจะใหญ่เกินไป', text: 'หลัง shuffle ตาราง left มี 8 partition (ตัวอย่างสมมติ: 1 จุด = 10 KB) ทุกอันเล็ก ยกเว้น partition ที่ 4 ที่ใหญ่ไม่สมดุลกับตัวอื่น (imbalance) ภาวะนี้เรียกว่า skew' },
-    { at: T_MEASURE, name: 'วัดขนาด', title: 'เทียบขนาดกับเส้น skew', text: 'เส้น = max(skewedPartitionThresholdInBytes, median x 5) ในภาพ median = 63.5 KB ได้เส้น 317.5 KB partition ที่ 4 (400 KB) เกินเส้น จึงถูกตีว่า skew' },
-    { at: T_REPLAN, name: 'แผนใหม่', title: 'OptimizeSkewedJoin หั่น partition ใหญ่ตามช่วงของ map task', text: 'partition ที่ 4 ถูกหั่นเป็น 3 ชิ้น (ตาม advisoryPartitionSizeInBytes) และ partition ที่ 4 ของตาราง right ถูกทำสำเนา 3 ชุด เพื่อให้แต่ละชิ้นยังจับคู่ได้ครบ' },
-    { at: T_RUN2, name: 'Stage ถัดไป', title: 'งานกระจายขึ้น stage จบเร็วขึ้น', text: 'จาก 8 task ที่ task หนึ่งหนักเกินเพื่อน เป็น 10 task ที่หนักใกล้กัน (plan แสดง SortMergeJoin(skew=true)) ไทม์ไลน์ขวาล่างแข่งกันบน 4 core ขนาดงานเป็นตัวอย่างสมมติ' },
+    { at: 0, name: 'Stage แรก', title: 'ก่อนรัน Spark ไม่รู้ว่า Key ไหนจะใหญ่เกินไป', text: 'หลัง Shuffle ตาราง left มี 8 Partition (ตัวอย่างสมมติ: 1 จุด = 10 KB) ทุกอันเล็ก ยกเว้น Partition ที่ 4 ที่ใหญ่ไม่สมดุลกับตัวอื่น (Imbalance) ภาวะนี้เรียกว่า Skew' },
+    { at: T_MEASURE, name: 'วัดขนาด', title: 'เทียบขนาดกับเส้น Skew', text: 'เส้น = max(skewedPartitionThresholdInBytes, median x 5) ในภาพ Median = 63.5 KB จึงได้เส้น 317.5 KB และ Partition ที่ 4 (400 KB) เกินเส้นนี้ จึงถูกตีว่า Skew' },
+    { at: T_REPLAN, name: 'แผนใหม่', title: 'OptimizeSkewedJoin หั่น Partition ใหญ่ตามช่วงของ Map task', text: 'Partition ที่ 4 ถูกหั่นเป็น 3 ชิ้น (ตาม advisoryPartitionSizeInBytes) และ Partition ที่ 4 ของตาราง right ถูกทำสำเนา 3 ชุด เพื่อให้แต่ละชิ้นยังจับคู่ได้ครบ' },
+    { at: T_RUN2, name: 'Stage ถัดไป', title: 'งานกระจายขึ้น Stage จบเร็วขึ้น', text: 'จาก 8 Task ที่มี Task หนึ่งหนักเกินเพื่อน กลายเป็น 10 Task ที่หนักใกล้กัน (Plan แสดง SortMergeJoin(skew=true)) ไทม์ไลน์ขวาล่างแข่งกันบน 4 Core โดยขนาดงานเป็นตัวอย่างสมมติ' },
   ],
 };
 
@@ -83,41 +83,41 @@ const TEXT: Record<Lang, {
   skew: { binsTitle: string; slice: string; line: (v: string) => string; rightTable: string; copied: string; before: (n: number) => string; after: (n: number) => string; done: string };
 }> = {
   th: {
-    title: 'AQE: ดูขนาดจริงหลัง stage แรก แล้วเขียนแผนใหม่',
+    title: 'AQE: ดูขนาดจริงหลัง Stage แรก แล้วเขียนแผนใหม่',
     group: 'เลือกสถานการณ์',
     aria: (label) => `ภาพเคลื่อนไหวของ AQE สถานการณ์ ${label}`,
     oldPlan: 'แผนก่อนรัน',
     newPlan: 'แผนใหม่',
-    caption: 'ลำดับสี่ช่วงเหมือนกันทุกสถานการณ์ ตัวเลข 200 เป็น 1 partition และ 1,152 ไบต์ และตาราง right 5 แถวมาจากการรันจริง (exercises/06_catalyst_aqe.py) ส่วนขนาด partition ของ skew จำนวนจุด และขนาดงานในไทม์ไลน์ เป็นตัวอย่างสมมติ ชื่อ rule และสูตร threshold เป็นของจริง',
+    caption: 'ลำดับสี่ช่วงเหมือนกันทุกสถานการณ์ ตัวเลข 200 เป็น 1 Partition และ 1,152 ไบต์ และตาราง right 5 แถวมาจากการรันจริง (exercises/06_catalyst_aqe.py) ส่วนขนาด Partition ของ Skew จำนวนจุด และขนาดงานในไทม์ไลน์ เป็นตัวอย่างสมมติ ส่วนชื่อ Rule และสูตร Threshold เป็นของจริง',
     coalesce: {
-      written: 'partition ที่ shuffle เขียนไว้ (วาด 24 จาก 200 ช่อง)',
-      tasksNext: 'task ใน stage ถัดไป',
+      written: 'Partition ที่ Shuffle เขียนไว้ (วาด 24 จาก 200 ช่อง)',
+      tasksNext: 'Task ใน Stage ถัดไป',
       before: 'ก่อนปรับ (ตามแผนเดิม)',
       after: 'หลัง AQE รวมแล้ว',
-      shuffleData: 'ข้อมูลที่ shuffle เขียน',
+      shuffleData: 'ข้อมูลที่ Shuffle เขียน',
       unknown: 'ยังไม่รู้',
-      target: 'เป้าต่อ partition 1 MB ขึ้นไป',
-      idle: 'task ว่างเสียค่าเริ่ม',
-      note: 'ภาพย่อ: 4 map task x 3 key (ของจริง 16 map task x 3 key = 48 แถว) ใน 24 ช่องจาก 200',
+      target: 'เป้าต่อ Partition 1 MB ขึ้นไป',
+      idle: 'Task ว่างเสียค่าเริ่ม',
+      note: 'ภาพย่อ: 4 Map task x 3 Key (ของจริง 16 Map task x 3 Key = 48 แถว) ใน 24 ช่องจาก 200',
     },
     join: {
-      keys: (ks) => `รับ key ${ks}`,
-      leftTitle: 'ตาราง left (ใหญ่): ไฟล์ shuffle',
+      keys: (ks) => `รับ Key ${ks}`,
+      leftTitle: 'ตาราง left (ใหญ่): ไฟล์ Shuffle',
       rightTitle: 'ตาราง right (ผลของ groupBy)',
-      oldNote: 'แผนเดิม: แถวของตาราง left ต้องข้ามเครื่อง เส้นสีเดียวกับ key ที่ executor ปลายทางรับผิดชอบ',
+      oldNote: 'แผนเดิม: แถวของตาราง left ต้องข้ามคอมพิวเตอร์ เส้นสีเดียวกับ Key ที่ Executor ปลายทางรับผิดชอบ',
       measured: 'ขนาดจริงที่ AQE วัดได้',
       leftSize: 'left: ใหญ่ (5,000,000 แถว)',
-      rightSize: 'right: 5 แถว (เกณฑ์ broadcast 10 MB)',
-      localMatch: 'ตาราง left จับคู่กับสำเนาของ right ในเครื่องตัวเอง: ข้ามเครื่อง 0 แถว',
+      rightSize: 'right: 5 แถว (เกณฑ์ Broadcast 10 MB)',
+      localMatch: 'ตาราง left จับคู่กับสำเนาของ right ในคอมพิวเตอร์ตัวเอง: ข้ามคอมพิวเตอร์ 0 แถว',
     },
     skew: {
-      binsTitle: 'ตาราง left: ขนาด partition หลัง shuffle (1 จุด = 10 KB)',
+      binsTitle: 'ตาราง left: ขนาด Partition หลัง Shuffle (1 จุด = 10 KB)',
       slice: 'ชิ้นที่หั่นแล้วชิ้นละ ~133 KB',
-      line: (v) => `เส้น skew ${v}`,
+      line: (v) => `เส้น Skew ${v}`,
       rightTable: 'ตาราง right',
-      copied: 'partition 4 ถูกทำสำเนา 3 ชุด',
-      before: (n) => `ก่อน: 8 task, ช้าสุด ${n}`,
-      after: (n) => `หลัง: 10 task, ช้าสุด ${n}`,
+      copied: 'Partition 4 ถูกทำสำเนา 3 ชุด',
+      before: (n) => `ก่อน: 8 Task, ช้าสุด ${n}`,
+      after: (n) => `หลัง: 10 Task, ช้าสุด ${n}`,
       done: 'จบ',
     },
   },

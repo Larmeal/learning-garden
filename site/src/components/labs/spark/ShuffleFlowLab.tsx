@@ -11,11 +11,11 @@ const ROWS = 8;
 const DURATION = 12;
 
 const MARKS_TH: Mark[] = [
-  { at: 0, name: 'แถวตั้งต้น', title: 'แต่ละ map task ถือแถวของ partition ตัวเอง', text: 'key เดียวกันกระจายอยู่ทุก partition เช่น key A อยู่ในทุก map task ตอนนี้ยังไม่มีใครรู้ว่าแถวไหนต้องไปรวมกับแถวไหน' },
-  { at: 1.5, name: 'แบ่งตาม key', title: 'map task คำนวณว่าแถวนี้ต้องไป reduce task ไหน', text: 'ใช้ hash ของ key (ในภาพ A ไป task 1, B ไป task 2, C ไป task 3) แล้วจัดแถวเข้าช่องของ reduce task นั้นในหน่วยความจำของ map task เอง ยังไม่มีอะไรข้ามเครื่อง' },
-  { at: 4.5, name: 'เขียนไฟล์', title: 'เขียนลง disk เป็น .data ไฟล์เดียวต่อ map task', text: 'ทุกช่องต่อเรียงกันในไฟล์เดียว (shuffle_0_m_0.data) พร้อม .index ที่จดว่าช่องของ reduce task แต่ละตัวเริ่มและจบที่ไหน stage แรกจบตรงนี้ ผลลัพธ์อยู่บน disk ของ executor' },
-  { at: 6, name: 'fetch', title: 'reduce task ไปดึงเฉพาะช่องของตัวเองจากทุก map task', text: 'นี่คือ shuffle: ข้อมูลข้ามเครื่องผ่านเครือข่าย แต่ละ reduce task ส่ง fetch ไปหา map task ทุกตัว (จำนวนช่องที่ดึง = map task x 3) stage ที่สองเริ่มไม่ได้จนกว่า stage แรกเขียนเสร็จทุกตัว' },
-  { at: 9.2, name: 'รวมผล', title: 'แต่ละ reduce task เห็น key ของตัวเองครบทุกแถวแล้ว', text: 'จึงนับได้ผลสุดท้ายเลย ถ้า key หนึ่งมีแถวมากกว่าที่อื่นมาก reduce task ตัวนั้นจะหนักกว่าตัวอื่น (บทที่ 5 และ 7 เรื่อง skew)' },
+  { at: 0, name: 'แถวตั้งต้น', title: 'แต่ละ Map Task ถือแถวของ Partition ตัวเอง', text: 'Key เดียวกันกระจายอยู่ในทุก Partition เช่น Key A ก็อยู่ในทุก Map Task ตอนนี้ยังไม่มีใครรู้ว่าแถวไหนต้องไปรวมกับแถวไหน' },
+  { at: 1.5, name: 'แบ่งตาม Key', title: 'Map Task คำนวณว่าแถวนี้ต้องไป Reduce Task ไหน', text: 'Map Task จะใช้ Hash ของ Key (ในภาพ A ไป Task 1, B ไป Task 2, C ไป Task 3) แล้วจัดแถวเข้าช่องของ Reduce Task นั้นในหน่วยความจำของ Map Task เอง ตอนนี้ยังไม่มีอะไรข้ามไปยังคอมพิวเตอร์เครื่องอื่นเลย' },
+  { at: 4.5, name: 'เขียนไฟล์', title: 'เขียนลง Disk เป็น .data ไฟล์เดียวต่อ Map Task', text: 'ทุกช่องจะต่อเรียงกันอยู่ในไฟล์เดียว (shuffle_0_m_0.data) พร้อม .index ที่จดไว้ว่าช่องของ Reduce Task แต่ละตัวเริ่มและจบตรงไหน Stage แรกจบลงตรงนี้ โดยผลลัพธ์อยู่บน Disk ของ Executor' },
+  { at: 6, name: 'Fetch', title: 'Reduce Task ไปดึงเฉพาะช่องของตัวเองจากทุก Map Task', text: 'ตรงนี้คือ Shuffle ที่ข้อมูลข้ามจากคอมพิวเตอร์เครื่องหนึ่งไปอีกเครื่องผ่านเครือข่าย โดย Reduce Task แต่ละตัวจะส่ง Fetch ไปหา Map Task ทุกตัว (จำนวนช่องที่ดึง = Map Task x 3) และ Stage ที่สองจะเริ่มไม่ได้จนกว่า Stage แรกจะเขียนเสร็จทุกตัว' },
+  { at: 9.2, name: 'รวมผล', title: 'แต่ละ Reduce Task เห็น Key ของตัวเองครบทุกแถวแล้ว', text: 'จึงนับเพื่อให้ได้ผลสุดท้ายได้เลย ถ้า Key หนึ่งมีแถวมากกว่าที่อื่นมาก Reduce Task ตัวนั้นก็จะหนักกว่าตัวอื่น (บทที่ 5 และ 7 เรื่อง Skew)' },
 ];
 
 const MARKS_EN: Mark[] = [
@@ -33,14 +33,14 @@ const TEXT: Record<Lang, {
   dotsHelp: string; files: (M: number, blocks: number) => string; result: string; caption: string;
 }> = {
   th: {
-    title: <>Shuffle ดูทีละแถว: <code>df.groupBy("key").count()</code></>, groupLabel: 'จำนวน map task', mapBtn: (n) => `${n} map task`,
-    svgLabel: 'ภาพเคลื่อนไหวของ shuffle: แถวถูกจัดเข้าช่อง เขียนเป็นไฟล์ แล้วถูกดึงไปหา reduce task',
-    stage1: 'Stage 1: map task', stage1Sub: 'อ่านแถวและจัดเข้าช่อง', stage2: 'Stage 2: reduce task', stage2Sub: 'รวมผลต่อ key',
-    mapLine: (m) => `map ${m}: partition ${m}`, inMemory: 'ช่องใน memory', reduceLine: (k, key) => `reduce ${k} (key ${key})`,
-    dotsHelp: 'ทุกจุดคือหนึ่งแถว สีและตัวอักษรคือ key',
-    files: (M, blocks) => `ไฟล์ที่ map เขียน: ${M} x (.data, .index, .checksum) = ${M * 3} ไฟล์   ช่องที่ reduce ต้องดึง: ${M} x 3 = ${blocks} ช่อง`,
+    title: <>Shuffle ดูทีละแถว <code>df.groupBy("key").count()</code></>, groupLabel: 'จำนวน Map Task', mapBtn: (n) => `${n} Map Task`,
+    svgLabel: 'ภาพเคลื่อนไหวของ Shuffle ที่แถวถูกจัดเข้าช่อง เขียนเป็นไฟล์ แล้วถูกดึงไปหา Reduce Task',
+    stage1: 'Stage 1: Map Task', stage1Sub: 'อ่านแถวและจัดเข้าช่อง', stage2: 'Stage 2: Reduce Task', stage2Sub: 'รวมผลต่อ Key',
+    mapLine: (m) => `map ${m}: partition ${m}`, inMemory: 'ช่องใน Memory', reduceLine: (k, key) => `reduce ${k} (key ${key})`,
+    dotsHelp: 'ทุกจุดคือหนึ่งแถว สีและตัวอักษรคือ Key',
+    files: (M, blocks) => `ไฟล์ที่ Map เขียน: ${M} x (.data, .index, .checksum) = ${M * 3} ไฟล์   ช่องที่ Reduce ต้องดึง: ${M} x 3 = ${blocks} ช่อง`,
     result: 'ผลลัพธ์: ',
-    caption: 'แต่ละ map task ถือ 8 แถว (ของจริงมีเป็นล้าน) ตำแหน่งแถวเป็นภาพประกอบ ส่วนรูปแบบไฟล์ (.data หนึ่งไฟล์ต่อ map task ที่ต่อทุก reduce partition พร้อม .index) และจำนวน 24 ไฟล์ของ 8 map task มาจากการรันใน exercises/13_internals.py',
+    caption: 'แต่ละ Map Task ถือ 8 แถว (ของจริงมีเป็นล้าน) และตำแหน่งของแถวเป็นภาพประกอบ ส่วนรูปแบบไฟล์ (.data หนึ่งไฟล์ต่อ Map Task ที่ต่อทุก Reduce Partition พร้อม .index) และจำนวน 24 ไฟล์ของ 8 Map Task มาจากการรันใน exercises/13_internals.py',
   },
   en: {
     title: <>Shuffle row by row: <code>df.groupBy("key").count()</code></>, groupLabel: 'Number of map tasks', mapBtn: (n) => `${n} map tasks`,

@@ -22,12 +22,12 @@ interface S extends StepInfo {
 
 const STEPS: Record<Lang, S[]> = {
   th: [
-    { name: 'ขนาด', title: 'heap 600 MiB แบ่งเป็นสามส่วน', text: 'reserved 300 MiB (Spark กันไว้เอง) เหลือ 300 MiB ส่วนหนึ่งเป็น user memory (40% = 120 MiB สำหรับ object ของโค้ดคุณ) และอีก 60% = 180 MiB เป็น unified memory ที่ Spark ใช้ วัดจริง 188,743,680 ไบต์ ตรงสูตรเป๊ะ', blocks: 0, exec: 0 },
-    { name: 'เส้นแบ่ง', title: 'unified memory มีเส้นแบ่ง "นุ่ม" ตรงครึ่ง', text: 'spark.memory.storageFraction = 0.5 ตั้งเส้นแบ่งที่ 90 MiB ฝั่งซ้ายคือพื้นที่ของ storage (cache, broadcast) ฝั่งขวาคือ execution (shuffle, sort, join, aggregate) เส้นนี้ขยับได้ ไม่ใช่กำแพง', blocks: 0, exec: 0 },
-    { name: 'cache', title: 'cache 4 block: storage ยืมที่ว่างของ execution', text: 'cache ข้อมูล 154 MiB (4 block) เกินครึ่งของ storage แต่ execution ยังไม่ใช้ storage จึงยืมได้ (วัดจริง: storage ใช้ 153.9 MiB เกินเส้น 90 MiB)', blocks: 4, exec: 0 },
-    { name: 'sort', title: 'sort ต้องการ memory: execution เอาคืนได้', text: 'execution ขอ memory เพิ่ม ถ้าที่ว่างหมด UnifiedMemoryManager ไล่ evict block ของ storage ที่เกินเส้น (MemoryStore ใช้ LRU) วัดจริง: เหลือ 2 จาก 4 block (77.0 MiB) execution ได้ที่ไปทำงาน', blocks: 2, exec: 100, evicted: 2 },
-    { name: 'จบ sort', title: 'ผลลัพธ์ที่ควรรู้: block ที่ถูก evict ไม่กลับมาเอง', text: 'เมื่อ sort จบ execution คืน memory แต่ block ที่ evict ไปไม่ถูกโหลดคืน ถ้าต้องใช้อีกต้องคำนวณใหม่ (หรืออ่านจาก disk ถ้าเก็บแบบ MEMORY_AND_DISK) cache ที่ใช้ MEMORY_ONLY จึงไม่รับประกันว่าอยู่ครบ', blocks: 2, exec: 0, evicted: 2 },
-    { name: 'ทางกลับ', title: 'ทางกลับไม่ได้: storage ไม่ evict execution', text: 'กฎคือ execution อาจ evict storage ที่ยืมเกินเส้น แต่ storage ไม่เคยเอา memory คืนจาก execution (execution ห้ามถูก evict เพราะ task กำลังใช้อยู่) ถ้า execution ถือเกือบหมด การ cache ใหม่อาจใส่ไม่ได้ (source: คอมเมนต์ใน UnifiedMemoryManager)', blocks: 2, exec: 110, evicted: 2 },
+    { name: 'ขนาด', title: 'Heap 600 MiB แบ่งเป็นสามส่วน', text: 'Reserved 300 MiB เป็นส่วนที่ Spark กันไว้ใช้เอง ทำให้เหลือ 300 MiB ซึ่งแบ่งเป็น User Memory 40% = 120 MiB สำหรับ Object ในโค้ดของคุณ และอีก 60% = 180 MiB เป็น Unified Memory ที่ Spark ใช้ ตอนวัดจริงได้ 188,743,680 ไบต์ ตรงกับสูตรพอดี', blocks: 0, exec: 0 },
+    { name: 'เส้นแบ่ง', title: 'Unified Memory มีเส้นแบ่ง "นุ่ม" ตรงครึ่ง', text: 'spark.memory.storageFraction = 0.5 ตั้งเส้นแบ่งไว้ที่ 90 MiB โดยฝั่งซ้ายเป็นพื้นที่ของ Storage (cache, broadcast) และฝั่งขวาเป็นของ Execution (shuffle, sort, join, aggregate) เส้นนี้สามารถขยับได้ เหมือนฉากกั้นที่เลื่อนได้ ไม่ได้เป็นกำแพงตายตัว', blocks: 0, exec: 0 },
+    { name: 'Cache', title: 'Cache 4 Block: Storage ยืมที่ว่างของ Execution', text: 'เมื่อเรา cache ข้อมูล 154 MiB (4 block) ซึ่งเกินครึ่งของ Storage แต่ตอนนี้ Execution ยังไม่ได้ใช้พื้นที่ของตัวเอง Storage จึงยืมมาใช้ได้ ตอนวัดจริง Storage ใช้ไป 153.9 MiB เกินเส้น 90 MiB', blocks: 4, exec: 0 },
+    { name: 'Sort', title: 'Sort ต้องการ Memory: Execution เอาคืนได้', text: 'เมื่อ Execution ขอ Memory เพิ่มและที่ว่างหมดแล้ว UnifiedMemoryManager จะไล่ evict Block ของ Storage ที่เกินเส้นออก (MemoryStore ใช้ LRU) ตอนวัดจริงเหลือ 2 จาก 4 Block (77.0 MiB) แล้ว Execution ก็ได้พื้นที่ไปทำงาน', blocks: 2, exec: 100, evicted: 2 },
+    { name: 'จบ Sort', title: 'สิ่งที่ควรรู้: Block ที่ถูก evict ไม่กลับมาเอง', text: 'พอ Sort จบ Execution จะคืน Memory แต่ Block ที่ถูก evict ไปแล้วจะไม่ถูกโหลดกลับมา ถ้าต้องใช้อีกก็ต้องคำนวณใหม่ (หรืออ่านจาก Disk ถ้าเก็บแบบ MEMORY_AND_DISK) เพราะฉะนั้น Cache ที่ใช้ MEMORY_ONLY จึงไม่รับประกันว่าข้อมูลจะอยู่ครบ', blocks: 2, exec: 0, evicted: 2 },
+    { name: 'ทางกลับ', title: 'ทางกลับทำไม่ได้: Storage ไม่ evict Execution', text: 'กฎคือ Execution สามารถ evict Storage ที่ยืมเกินเส้นไปได้ แต่ Storage จะไม่เอา Memory คืนจาก Execution เลย (Execution ห้ามถูก evict เพราะ Task กำลังใช้อยู่) ถ้า Execution ถือ Memory ไว้เกือบหมด การ cache ครั้งใหม่ก็อาจใส่ไม่ได้ (source: คอมเมนต์ใน UnifiedMemoryManager)', blocks: 2, exec: 110, evicted: 2 },
   ],
   en: [
     { name: 'Sizes', title: 'A 600 MiB heap is split into three parts', text: 'reserved 300 MiB (Spark keeps it for itself) leaves 300 MiB. One part is user memory (40% = 120 MiB for the objects of your code) and the other 60% = 180 MiB is the unified memory that Spark uses. Measured: 188,743,680 bytes, exactly the formula', blocks: 0, exec: 0 },
@@ -52,16 +52,16 @@ const TEXT: Record<Lang, {
   caption: string;
 }> = {
   th: {
-    title: 'Unified memory: storage กับ execution แบ่งกันใช้',
+    title: 'Unified Memory: Storage กับ Execution แบ่งกันใช้',
     aria: (n, title) => `ขั้นที่ ${n}: ${title}`,
-    reserved: 'reserved 300 MiB',
+    reserved: 'Reserved 300 MiB',
     boundary: 'เส้นแบ่งนุ่ม 90 MiB (storageFraction 0.5)',
-    storageLeft: 'storage (cache) เริ่มจากซ้าย',
-    execRight: 'execution เริ่มจากขวา',
-    storageUsed: (v) => `storage ใช้อยู่ ${v} MiB (พื้นที่ของตัวเอง 90.0 MiB)`,
-    execUsed: (e) => `execution ใช้อยู่ ${e > 0 ? `${e} MiB (วาดตามตัวอย่าง ไม่ได้วัด)` : '0 MiB'}`,
-    evicted: (n) => `evict แล้ว ${n} block`,
-    caption: 'ขนาด 600 MiB, 180 MiB, 90 MiB และตัวเลข 153.9 กับ 77.0 MiB วัดจริงด้วย SparkEnv.get.memoryManager (exercises/13_internals.py) ส่วนขนาด execution ในภาพเป็นค่าสาธิต',
+    storageLeft: 'Storage (cache) เริ่มจากซ้าย',
+    execRight: 'Execution เริ่มจากขวา',
+    storageUsed: (v) => `Storage ใช้อยู่ ${v} MiB (พื้นที่ของตัวเอง 90.0 MiB)`,
+    execUsed: (e) => `Execution ใช้อยู่ ${e > 0 ? `${e} MiB (วาดตามตัวอย่าง ไม่ได้วัด)` : '0 MiB'}`,
+    evicted: (n) => `evict แล้ว ${n} Block`,
+    caption: 'ขนาด 600 MiB, 180 MiB, 90 MiB และตัวเลข 153.9 กับ 77.0 MiB เราวัดจริงด้วย SparkEnv.get.memoryManager (exercises/13_internals.py) ส่วนขนาดของ Execution ในภาพเป็นเพียงค่าสาธิตนะ',
   },
   en: {
     title: 'Unified memory: storage and execution share it',

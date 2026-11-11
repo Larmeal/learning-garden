@@ -37,19 +37,19 @@ const TEXT: Record<Lang, {
   title: string; pick: string; rule: string; notes: Record<string, string>; where: Record<V, string>;
 }> = {
   th: {
-    title: 'NULL ไม่ใช่ค่า: ลองทายผลของตาราง truth table สามค่า',
-    pick: 'เลือก operator',
-    rule: 'กฎของ operator นี้',
+    title: 'NULL ไม่ใช่ค่า ลองทายผลของ Truth Table สามค่าดู',
+    pick: 'เลือก Operator',
+    rule: 'กฎของ Operator นี้',
     notes: {
-      'AND': 'FALSE ชนะ: ถ้ามี FALSE ผลคือ FALSE ต่อให้อีกฝั่งเป็น NULL',
-      'OR': 'TRUE ชนะ: ถ้ามี TRUE ผลคือ TRUE ต่อให้อีกฝั่งเป็น NULL',
-      '=': 'ถ้าฝั่งใดเป็น NULL ผลเป็น NULL เสมอ แม้ NULL = NULL',
-      '<=>': 'null-safe equal: NULL <=> NULL เป็น TRUE และ NULL กับค่าอื่นเป็น FALSE ไม่เคยเป็น NULL',
+      'AND': 'FALSE ชนะ ถ้ามี FALSE อยู่ฝั่งใดฝั่งหนึ่ง ผลก็เป็น FALSE ต่อให้อีกฝั่งเป็น NULL',
+      'OR': 'TRUE ชนะ ถ้ามี TRUE อยู่ฝั่งใดฝั่งหนึ่ง ผลก็เป็น TRUE ต่อให้อีกฝั่งเป็น NULL',
+      '=': 'ถ้าฝั่งใดฝั่งหนึ่งเป็น NULL ผลจะเป็น NULL เสมอ แม้แต่ NULL = NULL ก็ตาม',
+      '<=>': 'Null-safe Equal ถ้า NULL <=> NULL จะได้ TRUE และถ้า NULL เทียบกับค่าอื่นจะได้ FALSE โดยผลไม่เคยเป็น NULL',
     },
     where: {
       TRUE: 'WHERE เก็บแถวนี้',
       FALSE: 'WHERE ทิ้งแถวนี้',
-      NULL: 'WHERE ทิ้งแถวนี้ (NULL ไม่ใช่ TRUE) และ NOT ของมันก็ยังเป็น NULL จึงไม่ถูกเก็บด้วย',
+      NULL: 'WHERE ทิ้งแถวนี้ (เพราะ NULL ไม่ใช่ TRUE) และ NOT ของมันก็ยังเป็น NULL อยู่ดี จึงไม่ถูกเก็บไว้เหมือนกัน',
     },
   },
   en: {

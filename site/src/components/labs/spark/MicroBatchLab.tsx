@@ -20,20 +20,20 @@ interface S extends StepInfo {
 }
 
 const NORMAL_TH: S[] = [
-  { name: 'ไฟล์มาใหม่', title: 'Source เห็นข้อมูลใหม่', text: 'ไฟล์ f02.json เข้ามาในโฟลเดอร์ที่ source ดูอยู่ ตัวเลข checkpoint ตอนนี้: batch 0 เสร็จแล้ว (offsets/0 และ commits/0)', file: true, offsets: false, state: false, sink: 0, commit: false, engine: 'รอ trigger' },
-  { name: 'เลือกช่วง', title: 'constructNextBatch: ตัดสินว่า batch 1 อ่านอะไร', text: 'engine ถาม source ว่ามีข้อมูลถึงไหน แล้วกำหนดช่วง offset ของ batch 1 (ที่นี่คือไฟล์ f02) จากนั้นยังไม่ได้ทำงานอะไรกับข้อมูล', file: true, offsets: false, state: false, sink: 0, commit: false, engine: 'กำหนดช่วง offset ของ batch 1' },
-  { name: 'offsets/1', title: 'เขียน offsets/1 ก่อนประมวลผล (write-ahead log)', text: 'ช่วง offset ถูกเขียนลง checkpoint ก่อน เพื่อให้ถ้าล่มกลางทาง ครั้งหน้ารู้ว่า batch 1 ต้องอ่านช่วงเดิมเป๊ะ ไฟล์นี้ยังเขียน batchWatermarkMs และ conf ที่ใช้ด้วย', file: true, offsets: true, state: false, sink: 0, commit: false, engine: 'พร้อมรัน batch 1' },
-  { name: 'runBatch', title: 'runBatch: อ่านข้อมูล อัปเดต state', text: 'query รันเป็น job ปกติ StateStoreRestore อ่านค่าเดิมจาก state เวอร์ชัน 0 StateStoreSave เขียนค่าใหม่เป็นเวอร์ชัน 1 (ไฟล์ 1.delta)', file: true, offsets: true, state: true, sink: 0, commit: false, engine: 'ประมวลผล + อัปเดต state' },
-  { name: 'เขียน sink', title: 'ส่งผลของ batch 1 ให้ sink', text: 'sink รับผลลัพธ์ของ batch 1 พร้อม batchId = 1 เพื่อให้ sink แยกแยะได้ว่าเคยได้รับ batch นี้แล้วหรือยัง', file: true, offsets: true, state: true, sink: 1, commit: false, engine: 'เขียนผลลัพธ์' },
-  { name: 'commits/1', title: 'เขียน commits/1: batch 1 เสร็จสมบูรณ์', text: 'markMicroBatchEnd เขียน commits/1 และอัปเดต watermark ของ batch ถัดไป หลังจุดนี้ batch 1 จะไม่ถูกรันซ้ำอีก', file: true, offsets: true, state: true, sink: 1, commit: true, engine: 'จบ batch 1 รอ batch 2' },
+  { name: 'ไฟล์มาใหม่', title: 'Source เห็นข้อมูลใหม่', text: 'ไฟล์ f02.json เข้ามาในโฟลเดอร์ที่ Source เฝ้าดูอยู่ ส่วนใน Checkpoint ตอนนี้ Batch 0 เสร็จเรียบร้อยแล้ว (มี offsets/0 และ commits/0)', file: true, offsets: false, state: false, sink: 0, commit: false, engine: 'รอ Trigger' },
+  { name: 'เลือกช่วง', title: 'constructNextBatch: ตัดสินว่า Batch 1 จะอ่านอะไร', text: 'Engine จะถาม Source ว่ามีข้อมูลมาถึงไหนแล้ว จากนั้นกำหนดช่วง Offset ของ Batch 1 (ในที่นี้คือไฟล์ f02) ซึ่งตอนนี้ยังไม่ได้ทำอะไรกับข้อมูลเลย', file: true, offsets: false, state: false, sink: 0, commit: false, engine: 'กำหนดช่วง Offset ของ Batch 1' },
+  { name: 'offsets/1', title: 'เขียน offsets/1 ก่อนประมวลผล (write-ahead log)', text: 'ช่วง Offset จะถูกเขียนลง Checkpoint ก่อน เพื่อให้ถ้าโปรแกรมล่มกลางทาง ครั้งหน้าจะรู้ว่า Batch 1 ต้องอ่านช่วงเดิมเป๊ะ ๆ นอกจากนี้ไฟล์นี้ยังเก็บ batchWatermarkMs และ conf ที่ใช้อยู่ด้วย', file: true, offsets: true, state: false, sink: 0, commit: false, engine: 'พร้อมรัน Batch 1' },
+  { name: 'runBatch', title: 'runBatch: อ่านข้อมูลและอัปเดต State', text: 'Query จะรันเป็น Job ปกติ โดย StateStoreRestore จะอ่านค่าเดิมจาก State เวอร์ชัน 0 แล้ว StateStoreSave จะเขียนค่าใหม่ลงเป็นเวอร์ชัน 1 (ไฟล์ 1.delta)', file: true, offsets: true, state: true, sink: 0, commit: false, engine: 'ประมวลผล + อัปเดต State' },
+  { name: 'เขียน Sink', title: 'ส่งผลของ Batch 1 ให้ Sink', text: 'Sink จะรับผลลัพธ์ของ Batch 1 มาพร้อมกับ batchId = 1 เพื่อให้ Sink แยกแยะได้ว่าเคยได้รับ Batch นี้ไปแล้วหรือยัง', file: true, offsets: true, state: true, sink: 1, commit: false, engine: 'เขียนผลลัพธ์' },
+  { name: 'commits/1', title: 'เขียน commits/1: Batch 1 เสร็จสมบูรณ์', text: 'markMicroBatchEnd จะเขียน commits/1 และอัปเดต Watermark สำหรับ Batch ถัดไป หลังจากจุดนี้ Batch 1 จะไม่ถูกรันซ้ำอีก', file: true, offsets: true, state: true, sink: 1, commit: true, engine: 'จบ Batch 1 รอ Batch 2' },
 ];
 
 const CRASH_TH: S[] = [
   NORMAL_TH[0], NORMAL_TH[1], NORMAL_TH[2], NORMAL_TH[3], NORMAL_TH[4],
-  { name: 'ล่ม', title: 'ล่มก่อนเขียน commits/1', text: 'โปรแกรมหยุดหลังเขียน sink แต่ก่อน commits/1 ใน checkpoint จึงมี offsets/1 แต่ไม่มี commits/1 ซึ่งแปลว่า batch 1 "เริ่มแล้วแต่ไม่ทราบว่าจบ"', file: true, offsets: true, state: true, sink: 1, commit: false, crash: true, engine: 'หยุดทำงาน' },
-  { name: 'รีสตาร์ท', title: 'เริ่มใหม่: อ่าน checkpoint', text: 'populateStartOffsets เห็น offsets/1 โดยไม่มี commits/1 จึงรู้ว่า batch 1 ต้องรันอีกครั้งด้วยช่วง offset เดิม ไม่ใช่เลือกใหม่ (วัดจริง: batch id ที่รันหลังรีสตาร์ทเริ่มที่ 1)', file: true, offsets: true, state: true, sink: 1, commit: false, engine: 'อ่าน offsets/1 รัน batch 1 ซ้ำ' },
-  { name: 'รันซ้ำ', title: 'รัน batch 1 อีกรอบ: ผลเหมือนเดิม', text: 'state กลับไปเวอร์ชัน 0 แล้วคำนวณใหม่ ได้ผลเท่าเดิม แต่ sink ได้รับ batch 1 เป็นครั้งที่สอง ถ้า sink เขียนซ้ำไม่ได้ เช่นเขียนต่อท้ายไฟล์ จะได้ข้อมูลซ้ำ ต้องใช้ batchId ทำให้การเขียนเป็น idempotent', file: true, offsets: true, state: true, sink: 2, commit: false, engine: 'รัน batch 1 ซ้ำ' },
-  { name: 'commits/1', title: 'เขียน commits/1', text: 'รอบนี้ครบถ้วน จากนั้นต่อด้วย batch 2 ได้ตามปกติ state ต่อเนื่องไม่ถูกรีเซ็ต (วัดจริง: ค่านับของ a ยังเป็น 2 ไม่กลับเป็น 1)', file: true, offsets: true, state: true, sink: 2, commit: true, engine: 'จบ batch 1 รอ batch 2' },
+  { name: 'ล่ม', title: 'ล่มก่อนเขียน commits/1', text: 'โปรแกรมหยุดทำงานหลังเขียน Sink แต่ก่อนจะเขียน commits/1 ใน Checkpoint จึงมี offsets/1 แต่ไม่มี commits/1 ซึ่งแปลว่า Batch 1 "เริ่มแล้วแต่ไม่ทราบว่าจบหรือยัง"', file: true, offsets: true, state: true, sink: 1, commit: false, crash: true, engine: 'หยุดทำงาน' },
+  { name: 'รีสตาร์ท', title: 'เริ่มใหม่และอ่าน Checkpoint', text: 'populateStartOffsets เห็นว่ามี offsets/1 แต่ไม่มี commits/1 จึงรู้ว่า Batch 1 ต้องรันอีกครั้งด้วยช่วง Offset เดิม โดยจะไม่เลือกช่วงใหม่ (ตอนวัดจริง batch id ที่รันหลังรีสตาร์ทเริ่มที่ 1)', file: true, offsets: true, state: true, sink: 1, commit: false, engine: 'อ่าน offsets/1 รัน Batch 1 ซ้ำ' },
+  { name: 'รันซ้ำ', title: 'รัน Batch 1 อีกรอบและได้ผลเหมือนเดิม', text: 'State จะกลับไปเป็นเวอร์ชัน 0 แล้วคำนวณใหม่ ซึ่งได้ผลเท่าเดิม แต่ Sink จะได้รับ Batch 1 เป็นครั้งที่สอง ถ้า Sink เขียนซ้ำอย่างปลอดภัยไม่ได้ เช่นเขียนต่อท้ายไฟล์ ข้อมูลก็จะซ้ำกัน เราจึงต้องใช้ batchId ช่วยให้การเขียนเป็น Idempotent', file: true, offsets: true, state: true, sink: 2, commit: false, engine: 'รัน Batch 1 ซ้ำ' },
+  { name: 'commits/1', title: 'เขียน commits/1', text: 'รอบนี้ Batch ทำงานครบถ้วนแล้ว จึงต่อด้วย Batch 2 ได้ตามปกติ และ State ก็ต่อเนื่องกันไป ไม่ได้ถูกรีเซ็ต (ตอนวัดจริง ค่านับของ a ยังเป็น 2 ไม่ได้กลับไปเป็น 1)', file: true, offsets: true, state: true, sink: 2, commit: true, engine: 'จบ Batch 1 รอ Batch 2' },
 ];
 
 const NORMAL_EN: S[] = [
@@ -64,7 +64,7 @@ const TEXT: Record<Lang, {
   dup: string; done: string; caption: string;
 }> = {
   th: {
-    title: 'หนึ่ง micro-batch: เขียนอะไรลง checkpoint และเมื่อไร',
+    title: 'หนึ่ง Micro-batch: เขียนอะไรลง Checkpoint และเมื่อไร',
     pick: 'เลือกสถานการณ์',
     normal: 'ทำงานปกติ',
     crash: 'ล่มก่อน commit',
@@ -74,11 +74,11 @@ const TEXT: Record<Lang, {
     crashed: 'X ล่ม',
     checkpoint: 'Checkpoint',
     sink: 'Sink (เก็บผลลัพธ์)',
-    got: 'ได้รับ batch 1 แล้ว',
+    got: 'ได้รับ Batch 1 แล้ว',
     times: (n) => `${n} ครั้ง`,
-    dup: 'ซ้ำ! sink ต้องแยกแยะด้วย batchId',
-    done: 'batch 1 จบสมบูรณ์ ไม่ถูกรันซ้ำอีก',
-    caption: 'ลำดับเขียนไฟล์มาจาก MicroBatchExecution ใน Spark 4.2.0 ส่วนผลของการรันซ้ำมาจาก exercises/09_streaming.py ที่ลบ commits/1 เองแล้วรีสตาร์ท',
+    dup: 'ซ้ำ! Sink ต้องแยกแยะด้วย batchId',
+    done: 'Batch 1 จบสมบูรณ์ ไม่ถูกรันซ้ำอีก',
+    caption: 'ลำดับการเขียนไฟล์มาจาก MicroBatchExecution ใน Spark 4.2.0 ส่วนผลของการรันซ้ำมาจาก exercises/09_streaming.py ซึ่งลบ commits/1 ทิ้งเองแล้วรีสตาร์ท',
   },
   en: {
     title: 'One micro-batch: what is written to the checkpoint, and when',

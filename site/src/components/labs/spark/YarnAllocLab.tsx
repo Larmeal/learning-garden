@@ -49,22 +49,22 @@ interface Txt {
 const TEXT: Record<Lang, Txt> = {
   th: {
     cases: {
-      2: 'cluster ว่าง: ได้ container ตอนเรียกครั้งที่ 2',
+      2: 'Cluster ว่าง: ได้ Container ตอนเรียกครั้งที่ 2',
       5: 'ได้ตอนเรียกครั้งที่ 5',
-      7: 'cluster เต็ม: ได้ตอนเรียกครั้งที่ 7',
+      7: 'Cluster เต็ม: ได้ตอนเรียกครั้งที่ 7',
     },
-    ask: { name: 'ขอ', title: 'AM เรียก allocate() ครั้งแรก พร้อมคำขอ container', text: 'allocateResources() ส่งคำขอที่ค้างไปที่ ResourceManager (updateResourceRequests) แล้วอ่านคำตอบ ครั้งแรกมักยังไม่ได้อะไร เพราะ RM ต้องหาที่ว่างก่อน' },
-    often: { name: 'ถามถี่', title: 'ยังมี container ค้างขอ: AM ถามถี่ แล้วห่างขึ้นเป็นเท่าตัว', text: 'รอ 0.2 วินาที ตามด้วย 0.4, 0.8, 1.6 แล้วชนเพดาน 3 วินาที (spark.yarn.scheduler.heartbeat.interval-ms) ช่วงแรกถามถี่เพื่อให้ได้ container เร็ว โดยไม่รัวถ้า cluster ติด' },
-    got: { name: 'ได้ container', title: 'RM ตอบรายการ container ที่จัดให้ AM เอาไปเปิด executor', text: 'AM เรียก runAllocatedContainers แล้วสั่ง NodeManager เปิด executor (ดูภาพด้านบน) ได้ครบแล้วจึงไม่มีอะไรค้าง' },
-    beat: { name: 'heartbeat', title: 'ไม่มีอะไรค้างแล้ว: AM ยังเรียก allocate() ทุก 3 วินาที', text: 'ไม่มีคำขอ ก็ยังต้องเรียก เพราะการเรียกนี้ทำหน้าที่เป็น heartbeat ให้ RM รู้ว่า AM ยังอยู่ และเป็นทางที่ RM แจ้งว่า container ไหนจบหรือตาย (completed containers)' },
-    title: 'AM ถาม ResourceManager บ่อยแค่ไหนตอนขอ container',
-    pick: 'เมื่อไรที่ได้ container',
+    ask: { name: 'ขอ', title: 'AM เรียก allocate() ครั้งแรก พร้อมคำขอ Container', text: 'allocateResources() จะส่งคำขอที่ค้างไปที่ ResourceManager (updateResourceRequests) แล้วอ่านคำตอบ ครั้งแรกมักยังไม่ได้อะไร เพราะ RM ต้องหาที่ว่างก่อน' },
+    often: { name: 'ถามถี่', title: 'ยังมี Container ค้างขอ: AM ถามถี่ แล้วห่างขึ้นเป็นเท่าตัว', text: 'รอ 0.2 วินาที ตามด้วย 0.4, 0.8, 1.6 แล้วชนเพดาน 3 วินาที (spark.yarn.scheduler.heartbeat.interval-ms) ช่วงแรกจะถามถี่เพื่อให้ได้ Container เร็ว และไม่รัวถ้า Cluster ติด' },
+    got: { name: 'ได้ Container', title: 'RM ตอบรายการ Container ที่จัดให้ AM เอาไปเปิด Executor', text: 'AM เรียก runAllocatedContainers แล้วสั่ง NodeManager เปิด Executor (ดูภาพด้านบน) เมื่อได้ครบแล้วก็ไม่มีอะไรค้าง' },
+    beat: { name: 'Heartbeat', title: 'ไม่มีอะไรค้างแล้ว: AM ยังเรียก allocate() ทุก 3 วินาที', text: 'ถึงไม่มีคำขอ ก็ยังต้องเรียก เพราะการเรียกนี้ทำหน้าที่เป็น Heartbeat ให้ RM รู้ว่า AM ยังอยู่ และเป็นทางที่ RM แจ้งว่า Container ไหนจบหรือตาย (completed containers)' },
+    title: 'AM ถาม ResourceManager บ่อยแค่ไหนตอนขอ Container',
+    pick: 'เมื่อไรที่ได้ Container',
     svgAria: 'เส้นเวลาที่ ApplicationMaster เรียก allocate ไปที่ ResourceManager',
-    pendingNow: 'มี container ค้างขอ: ถามถี่ แล้วห่างขึ้น',
+    pendingNow: 'มี Container ค้างขอ: ถามถี่ แล้วห่างขึ้น',
     idleNow: 'ไม่มีอะไรค้าง: ถามทุก 3 วินาที',
     called: (n) => `เรียกแล้ว ${n} ครั้ง`,
-    note: 'ขีดหนึ่งอันคือการเรียก allocate() หนึ่งครั้ง แท่งคือช่วงที่ AM รอก่อนเรียกครั้งถัดไป ยิ่งสูงยิ่งรอนาน (เรียงตามลำดับการเรียก ไม่ใช่ตามสเกลเวลา)',
-    caption: 'ช่วงรอ 0.2, 0.4, 0.8, 1.6 แล้ว 3 วินาที และ heartbeat 3 วินาที อ่านจากซอร์ส Spark 4.2.0 (ApplicationMaster.scala, config/package.scala) ยังไม่ได้รันบน YARN จริง ส่วนว่า RM ให้ container ตอนไหนขึ้นกับความว่างของ cluster ภาพจึงให้เลือกเองสามแบบ จำนวน container (3 ตัว) เป็นตัวอย่าง',
+    note: 'ขีดหนึ่งอันคือการเรียก allocate() หนึ่งครั้ง ส่วนแท่งคือช่วงที่ AM รอก่อนเรียกครั้งถัดไป ยิ่งสูงยิ่งรอนาน (เรียงตามลำดับการเรียก ไม่ได้เรียงตามสเกลเวลา)',
+    caption: 'ช่วงรอ 0.2, 0.4, 0.8, 1.6 แล้ว 3 วินาที และ Heartbeat 3 วินาที อ่านจากซอร์ส Spark 4.2.0 (ApplicationMaster.scala, config/package.scala) ยังไม่ได้รันบน YARN จริง ส่วนว่า RM ให้ Container ตอนไหนก็ขึ้นกับความว่างของ Cluster ภาพจึงให้เลือกเองสามแบบ จำนวน Container (3 ตัว) เป็นตัวอย่าง',
   },
   en: {
     cases: {

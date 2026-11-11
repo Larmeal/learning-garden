@@ -18,16 +18,16 @@ interface Stmt {
 const same = (s: string): Record<Lang, string> => ({ th: s, en: s });
 
 const STMTS: Stmt[] = [
-  { id: 'range', code: same('df = spark.range(0, 3_000_000)'), jobs: 0, note: { th: 'แค่สร้างแผน ยังไม่มีข้อมูลถูกแตะ', en: 'This only builds a plan. No data has been touched yet' } },
-  { id: 'agg', code: same('agg = df.groupBy((F.col("id") % 7).alias("k")).count()'), jobs: 0, note: { th: 'transformation: จดแผนเพิ่ม', en: 'A transformation: it only adds to the plan' } },
-  { id: 'explain', code: same('agg.explain()'), jobs: 0, note: { th: 'พิมพ์แผนที่มีอยู่ ไม่รันอะไร', en: 'It prints the plan that exists and runs nothing' } },
+  { id: 'range', code: same('df = spark.range(0, 3_000_000)'), jobs: 0, note: { th: 'บรรทัดนี้แค่สร้างแผนขึ้นมา ยังไม่มีข้อมูลถูกแตะเลย', en: 'This only builds a plan. No data has been touched yet' } },
+  { id: 'agg', code: same('agg = df.groupBy((F.col("id") % 7).alias("k")).count()'), jobs: 0, note: { th: 'เป็น Transformation ซึ่งแค่จดแผนเพิ่มเข้าไป', en: 'A transformation: it only adds to the plan' } },
+  { id: 'explain', code: same('agg.explain()'), jobs: 0, note: { th: 'แค่พิมพ์แผนที่มีอยู่ออกมา ไม่ได้รันอะไรเลย', en: 'It prints the plan that exists and runs nothing' } },
   {
     id: 'c1',
     code: same('agg.collect()'),
     jobs: 2,
     label: { th: 'collect (ครั้งแรก)', en: 'collect (first time)' },
     note: {
-      th: 'action แรก: สอง job คือ stage ที่เขียน shuffle แล้วจึงเป็น stage ผลลัพธ์ (AQE ตัดเป็นสอง job)',
+      th: 'นี่คือ Action แรก ซึ่งเกิดสอง Job คือ Stage ที่เขียน Shuffle แล้วถึงเป็น Stage ผลลัพธ์ (AQE ตัดเป็นสอง Job)',
       en: 'The first action: two jobs, first the stage that writes the shuffle and then the result stage (AQE cuts it into two jobs)',
     },
   },
@@ -37,7 +37,7 @@ const STMTS: Stmt[] = [
     jobs: 1,
     label: { th: 'collect (DataFrame เดิมอีกครั้ง)', en: 'collect (same DataFrame again)' },
     note: {
-      th: 'เรียกซ้ำบน DataFrame ตัวเดิม: ไฟล์ shuffle ของรอบแรกยังอยู่ stage แรกถูกข้าม เหลือ 1 job',
+      th: 'พอเรียกซ้ำบน DataFrame ตัวเดิม ไฟล์ Shuffle ของรอบแรกยังอยู่ ทำให้ Stage แรกถูกข้ามไป เหลือ 1 Job',
       en: 'Called again on the same DataFrame: the shuffle files of the first run are still there, so the first stage is skipped and only 1 job is left',
     },
   },
@@ -47,7 +47,7 @@ const STMTS: Stmt[] = [
     jobs: 2,
     label: { th: 'collect (DataFrame ใหม่)', en: 'collect (new DataFrame)' },
     note: {
-      th: 'DataFrame ใหม่ไม่มีไฟล์ shuffle เก่า ทำงานตั้งแต่ต้นอีกครั้ง: 2 job',
+      th: 'DataFrame ใหม่ไม่มีไฟล์ Shuffle เก่าเหลืออยู่ จึงต้องทำงานตั้งแต่ต้นอีกครั้ง ได้ 2 Job',
       en: 'A new DataFrame has no old shuffle files, so the work starts from the beginning again: 2 jobs',
     },
   },
@@ -58,7 +58,7 @@ const STMTS: Stmt[] = [
     tasks: 1,
     label: { th: 'show(5) บน 1 ล้านล้านแถว', en: 'show(5) on 1 trillion rows' },
     note: {
-      th: 'ไม่ได้อ่านทั้งหมด: 1 job และ 1 task จาก 200 partition ใช้เวลา 0.1 วินาที เพราะ show(5) ต้องการแค่ 5 แถว',
+      th: 'Spark ไม่ได้อ่านทั้งหมด แต่ใช้ 1 Job และ 1 Task จาก 200 Partition ใช้เวลา 0.1 วินาที เพราะ show(5) ต้องการแค่ 5 แถว',
       en: 'It does not read everything: 1 job and 1 task out of 200 partitions, taking 0.1 seconds, because show(5) needs only 5 rows',
     },
   },
@@ -66,12 +66,12 @@ const STMTS: Stmt[] = [
 
 const TEXT: Record<Lang, { title: string; zero: string; plus: (n: number) => string; counter: string; job: (n: number, t?: number) => string; empty: string; run: string; reset: string; none: string; press: string }> = {
   th: {
-    title: 'รันทีละบรรทัด ดูว่าบรรทัดไหนเริ่ม job',
-    zero: '0 job',
-    plus: (n) => `+${n} job`,
+    title: 'รันทีละบรรทัด แล้วดูว่าบรรทัดไหนเริ่ม Job',
+    zero: '0 Job',
+    plus: (n) => `+${n} Job`,
     counter: 'Jobs ใน Spark UI',
-    job: (n, t) => `${n} job${t ? `, ${t} task` : ''}`,
-    empty: 'ยังไม่มี job (แท็บ Jobs ว่าง)',
+    job: (n, t) => `${n} Job${t ? `, ${t} Task` : ''}`,
+    empty: 'ยังไม่มี Job (แท็บ Jobs ว่าง)',
     run: 'รันบรรทัดถัดไป',
     reset: 'เริ่มใหม่',
     none: 'ยังไม่ได้รันอะไร',

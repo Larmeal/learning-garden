@@ -31,72 +31,72 @@ const seq = (offsets: number[], beats: number, syls: string[]): Ev[] => offsets.
 
 const EX: Exercise[] = [
   {
-    key: 'straw', name: 'Straw: เลื่อนขึ้นลงช่วง major 3rd', group: 'SOVT', sovt: true, step: 1,
-    goal: 'ช่วยให้เส้นเสียงสั่นง่ายขึ้นและเตรียมผ่านช่วงเปลี่ยน register',
-    how: 'ร้องผ่านหลอดเส้นผ่านศูนย์กลาง 2.5 ถึง 5 mm ถือหลอดด้วยมือไม่ให้ริมฝีปากเกร็ง เลื่อนเสียงต่อเนื่องไม่แยกเป็นขั้น ถ้าไม่มีหลอดใช้ [v] แทน ระวังไม่ให้ลมรั่วออกทางจมูก',
+    key: 'straw', name: 'Straw: เลื่อนขึ้นลงช่วง Major 3rd', group: 'SOVT', sovt: true, step: 1,
+    goal: 'ช่วยให้เส้นเสียงสั่นได้ง่ายขึ้น และเตรียมตัวก่อนผ่านช่วงเปลี่ยน Register',
+    how: 'ให้เราร้องผ่านหลอดที่มีเส้นผ่านศูนย์กลาง 2.5 ถึง 5 mm โดยถือหลอดไว้ด้วยมือ เพื่อไม่ให้ริมฝีปากเกร็ง จากนั้นเลื่อนเสียงให้ต่อเนื่องโดยไม่แยกเป็นขั้น ถ้าไม่มีหลอดก็ใช้ [v] แทนได้ แต่ต้องระวังไม่ให้ลมรั่วออกทางจมูก',
     events: [{ at: 0, to: 4, beats: 2, syl: 'หลอด' }, { at: 4, to: 0, beats: 2, syl: 'หลอด' }, { at: 0, beats: 1, syl: '', rest: true }],
     source: 'Davids และ LaTour บทที่ 3 หัวข้อ Semi-occluded vocal tract (SOVT) exercises หน้า 54 และบทที่ 16 หน้า 283',
   },
   {
-    key: 'siren', name: 'Siren / ghost: เลื่อนช่วง octave', group: 'SOVT', sovt: true, step: 2,
-    goal: 'ผ่านทุก register โดยไม่ต้องคิดเรื่องโน้ตแต่ละตัว',
-    how: 'ใช้ lip trill (พรูริมฝีปาก) หรือหลอด เริ่มจาก register ล่าง เลื่อนขึ้นเบาๆ แล้วลงมา ทำซ้ำโดยเริ่มสูงขึ้นทีละเสียงเต็ม ถ้า lip trill ไม่สั่น ลองดันแก้มเบาๆ',
+    key: 'siren', name: 'Siren / Ghost: เลื่อนช่วง Octave', group: 'SOVT', sovt: true, step: 2,
+    goal: 'ให้เสียงผ่านได้ทุก Register โดยที่เราไม่ต้องคิดถึงโน้ตแต่ละตัว',
+    how: 'ใช้ Lip Trill (พรูริมฝีปาก) หรือหลอดก็ได้ เริ่มจาก Register ล่าง แล้วเลื่อนขึ้นเบา ๆ ก่อนจะเลื่อนลงมา จากนั้นทำซ้ำโดยเริ่มให้สูงขึ้นทีละเสียงเต็ม ถ้า Lip Trill ไม่สั่น ลองดันแก้มเบา ๆ ดูนะ',
     events: [{ at: 0, to: 12, beats: 3, syl: 'brrr' }, { at: 12, to: 0, beats: 3, syl: 'brrr' }, { at: 0, beats: 1, syl: '', rest: true }],
     source: 'Davids และ LaTour บทที่ 8 หัวข้อ Register exercises หน้า 173 และบทที่ 3 หัวข้อ Lip trill SOVT exercise หน้า 60',
   },
   {
     key: 'ng-ah', name: 'ng แล้วเปิดเป็น ah: ห้าโน้ต', group: 'Resonance', step: 1,
-    goal: 'ฝึกควบคุมเพดานอ่อน ให้ยกขึ้นเมื่อเปลี่ยนจาก ng เป็นสระ',
-    how: 'ร้อง "ng" สี่โน้ตแรกขณะขึ้น จากนั้นเปิดเป็น [ɑ] ที่โน้ตบนสุดและตอนลง สังเกตว่าเสียงเลิกเป็นนาสิก ถ้าบีบจมูกแล้วเสียงยังเหมือนเดิม แปลว่ายกเพดานอ่อนแล้ว',
+    goal: 'ฝึกควบคุมเพดานอ่อน ให้ยกขึ้นตอนที่เปลี่ยนจาก ng ไปเป็นสระ',
+    how: 'ร้อง "ng" ในสี่โน้ตแรกขณะที่เสียงขึ้น แล้วเปิดเป็น [ɑ] ที่โน้ตบนสุดและตอนลง ให้สังเกตว่าเสียงเลิกเป็นนาสิกแล้ว ถ้าลองบีบจมูกแล้วเสียงยังเหมือนเดิม แปลว่าเรายกเพดานอ่อนได้แล้ว',
     events: [...seq([0, 2, 4, 5], 1, ['ng']), { at: 7, beats: 1, syl: 'ah' }, ...seq([5, 4, 2, 0], 1, ['ah']), { at: 0, beats: 1, syl: '', rest: true }],
     source: 'Davids และ LaTour บทที่ 16 (Sample sequence two) หน้า 286 และบทที่ 4 แบบฝึก Hang-ah หน้า 89',
   },
   {
-    key: 'vowel-fifth', name: 'ห้าโน้ตขึ้นลงบนสระ cardinal', group: 'Vowels', step: 1,
-    goal: 'รักษาสระให้คงที่ขณะเปลี่ยนโน้ต และรักษาแรงดันลมเท่าเดิมตลอดเส้น',
-    how: 'ร้อง 1-2-3-4-5-4-3-2-1 ค่อนข้างเร็วบนสระเดียว แต่ละรอบสลับสระ (อี เอ อา โอ อู) รักษาท่าลิ้นและกรามให้นิ่ง ปลายลิ้นแตะโคนฟันล่าง',
+    key: 'vowel-fifth', name: 'ห้าโน้ตขึ้นลงบนสระ Cardinal', group: 'Vowels', step: 1,
+    goal: 'รักษาสระให้คงที่ในขณะที่โน้ตเปลี่ยนไป และรักษาแรงดันลมให้เท่าเดิมตลอดทั้งเส้น',
+    how: 'ร้อง 1-2-3-4-5-4-3-2-1 ค่อนข้างเร็วบนสระเดียว แล้วสลับสระ (อี เอ อา โอ อู) ในแต่ละรอบ โดยพยายามรักษาท่าลิ้นและกรามให้นิ่ง และให้ปลายลิ้นแตะโคนฟันล่างไว้',
     events: [...seq([0, 2, 4, 5, 7, 5, 4, 2, 0], 0.5, ['i', 'i']), { at: 0, beats: 1, syl: '', rest: true }],
     source: 'Davids และ LaTour บทที่ 16 (Sample sequence one) หน้า 286 และบทที่ 5 หัวข้อ Vowel exercises หน้า 119',
   },
   {
     key: 'desc-ia', name: 'ลงห้าโน้ต [i] ไปจบที่ [a]', group: 'Vowels', step: -1,
-    goal: 'เชื่อมความสว่างของ [i] กับความลึกของ [a] โดยไม่เปลี่ยนตำแหน่งเสียง',
-    how: 'ร้อง [i] สี่โน้ตแรกแล้วค่อยๆ เลื่อนเป็น [a] ที่โน้ตสุดท้าย ลดกรามด้านหลังทีละน้อย เริ่มราว C4 ถึง C5 แล้วลงทีละครึ่งเสียง',
+    goal: 'เชื่อมความสว่างของ [i] เข้ากับความลึกของ [a] โดยที่ตำแหน่งเสียงไม่เปลี่ยน',
+    how: 'ร้อง [i] ในสี่โน้ตแรก แล้วค่อย ๆ เลื่อนเป็น [a] ที่โน้ตสุดท้าย โดยลดกรามด้านหลังลงทีละน้อย เริ่มราว C4 ถึง C5 แล้วลงทีละครึ่งเสียง',
     events: [{ at: 7, beats: 1, syl: 'i' }, { at: 5, beats: 1, syl: 'i' }, { at: 4, beats: 1, syl: 'i' }, { at: 2, beats: 1, syl: 'i' }, { at: 0, beats: 2, syl: 'a' }, { at: 0, beats: 1, syl: '', rest: true }],
     source: 'Davids และ LaTour บทที่ 16 (Sample sequence one) หน้า 286',
   },
   {
-    key: 'arp-o', name: 'Arpeggio legato บน [o]', group: 'Registers', step: 1,
-    goal: 'เชื่อมโน้ตต่อเนื่องและเตรียมผ่านช่วงเปลี่ยน',
-    how: 'ร้อง 1-3-5-8-5-3-1 ให้ลื่น คิดภาพการขึ้นยอดชิงช้าสวรรค์ ที่ยอดไม่ต้องออกแรงเพิ่ม ปรับสระเมื่อเข้าช่วง passaggio ตามสไตล์',
+    key: 'arp-o', name: 'Arpeggio Legato บน [o]', group: 'Registers', step: 1,
+    goal: 'เชื่อมโน้ตให้ต่อเนื่องกัน และเตรียมตัวผ่านช่วงเปลี่ยน',
+    how: 'ร้อง 1-3-5-8-5-3-1 ให้ลื่น โดยลองนึกภาพว่าเรากำลังขึ้นไปบนยอดชิงช้าสวรรค์ ซึ่งที่ยอดไม่ต้องออกแรงเพิ่ม และเมื่อเข้าช่วง Passaggio ให้ปรับสระตามสไตล์',
     events: [...seq([0, 4, 7, 12, 7, 4, 0], 1, ['o']), { at: 0, beats: 1, syl: '', rest: true }],
     source: 'Davids และ LaTour บทที่ 8 หัวข้อ Extended arpeggios หน้า 173 และบทที่ 16 หน้า 286',
   },
   {
     key: 'mamamia', name: 'Mamamia', group: 'Articulation', step: 1,
-    goal: 'ฝึกพยัญชนะให้เร็วและเบาโดยไม่ทำให้สระเพี้ยน',
-    how: 'ร้อง ma-ma-mi-a สามชุด (do re mi do / re mi fa re / mi fa sol mi do) เร็วและเบา ปลายลิ้นกลับมาที่โคนฟันล่างทุกครั้ง ลองเปลี่ยนพยัญชนะ',
+    goal: 'ฝึกพยัญชนะให้เร็วและเบา โดยที่สระไม่เพี้ยนไป',
+    how: 'ร้อง ma-ma-mi-a สามชุด (do re mi do / re mi fa re / mi fa sol mi do) ให้เร็วและเบา โดยให้ปลายลิ้นกลับมาที่โคนฟันล่างทุกครั้ง แล้วลองเปลี่ยนพยัญชนะดู',
     events: [...seq([0, 2, 4, 0], 0.5, ['ma', 'ma', 'mi', 'a']), ...seq([2, 4, 5, 2], 0.5, ['ma', 'ma', 'mi', 'a']), ...seq([4, 5, 7, 4], 0.5, ['ma', 'ma', 'mi', 'a']), { at: 0, beats: 1, syl: 'ma' }, { at: 0, beats: 1, syl: '', rest: true }],
     source: 'Davids และ LaTour บทที่ 16 (Sample sequence one) หน้า 286',
   },
   {
-    key: 'pivot', name: 'Pivot note: ขึ้นลงรอบโน้ตกลาง', group: 'Intonation', step: 0,
-    goal: 'ฝึกระยะระหว่างโน้ตให้แม่น (horizontal intonation)',
-    how: 'ร้อง "di" ที่โน้ตกลาง แล้วขึ้นครึ่งเสียงและกลับ ลงครึ่งเสียงและกลับ จากนั้นทำด้วยเสียงเต็ม ใช้ PitchMirror ช่วยดูว่าแต่ละโน้ตตรงไหม',
+    key: 'pivot', name: 'Pivot Note: ขึ้นลงรอบโน้ตกลาง', group: 'Intonation', step: 0,
+    goal: 'ฝึกให้ระยะระหว่างโน้ตแม่นยำ (Horizontal Intonation)',
+    how: 'ร้อง "di" ที่โน้ตกลาง แล้วขึ้นครึ่งเสียงและกลับมา จากนั้นลงครึ่งเสียงและกลับมา หลังจากนั้นทำซ้ำด้วยเสียงเต็ม โดยใช้ PitchMirror ช่วยดูว่าแต่ละโน้ตตรงหรือไม่',
     events: [...seq([0, 1, 0, -1, 0], 1, ['di']), { at: 0, beats: 0.5, syl: '', rest: true }, ...seq([0, 2, 0, -2, 0], 1, ['di']), { at: 0, beats: 1, syl: '', rest: true }],
     source: 'Davids และ LaTour บทที่ 10 หัวข้อ Exercises to improve intonation หน้า 196',
   },
   {
     key: 'iu', name: 'สลับ [i] กับ [u] บนโน้ตเดียว', group: 'Resonance', step: 1,
-    goal: 'รักษา resonance ให้สม่ำเสมอระหว่างสระสว่างสุดและมืดสุด',
-    how: 'ร้องโน้ตเดียวสลับ [i] ยิ้มกว้าง กับ [u] จู๋ปาก ให้เสียงเต็มทั้งสองสระ (ท่านี้เกินจริง ใช้ฝึกเท่านั้น ไม่ใช้ตอนร้องเพลง)',
+    goal: 'รักษา Resonance ให้สม่ำเสมอ ตั้งแต่สระที่สว่างที่สุดไปจนถึงสระที่มืดที่สุด',
+    how: 'ร้องโน้ตเดียวโดยสลับระหว่าง [i] ที่ยิ้มกว้าง กับ [u] ที่จู๋ปาก และให้เสียงเต็มทั้งสองสระ (ท่านี้เกินจริงนะ ใช้ฝึกเท่านั้น ไม่ใช้ตอนร้องเพลง)',
     events: [...seq([0, 0, 0, 0, 0, 0], 1, ['i', 'u']), { at: 0, beats: 1, syl: '', rest: true }],
     source: 'Davids และ LaTour บทที่ 4 หัวข้อ Exercises for enhancing resonance หน้า 89',
   },
   {
     key: 'swell', name: 'Messa di voce: ดังขึ้นแล้วเบาลง', group: 'Dynamics', step: 1,
-    goal: 'ควบคุมแรงดันลมและความแน่นของการปิดให้ค่อยๆ เปลี่ยน',
-    how: 'ร้องโน้ตเดียวแปดจังหวะ ค่อยๆ ดังขึ้นสี่จังหวะแล้วเบาลงสี่จังหวะ รักษา vowel และโน้ตให้นิ่ง ลองเปลี่ยนความกว้างของ vibrato',
+    goal: 'ควบคุมแรงดันลมและความแน่นของการปิดให้ค่อย ๆ เปลี่ยนไป',
+    how: 'ร้องโน้ตเดียวแปดจังหวะ โดยค่อย ๆ ดังขึ้นในสี่จังหวะแรก แล้วเบาลงในสี่จังหวะหลัง พยายามรักษา Vowel และโน้ตให้นิ่ง แล้วลองเปลี่ยนความกว้างของ Vibrato ดู',
     events: [{ at: 0, beats: 8, syl: 'ah' }, { at: 0, beats: 1, syl: '', rest: true }],
     source: 'Davids และ LaTour บทที่ 16 (Sample sequence two) หน้า 286',
   },
@@ -191,13 +191,13 @@ const PARTS: { key: string; text: string; start: number; top: number }[] = [
 const ROUTINE: { min: number; text: string; ex?: string }[] = [
   { min: 1, text: 'ยืดคอและไหล่ ปรับท่ายืนให้สมดุล (ไม่ต้องใช้เสียง)' },
   { min: 1, text: 'หายใจเข้าทางจมูก ออกทางปาก ตรวจว่าทั้งสองช่วงเงียบ' },
-  { min: 2, text: 'SOVT: หลอดหรือ [v] เลื่อนช่วง major 3rd', ex: 'straw' },
+  { min: 2, text: 'SOVT: หลอดหรือ [v] เลื่อนช่วง Major 3rd', ex: 'straw' },
   { min: 2, text: 'ทำงานกับสระเป็นคู่ [i] ไป [e], [e] ไป [a], [a] ไป [o], [o] ไป [u]', ex: 'iu' },
-  { min: 2, text: 'ห้าโน้ตขึ้นลงบนสระ cardinal', ex: 'vowel-fifth' },
+  { min: 2, text: 'ห้าโน้ตขึ้นลงบนสระ Cardinal', ex: 'vowel-fifth' },
   { min: 2, text: 'ลงห้าโน้ตจาก [i] ไป [a]', ex: 'desc-ia' },
-  { min: 2, text: 'Arpeggio legato บน [o]', ex: 'arp-o' },
+  { min: 2, text: 'Arpeggio Legato บน [o]', ex: 'arp-o' },
   { min: 2, text: 'Mamamia', ex: 'mamamia' },
-  { min: 2, text: 'ร้องเบาๆ ผ่อนเสียงลง ราวสองนาที (cool-down)' },
+  { min: 2, text: 'ร้องเบา ๆ เพื่อผ่อนเสียงลง ราวสองนาที (Cool-down)' },
 ];
 
 interface Sched {
@@ -370,7 +370,7 @@ export default function WarmupPlayer({ lang = 'th' }: { lang?: 'th' | 'en' }) {
         </span>
       </div>
       <div className="viz-now">
-        <strong>{L('ลำดับ warm-up ราว 12 ถึง 15 นาที (Sample sequence one)', 'Warm-up sequence of about 12 to 15 minutes (Sample sequence one)')}</strong>
+        <strong>{L('ลำดับ Warm-up ราว 12 ถึง 15 นาที (Sample sequence one)', 'Warm-up sequence of about 12 to 15 minutes (Sample sequence one)')}</strong>
         <ol style={{ margin: '6px 0 0', paddingLeft: 20, color: 'var(--muted)', fontSize: 15 }}>
           {ROUTINE.map((r, i) => (
             <li key={i}>
@@ -379,7 +379,7 @@ export default function WarmupPlayer({ lang = 'th' }: { lang?: 'th' | 'en' }) {
           ))}
         </ol>
       </div>
-      <p className="viz-caption">{L('โน้ตนำเป็นเสียงสังเคราะห์ธรรมดา ให้ร้องตามให้ตรงที่ระดับสบายและไม่ฝืน ถ้าเสียงเหนื่อยหรือเจ็บ ให้หยุด ลำดับ warm-up ย่อมาจากตัวอย่างในหนังสือและไม่ใช่โปรแกรมที่ผ่านการทดสอบกับผู้ใช้', 'The guide notes are plain synthesized sound. Sing along at a comfortable level without forcing. If your voice gets tired or hurts, stop. The warm-up sequence is shortened from an example in the book and is not a program that was tested with users.')}</p>
+      <p className="viz-caption">{L('โน้ตนำเป็นเสียงสังเคราะห์ธรรมดา ให้ร้องตามที่ระดับสบายโดยไม่ฝืน ถ้าเสียงเหนื่อยหรือเจ็บ ก็ให้หยุด ส่วนลำดับ Warm-up นี้ย่อมาจากตัวอย่างในหนังสือ และไม่ได้เป็นโปรแกรมที่ผ่านการทดสอบกับผู้ใช้นะ', 'The guide notes are plain synthesized sound. Sing along at a comfortable level without forcing. If your voice gets tired or hurts, stop. The warm-up sequence is shortened from an example in the book and is not a program that was tested with users.')}</p>
     </figure>
   );
 }

@@ -18,7 +18,7 @@ const QUERIES: Record<Q, { label: Record<Lang, string>; code: string; read: stri
     code: 'spark.read.parquet(path).filter("country = \'th\'")',
     read: ['th'],
     note: {
-      th: 'เงื่อนไขตรงกับคอลัมน์ที่ใช้ partitionBy Spark เลือกอ่านโฟลเดอร์ country=th โฟลเดอร์อื่นไม่ถูกเปิดเลย ใน explain() ดูบรรทัด PartitionFilters',
+      th: 'เงื่อนไขนี้ตรงกับคอลัมน์ที่ใช้ partitionBy Spark จึงเลือกอ่านแค่โฟลเดอร์ country=th และไม่เปิดโฟลเดอร์อื่นเลย ถ้าอยากดูให้ดูที่บรรทัด PartitionFilters ใน explain()',
       en: 'The condition matches the column used in partitionBy. Spark reads only the folder country=th and never opens the other folders. In explain(), look at the PartitionFilters line.',
     },
   },
@@ -27,7 +27,7 @@ const QUERIES: Record<Q, { label: Record<Lang, string>; code: string; read: stri
     code: 'spark.read.parquet(path).filter("country IN (\'jp\', \'sg\')")',
     read: ['jp', 'sg'],
     note: {
-      th: 'ข้ามได้เฉพาะโฟลเดอร์ที่เงื่อนไขตัดออก เหลืออ่านสองในสามโฟลเดอร์',
+      th: 'Spark ข้ามได้เฉพาะโฟลเดอร์ที่เงื่อนไขตัดออก ดังนั้นยังต้องอ่านสองในสามโฟลเดอร์',
       en: 'Only the folders that the condition rules out can be skipped. Two of the three folders are still read.',
     },
   },
@@ -36,7 +36,7 @@ const QUERIES: Record<Q, { label: Record<Lang, string>; code: string; read: stri
     code: 'spark.read.parquet(path).filter("sales > 100")',
     read: FOLDERS,
     note: {
-      th: 'sales ไม่ได้อยู่ในชื่อโฟลเดอร์ จึงตัดโฟลเดอร์ไม่ได้ ต้องเปิดทุกไฟล์ Parquet อาจข้ามบางส่วนภายในไฟล์ได้จากสถิติ min/max (ดู PushedFilters ใน explain())',
+      th: 'sales ไม่ได้อยู่ในชื่อโฟลเดอร์ เราจึงตัดโฟลเดอร์ไหนทิ้งไม่ได้และต้องเปิดทุกไฟล์ แต่ Parquet ยังอาจข้ามบางส่วนภายในไฟล์ได้ โดยดูจากสถิติ Min/Max (ดู PushedFilters ใน explain())',
       en: 'sales is not in the folder name, so no folder can be ruled out and every file must be opened. Parquet may still skip some parts inside a file by using the min/max statistics (see PushedFilters in explain()).',
     },
   },

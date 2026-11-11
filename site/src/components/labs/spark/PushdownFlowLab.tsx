@@ -52,11 +52,11 @@ function Node({ at, label, sub, hot, w = 160 }: { at: P; label: string; sub?: st
 
 const MARKS: Record<Lang, Mark[]> = {
   th: [
-    { at: 0, name: 'แผนตั้งต้น', title: 'แผนตามที่เขียน: join ก่อน แล้วค่อย filter', text: 'ตารางใหญ่ทั้ง 1,000,000 แถวต้องเข้า Join แล้วถูกกรองทิ้ง 80% ทีหลัง จุดทุกจุดที่วิ่งขึ้นคือแถวที่ต้องถูกส่ง จับคู่ และเก็บในหน่วยความจำ' },
-    { at: 3, name: 'ย้าย Filter ลง', title: 'PushDownPredicates: Filter ย้ายลงไปใต้ Join', text: 'เงื่อนไข status = \'paid\' ใช้แค่ column ของตาราง orders จึงทำก่อน join ได้ผลเท่าเดิม แต่ Join รับแถวน้อยลงเหลือ 200,000 (ของ orders)' },
-    { at: 6.5, name: 'ลงถึง Scan', title: 'Scan รับเงื่อนไขไปใช้ตอนอ่านไฟล์', text: 'กับ Parquet ตัว Scan ใช้สถิติของแต่ละ row group ข้ามก้อนที่ไม่มีทางตรงเงื่อนไข (บทที่ 4 วัดได้ว่าอ่านเหลือ 2,072 จาก 600,000 แถวเมื่อข้อมูลเรียงตาม column ที่กรอง) Filter ยังอยู่เหนือ Scan เพื่อกรองแถวที่หลุดมา' },
-    { at: 9, name: 'ตัด column', title: 'ColumnPruning: อ่านเฉพาะ column ที่มีคนใช้', text: 'คำสั่งใช้แค่ cid, total และ status ส่วน id, address, notes ไม่ถูกอ่านจากไฟล์ (Parquet เก็บเป็น column จึงข้ามได้จริง)' },
-    { at: 10.5, name: 'ผลลัพธ์', title: 'คำสั่งเดิม คำตอบเดิม แต่งานน้อยลงมาก', text: 'แถวที่เข้า Join ลดจาก 1,010,000 เป็น 210,000 และอ่าน column 3 จาก 6 ผลลัพธ์ไม่เปลี่ยนเพราะ Catalyst ย้ายได้เฉพาะที่ไม่เปลี่ยนความหมาย' },
+    { at: 0, name: 'แผนตั้งต้น', title: 'แผนตามที่เขียน คือ Join ก่อนแล้วค่อย Filter', text: 'ตารางใหญ่ทั้ง 1,000,000 แถวต้องเข้า Join ก่อน แล้วค่อยถูกกรองทิ้งไป 80% ทีหลัง จุดทุกจุดที่วิ่งขึ้นไปคือแถวที่ต้องถูกส่ง จับคู่ และเก็บไว้ในหน่วยความจำ' },
+    { at: 3, name: 'ย้าย Filter ลง', title: 'PushDownPredicates: Filter ย้ายลงไปใต้ Join', text: 'เงื่อนไข status = \'paid\' ใช้แค่ Column ของตาราง orders จึงทำก่อน Join ได้และผลลัพธ์เท่าเดิม แต่ Join จะรับแถวน้อยลงเหลือ 200,000 (ของ orders)' },
+    { at: 6.5, name: 'ลงถึง Scan', title: 'Scan รับเงื่อนไขไปใช้ตอนอ่านไฟล์', text: 'กับ Parquet ตัว Scan จะใช้สถิติของแต่ละ Row Group เพื่อข้ามก้อนที่ไม่มีทางตรงเงื่อนไข (บทที่ 4 วัดได้ว่าอ่านเหลือ 2,072 จาก 600,000 แถว เมื่อข้อมูลเรียงตาม Column ที่กรอง) ส่วน Filter ยังอยู่เหนือ Scan เพื่อกรองแถวที่หลุดมา' },
+    { at: 9, name: 'ตัด Column', title: 'ColumnPruning: อ่านเฉพาะ Column ที่มีคนใช้', text: 'คำสั่งนี้ใช้แค่ cid, total และ status ส่วน id, address, notes จะไม่ถูกอ่านจากไฟล์ เพราะ Parquet เก็บข้อมูลเป็น Column จึงข้ามไปได้จริง' },
+    { at: 10.5, name: 'ผลลัพธ์', title: 'คำสั่งเดิม คำตอบเดิม แต่งานน้อยลงมาก', text: 'แถวที่เข้า Join ลดจาก 1,010,000 เป็น 210,000 และอ่าน Column แค่ 3 จาก 6 ผลลัพธ์ไม่เปลี่ยน เพราะ Catalyst ย้ายได้เฉพาะสิ่งที่ไม่ทำให้ความหมายเปลี่ยน' },
   ],
   en: [
     { at: 0, name: 'Original plan', title: 'The plan as written: join first, then filter', text: 'The big table with all 1,000,000 rows must enter the Join, and then 80% of it is thrown away by the filter. Every dot moving up is a row that must be sent, matched and kept in memory.' },
@@ -69,15 +69,15 @@ const MARKS: Record<Lang, Mark[]> = {
 
 const TEXT = {
   th: {
-    title: 'Optimizer ทำให้งานน้อยลงอย่างไร: ดูแถวไหลขึ้นตาม plan',
-    aria: 'แผนของ query ที่ Filter ถูกย้ายลงไปใต้ Join แล้ว Scan ตัด column',
+    title: 'Optimizer ทำให้งานน้อยลงได้อย่างไร ดูแถวไหลขึ้นตาม Plan',
+    aria: 'แผนของ Query ที่ Filter ถูกย้ายลงไปใต้ Join แล้ว Scan ตัด Column',
     fewer: 'น้อยลง',
-    colsRead: 'column ของ orders ที่ถูกอ่าน:',
+    colsRead: 'Column ของ orders ที่ถูกอ่าน:',
     rowsIn: 'แถวที่เข้า Join',
-    colsFrom: 'column ที่อ่านจาก orders',
+    colsFrom: 'Column ที่อ่านจาก orders',
     of: (a: number, b: number) => `${a} จาก ${b}`,
-    note: 'ตัวเลขจำนวนแถวเป็นสัดส่วนสมมติเพื่อดูภาพ รูปร่างการย้าย node คือสิ่งที่ Catalyst ทำจริง',
-    capBefore: 'จุดที่วิ่งขึ้นคือกลุ่มของแถว (1 จุด = 100,000 แถว) ชื่อ rule มาจาก Optimizer.scala ใน Spark 4.2.0 ส่วนการดูแผนจริงของ query ของคุณใช้ ',
+    note: 'ตัวเลขจำนวนแถวเป็นสัดส่วนสมมติเพื่อให้เห็นภาพ ส่วนการย้าย Node เป็นสิ่งที่ Catalyst ทำจริง',
+    capBefore: 'จุดที่วิ่งขึ้นไปคือกลุ่มของแถว (1 จุด = 100,000 แถว) ชื่อ Rule มาจาก Optimizer.scala ใน Spark 4.2.0 ส่วนถ้าอยากดูแผนจริงของ Query ของคุณ ให้ใช้ ',
   },
   en: {
     title: 'How the optimizer cuts the work: watch rows flow up the plan',

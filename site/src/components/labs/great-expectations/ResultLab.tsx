@@ -35,23 +35,23 @@ const TEXT: Record<Lang, {
   th: {
     scenarios: {
       ok: { label: 'ข้อมูลปกติ', note: 'ไม่มีอะไรผิด ทุกข้อควรผ่าน' },
-      null: { label: 'มี null', note: 'age และ name มี null อย่างละหนึ่งแถว' },
+      null: { label: 'มี Null', note: 'age และ name มี Null อย่างละหนึ่งแถว' },
       range: { label: 'ค่านอกช่วง', note: 'age = 400 อยู่นอก 0 ถึง 120' },
       empty: { label: 'ตารางว่าง', note: 'ไม่มีแถวเลย' },
-      allnull: { label: 'age เป็น null ทั้งหมด', note: 'ทุกแถวมี age เป็น null' },
+      allnull: { label: 'age เป็น Null ทั้งหมด', note: 'ทุกแถวมี age เป็น Null' },
     },
     vacuous: (n) => `ไม่มีแถวให้พิจารณา (element_count=${n}) จึงผ่านโดยปริยาย`,
     considered: (c, u) => `พิจารณา ${c} แถว ผิด ${u} แถว`,
     noRowsVacuous: 'ไม่มีแถว (element_count=0) จึงผ่านโดยปริยาย',
-    nulls: (n, total) => `null ${n} จาก ${total} แถว`,
+    nulls: (n, total) => `Null ${n} จาก ${total} แถว`,
     hasRows: (n) => `มี ${n} แถว`,
-    title: 'เปลี่ยนข้อมูลแล้วดูว่า expectation แต่ละข้อตัดสินอย่างไร',
+    title: 'เปลี่ยนข้อมูลแล้วดูว่า Expectation แต่ละข้อตัดสินอย่างไร',
     dataLabel: 'ข้อมูลที่ตรวจ',
-    addRowCount: 'เพิ่ม expectation จำนวนแถว',
+    addRowCount: 'เพิ่ม Expectation จำนวนแถว',
     noRows: '(ไม่มีแถว)',
     pass: 'ผ่าน',
     fail: 'ไม่ผ่าน',
-    suiteSuccess: 'success ของทั้ง suite:',
+    suiteSuccess: 'success ของทั้ง Suite:',
   },
   en: {
     scenarios: {
@@ -202,8 +202,8 @@ export default function ResultLab({ initial = 'ok', withRowCount = true, lang = 
           </>
         ) : (
           <>
-            ลองเลือก "ตารางว่าง": สองข้อแรกผ่านโดยไม่มีข้อมูลให้ตรวจเลย ติ๊ก "เพิ่ม expectation จำนวนแถว" จึงจะล้ม ส่วน "age เป็น null ทั้งหมด": ข้อ between ผ่านเพราะ null
-            ไม่ถูกนับว่าผิด มีแต่ <code>ExpectColumnValuesToNotBeNull</code> ที่จับได้ (ตรวจทุกกรณีกับ GX 1.24.1 จริง)
+            ลองเลือก "ตารางว่าง" ดู สองข้อแรกจะผ่านทั้งที่ไม่มีข้อมูลให้ตรวจเลย และต้องติ๊ก "เพิ่ม Expectation จำนวนแถว" จึงจะล้ม ส่วน "age เป็น Null ทั้งหมด" ข้อ between ผ่านเพราะ Null
+            ไม่ถูกนับว่าผิด จึงมีแค่ <code>ExpectColumnValuesToNotBeNull</code> ที่จับได้ (ตรวจทุกกรณีกับ GX 1.24.1 จริง)
           </>
         )}
       </p>

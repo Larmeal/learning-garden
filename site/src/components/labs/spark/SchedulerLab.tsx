@@ -24,13 +24,13 @@ const STAGES = [
 
 const STEPS: Record<Lang, StepInfo[]> = {
   th: [
-    { name: 'สร้าง lineage', title: 'transformation ต่อ RDD เป็นห่วงโซ่ ยังไม่เกิด job', text: 'แต่ละ RDD จำว่าตัวเองมาจาก RDD ไหนและด้วยการดำเนินการอะไร (dependencies) ยังไม่มีข้อมูลถูกคำนวณ (วัดจริง: job group ว่างจนกว่าจะเรียก collect)' },
-    { name: 'action', title: 'collect() เรียก SparkContext.runJob', text: 'action ส่ง RDD สุดท้ายให้ DAGScheduler ซึ่งสร้าง ResultStage สำหรับ RDD นี้ก่อน แล้วไล่ย้อนตาม dependency เพื่อหาว่าต้องมี stage อะไรก่อนหน้า' },
-    { name: 'ไล่ย้อน', title: 'เจอ ShuffleDependency: ตัดตรงนั้น', text: 'narrow dependency (map) อยู่ใน stage เดียวกัน เพราะแต่ละ partition ลูกอ่านจาก partition พ่อไม่กี่ตัว pipeline ได้ ส่วน ShuffleDependency คือขอบเขต: DAGScheduler สร้าง ShuffleMapStage ให้ฝั่งพ่อ แล้วทำซ้ำไปเรื่อยๆ' },
-    { name: '3 stage', title: 'ได้ 3 stage ที่ต้องรันตามลำดับ', text: 'Stage 0 และ 1 เป็น ShuffleMapStage (จบด้วยการเขียนไฟล์ shuffle) Stage 2 เป็น ResultStage วัดจริง: 3 stage ที่มี 4, 4, 4 task (PySpark join ของ RDD เป็น union ตามด้วย shuffle หนึ่งครั้ง จึงได้แค่ 2 stage)' },
-    { name: 'รัน stage 0', title: 'ส่ง Stage 0 เป็น TaskSet', text: 'stage ที่ไม่มีพ่อที่ยังขาด output ถูกส่งก่อน DAGScheduler ห่อ partition ที่ขาดเป็น TaskSet ส่งให้ TaskScheduler (TaskSetManager เลือก task ให้ executor ที่ว่าง) task ของ ShuffleMapStage ชื่อ ShuffleMapTask' },
-    { name: 'รัน stage 1', title: 'output ของ stage 0 พร้อมแล้ว: ส่ง Stage 1', text: 'เมื่อทุก task ของ stage 0 เสร็จ ผลที่เขียนไว้ถูกลงทะเบียนกับ MapOutputTracker ที่ driver stage 1 ที่ต้องการผลนั้นจึงส่งได้ task ของ stage 1 อ่านไฟล์ shuffle จากผู้เขียนทุกตัวตามที่ tracker บอกตำแหน่ง' },
-    { name: 'รัน stage 2', title: 'Stage สุดท้ายคืนผลให้ driver', text: 'ResultStage รัน ResultTask ที่คืนผลของแต่ละ partition ไปที่ driver ซึ่งประกอบเป็นผลของ collect ถ้า executor หายระหว่างทาง ไฟล์ shuffle หาย DAGScheduler จะส่ง stage พ่อที่ขาดใหม่ (stage attempt ถัดไป) แทนที่จะเริ่มทั้ง job' },
+    { name: 'สร้าง Lineage', title: 'Transformation ต่อ RDD เป็นห่วงโซ่ โดยยังไม่เกิด Job', text: 'แต่ละ RDD จะจำว่าตัวเองมาจาก RDD ไหนและผ่านการดำเนินการอะไร (Dependencies) ตอนนี้ยังไม่มีข้อมูลถูกคำนวณเลย (ตอนวัดจริง Job Group ว่างอยู่จนกว่าจะเรียก collect)' },
+    { name: 'Action', title: 'collect() เรียก SparkContext.runJob', text: 'Action จะส่ง RDD สุดท้ายให้ DAGScheduler ซึ่งสร้าง ResultStage สำหรับ RDD นี้ก่อน แล้วไล่ย้อนตาม Dependency เพื่อหาว่าต้องมี Stage อะไรมาก่อนหน้านี้บ้าง' },
+    { name: 'ไล่ย้อน', title: 'เจอ ShuffleDependency ก็ตัดตรงนั้น', text: 'Narrow Dependency (map) จะอยู่ใน Stage เดียวกัน เพราะ Partition ลูกแต่ละตัวอ่านจาก Partition พ่อแค่ไม่กี่ตัว จึง Pipeline ได้ ส่วน ShuffleDependency เป็นเส้นแบ่งขอบเขต DAGScheduler จะสร้าง ShuffleMapStage ให้ฝั่งพ่อ แล้วทำแบบเดิมซ้ำไปเรื่อย ๆ' },
+    { name: '3 Stage', title: 'ได้ 3 Stage ที่ต้องรันตามลำดับ', text: 'Stage 0 และ 1 เป็น ShuffleMapStage (จบด้วยการเขียนไฟล์ Shuffle) ส่วน Stage 2 เป็น ResultStage ตอนวัดจริงได้ 3 Stage ที่มี 4, 4, 4 Task (Join ของ RDD ใน PySpark เป็น union ตามด้วย Shuffle หนึ่งครั้ง จึงได้แค่ 2 Stage)' },
+    { name: 'รัน Stage 0', title: 'ส่ง Stage 0 เป็น TaskSet', text: 'Stage ที่ไม่มีพ่อซึ่งยังขาด Output จะถูกส่งก่อน โดย DAGScheduler จะห่อ Partition ที่ขาดเป็น TaskSet แล้วส่งให้ TaskScheduler (TaskSetManager เลือก Task ให้ Executor ที่ว่างอยู่) และ Task ของ ShuffleMapStage มีชื่อว่า ShuffleMapTask' },
+    { name: 'รัน Stage 1', title: 'Output ของ Stage 0 พร้อมแล้ว จึงส่ง Stage 1', text: 'เมื่อทุก Task ของ Stage 0 เสร็จ ผลที่เขียนไว้จะถูกลงทะเบียนกับ MapOutputTracker ที่ Driver ทำให้ Stage 1 ซึ่งต้องการผลนั้นส่งได้ จากนั้น Task ของ Stage 1 จะอ่านไฟล์ Shuffle จากผู้เขียนทุกตัวตามตำแหน่งที่ Tracker บอก' },
+    { name: 'รัน Stage 2', title: 'Stage สุดท้ายคืนผลให้ Driver', text: 'ResultStage จะรัน ResultTask ที่คืนผลของแต่ละ Partition ไปที่ Driver ซึ่งประกอบเป็นผลของ collect ถ้า Executor หายไประหว่างทางและไฟล์ Shuffle หายตามไปด้วย DAGScheduler จะส่ง Stage พ่อที่ขาดไปใหม่ (Stage Attempt ถัดไป) แทนที่จะเริ่มทั้ง Job ใหม่' },
   ],
   en: [
     { name: 'Build lineage', title: 'Transformations chain RDDs together, and no job exists yet', text: 'Each RDD remembers which RDD it came from and by what operation (its dependencies). No data has been computed yet (measured: the job group is empty until collect is called).' },
@@ -45,13 +45,13 @@ const STEPS: Record<Lang, StepInfo[]> = {
 
 const TEXT = {
   th: {
-    title: 'DAGScheduler ตัด job เป็น stage ตรง shuffle',
+    title: 'DAGScheduler ตัด Job เป็น Stage ตรง Shuffle',
     aria: (n: number, title: string) => `ขั้นที่ ${n}: ${title}`,
-    tasks: 'task ต่อ partition: ShuffleMapTask ที่เขียนไฟล์ shuffle (stage 0, 1) และ ResultTask ที่คืนผลให้ driver (stage 2)',
+    tasks: 'Task ต่อ Partition: ShuffleMapTask ที่เขียนไฟล์ Shuffle (stage 0, 1) และ ResultTask ที่คืนผลให้ Driver (stage 2)',
     n4: 'DAGScheduler -> TaskScheduler: TaskSet(stage 0, 4 tasks) -> executors',
-    n5: 'MapOutputTracker: shuffle 0 มี output ครบ 4 ตัว -> ส่ง stage 1',
+    n5: 'MapOutputTracker: shuffle 0 มี Output ครบ 4 ตัว -> ส่ง stage 1',
     n6: 'MapOutputTracker: shuffle 1 ครบ -> ส่ง ResultStage -> collect() ได้ผล',
-    status: 'สถานะ stage ตอนนี้: ',
+    status: 'สถานะ Stage ตอนนี้: ',
     done: 'เสร็จ',
     running: 'กำลังรัน',
     waiting: 'รอ',

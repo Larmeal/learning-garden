@@ -43,23 +43,23 @@ const TEXT: Record<Lang, {
   caption: string;
 }> = {
   th: {
-    skipped: 'ไม่ได้รัน เพราะ action ก่อนหน้า raise',
-    error: 'raise RuntimeError: ทำให้ Checkpoint.run() raise ออกไป',
-    docs: 'สร้างหน้า Data Docs ใหม่ (ทำก่อน action อื่นเสมอ)',
+    skipped: 'ไม่ได้รัน เพราะ Action ก่อนหน้า raise ออกมา',
+    error: 'raise RuntimeError จึงทำให้ Checkpoint.run() raise ออกไปด้วย',
+    docs: 'สร้างหน้า Data Docs ใหม่ โดยจะทำก่อน Action อื่นเสมอ',
     sent: (n) => `ส่งแจ้งเตือน (notify_on=${n})`,
     quiet: (n) => `รันแล้วแต่ไม่ส่ง (notify_on=${n} ไม่ตรงกับผล)`,
     custom: 'MyCustomAction (raise RuntimeError)',
-    title: 'หลัง checkpoint ตรวจเสร็จ action แต่ละตัวทำอะไร',
+    title: 'หลัง Checkpoint ตรวจเสร็จ Action แต่ละตัวทำอะไรบ้าง',
     outcomeLabel: 'ผลการตรวจ',
-    outcomes: [['pass', 'ผ่านทั้งหมด'], ['fail-critical', 'ล้ม (critical)'], ['fail-warning', 'ล้ม (warning)']],
+    outcomes: [['pass', 'ผ่านทั้งหมด'], ['fail-critical', 'ล้ม (Critical)'], ['fail-warning', 'ล้ม (Warning)']],
     hasDocs: 'มี UpdateDataDocsAction',
-    hasBoom: 'มี action ที่ raise',
+    hasBoom: 'มี Action ที่ raise',
     orderLabel: 'ลำดับที่ GX รันจริง',
     raised: 'Checkpoint.run() raise exception',
     returned: 'Checkpoint.run() คืน CheckpointResult',
-    crashedNote: 'แต่ผลการตรวจถูกเก็บลง store ไปแล้ว และ Data Docs (ถ้ามี) ถูกสร้างไปแล้ว ยืนยันด้วย 06_actions_docs.py ส่วน action ที่อยู่หลังตัวที่ error ไม่ถูกรันเลย',
-    passNote: 'ไม่มี exception และ .success เป็น True',
-    failNote: 'ไม่มี exception แม้ข้อมูลไม่ผ่าน .success เป็น False ผู้เรียกต้องตรวจเอง',
+    crashedNote: 'แต่ผลการตรวจถูกเก็บลง Store ไปแล้ว และ Data Docs (ถ้ามี) ก็ถูกสร้างไปแล้วเช่นกัน ซึ่งเรายืนยันด้วย 06_actions_docs.py ส่วน Action ที่อยู่หลังตัวที่ Error จะไม่ถูกรันเลย',
+    passNote: 'ไม่มี Exception และ .success เป็น True',
+    failNote: 'ไม่มี Exception แม้ข้อมูลจะไม่ผ่าน โดย .success จะเป็น False ซึ่งผู้เรียกต้องตรวจเอง',
     caption: 'เงื่อนไข notify_on เขียนตาม',
   },
   en: {
@@ -169,7 +169,7 @@ export default function ActionsLab({ lang = 'th' }: { lang?: Lang }) {
           </>
         ) : (
           <>
-            {t.caption} <code>should_notify()</code> ในซอร์ส และระดับ severity ใช้ได้เฉพาะเมื่อผลล้ม ส่วนลำดับกับพฤติกรรมเมื่อ action error ยืนยันด้วยการรัน
+            {t.caption} <code>should_notify()</code> ในซอร์ส และระดับ Severity ใช้ได้เฉพาะเมื่อผลล้ม ส่วนลำดับกับพฤติกรรมเมื่อ Action เกิด Error นั้นเรายืนยันด้วยการรัน
           </>
         )}
       </p>

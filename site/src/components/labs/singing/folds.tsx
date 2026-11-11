@@ -53,7 +53,7 @@ export function Coronal({ open, openTop, thick, width = 300, lang = 'th' }: { op
   const xr = (g: number) => r1(150 + g);
   const contact = Math.max(0, Math.min(th, th * (1 - Math.max(open, openTop)) * (open < 0.08 || openTop < 0.08 ? 1 : 0.3)));
   return (
-    <svg viewBox="0 0 300 220" role="img" aria-label={en ? 'Cross-section of the two vocal folds, the thickness changes with register' : 'ภาพตัดขวางของเส้นเสียงสองข้าง ความหนาเปลี่ยนตาม register'} style={{ width, height: h, maxWidth: '100%', minWidth: 0 }}>
+    <svg viewBox="0 0 300 220" role="img" aria-label={en ? 'Cross-section of the two vocal folds, the thickness changes with register' : 'ภาพตัดขวางของเส้นเสียงสองข้าง ความหนาเปลี่ยนตาม Register'} style={{ width, height: h, maxWidth: '100%', minWidth: 0 }}>
       <rect x="0" y="0" width="300" height="220" rx="14" fill="var(--surface)" stroke="var(--line)" />
       {/* the walls of the larynx */}
       <path d="M40,0 L40,100 C40,106 46,108 52,110" fill="none" stroke="var(--line-strong)" strokeWidth="2" />
