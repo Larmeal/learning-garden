@@ -1,6 +1,6 @@
 ---
 title: Execution model
-summary: โค้ดหนึ่งชุดกลายเป็น job, stage และ task จุดที่ต้อง shuffle คือรอยตัดระหว่าง stage ด่านใหญ่ที่สุดของการเรียน Spark
+summary: โค้ดหนึ่งชุดกลายเป็น Job, Stage และ Task ได้อย่างไร โดยจุดที่ต้อง Shuffle คือรอยตัดระหว่าง Stage ซึ่งเป็นด่านใหญ่ที่สุดของการเรียน Spark
 order: 5
 phase: B
 level: 4
@@ -13,63 +13,63 @@ import StageQuiz from '../../../../components/labs/spark/StageQuiz';
 import ShuffleFlowLab from '../../../../components/labs/spark/ShuffleFlowLab';
 import StragglerLab from '../../../../components/labs/spark/StragglerLab';
 
-บทนี้คือจุดที่คนใช้ Spark เป็นแยกออกจากคนที่เข้าใจว่ามันทำงานอย่างไร ถ้าเข้าใจบทนี้ การอ่าน `explain()` และ Spark UI การหาสาเหตุที่ job ช้า จะเริ่มเห็นภาพ
+บทนี้คือจุดที่แยกคนที่ใช้ Spark เป็นออกจากคนที่เข้าใจว่ามันทำงานอย่างไร ถ้าเราเข้าใจบทนี้แล้ว การอ่าน `explain()` และ Spark UI รวมถึงการหาสาเหตุที่ Job ช้า ก็จะเริ่มเห็นภาพขึ้นมา
 
 ## เป้าหมายของบทนี้
 
-- อธิบายความต่างของ job, stage และ task ได้
-- แยกได้ว่าคำสั่งไหนเป็น narrow และคำสั่งไหนเป็น wide (ต้อง shuffle)
-- ดูโค้ดสั้นๆ แล้วทายจำนวน stage ได้
-- เห็นว่า data skew เกิดจาก shuffle อย่างไร
+- อธิบายความต่างของ Job, Stage และ Task ได้
+- แยกได้ว่าคำสั่งไหนเป็น Narrow และคำสั่งไหนเป็น Wide (ต้อง Shuffle)
+- ดูโค้ดสั้น ๆ แล้วทายจำนวน Stage ได้
+- เห็นว่า Data Skew เกิดจาก Shuffle อย่างไร
 
 ## ศัพท์สามคำ
 
 | คำ | ความหมาย |
 |---|---|
-| **job** | งานที่เกิดขึ้นเมื่อคุณเรียก action หนึ่งครั้ง เช่น `write`, `count`, `show` |
-| **stage** | ชุดของ task ที่รันได้โดยไม่ต้องย้ายข้อมูลข้ามเครื่อง |
-| **task** | งานหนึ่งหน่วยที่ทำกับ partition หนึ่งก้อน ทุก task ใน stage เดียวกันทำงานเหมือนกันแต่กับข้อมูลคนละก้อน |
+| **Job** | งานที่เกิดขึ้นเมื่อคุณเรียก Action หนึ่งครั้ง เช่น `write`, `count`, `show` |
+| **Stage** | ชุดของ Task ที่รันได้โดยไม่ต้องย้ายข้อมูลข้ามคอมพิวเตอร์ |
+| **Task** | งานหนึ่งหน่วยที่ทำกับ Partition หนึ่งก้อน ทุก Task ใน Stage เดียวกันทำงานเหมือนกันแต่กับข้อมูลคนละก้อน |
 
-จำง่ายๆ ว่า action สร้าง job, shuffle ตัด job เป็น stage, partition ทำให้ stage แตกเป็น task
+ถ้าจะจำให้ง่าย ๆ ก็คือ Action สร้าง Job, Shuffle ตัด Job เป็น Stage และ Partition ทำให้ Stage แตกเป็น Task
 
 ## Narrow กับ Wide
 
-คำสั่งแบ่งเป็นสองประเภทตามว่าต้องใช้ข้อมูลจากหลาย partition ไหม
+คำสั่งแบ่งเป็นสองประเภทตามว่าต้องใช้ข้อมูลจากหลาย Partition หรือไม่
 
 | ประเภท | ลักษณะ | ตัวอย่าง |
 |---|---|---|
-| **narrow** | ผลของแต่ละ partition ได้จาก partition เดียว | `filter`, `select`, `withColumn`, `map` |
-| **wide** | ต้องเอาข้อมูลจากหลาย partition มารวมกัน จึงเกิด shuffle | `groupBy`, `join` (ปกติ), `distinct`, `orderBy`, `repartition` |
+| **Narrow** | ผลของแต่ละ Partition ได้จาก Partition เดียว | `filter`, `select`, `withColumn`, `map` |
+| **Wide** | ต้องเอาข้อมูลจากหลาย Partition มารวมกัน จึงเกิด Shuffle | `groupBy`, `join` (ปกติ), `distinct`, `orderBy`, `repartition` |
 
-คำสั่ง narrow ต่อกันกี่ตัวก็อยู่ใน stage เดียว พอเจอคำสั่ง wide จะเกิดรอยตัดและเริ่ม stage ใหม่
+คำสั่ง Narrow ต่อกันกี่ตัวก็ยังอยู่ใน Stage เดียว แต่พอเจอคำสั่ง Wide ก็จะเกิดรอยตัดและเริ่ม Stage ใหม่
 
 ## ดูมันทำงานทีละขั้น
 
-คราวนี้ดูทีละแถว จุดแต่ละจุดคือหนึ่งแถว สีคือ key กดเล่น หรือลาก slider ไปดูช่วงที่สนใจ ลองเปลี่ยนจำนวน map task แล้วดูว่าจำนวนช่องที่ reduce ต้องดึงเปลี่ยนตาม
+คราวนี้เราจะดูกันทีละแถว จุดแต่ละจุดคือหนึ่งแถว และสีคือ Key กดเล่นหรือลาก Slider ไปดูช่วงที่สนใจได้เลย ลองเปลี่ยนจำนวน Map Task แล้วดูว่าจำนวนช่องที่ Reduce ต้องดึงเปลี่ยนตามไปอย่างไร
 
 <ShuffleFlowLab client:visible />
 
-สิ่งที่ควรสังเกต
+มีสามอย่างที่น่าสังเกต
 
-- ใน stage 1 ไม่มีเส้นไขว้เลย แต่ละ task จบงานของตัวเองได้
-- ตอน shuffle ทุก task ต้องส่งข้อมูลให้ task ปลายทางหลายตัว เส้นจึงไขว้กัน
-- stage 2 เริ่มไม่ได้จนกว่า shuffle จะเสร็จทั้งหมด
+- ใน Stage 1 ไม่มีเส้นไขว้เลย เพราะแต่ละ Task จบงานของตัวเองได้
+- ตอน Shuffle ทุก Task ต้องส่งข้อมูลให้ Task ปลายทางหลายตัว เส้นจึงไขว้กัน
+- Stage 2 จะเริ่มไม่ได้จนกว่า Shuffle จะเสร็จทั้งหมด
 
 ## ทำไม Shuffle ถึงแพง
 
-ข้อมูลที่ต้อง shuffle จะถูกเขียนลง disk ฝั่งผู้ส่ง แล้วฝั่งผู้รับต้องดึงผ่านเครือข่ายมาอ่าน ทั้งสองฝั่งต้องแปลงข้อมูลเป็นไบต์และกลับมาเป็นข้อมูล เมื่อเทียบกับ narrow ที่ทำกับข้อมูลใน memory ของตัวเองได้เลย ต้นทุนต่างกันมาก
+ข้อมูลที่ต้อง Shuffle จะถูกเขียนลง Disk ฝั่งผู้ส่ง แล้วฝั่งผู้รับต้องดึงผ่านเครือข่ายมาอ่าน โดยทั้งสองฝั่งต้องแปลงข้อมูลเป็นไบต์และแปลงกลับมาเป็นข้อมูลอีกที ส่วน Narrow ทำกับข้อมูลใน Memory ของตัวเองได้เลย ต้นทุนของสองแบบจึงต่างกันมาก
 
-เพราะอย่างนี้ เมื่อพูดถึงการทำให้ Spark เร็ว คำถามแรกที่ควรถามคือ shuffle กี่ครั้ง และแต่ละครั้งส่งข้อมูลเท่าไร
+ด้วยเหตุนี้ เวลาพูดถึงการทำให้ Spark เร็ว คำถามแรกที่ควรถามคือ Shuffle กี่ครั้ง และแต่ละครั้งส่งข้อมูลเท่าไร
 
 ## เมื่อ Shuffle ไม่สมดุล: Data Skew
 
-Shuffle ส่ง key เดียวกันไปที่ task เดียวกัน ถ้า key หนึ่งมีข้อมูลมากผิดปกติ task นั้นจะทำงานนานกว่าตัวอื่นมาก และทั้ง stage ต้องรอตัวที่ช้าที่สุด
+Shuffle ส่ง Key เดียวกันไปที่ Task เดียวกัน ถ้า Key หนึ่งมีข้อมูลมากผิดปกติ Task นั้นจะทำงานนานกว่าตัวอื่นมาก และทั้ง Stage ก็ต้องรอตัวที่ช้าที่สุด
 
-ภาพนี้เป็นไทม์ไลน์ของ task บน 4 core กดสลับระหว่างข้อมูลกระจายเท่ากัน ข้อมูล skew (วัดจริง) และหลังเติม salt แล้วดูว่า core ที่ว่างช่วยอะไรไม่ได้
+ภาพนี้เป็นไทม์ไลน์ของ Task บน 4 Core ลองกดสลับระหว่างข้อมูลกระจายเท่ากัน ข้อมูล Skew (วัดจริง) และหลังเติม Salt แล้วดูว่า Core ที่ว่างช่วยอะไรไม่ได้
 
 <StragglerLab client:visible />
 
-เครื่องที่ว่างอยู่ช่วยอะไรไม่ได้ เพราะ key ก้อนนั้นต้องถูกประมวลผลโดย task เดียว เทคนิคแก้ เช่น salting และการเปิด AQE จะอยู่ใน[บทที่ 7](/spark/performance-tuning/#data-skew-และ-salting)
+Core ที่ว่างอยู่ช่วยอะไรไม่ได้ เพราะ Key ก้อนนั้นต้องถูกประมวลผลโดย Task เดียว ส่วนเทคนิคแก้ เช่น Salting และการเปิด AQE จะอยู่ใน[บทที่ 7](/spark/performance-tuning/#data-skew-และ-salting)
 
 ## ทดสอบความเข้าใจ
 
@@ -77,7 +77,7 @@ Shuffle ส่ง key เดียวกันไปที่ task เดีย�
 
 ## ลองทำใน Repo นี้
 
-สร้างไฟล์ที่ root ของโปรเจกต์ (ข้างๆ `main.py`) เช่น `shuffle_lab.py`
+ให้สร้างไฟล์ที่ Root ของโปรเจกต์ (ข้าง ๆ `main.py`) เช่น `shuffle_lab.py`
 
 ```python
 from spark_session import get_spark
@@ -96,20 +96,20 @@ spark.stop()
 
 รันด้วย `uv run python shuffle_lab.py`
 
-สิ่งที่ควรเห็นและควรตอบให้ได้
+พอรันแล้วลองดูสามเรื่องนี้ และพยายามตอบให้ได้
 
-1. ในผลของ `explain()` มีบรรทัด `Exchange hashpartitioning(...)` นั่นคือ shuffle ลองลบ `groupBy` ออกแล้วรันใหม่ ว่าบรรทัดนี้หายไปไหม
-2. ใน Spark UI แท็บ Stages job นี้แตกเป็นกี่ stage ตรงกับที่ทายไหม
-3. จำนวน partition หลัง shuffle คือเท่าไร ค่าเริ่มต้นของ `spark.sql.shuffle.partitions` คือ 200 แต่ AQE รวม partition เล็กให้ตอนรัน บนเครื่อง 16 core ที่ใช้ทดสอบ ผลของ `groupBy` ข้อมูลเล็กมี **1 partition** เมื่อเปิด AQE และ **200** เมื่อปิด (`spark.sql.adaptive.enabled=false`) ถ้าเปิด AQE `explain()` ก่อนรันจะขึ้นต้นด้วย `AdaptiveSparkPlan isFinalPlan=false` ซึ่ง[บทที่ 6](/spark/catalyst-aqe/#เปิดอยู่แล้ว-adaptivesparkplan) อธิบายให้
+1. ในผลของ `explain()` มีบรรทัด `Exchange hashpartitioning(...)` ซึ่งก็คือ Shuffle ลองลบ `groupBy` ออกแล้วรันใหม่ดูว่าบรรทัดนี้หายไปไหม
+2. ใน Spark UI แท็บ Stages Job นี้แตกเป็นกี่ Stage และตรงกับที่ทายไว้หรือเปล่า
+3. จำนวน Partition หลัง Shuffle คือเท่าไร ค่าเริ่มต้นของ `spark.sql.shuffle.partitions` คือ 200 แต่ AQE จะรวม Partition เล็กให้ตอนรัน บนคอมพิวเตอร์ 16 Core ที่ใช้ทดสอบ ผลของ `groupBy` ข้อมูลเล็กมี **1 Partition** เมื่อเปิด AQE และ **200** เมื่อปิด (`spark.sql.adaptive.enabled=false`) ถ้าเปิด AQE `explain()` ก่อนรันจะขึ้นต้นด้วย `AdaptiveSparkPlan isFinalPlan=false` ซึ่ง[บทที่ 6](/spark/catalyst-aqe/#เปิดอยู่แล้ว-adaptivesparkplan) อธิบายไว้
 
 ## เช็กตัวเอง
 
-- ดูโค้ดสามบรรทัดแล้วบอกได้ไหมว่ามีกี่ stage เพราะอะไร
-- ถ้า job ช้า จะดูที่ไหนเป็นอย่างแรกเพื่อรู้ว่าติดที่ shuffle
-- `repartition(10)` เป็น narrow หรือ wide เพราะอะไร
+- ดูโค้ดสามบรรทัดแล้วบอกได้ไหมว่ามีกี่ Stage เพราะอะไร
+- ถ้า Job ช้า จะดูที่ไหนเป็นอย่างแรกเพื่อรู้ว่าติดที่ Shuffle
+- `repartition(10)` เป็น Narrow หรือ Wide เพราะอะไร
 
 ## ต่อไป
 
-- [Execution model แบบเจาะลึก](/spark/execution-model/in-depth/): คำสั่งไหน shuffle (วัดทุกตัว) จำนวน stage คือ Exchange บวกหนึ่ง และตัวเลข task กับไบต์ของ shuffle
-- [บทที่ 6](/spark/catalyst-aqe/) (Catalyst และ AQE): Spark ปรับแผนให้เองอย่างไร และอ่านแผนเป็น
-- [บทที่ 7](/spark/performance-tuning/) (Performance tuning): เมื่อรู้ว่าติดที่ shuffle แล้ว จะลดหรือจัดการมันอย่างไร
+- [Execution Model แบบเจาะลึก](/spark/execution-model/in-depth/) ดูว่าคำสั่งไหน Shuffle บ้าง (วัดทุกตัว) จำนวน Stage คือ Exchange บวกหนึ่ง รวมถึงตัวเลข Task กับไบต์ของ Shuffle
+- [บทที่ 6](/spark/catalyst-aqe/) (Catalyst และ AQE) เล่าว่า Spark ปรับแผนให้เองอย่างไร และเราจะอ่านแผนเป็นได้อย่างไร
+- [บทที่ 7](/spark/performance-tuning/) (Performance Tuning) ว่าด้วยเรื่องที่ว่าเมื่อรู้แล้วว่าติดที่ Shuffle เราจะลดหรือจัดการมันได้อย่างไร

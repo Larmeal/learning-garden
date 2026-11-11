@@ -1,6 +1,6 @@
 ---
 title: Table format (Delta / Iceberg / Hudi)
-summary: ไฟล์ Parquet อย่างเดียวไม่มี transaction, schema check หรือ history Table format เพิ่ม log ที่ชี้ไปหาไฟล์ ทำให้ได้ ACID และ time travel บทนี้รัน Delta Lake จริงบน Spark 4.2.0 ดู log ทีละ commit แล้วเทียบกับ Iceberg และ Hudi
+summary: ไฟล์ Parquet อย่างเดียวไม่มี Transaction, Schema Check หรือ History แต่ Table Format จะเพิ่ม Log ที่ชี้ไปหาไฟล์ ทำให้เราได้ ACID และ Time Travel ในบทนี้เรารัน Delta Lake จริงบน Spark 4.2.0 ดู Log ทีละ Commit แล้วเทียบกับ Iceberg และ Hudi
 order: 10
 phase: D
 level: 3
@@ -18,9 +18,9 @@ import TableLogLab from '../../../../components/labs/spark/TableLogLab';
 
 ## ปัญหาของ "โฟลเดอร์ที่เต็มไปด้วย Parquet"
 
-data lake แบบเดิมคือโฟลเดอร์ของไฟล์ Parquet ที่ Spark อ่านและเขียน ใช้ได้ดีจนกว่าจะเจอเรื่องเหล่านี้ ซึ่งทดลองให้เห็นจริงด้วย Spark 4.2.0
+Data Lake แบบเดิมก็คือโฟลเดอร์ของไฟล์ Parquet ที่ Spark อ่านและเขียน ซึ่งใช้ได้ดีจนกว่าจะเจอเรื่องเหล่านี้ โดยเราทดลองให้เห็นจริงด้วย Spark 4.2.0
 
-**1. ไม่มีใครตรวจ schema** เขียน Parquet เพิ่มด้วย DataFrame ที่มี column เกินมา Spark ไม่บ่น แต่ตอนอ่าน ผลขึ้นกับไฟล์ที่ Spark เลือกอ่าน schema (วัดจริง: ส่วนใหญ่อ่านแล้ว column `extra` หายไป แต่รันซ้ำบางครั้งได้ `['id', 'extra']` เพราะไฟล์ที่ถูกเลือกไม่คงที่ จึงต้องใส่ `mergeSchema` ถ้าต้องการผลที่แน่นอน)
+**1. ไม่มีใครตรวจ Schema** ถ้าเราเขียน Parquet เพิ่มด้วย DataFrame ที่มี Column เกินมา Spark จะไม่บ่นอะไร แต่ตอนอ่าน ผลจะขึ้นกับไฟล์ที่ Spark เลือกอ่าน Schema (วัดจริง: ส่วนใหญ่อ่านแล้ว Column `extra` หายไป แต่รันซ้ำบางครั้งได้ `['id', 'extra']` เพราะไฟล์ที่ถูกเลือกไม่คงที่ จึงต้องใส่ `mergeSchema` ถ้าต้องการผลที่แน่นอน)
 
 ```python
 spark.range(3).write.parquet(p)
@@ -29,16 +29,16 @@ spark.read.parquet(p).columns                                                  #
 spark.read.option("mergeSchema", "true").parquet(p).columns                    # ['id', 'extra']
 ```
 
-**2. แก้แถวเดียวไม่ได้** ไฟล์ Parquet เป็น immutable ถ้าอยากแก้ต้องเขียนไฟล์ใหม่และลบไฟล์เก่าเอง ซึ่งไม่ใช่การกระทำเดียว: ถ้าล่มกลางทางจะเหลือทั้งสองชุดหรือไม่เหลือเลย
+**2. แก้แถวเดียวไม่ได้** ไฟล์ Parquet เป็น Immutable ถ้าอยากแก้ เราต้องเขียนไฟล์ใหม่และลบไฟล์เก่าเอง ซึ่งไม่ได้เป็นการกระทำเดียว ถ้าล่มกลางทางจะเหลือทั้งสองชุดหรือไม่เหลือเลย
 
-**3. ผู้อ่านเห็นของที่ไม่สมบูรณ์** ระหว่างที่ job เขียนไฟล์หลายไฟล์ ผู้อ่านอีกคนอาจเห็นไฟล์บางส่วน
+**3. ผู้อ่านเห็นของที่ไม่สมบูรณ์** ระหว่างที่ Job เขียนไฟล์หลายไฟล์ ผู้อ่านอีกคนอาจเห็นไฟล์แค่บางส่วน
 
-**4. ไม่มี history** เขียนทับแล้วของเก่าหาย
+**4. ไม่มี History** เมื่อเขียนทับแล้ว ของเก่าจะหายไป
 
-**table format** แก้ทั้งหมดนี้ด้วยแนวคิดเดียว: เก็บ **log ของการเปลี่ยนแปลง** ไว้ข้างไฟล์ข้อมูล และนิยามว่า "ตารางตอนนี้" คือผลของการเล่น log ไฟล์ Parquet ยังเป็นข้อมูลเหมือนเดิม แต่ log เป็นเจ้าของคำตอบว่าไฟล์ไหนอยู่ในตาราง
+**Table Format** แก้ปัญหาทั้งหมดนี้ด้วยแนวคิดเดียว คือเก็บ **Log ของการเปลี่ยนแปลง** ไว้ข้างไฟล์ข้อมูล และนิยามว่า "ตารางตอนนี้" คือผลของการเล่น Log ไฟล์ Parquet ยังเป็นข้อมูลเหมือนเดิม แต่ Log จะเป็นเจ้าของคำตอบว่าไฟล์ไหนอยู่ในตาราง
 
 <Callout type="warn" title="ตัวอย่างบทนี้รันใน WSL และต้องมีเน็ตครั้งแรก">
-Hadoop เขียนไฟล์บน Windows ไม่ได้เพราะไม่มี `hadoop.dll` (ดู[บทที่ 9](/spark/structured-streaming/#streaming-คือ-dataframe-ที่ไม่มีวันจบ)) ตัวอย่างจึงรันด้วย `run_wsl.sh` และดาวน์โหลด jar ของ Delta จาก Maven Central มาเก็บใน `~/.ivy2` เมื่อรันครั้งแรก เครื่อง Linux หรือ macOS รันได้ตรงๆ
+Hadoop เขียนไฟล์บน Windows ไม่ได้เพราะไม่มี `hadoop.dll` (ดู[บทที่ 9](/spark/structured-streaming/#streaming-คือ-dataframe-ที่ไม่มีวันจบ)) ตัวอย่างจึงรันด้วย `run_wsl.sh` และตอนรันครั้งแรกจะดาวน์โหลด Jar ของ Delta จาก Maven Central มาเก็บใน `~/.ivy2` ส่วนคอมพิวเตอร์ที่ใช้ Linux หรือ macOS ก็รันได้ตรง ๆ
 </Callout>
 
 </Step>
@@ -47,7 +47,7 @@ Hadoop เขียนไฟล์บน Windows ไม่ได้เพรา�
 
 ## ผ่า Delta Table ดู
 
-เขียนตาราง 100 แถวใน 4 ไฟล์ด้วย `write.format("delta")` โฟลเดอร์ที่ได้มีไฟล์ Parquet 4 ไฟล์กับโฟลเดอร์ `_delta_log/` (รัน: `exercises/10_table_formats.py`)
+เราลองเขียนตาราง 100 แถวใน 4 ไฟล์ด้วย `write.format("delta")` จะได้โฟลเดอร์ที่มีไฟล์ Parquet 4 ไฟล์ กับโฟลเดอร์ `_delta_log/` (รัน: `exercises/10_table_formats.py`)
 
 ```
 t/
@@ -56,25 +56,25 @@ t/
     00000000000000000000.json
 ```
 
-ไฟล์ `00000000000000000000.json` คือ commit หมายเลข 0 บรรทัดละหนึ่ง **action**
+ไฟล์ `00000000000000000000.json` คือ Commit หมายเลข 0 โดยแต่ละบรรทัดคือหนึ่ง **Action**
 
-| action | ความหมาย |
+| Action | ความหมาย |
 |---|---|
 | `commitInfo` | ใครทำอะไรเมื่อไร (เช่น WRITE, UPDATE) |
 | `metaData` | schema, partition column, config |
-| `protocol` | เวอร์ชัน reader และ writer ที่ต้องมี |
-| `add` | ไฟล์นี้ **เข้า** ตาราง: path, ขนาด และ **สถิติ** |
+| `protocol` | เวอร์ชัน Reader และ Writer ที่ต้องมี |
+| `add` | ไฟล์นี้ **เข้า** ตาราง พร้อม Path, ขนาด และ **สถิติ** |
 | `remove` | ไฟล์นี้ **ออก** จากตาราง |
 
 `add` มีสถิติของแต่ละไฟล์ เช่น `{"numRecords":25,"minValues":{"id":0},"maxValues":{"id":24},"nullCount":{"id":0}}` ซึ่งใช้ข้ามไฟล์ตอนอ่าน (ดูหัวข้อ Performance)
 
-**ตารางตอน version N = ไฟล์ที่ `add` และยังไม่ถูก `remove` ในการเล่น commit 0 ถึง N** ลองกดทีละ commit
+**ตารางตอน Version N = ไฟล์ที่ `add` และยังไม่ถูก `remove` ในการเล่น Commit 0 ถึง N** ลองกดดูทีละ Commit นะ
 
 <TableLogLab client:visible />
 
-ข้อสำคัญที่ภาพบอก: **ไม่มีไฟล์ไหนถูกแก้ที่เดิม** `UPDATE` เขียนไฟล์ใหม่ที่มีค่าที่แก้แล้ว แล้ว commit ว่า "เอาไฟล์เก่าออก ใส่ไฟล์ใหม่เข้า" แบบนี้เรียกว่า **copy-on-write** วัดจริง: commit 1 ของ `UPDATE` มี action `commitInfo`, `add`, `remove` และไฟล์เก่ายังอยู่บน disk
+สิ่งสำคัญที่ภาพนี้บอกคือ **ไม่มีไฟล์ไหนถูกแก้ที่เดิม** `UPDATE` จะเขียนไฟล์ใหม่ที่มีค่าที่แก้แล้ว แล้ว Commit ว่า "เอาไฟล์เก่าออก ใส่ไฟล์ใหม่เข้า" ซึ่งเรียกว่า **Copy-on-write** วัดจริงแล้ว Commit 1 ของ `UPDATE` มี Action `commitInfo`, `add`, `remove` และไฟล์เก่ายังอยู่บน Disk
 
-พิสูจน์ว่าทำไมต้องมี log: ถ้าอ่านโฟลเดอร์นี้ด้วย `spark.read.parquet(path)` หลัง `UPDATE` จะได้ **125 แถว** (ไฟล์เก่า 100 แถวบวกไฟล์ที่เขียนใหม่ 25 แถว) แต่อ่านผ่าน Delta ได้ **100 แถว** ถูกต้อง เพราะ Delta อ่านเฉพาะไฟล์ที่ log บอก
+ลองพิสูจน์ดูว่าทำไมต้องมี Log ถ้าเราอ่านโฟลเดอร์นี้ด้วย `spark.read.parquet(path)` หลัง `UPDATE` จะได้ **125 แถว** (ไฟล์เก่า 100 แถวบวกไฟล์ที่เขียนใหม่ 25 แถว) แต่ถ้าอ่านผ่าน Delta จะได้ **100 แถว** ซึ่งถูกต้อง เพราะ Delta อ่านเฉพาะไฟล์ที่ Log บอก
 
 </Step>
 
@@ -82,16 +82,16 @@ t/
 
 ## ACID ได้อย่างไรกับไฟล์ธรรมดา
 
-ตัวย่อ ACID แปลเป็นสิ่งที่ log ให้ได้ดังนี้
+ตัวย่อ ACID ทั้งสี่ตัว Log ให้เราได้ดังนี้
 
-- **Atomicity**: การเปลี่ยนแปลงทั้งชุด (หลาย `add` และ `remove`) อยู่ใน commit file เดียว commit มีผลเมื่อไฟล์ `N.json` ถูกสร้างสำเร็จ ถ้าล่มก่อนนั้น ไม่มี version ใหม่ ไฟล์ Parquet ที่เขียนไว้เป็นแค่ไฟล์เด็กกำพร้า ผู้อ่านไม่เห็น
-- **Isolation**: ผู้อ่านเลือก version หนึ่งแล้วเล่น log ถึง version นั้น เห็นภาพนิ่ง ไม่เห็นผลของ writer ที่ยังไม่เสร็จ
-- **Consistency**: ตรวจ schema ก่อน commit (ดูหัวข้อ Schema)
-- **Durability**: log และไฟล์อยู่ใน storage ที่ทนทาน (ถ้า object store รับประกันการสร้างไฟล์แบบ atomic)
+- **Atomicity** การเปลี่ยนแปลงทั้งชุด (หลาย `add` และ `remove`) อยู่ใน Commit File เดียว และ Commit จะมีผลเมื่อไฟล์ `N.json` ถูกสร้างสำเร็จ ถ้าล่มก่อนหน้านั้นก็จะไม่มี Version ใหม่ ไฟล์ Parquet ที่เขียนไว้ก็เป็นแค่ไฟล์เด็กกำพร้าที่ผู้อ่านมองไม่เห็น
+- **Isolation** ผู้อ่านเลือก Version หนึ่งแล้วเล่น Log ถึง Version นั้น จึงเห็นเป็นภาพนิ่ง และไม่เห็นผลของ Writer ที่ยังไม่เสร็จ
+- **Consistency** จะตรวจ Schema ก่อน Commit (ดูหัวข้อ Schema)
+- **Durability** Log และไฟล์ถูกเก็บอยู่ใน Storage ที่ทนทาน (ถ้า Object Store รับประกันการสร้างไฟล์แบบ Atomic)
 
-เมื่อมี writer สองคนพร้อมกัน Delta ใช้ **optimistic concurrency**: ต่างคนต่างอ่าน version ปัจจุบัน ทำงาน แล้วพยายามสร้างไฟล์ version ถัดไป คนที่สร้างได้ก่อนชนะ คนที่ช้ากว่าต้องตรวจว่างานของตัวเองชนกับที่อีกคน commit ไปหรือไม่ ถ้าชนก็ล้มเหลว
+เมื่อมี Writer สองคนพร้อมกัน Delta ใช้ **Optimistic Concurrency** คือต่างคนต่างอ่าน Version ปัจจุบัน ทำงาน แล้วพยายามสร้างไฟล์ Version ถัดไป คนที่สร้างได้ก่อนจะชนะ ส่วนคนที่ช้ากว่าต้องตรวจว่างานของตัวเองชนกับที่อีกคน Commit ไปหรือไม่ ถ้าชนก็ล้มเหลว
 
-ทดลองจริงด้วยสอง thread ที่ `UPDATE` คนละแถวแต่อยู่ในไฟล์เดียวกัน (ไฟล์เดียว 3 ล้านแถว) พร้อมกัน
+เราทดลองจริงด้วยสอง Thread ที่ `UPDATE` คนละแถวแต่อยู่ในไฟล์เดียวกัน (ไฟล์เดียว 3 ล้านแถว) พร้อมกัน
 
 ```
 {'A': 'ok', 'B': 'ConcurrentAppendException'}     # ผลที่ได้
@@ -99,7 +99,7 @@ log มี 2 version: 0 (เขียนตาราง) กับ 1 (งาน�
 แถวที่ถูกแก้: 1                                    # ตรงกับ A เท่านั้น
 ```
 
-B ได้ `[DELTA_CONCURRENT_APPEND] Transaction conflict detected` เพราะไฟล์ที่ B อ่านถูก A เปลี่ยนไปแล้ว นี่คือเหตุที่ log เป็น "ต้นฉบับของความจริง": ผลคือไม่มีการเขียนทับกันเงียบๆ ผู้ใช้ต้องลองใหม่ (retry) เอง การทดลองนี้ขึ้นกับจังหวะเวลา สคริปต์จึงลองได้สูงสุด 3 รอบแล้วยืนยันว่าอย่างน้อยหนึ่งรอบเกิดการชน
+B ได้ `[DELTA_CONCURRENT_APPEND] Transaction conflict detected` เพราะไฟล์ที่ B อ่านถูก A เปลี่ยนไปแล้ว นี่คือเหตุที่ Log เป็น "ต้นฉบับของความจริง" เพราะจะไม่มีการเขียนทับกันเงียบ ๆ และผู้ใช้ต้องลองใหม่ (Retry) เอง การทดลองนี้ขึ้นกับจังหวะเวลา สคริปต์จึงลองได้สูงสุด 3 รอบ แล้วยืนยันว่าอย่างน้อยหนึ่งรอบเกิดการชน
 
 </Step>
 
@@ -107,16 +107,16 @@ B ได้ `[DELTA_CONCURRENT_APPEND] Transaction conflict detected` เพร�
 
 ## Time Travel และราคาที่ต้องจ่าย
 
-เพราะแต่ละ version คือชุดไฟล์ที่ log บอก การย้อนดู version เก่าจึงทำได้ตราบที่ไฟล์เก่ายังอยู่
+เพราะแต่ละ Version คือชุดไฟล์ที่ Log บอก การย้อนดู Version เก่าจึงทำได้ตราบที่ไฟล์เก่ายังอยู่
 
 ```python
 spark.read.format("delta").option("versionAsOf", 0).load(p)
 spark.sql("DESCRIBE HISTORY delta.`/path`")      # (3, MERGE) (2, DELETE) (1, UPDATE) (0, WRITE)
 ```
 
-วัดจริง: จำนวนแถวที่ version 0 ถึง 3 คือ 100, 100, 90, 90 และ `id = 5` ที่ version 0 มี `g = 0` ส่วนปัจจุบันเป็น `g = 7`
+วัดจริงแล้ว จำนวนแถวที่ Version 0 ถึง 3 คือ 100, 100, 90, 90 และ `id = 5` ที่ Version 0 มี `g = 0` ส่วนปัจจุบันเป็น `g = 7`
 
-แต่ไฟล์ที่ถูก `remove` ไม่หายไปเอง ใช้ที่เรื่อยๆ จึงมี `VACUUM` ลบไฟล์ที่ log ไม่อ้างถึงและเก่ากว่า retention (ค่าเริ่มต้น 7 วัน) เมื่อ vacuum แล้ว version เก่าที่ต้องใช้ไฟล์เหล่านั้น **อ่านไม่ได้อีก** วัดจริง: ตั้ง `RETAIN 0 HOURS` (ต้องปิด `retentionDurationCheck` ซึ่งปกติกันไม่ให้ทำ) จำนวนไฟล์บน disk จาก 11 เหลือ 1 และ `versionAsOf = 0` ได้ `FILE_NOT_EXIST` ตัวเลือกจึงเป็นการแลกกัน: เก็บ history นานเท่าไหร่ ต่อพื้นที่ที่เสียไป
+แต่ไฟล์ที่ถูก `remove` ไม่ได้หายไปเอง ถ้าปล่อยไว้ก็จะกินที่ไปเรื่อย ๆ จึงมี `VACUUM` ที่ลบไฟล์ที่ Log ไม่อ้างถึงและเก่ากว่า Retention (ค่าเริ่มต้น 7 วัน) และเมื่อ Vacuum แล้ว Version เก่าที่ต้องใช้ไฟล์เหล่านั้นจะ **อ่านไม่ได้อีก** วัดจริงแล้วเมื่อตั้ง `RETAIN 0 HOURS` (ต้องปิด `retentionDurationCheck` ซึ่งปกติกันไม่ให้ทำ) จำนวนไฟล์บน Disk จาก 11 เหลือ 1 และ `versionAsOf = 0` ได้ `FILE_NOT_EXIST` ดังนั้นจึงเป็นการแลกกันระหว่างว่าจะเก็บ History นานเท่าไหร่ กับพื้นที่ที่เสียไป
 
 </Step>
 
@@ -124,15 +124,15 @@ spark.sql("DESCRIBE HISTORY delta.`/path`")      # (3, MERGE) (2, DELETE) (1, UP
 
 ## Schema: ตรวจก่อนเขียน
 
-วัดจริงบนตารางที่มี `g` เป็น bigint
+ผลที่วัดจริงบนตารางที่มี `g` เป็น Bigint มีดังนี้
 
 | เขียนอะไรเพิ่ม | ผลลัพธ์ |
 |---|---|
-| `g` เป็น string | `AnalysisException: [DELTA_FAILED_TO_MERGE_FIELDS]` |
-| มี column `extra` เพิ่ม | `AnalysisException: [DELTA_METADATA_MISMATCH]` |
-| มี column `extra` และ `option("mergeSchema", "true")` | สำเร็จ schema กลายเป็น `id, g, extra` |
+| `g` เป็น String | `AnalysisException: [DELTA_FAILED_TO_MERGE_FIELDS]` |
+| มี Column `extra` เพิ่ม | `AnalysisException: [DELTA_METADATA_MISMATCH]` |
+| มี Column `extra` และ `option("mergeSchema", "true")` | สำเร็จ Schema กลายเป็น `id, g, extra` |
 
-เทียบกับ Parquet เปล่าๆ ที่ยอมรับทุกอย่างเงียบๆ การเปลี่ยน schema ในตารางเป็นการตัดสินใจที่ต้องบอกชัด (`mergeSchema`) และถูกบันทึกใน `metaData` ของ commit ถัดไป
+เมื่อเทียบกับ Parquet เปล่า ๆ ที่ยอมรับทุกอย่างเงียบ ๆ การเปลี่ยน Schema ในตารางเป็นการตัดสินใจที่เราต้องบอกให้ชัด (`mergeSchema`) และจะถูกบันทึกใน `metaData` ของ Commit ถัดไป
 
 </Step>
 
@@ -140,11 +140,11 @@ spark.sql("DESCRIBE HISTORY delta.`/path`")      # (3, MERGE) (2, DELETE) (1, UP
 
 ## Performance: Log ให้ของแถม
 
-ข้อมูลที่เก็บใน log ช่วยอ่านเร็วขึ้น
+ข้อมูลที่เก็บใน Log ยังช่วยให้อ่านเร็วขึ้นด้วย
 
-- **Data skipping**: สถิติ `min` และ `max` ใน `add` ทำให้ข้ามไฟล์ที่ไม่มีทางมีแถวที่ต้องการ วัดจริง: ตาราง 4 ไฟล์ (id 0 ถึง 99) ที่ `where("id > 95")` อ่านแค่ **1 ไฟล์**
-- **`OPTIMIZE`** รวมไฟล์เล็กเป็นไฟล์ใหญ่ วัดจริง: ตารางที่ผ่าน `UPDATE`, `DELETE`, `MERGE` มี 7 ไฟล์ หลัง `OPTIMIZE` เหลือ 1 (ไฟล์เก่ายังอยู่จนกว่าจะ `VACUUM`)
-- **Checkpoint**: ถ้าต้องเล่น log ตั้งแต่ commit 0 ทุกครั้ง ตารางที่มีล้าน commit จะอ่านช้า Delta จึงเขียน checkpoint (ไฟล์ Parquet ที่สรุปสถานะ) ทุก 10 commit วัดจริง: หลัง 12 commit มี `00000000000000000010.checkpoint.parquet` และ `_last_checkpoint` ผู้อ่านเริ่มจาก checkpoint ล่าสุดแล้วเล่นเฉพาะส่วนที่ตามมา
+- **Data Skipping** สถิติ `min` และ `max` ใน `add` ทำให้ข้ามไฟล์ที่ไม่มีทางมีแถวที่ต้องการได้ วัดจริงแล้ว ตาราง 4 ไฟล์ (id 0 ถึง 99) ที่ `where("id > 95")` อ่านแค่ **1 ไฟล์**
+- **`OPTIMIZE`** รวมไฟล์เล็กเป็นไฟล์ใหญ่ วัดจริงแล้ว ตารางที่ผ่าน `UPDATE`, `DELETE`, `MERGE` มี 7 ไฟล์ หลัง `OPTIMIZE` เหลือ 1 (ไฟล์เก่ายังอยู่จนกว่าจะ `VACUUM`)
+- **Checkpoint** ถ้าต้องเล่น Log ตั้งแต่ Commit 0 ทุกครั้ง ตารางที่มีล้าน Commit จะอ่านช้า Delta จึงเขียน Checkpoint (ไฟล์ Parquet ที่สรุปสถานะ) ทุก 10 Commit วัดจริงแล้ว หลัง 12 Commit มี `00000000000000000010.checkpoint.parquet` และ `_last_checkpoint` ผู้อ่านจะเริ่มจาก Checkpoint ล่าสุดแล้วเล่นเฉพาะส่วนที่ตามมา
 
 </Step>
 
@@ -152,18 +152,18 @@ spark.sql("DESCRIBE HISTORY delta.`/path`")      # (3, MERGE) (2, DELETE) (1, UP
 
 ## Delta, Iceberg และ Hudi
 
-ทั้งสามเป็นแนวคิดเดียวกัน (log + ไฟล์ข้อมูล + protocol) ต่างที่การจัดโครงสร้าง metadata ส่วนนี้ **ไม่ได้รันบนเครื่องนี้** สรุปจากเอกสารของแต่ละโปรเจกต์ จึงเป็นภาพรวม ไม่ใช่ผลทดสอบ
+ทั้งสามใช้แนวคิดเดียวกัน (Log + ไฟล์ข้อมูล + Protocol) ต่างกันที่การจัดโครงสร้าง Metadata ส่วนนี้ **ไม่ได้รันบนคอมพิวเตอร์เครื่องนี้** สรุปมาจากเอกสารของแต่ละโปรเจกต์ จึงเป็นเพียงภาพรวมและไม่ใช่ผลทดสอบ
 
 | | Delta Lake | Apache Iceberg | Apache Hudi |
 |---|---|---|---|
-| ที่เก็บความจริง | log JSON ต่อ commit + checkpoint Parquet | ไฟล์ metadata JSON ชี้ manifest list → manifest → ไฟล์ข้อมูล | timeline ของ instant (`.hoodie/`) |
-| การอัปเดต | copy-on-write (ตามที่วัด) และ deletion vectors | copy-on-write หรือ merge-on-read ด้วย delete file | copy-on-write หรือ merge-on-read (base file + log file) |
-| จุดเด่นที่เอกสารเน้น | ผสมกับ Spark ลึก, `MERGE`, streaming | hidden partitioning, ใช้กับหลาย engine | upsert เร็ว, incremental query |
+| ที่เก็บความจริง | Log JSON ต่อ Commit + Checkpoint Parquet | ไฟล์ Metadata JSON ชี้ Manifest List → Manifest → ไฟล์ข้อมูล | Timeline ของ Instant (`.hoodie/`) |
+| การอัปเดต | Copy-on-write (ตามที่วัด) และ Deletion Vectors | Copy-on-write หรือ Merge-on-read ด้วย Delete File | Copy-on-write หรือ Merge-on-read (Base File + Log File) |
+| จุดเด่นที่เอกสารเน้น | ผสมกับ Spark ลึก, `MERGE`, Streaming | Hidden Partitioning, ใช้กับหลาย Engine | Upsert เร็ว, Incremental Query |
 
-**merge-on-read** คือทางเลือกแทน copy-on-write: แทนที่จะเขียนไฟล์ทั้งไฟล์ใหม่ทุกครั้งที่แก้ไม่กี่แถว ก็เขียนไฟล์เล็กที่บอกว่าแถวไหนถูกลบหรือเปลี่ยน แล้วรวมตอนอ่าน ได้เขียนเร็วขึ้น ต้องจ่ายตอนอ่านและต้องมี compaction
+**Merge-on-read** เป็นทางเลือกแทน Copy-on-write โดยแทนที่จะเขียนไฟล์ทั้งไฟล์ใหม่ทุกครั้งที่แก้ไม่กี่แถว ก็เขียนไฟล์เล็กที่บอกว่าแถวไหนถูกลบหรือเปลี่ยน แล้วค่อยรวมกันตอนอ่าน ทำให้เขียนได้เร็วขึ้น แต่ต้องไปจ่ายตอนอ่านและต้องมี Compaction
 
-<Callout type="note" title="ผลที่พบจริงเรื่อง version: jar ต้องตรงกับ Spark">
-ตอนเตรียมบทนี้ ลองใช้ Iceberg runtime ที่ build สำหรับ Spark 4.1 (`iceberg-spark-runtime-4.1_2.13:1.12.0`) บน Spark 4.2.0 แล้ว `CREATE TABLE` ล้มด้วย `IncompatibleClassChangeError: class org.apache.iceberg.spark.source.SparkView can not implement org.apache.spark.sql.connector.catalog.View, because it is not an interface` ใน source ของ Spark 4.2 `View` เป็น class (`View.java:43`) ไม่ใช่ interface แล้ว และ Maven Central ไม่มี runtime ของ Iceberg สำหรับ Spark 4.2 ณ วันที่ตรวจ (5 พ.ย. 2026) ในทางกลับกัน `delta-spark_2.13:4.4.1` อ้างอิง Spark 4.2.0 และใช้ได้ บทเรียน: table format ผูกกับ minor version ของ Spark เสมอ ตรวจตารางความเข้ากันได้ก่อนอัปเกรด Spark
+<Callout type="note" title="ผลที่พบจริงเรื่อง Version: Jar ต้องตรงกับ Spark">
+ตอนเตรียมบทนี้ เราลองใช้ Iceberg Runtime ที่ Build สำหรับ Spark 4.1 (`iceberg-spark-runtime-4.1_2.13:1.12.0`) บน Spark 4.2.0 แล้ว `CREATE TABLE` ล้มด้วย `IncompatibleClassChangeError: class org.apache.iceberg.spark.source.SparkView can not implement org.apache.spark.sql.connector.catalog.View, because it is not an interface` ซึ่งใน Source ของ Spark 4.2 `View` เป็น Class (`View.java:43`) ไม่ใช่ Interface แล้ว และ Maven Central ไม่มี Runtime ของ Iceberg สำหรับ Spark 4.2 ณ วันที่ตรวจ (5 พ.ย. 2026) ในทางกลับกัน `delta-spark_2.13:4.4.1` อ้างอิง Spark 4.2.0 และใช้ได้ บทเรียนที่ได้คือ Table Format ผูกกับ Minor Version ของ Spark เสมอ จึงควรตรวจตารางความเข้ากันได้ก่อนอัปเกรด Spark
 </Callout>
 
 </Step>
@@ -172,7 +172,7 @@ spark.sql("DESCRIBE HISTORY delta.`/path`")      # (3, MERGE) (2, DELETE) (1, UP
 
 ## Spark เชื่อมกับ Table Format อย่างไร
 
-Spark ไม่รู้จัก Delta โดยตรง ใช้ **hook สองจุด** ที่ Spark เปิดไว้ (วัดจริงว่าตั้ง config เหล่านี้ใน session)
+Spark ไม่ได้รู้จัก Delta โดยตรง แต่ใช้ **Hook สองจุด** ที่ Spark เปิดไว้ให้ (วัดจริงว่าตั้ง Config เหล่านี้ใน Session)
 
 ```python
 SparkSession.builder
@@ -181,18 +181,18 @@ SparkSession.builder
   .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
 ```
 
-1. **Extensions** (`SparkSessionExtensions`): ปลั๊กอินที่แทรกเข้า parser (รู้จักคำสั่งเช่น `OPTIMIZE`, `VACUUM`, `DESCRIBE HISTORY`), analyzer และ optimizer
-2. **Catalog และ DataSource V2** ใน `org.apache.spark.sql.connector.*` เป็นชุด interface ที่ table format ต้อง implement
+1. **Extensions** (`SparkSessionExtensions`) เป็นปลั๊กอินที่แทรกเข้า Parser (รู้จักคำสั่งเช่น `OPTIMIZE`, `VACUUM`, `DESCRIBE HISTORY`), Analyzer และ Optimizer
+2. **Catalog และ DataSource V2** ใน `org.apache.spark.sql.connector.*` เป็นชุด Interface ที่ Table Format ต้อง Implement
 
-| interface (ใน Spark 4.2) | หน้าที่ |
+| Interface (ใน Spark 4.2) | หน้าที่ |
 |---|---|
 | `TableCatalog` | สร้าง โหลด ลบตาราง |
 | `Table` และ `TableCapability` | ตาราง และสิ่งที่ทำได้ (`BATCH_READ`, `BATCH_WRITE`, `TRUNCATE`, `OVERWRITE_BY_FILTER`, `MICRO_BATCH_READ` ฯลฯ) |
-| `SupportsRead`, `Scan`, `SupportsPushDownFilters`, `SupportsPushDownRequiredColumns` | อ่านข้อมูล และรับ filter กับ column ที่ pushdown |
-| `SupportsWrite`, `WriteBuilder`, `BatchWrite` | เขียนข้อมูลแบบ commit ได้ทั้งก้อน |
-| `SupportsRowLevelOperations`, `RowLevelOperation` | `DELETE`, `UPDATE`, `MERGE` โดย source บอก Spark ว่าจัดการเป็นกลุ่มไฟล์ (copy-on-write) หรือเป็น delta ของแถว |
+| `SupportsRead`, `Scan`, `SupportsPushDownFilters`, `SupportsPushDownRequiredColumns` | อ่านข้อมูล และรับ Filter กับ Column ที่ Pushdown |
+| `SupportsWrite`, `WriteBuilder`, `BatchWrite` | เขียนข้อมูลแบบ Commit ได้ทั้งก้อน |
+| `SupportsRowLevelOperations`, `RowLevelOperation` | `DELETE`, `UPDATE`, `MERGE` โดย Source บอก Spark ว่าจัดการเป็นกลุ่มไฟล์ (Copy-on-write) หรือเป็น Delta ของแถว |
 
-Spark เขียนแผนและ optimize เหมือนเดิม ([บทที่ 6](/spark/catalyst-aqe/)) แต่เมื่อถึงขั้น "อ่านตารางนี้" หรือ "commit การเขียนนี้" ก็เรียก interface เหล่านี้ ตัวอย่างเช่น `RowLevelOperation.Command` มีสามค่าคือ `DELETE`, `UPDATE`, `MERGE` ซึ่งเป็นสิ่งที่ Spark ส่งให้ตารางทำ (ผู้เขียนอ่านเฉพาะ interface ของ Spark ไม่ได้อ่านโค้ดของ Delta จึงไม่ระบุว่า Delta ใช้ interface ส่วนไหนบ้าง)
+Spark เขียนแผนและ Optimize เหมือนเดิม ([บทที่ 6](/spark/catalyst-aqe/)) แต่เมื่อถึงขั้น "อ่านตารางนี้" หรือ "Commit การเขียนนี้" Spark ก็จะเรียก Interface เหล่านี้ ตัวอย่างเช่น `RowLevelOperation.Command` มีสามค่าคือ `DELETE`, `UPDATE`, `MERGE` ซึ่งเป็นสิ่งที่ Spark ส่งให้ตารางทำ (ผู้เขียนอ่านเฉพาะ Interface ของ Spark และไม่ได้อ่านโค้ดของ Delta จึงไม่ระบุว่า Delta ใช้ Interface ส่วนไหนบ้าง)
 
 </Step>
 
@@ -200,13 +200,13 @@ Spark เขียนแผนและ optimize เหมือนเดิม 
 
 ## เลือกอะไร
 
-ข้อนี้เป็นความเห็นของผู้เขียน ไม่ใช่ผลทดสอบ
+ข้อนี้เป็นความเห็นของผู้เขียนเองนะ ไม่ใช่ผลทดสอบ
 
-- **ถ้าอยู่กับ Spark และ Databricks เป็นหลัก** Delta เป็นทางที่ผสมลึกที่สุดและหาตัวอย่างง่ายที่สุด
-- **ถ้าต้องใช้ตารางเดียวกันกับหลาย engine** (Trino, Flink, Spark ฯลฯ) Iceberg ออกแบบมาเพื่อเรื่องนี้
-- **ถ้างานหลักคือ upsert และ streaming ingestion ต่อเนื่อง** Hudi เน้นด้านนี้
+- ถ้าเราอยู่กับ Spark และ Databricks เป็นหลัก Delta เป็นทางที่ผสมลึกที่สุดและหาตัวอย่างง่ายที่สุด
+- ถ้าต้องใช้ตารางเดียวกันกับหลาย Engine (Trino, Flink, Spark ฯลฯ) Iceberg ออกแบบมาเพื่อเรื่องนี้
+- ถ้างานหลักคือ Upsert และ Streaming Ingestion ต่อเนื่อง Hudi เน้นด้านนี้
 
-ก่อนเลือก ตรวจสามอย่างเสมอ: (1) มี release ที่ตรงกับ Spark ของคุณไหน (ดูกรอบสีเหลืองข้างบน) (2) engine อื่นที่ต้องอ่านตารางเดียวกันรองรับฟีเจอร์ที่คุณใช้ไหม (3) storage ที่ใช้รับประกันการสร้างไฟล์แบบ atomic หรือไม่ เพราะ commit ของทั้งสามพึ่งสิ่งนี้
+ก่อนเลือก ควรตรวจสามอย่างเสมอ คือ (1) มี Release ที่ตรงกับ Spark ของคุณไหน (ดูกรอบสีเหลืองข้างบน) (2) Engine อื่นที่ต้องอ่านตารางเดียวกันรองรับฟีเจอร์ที่คุณใช้ไหม (3) Storage ที่ใช้รับประกันการสร้างไฟล์แบบ Atomic หรือไม่ เพราะ Commit ของทั้งสามพึ่งสิ่งนี้
 
 </Step>
 
@@ -219,17 +219,17 @@ cd subjects/spark/code
 uv run python exercises/10_table_formats.py
 ```
 
-ครั้งแรกใช้เวลาดาวน์โหลด jar ของ Delta จากนั้นราว 2 ถึง 3 นาที ลองดัดแปลง
+ครั้งแรกจะใช้เวลาดาวน์โหลด Jar ของ Delta จากนั้นใช้เวลาราว 2 ถึง 3 นาที แล้วลองดัดแปลงดูตามนี้ได้เลย
 
-1. สร้างตาราง Delta แล้วเปิดไฟล์ใน `_delta_log/` ด้วยตา ดู `add` และ `remove` ของแต่ละ commit
+1. สร้างตาราง Delta แล้วเปิดไฟล์ใน `_delta_log/` ด้วยตา ดู `add` และ `remove` ของแต่ละ Commit
 2. `UPDATE` หนึ่งแถวแล้วนับไฟล์ Parquet ในโฟลเดอร์ก่อนและหลัง
-3. เขียน DataFrame ที่ schema ต่างกันเข้าตารางและอ่าน error ที่ได้
+3. เขียน DataFrame ที่ Schema ต่างกันเข้าตารางและอ่าน Error ที่ได้
 
-เช็กตัวเอง
+ลองเช็กตัวเองด้วยคำถามเหล่านี้
 
 - ทำไมอ่านโฟลเดอร์ Delta ด้วย `spark.read.parquet` ถึงได้จำนวนแถวผิด
-- สอง writer แก้ไฟล์เดียวกันพร้อมกัน ผลเป็นอย่างไร และทำไมไม่มีข้อมูลเสียหาย
+- สอง Writer แก้ไฟล์เดียวกันพร้อมกัน ผลเป็นอย่างไร และทำไมไม่มีข้อมูลเสียหาย
 - `VACUUM` แลกอะไรกับอะไร
-- ทำไมการอัปเกรด Spark อาจทำให้ jar ของ Iceberg ใช้ไม่ได้
+- ทำไมการอัปเกรด Spark อาจทำให้ Jar ของ Iceberg ใช้ไม่ได้
 
 </Step>

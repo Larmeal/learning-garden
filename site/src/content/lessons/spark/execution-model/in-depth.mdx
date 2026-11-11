@@ -1,6 +1,6 @@
 ---
-title: Execution model แบบเจาะลึก
-summary: คำสั่งไหน shuffle (วัดจากแผนทุกตัว) จำนวน stage คือ Exchange บวกหนึ่งและข้อยกเว้นที่ควรรู้ ตัวเลข task และไบต์ของ shuffle จาก Spark UI และจำนวน partition ผ่าน shuffle
+title: Execution Model แบบเจาะลึก
+summary: คำสั่งไหน Shuffle บ้าง (วัดจากแผนทุกตัว) จำนวน Stage คือ Exchange บวกหนึ่งและข้อยกเว้นที่ควรรู้ ตัวเลข Task และไบต์ของ Shuffle จาก Spark UI และจำนวน Partition ที่เปลี่ยนไปหลังผ่าน Shuffle
 order: 10
 stage: sprout
 format: steps
@@ -10,46 +10,48 @@ updated: 2026-11-05
 import Step from '../../../../components/Step.astro';
 import Callout from '../../../../components/Callout.astro';
 
-ตัวเลขทั้งหมดมาจาก `exercises/05_execution_model.py` (Spark 4.2.0, 16 core, ปิด AQE เพื่อดูแผนตั้งต้นของบทนี้ [บทที่ 6](/spark/catalyst-aqe/#aqe-ทำสามอย่าง) อธิบาย AQE) task และไบต์อ่านจาก REST API ของ Spark UI ([บทที่ 11](/spark/deployment-spark-ui/#ทักษะที่สำคัญที่สุดคืออ่าน-spark-ui))
+ตัวเลขทั้งหมดมาจาก `exercises/05_execution_model.py` (Spark 4.2.0, 16 Core, ปิด AQE เพื่อดูแผนตั้งต้นของบทนี้ ส่วน AQE ทำอะไรบ้างนั้น [บทที่ 6](/spark/catalyst-aqe/#aqe-ทำสามอย่าง) อธิบายไว้) ส่วน Task และไบต์อ่านมาจาก REST API ของ Spark UI ([บทที่ 11](/spark/deployment-spark-ui/#ทักษะที่สำคัญที่สุดคืออ่าน-spark-ui))
 
 <Step>
 
 ## คำสั่งไหน Shuffle: วัดจากแผนจริง
 
-บทหลักบอกว่า narrow ไม่ shuffle ส่วน wide shuffle นี่คือผลตรวจทุกคำสั่งด้วย `explain()` นับบรรทัด `Exchange`
+บทหลักบอกไว้ว่า Narrow ไม่ Shuffle ส่วน Wide ต้อง Shuffle คราวนี้เราลองตรวจทุกคำสั่งด้วย `explain()` แล้วนับบรรทัด `Exchange` ดู
 
 ### ไม่ Shuffle
 
-หลักคิด: ผลของแต่ละแถวคำนวณได้จาก partition ที่แถวนั้นอยู่แล้ว จึงทำต่อกันใน task เดียวได้เลย ไม่ต้องย้ายแถว
+หลักคิดคือผลของแต่ละแถวคำนวณได้จาก Partition ที่แถวนั้นอยู่แล้ว จึงทำต่อกันใน Task เดียวได้เลยโดยไม่ต้องย้ายแถว
 
 | คำสั่ง | Exchange ในแผน | เพราะอะไร |
 |---|---|---|
 | `filter`, `select`, `withColumn` | ไม่มี | ทำกับแต่ละแถวแยกกัน ไม่ต้องรู้ว่าแถวอื่นอยู่ที่ไหน |
-| `union` | ไม่มี | แค่เอา partition ของสองฝั่งมาต่อกัน ไม่มีแถวย้ายที่ |
-| `coalesce(4)` | ไม่มี | รวม partition ที่อยู่ติดกันเข้าด้วยกัน ไม่แจกแถวใหม่ |
-| `sample` | ไม่มี | สุ่มเลือกแถวภายใน partition ของตัวเอง |
-| `limit(5)` ขั้นสุดท้าย | ไม่มี (เป็น `CollectLimit`) | ต้องการแค่ 5 แถว เก็บกลับมาที่ driver โดยไม่ต้องจัดแถวใหม่ (วัดเฉพาะกรณีเป็นขั้นสุดท้าย) |
+| `union` | ไม่มี | แค่เอา Partition ของสองฝั่งมาต่อกัน ไม่มีแถวย้ายที่ |
+| `coalesce(4)` | ไม่มี | รวม Partition ที่อยู่ติดกันเข้าด้วยกัน ไม่ได้แจกแถวใหม่ |
+| `sample` | ไม่มี | สุ่มเลือกแถวภายใน Partition ของตัวเอง |
+| `limit(5)` ขั้นสุดท้าย | ไม่มี (เป็น `CollectLimit`) | ต้องการแค่ 5 แถว จึงเก็บกลับมาที่ Driver ได้เลยโดยไม่ต้องจัดแถวใหม่ (วัดเฉพาะกรณีเป็นขั้นสุดท้าย) |
 
 ### Shuffle (มี Exchange)
 
-หลักคิด: แถวที่ต้องไปอยู่ด้วยกัน (key เดียวกัน, ช่วงค่าเดียวกัน หรือ partition เดียว) อาจกระจายอยู่หลาย partition ต้องส่งมารวมกันก่อน
+หลักคิดคือแถวที่ต้องไปอยู่ด้วยกัน (Key เดียวกัน, ช่วงค่าเดียวกัน หรือ Partition เดียว) อาจกระจายอยู่หลาย Partition ก็ได้ จึงต้องส่งมารวมกันก่อน
 
 | คำสั่ง | Exchange ในแผน | เพราะอะไร |
 |---|---|---|
-| `repartition(8)` | `RoundRobinPartitioning` | แจกแถวให้ partition ใหม่ 8 ตัวเท่าๆ กัน โดยไม่ดูค่าของแถว |
-| `repartition(8, "k")` | `hashpartitioning` | แถวที่ `k` เท่ากันต้องไปอยู่ partition เดียวกัน |
+| `repartition(8)` | `RoundRobinPartitioning` | แจกแถวให้ Partition ใหม่ 8 ตัวเท่า ๆ กัน โดยไม่ดูค่าของแถว |
+| `repartition(8, "k")` | `hashpartitioning` | แถวที่ `k` เท่ากันต้องไปอยู่ Partition เดียวกัน |
 | `groupBy("k").count()` | `hashpartitioning` | ต้องรวมแถวของ `k` เดียวกันมาไว้ที่เดียวก่อนนับ |
-| `distinct`, `dropDuplicates` | `hashpartitioning` | แถวที่ซ้ำกันอาจอยู่คนละ partition ต้องมารวมกันจึงจะรู้ว่าซ้ำ |
-| window ที่ `partitionBy("k")` | `hashpartitioning` | ต้องมีแถวของ `k` เดียวกันครบใน partition เดียวจึงคำนวณได้ |
-| `orderBy("v")` | `rangepartitioning` | แบ่งช่วงของค่า `v` ให้แต่ละ partition เก็บช่วงของตัวเอง เรียงในแต่ละ partition แล้วต่อกันก็ได้ลำดับรวม (ต้องสุ่มข้อมูลหาขอบเขตก่อน ดูหัวข้อถัดไป) |
-| `agg(sum(...))` (ไม่มี groupBy) | `SinglePartition` | ผลบางส่วนจากทุก partition ต้องมารวมใน partition เดียว |
-| `join` แบบ sort-merge | `hashpartitioning` สองตัว (ทั้งสองฝั่ง) | แถวของสองตารางที่ `key` เท่ากันต้องอยู่ partition เดียวกัน จึงต้องจัดทั้งสองฝั่ง |
+| `distinct`, `dropDuplicates` | `hashpartitioning` | แถวที่ซ้ำกันอาจอยู่คนละ Partition จึงต้องมารวมกันก่อนถึงจะรู้ว่าซ้ำ |
+| Window ที่ `partitionBy("k")` | `hashpartitioning` | ต้องมีแถวของ `k` เดียวกันครบใน Partition เดียวถึงจะคำนวณได้ |
+| `orderBy("v")` | `rangepartitioning` | แบ่งช่วงของค่า `v` ให้แต่ละ Partition เก็บช่วงของตัวเอง เรียงในแต่ละ Partition แล้วเอามาต่อกันก็ได้ลำดับรวม (ต้องสุ่มข้อมูลหาขอบเขตก่อน ดูหัวข้อถัดไป) |
+| `agg(sum(...))` (ไม่มี groupBy) | `SinglePartition` | ผลบางส่วนจากทุก Partition ต้องมารวมใน Partition เดียว |
+| `join` แบบ Sort-merge | `hashpartitioning` สองตัว (ทั้งสองฝั่ง) | แถวของสองตารางที่ `key` เท่ากันต้องอยู่ Partition เดียวกัน จึงต้องจัดทั้งสองฝั่ง |
 
-สามข้อที่น่าสังเกต
+ถ้าดูตารางนี้ จะมีสามข้อที่น่าสังเกต
 
-- **`coalesce` ไม่ shuffle แต่ `repartition` shuffle** แม้ทั้งคู่ปรับจำนวน partition
-- **aggregate ที่ไม่มี `groupBy`** ยังมี Exchange เพราะผลรวมจาก partial aggregate ทุก partition ต้องมารวมใน partition เดียว (`SinglePartition`) แปลว่า task สุดท้ายนั้นเป็นจุดคอขวดของการรวมทั้งหมด แต่ข้อมูลที่ส่งมีขนาดเล็กมาก (ผลบางส่วนของแต่ละ partition)
-- **`join` ปกติมี Exchange สองตัว** แต่ถ้าฝั่งหนึ่งเล็กพอถูก broadcast จะไม่มี Exchange ของแถวทั้งสองฝั่งเลย มีเพียง `BroadcastExchange` (ตรวจแล้ว ตาม[บทที่ 6](/spark/catalyst-aqe/#join-ตัวไหน-และใครเลือก) และ [7](/spark/performance-tuning/#spark-เลือก-join-อย่างไร))
+ข้อแรก `coalesce` ไม่ Shuffle แต่ `repartition` Shuffle ทั้งที่ทั้งคู่ปรับจำนวน Partition เหมือนกัน
+
+ข้อที่สอง Aggregate ที่ไม่มี `groupBy` ก็ยังมี Exchange เพราะผลรวมจาก Partial Aggregate ของทุก Partition ต้องมารวมใน Partition เดียว (`SinglePartition`) ซึ่งแปลว่า Task สุดท้ายนั้นเป็นจุดคอขวดของการรวมทั้งหมด แต่ข้อมูลที่ส่งมามีขนาดเล็กมาก (ผลบางส่วนของแต่ละ Partition)
+
+ข้อที่สาม `join` ปกติมี Exchange สองตัว แต่ถ้าฝั่งหนึ่งเล็กพอจนถูก Broadcast ก็จะไม่มี Exchange ของแถวทั้งสองฝั่งเลย เหลือเพียง `BroadcastExchange` (ตรวจแล้ว ตาม[บทที่ 6](/spark/catalyst-aqe/#join-ตัวไหน-และใครเลือก) และ [7](/spark/performance-tuning/#spark-เลือก-join-อย่างไร))
 
 </Step>
 
@@ -57,9 +59,9 @@ import Callout from '../../../../components/Callout.astro';
 
 ## จำนวน Stage = Exchange + 1
 
-ทุก `Exchange` คือขอบเขตของ stage ดังนั้นจำนวน stage ของงานหนึ่งชิ้นคือจำนวน Exchange บวกหนึ่ง วัดจริงโดยนับ stage ที่เกิดจาก `collect()` ของแต่ละคำสั่งข้างบน
+ทุก `Exchange` คือขอบเขตของ Stage ดังนั้นจำนวน Stage ของงานหนึ่งชิ้นก็คือจำนวน Exchange บวกหนึ่ง เราวัดจริงโดยนับ Stage ที่เกิดจาก `collect()` ของแต่ละคำสั่งข้างบน
 
-| คำสั่ง | Exchange | stage |
+| คำสั่ง | Exchange | Stage |
 |---|---|---|
 | `filter`, `select`, `withColumn`, `union`, `coalesce(4)` | 0 | 1 |
 | `repartition`, `groupBy`, `distinct`, `dropDuplicates`, window, `agg(sum)` | 1 | 2 |
@@ -67,17 +69,17 @@ import Callout from '../../../../components/Callout.astro';
 | `orderBy` | 1 | **3** |
 | `limit(5)` | 0 | 1 |
 
-ข้อยกเว้นคือ `orderBy`: ได้ 3 stage ไม่ใช่ 2 เพราะ range partitioning ต้อง **สุ่มข้อมูลก่อน** เพื่อหาขอบเขตว่าจะแบ่งช่วงของค่าอย่างไรให้ partition ขนาดพอๆ กัน การสุ่มนี้เป็นอีก stage หนึ่ง ใน Spark UI จะเห็น job ของ `orderBy` มี stage เพิ่มหนึ่งตัวที่ทำงานก่อน
+ข้อยกเว้นคือ `orderBy` ซึ่งได้ 3 Stage ไม่ใช่ 2 เพราะ Range Partitioning ต้อง **สุ่มข้อมูลก่อน** เพื่อหาขอบเขตว่าจะแบ่งช่วงของค่าอย่างไรให้ Partition มีขนาดพอ ๆ กัน การสุ่มนี้เป็นอีก Stage หนึ่ง ใน Spark UI เราจะเห็น Job ของ `orderBy` มี Stage เพิ่มหนึ่งตัวที่ทำงานก่อน
 
 ตัวอย่างการนับเมื่อต่อหลายคำสั่ง (คำนวณจากกฎข้างบน ไม่ได้วัดเป็นโซ่)
 
-| โซ่คำสั่ง | Exchange | stage |
+| โซ่คำสั่ง | Exchange | Stage |
 |---|---|---|
 | `filter` → `select` → `groupBy("k").count()` | 1 | 2 |
-| `filter` → `groupBy("k").count()` → `orderBy` | 2 | **4** (2 + 1 และอีก 1 stage สุ่มของ `orderBy`) |
-| `filter` → `join` → `groupBy("k").count()` → `limit(5)` | 3 (join สอง, groupBy หนึ่ง) | 4 |
+| `filter` → `groupBy("k").count()` → `orderBy` | 2 | **4** (2 + 1 และอีก 1 Stage สุ่มของ `orderBy`) |
+| `filter` → `join` → `groupBy("k").count()` → `limit(5)` | 3 (Join สอง, groupBy หนึ่ง) | 4 |
 
-**กรณีที่กฎประมาณเกินจริง**: ถ้า join สองตารางที่ถูก `groupBy` ด้วย key เดียวกันและจำนวน partition เท่ากันอยู่แล้ว (ทั้งสองฝั่งถูกจัด `hashpartitioning(k, 200)` แล้ว) Spark ไม่เพิ่ม Exchange ให้ join อีก วัดจริง: `groupBy` สองตัวแล้ว join ได้ stage `[4, 4, 200]` คือ **3 stage** (ไม่ใช่ 5) เพราะ join ใช้ partitioning ที่มีอยู่ได้เลย นี่คือเหตุผลที่การเลือก key และจำนวน partition ให้ตรงกันก่อน join ช่วยลด shuffle ได้
+ยังมีอีกกรณีที่กฎนี้ประมาณเกินจริง คือเมื่อ Join สองตารางที่ถูก `groupBy` ด้วย Key เดียวกันและจำนวน Partition เท่ากันอยู่แล้ว (ทั้งสองฝั่งถูกจัด `hashpartitioning(k, 200)` แล้ว) Spark จะไม่เพิ่ม Exchange ให้ Join อีก ผลที่วัดได้คือ `groupBy` สองตัวแล้ว Join ได้ Stage `[4, 4, 200]` คือ **3 Stage** (ไม่ใช่ 5) เพราะ Join ใช้ Partitioning ที่มีอยู่ได้เลย นี่คือเหตุผลที่การเลือก Key และจำนวน Partition ให้ตรงกันก่อน Join ช่วยลด Shuffle ได้
 
 </Step>
 
@@ -85,18 +87,18 @@ import Callout from '../../../../components/Callout.astro';
 
 ## Task ต่อ Stage และไบต์ที่ Shuffle
 
-รัน `range(0, 2_000_000, 1, 8).groupBy(id % 7).count()` (AQE ปิด) แล้วอ่านจาก REST API
+ลองรัน `range(0, 2_000_000, 1, 8).groupBy(id % 7).count()` (AQE ปิด) แล้วอ่านจาก REST API
 
 | stage | task | shuffle write | shuffle read |
 |---|---|---|---|
-| 0 (ฝั่ง map) | **8** | 3,496 ไบต์ | 0 |
-| 1 (ฝั่ง reduce) | **200** | 0 | 3,496 ไบต์ |
+| 0 (ฝั่ง Map) | **8** | 3,496 ไบต์ | 0 |
+| 1 (ฝั่ง Reduce) | **200** | 0 | 3,496 ไบต์ |
 
-- จำนวน task ของ stage แรกเท่ากับจำนวน partition ของข้อมูลต้นทาง (8) ส่วน stage หลัง shuffle เท่ากับ `spark.sql.shuffle.partitions` (200)
-- **ไบต์ที่ stage 0 เขียน เท่ากับที่ stage 1 อ่านเป๊ะ** (3,496 ไบต์) ข้อมูลถูกย่อด้วย partial aggregate ก่อนส่ง: เหลือแค่ 7 กลุ่มจาก 8 partition ไม่ใช่ 2 ล้านแถว นี่คือเหตุผลที่ `groupBy` ที่ aggregate ได้ shuffle น้อยกว่า `distinct` หรือ `repartition` ซึ่งส่งทุกแถว
-- ที่เหลือจาก 200 task ส่วนใหญ่ได้ข้อมูลว่างหรือน้อยมาก (7 key กระจายไปแค่ไม่เกิน 7 partition) ซึ่งเป็นเหตุผลที่ AQE รวมให้ใน[บทที่ 6](/spark/catalyst-aqe/#aqe-ทำสามอย่าง)
+- จำนวน Task ของ Stage แรกเท่ากับจำนวน Partition ของข้อมูลต้นทาง (8) ส่วน Stage หลัง Shuffle เท่ากับ `spark.sql.shuffle.partitions` (200)
+- ไบต์ที่ Stage 0 เขียนเท่ากับที่ Stage 1 อ่านเป๊ะ (3,496 ไบต์) เพราะข้อมูลถูกย่อด้วย Partial Aggregate ก่อนส่ง จึงเหลือแค่ 7 กลุ่มจาก 8 Partition ไม่ใช่ 2 ล้านแถว ด้วยเหตุนี้ `groupBy` ที่ Aggregate ได้จึง Shuffle น้อยกว่า `distinct` หรือ `repartition` ซึ่งส่งทุกแถว
+- Task ที่เหลือจาก 200 ตัวส่วนใหญ่ได้ข้อมูลว่างหรือน้อยมาก (7 Key กระจายไปแค่ไม่เกิน 7 Partition) ซึ่งเป็นเหตุผลที่ AQE เข้ามารวมให้ ดูใน[บทที่ 6](/spark/catalyst-aqe/#aqe-ทำสามอย่าง)
 
-งาน narrow ล้วน `range(8 partition).filter().select().collect()` ได้ **1 stage 8 task** ตรงกับที่บทหลักบอกว่า narrow ต่อกันกี่ตัวก็อยู่ใน stage เดียว
+ส่วนงาน Narrow ล้วนอย่าง `range(8 partition).filter().select().collect()` ได้ **1 Stage 8 Task** ซึ่งตรงกับที่บทหลักบอกว่า Narrow ต่อกันกี่ตัวก็อยู่ใน Stage เดียว
 
 </Step>
 
@@ -104,17 +106,17 @@ import Callout from '../../../../components/Callout.astro';
 
 ## Partition ที่เปลี่ยนไประหว่างทาง
 
-| สถานการณ์ | จำนวน partition |
+| สถานการณ์ | จำนวน Partition |
 |---|---|
-| `spark.range(1_000_000)` (16 core) | 16 (ตามจำนวน core) |
+| `spark.range(1_000_000)` (16 Core) | 16 (ตามจำนวน Core) |
 | `groupBy(...)` ผลลัพธ์ ปิด AQE | **200** (`spark.sql.shuffle.partitions`) |
 | `groupBy(...)` ผลลัพธ์ เปิด AQE (ข้อมูลเล็ก) | **1** (AQE รวม) |
 | `coalesce(4)` | 4 |
 
-และเมื่อเปิด AQE การเรียก `explain()` ก่อน action ขึ้นต้นด้วย `AdaptiveSparkPlan isFinalPlan=false` ซึ่งบอกว่าแผนยังเปลี่ยนได้ (ดูอธิบายใน[บทที่ 6](/spark/catalyst-aqe/#เปิดอยู่แล้ว-adaptivesparkplan)) ตัวเลข 1 กับ 200 ข้างบนเป็นที่มาของคำถามที่ผู้เรียนมักสงสัยว่า "ทำไม `explain` เห็น 200 แต่ UI เห็นน้อยกว่า" ซึ่งก็คือ AQE นั่นเอง
+และเมื่อเปิด AQE การเรียก `explain()` ก่อน Action จะขึ้นต้นด้วย `AdaptiveSparkPlan isFinalPlan=false` ซึ่งบอกว่าแผนยังเปลี่ยนได้ (อธิบายไว้ใน[บทที่ 6](/spark/catalyst-aqe/#เปิดอยู่แล้ว-adaptivesparkplan)) ตัวเลข 1 กับ 200 ข้างบนเป็นที่มาของคำถามที่หลายคนมักสงสัยว่า "ทำไม `explain` เห็น 200 แต่ UI เห็นน้อยกว่า" ซึ่งก็คือ AQE นั่นเอง
 
 <Callout type="tip" title="ใช้ตัวเลขเหล่านี้ตอนไหน">
-เจอ job ช้า: เปิด Spark UI นับ stage แล้วเทียบกับจำนวน Exchange ใน `explain()` ถ้า stage มากกว่า Exchange + 1 เกินกว่าที่คาด อาจมี job เสริม (เช่นการสุ่มของ `orderBy`) หรือ stage ซ้ำจากการลองใหม่ จากนั้นดูไบต์ shuffle ของ stage ที่ใหญ่ที่สุด นั่นคือที่ที่ควรลดก่อน ([บทที่ 7](/spark/performance-tuning/#จูนคือการหาว่าเสียเวลาที่ไหน))
+เวลาเจอ Job ช้า ให้เปิด Spark UI นับ Stage แล้วเทียบกับจำนวน Exchange ใน `explain()` ถ้า Stage มากกว่า Exchange + 1 เกินกว่าที่คาด อาจมี Job เสริม (เช่นการสุ่มของ `orderBy`) หรือ Stage ซ้ำจากการลองใหม่ จากนั้นดูไบต์ Shuffle ของ Stage ที่ใหญ่ที่สุด เพราะนั่นคือที่ที่ควรลดก่อน ([บทที่ 7](/spark/performance-tuning/#จูนคือการหาว่าเสียเวลาที่ไหน))
 </Callout>
 
 </Step>

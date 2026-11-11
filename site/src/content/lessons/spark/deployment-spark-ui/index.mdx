@@ -1,6 +1,6 @@
 ---
 title: Deployment และ Spark UI
-summary: อ่าน Spark UI เป็นเมื่อ job ช้า รู้ว่า spark-submit คุยกับ cluster manager อย่างไรจนได้ executor เข้าใจ dynamic allocation และ Spark Connect ต่างจาก PySpark ปกติอย่างไร รันจริงบน standalone cluster ที่เปิดเอง
+summary: เราจะอ่าน Spark UI ให้เป็นเมื่อ Job ช้า รู้ว่า Spark-submit คุยกับ Cluster Manager อย่างไรจนได้ Executor เข้าใจ Dynamic Allocation และดูว่า Spark Connect ต่างจาก PySpark ปกติอย่างไร โดยรันจริงบน Standalone Cluster ที่เปิดเอง
 order: 11
 phase: D
 level: 3
@@ -19,25 +19,25 @@ import SubmitFlowLab from '../../../../components/labs/spark/SubmitFlowLab';
 
 ## ทักษะที่สำคัญที่สุดคืออ่าน Spark UI
 
-ขั้นตอน deploy เป็นเรื่องที่ทำครั้งเดียวต่อ environment แต่การเปิด Spark UI แล้วรู้ว่าอะไรผิดคือสิ่งที่ใช้ทุกวัน บทนี้จึงเริ่มจาก UI แล้วค่อยไปเรื่อง deploy
+ขั้นตอน Deploy เป็นเรื่องที่เราทำครั้งเดียวต่อ Environment แต่การเปิด Spark UI แล้วรู้ว่าอะไรผิดคือสิ่งที่ใช้ทุกวัน บทนี้จึงเริ่มจาก UI แล้วค่อยไปเรื่อง Deploy
 
-Spark UI เป็นเว็บที่ **driver เปิดให้** (พอร์ต 4040 ค่าเริ่มต้น, `spark.ui.port`) และอยู่เฉพาะตอนที่ application ยังรัน ข้อมูลมาจาก event ที่ Spark ส่งหากันภายใน ทุกหน้ามีข้อมูลเดียวกันที่ REST API (`/api/v1/applications/<id>/...`) ซึ่งสคริปต์ `exercises/11_deployment_ui.py` ใช้อ่านตัวเลขของบทนี้
+Spark UI เป็นเว็บที่ **Driver เปิดให้** (พอร์ต 4040 ค่าเริ่มต้น, `spark.ui.port`) และอยู่เฉพาะตอนที่ Application ยังรัน ข้อมูลมาจาก Event ที่ Spark ส่งหากันภายใน ทุกหน้ามีข้อมูลเดียวกันที่ REST API (`/api/v1/applications/<id>/...`) ซึ่งสคริปต์ `exercises/11_deployment_ui.py` ใช้อ่านตัวเลขของบทนี้
 
-เลือกอาการ แล้วดูว่าควรเปิดหน้าไหน อ่านอะไร
+ลองเลือกอาการ แล้วดูว่าควรเปิดหน้าไหน และอ่านอะไร
 
 <UiGuideLab client:visible />
 
-ตัวเลขจริงของ job `groupBy` ที่ใช้ในบท (รันบน cluster ที่เปิดเอง, 8 partition ตั้งต้น, `shuffle.partitions = 6`)
+ตัวเลขจริงของ Job `groupBy` ที่ใช้ในบท (รันบน Cluster ที่เปิดเอง, 8 Partition ตั้งต้น, `shuffle.partitions = 6`) เป็นดังนี้
 
 | ที่ดู | ได้อะไร |
 |---|---|
-| Jobs | 1 job, 14 task (`numTasks`) สถานะ `SUCCEEDED` |
-| Stages | stage แรก 8 task (map) ที่เขียน shuffle 2,296 ไบต์ และ stage หลัง 6 task ที่อ่าน 2,296 ไบต์ (เท่ากัน) |
-| Stage > Summary Metrics | `executorRunTime` ที่ quantile 0, 0.5, 1 (ได้ค่าอย่างเช่น 5, 16 และ 114 ms) |
-| SQL | query ที่ `COMPLETED` |
+| Jobs | 1 Job, 14 Task (`numTasks`) สถานะ `SUCCEEDED` |
+| Stages | Stage แรก 8 Task (Map) ที่เขียน Shuffle 2,296 ไบต์ และ Stage หลัง 6 Task ที่อ่าน 2,296 ไบต์ (เท่ากัน) |
+| Stage > Summary Metrics | `executorRunTime` ที่ Quantile 0, 0.5, 1 (ได้ค่าอย่างเช่น 5, 16 และ 114 ms) |
+| SQL | Query ที่ `COMPLETED` |
 | Environment | `spark.master` และ `spark.executor.memory` ตรงกับที่ตั้ง |
 
-จำนวน task ตรงกับที่[บทที่ 5](/spark/execution-model/#ดูมันทำงานทีละขั้น) สอน: 8 partition ให้ 8 map task และ shuffle 6 partition ให้ 6 task ถัดไป
+จำนวน Task ตรงกับที่[บทที่ 5](/spark/execution-model/#ดูมันทำงานทีละขั้น) สอนไว้ คือ 8 Partition ให้ 8 Map Task และ Shuffle 6 Partition ให้ 6 Task ถัดไป
 
 </Step>
 
@@ -45,11 +45,11 @@ Spark UI เป็นเว็บที่ **driver เปิดให้** (พ
 
 ## Event Log และ History Server
 
-Spark UI หายไปเมื่อ application จบ ถ้าอยากดูย้อนหลังต้องเปิด **event log** (`spark.eventLog.enabled`, ค่าเริ่มต้น **false**) แล้วใช้ History Server อ่านกลับมาเป็นหน้า UI เดิม
+Spark UI จะหายไปเมื่อ Application จบ ถ้าอยากดูย้อนหลังเราต้องเปิด **Event Log** (`spark.eventLog.enabled`, ค่าเริ่มต้น **False**) แล้วใช้ History Server อ่านกลับมาเป็นหน้า UI เดิม
 
-เปิดแล้ว Spark เขียนโฟลเดอร์ `eventlog_v2_<app-id>/` ที่มีไฟล์ `appstatus_<app-id>` กับ `events_1_<app-id>` เป็น JSON หนึ่ง event ต่อบรรทัด ค่าเริ่มต้นบีบอัดด้วย zstd (`spark.eventLog.compress` = true) แล้ว event ในการรัน `groupBy` ข้างบนนับได้ (ปิดการบีบอัดเพื่อให้อ่านง่าย)
+เมื่อเปิดแล้ว Spark จะเขียนโฟลเดอร์ `eventlog_v2_<app-id>/` ที่มีไฟล์ `appstatus_<app-id>` กับ `events_1_<app-id>` เป็น JSON หนึ่ง Event ต่อบรรทัด ค่าเริ่มต้นจะบีบอัดด้วย Zstd (`spark.eventLog.compress` = True) เรานับ Event ในการรัน `groupBy` ข้างบนได้ตามนี้ (ปิดการบีบอัดเพื่อให้อ่านง่าย)
 
-| event | จำนวน |
+| Event | จำนวน |
 |---|---|
 | `SparkListenerApplicationStart` / `End` | 1 / 1 |
 | `SparkListenerJobStart` / `End` | 1 / 1 |
@@ -58,7 +58,7 @@ Spark UI หายไปเมื่อ application จบ ถ้าอยาก
 | `SparkListenerExecutorAdded` | 2 |
 | `SparkListenerSQLExecutionStart` / `End` | 1 / 1 |
 
-ตัวเลข 14 ตรงกับจำนวน task ใน UI พอดี: UI ทั้งหน้าคือผลของการเล่น event เหล่านี้ History Server (สคริปต์ `sbin/start-history-server.sh` อยู่ในแพ็กเกจ PySpark) อ่าน event log เดียวกัน ส่วนการเปิด History Server เองยังไม่ได้ทดสอบ
+ตัวเลข 14 ตรงกับจำนวน Task ใน UI พอดี เพราะ UI ทั้งหน้าคือผลของการเล่น Event เหล่านี้ซ้ำ History Server (สคริปต์ `sbin/start-history-server.sh` อยู่ในแพ็กเกจ PySpark) อ่าน Event Log เดียวกันนี้ ส่วนการเปิด History Server เองยังไม่ได้ทดสอบ
 
 </Step>
 
@@ -66,44 +66,44 @@ Spark UI หายไปเมื่อ application จบ ถ้าอยาก
 
 ## Cluster Manager และ Deploy Mode
 
-**cluster manager** คือผู้จัดสรรเครื่องให้ Spark โปรแกรมของคุณบอกว่าจะใช้ตัวไหนผ่าน `--master`
+**Cluster Manager** คือผู้จัดสรรคอมพิวเตอร์ให้ Spark โดยโปรแกรมของคุณบอกว่าจะใช้ตัวไหนผ่าน `--master`
 
 | `--master` | ใช้เมื่อ | ทดสอบในบทนี้ |
 |---|---|---|
-| `local[N]` | พัฒนาบนเครื่องเดียว (driver และ executor เป็น process เดียวกัน) | ใช้ในทุกบทก่อนหน้า |
-| `spark://host:7077` | standalone cluster ที่ Spark มาเอง (Master + Worker) | **รันจริง** |
-| `yarn` | Hadoop cluster | ไม่ได้รัน (มี `spark-yarn` jar ในแพ็กเกจ) |
-| `k8s://https://...` | Kubernetes | ไม่ได้รัน (มี `spark-kubernetes` jar) |
+| `local[N]` | พัฒนาบนคอมพิวเตอร์เครื่องเดียว (Driver และ Executor เป็น Process เดียวกัน) | ใช้ในทุกบทก่อนหน้า |
+| `spark://host:7077` | Standalone Cluster ที่ Spark มาเอง (Master + Worker) | **รันจริง** |
+| `yarn` | Hadoop Cluster | ไม่ได้รัน (มี `spark-yarn` Jar ในแพ็กเกจ) |
+| `k8s://https://...` | Kubernetes | ไม่ได้รัน (มี `spark-kubernetes` Jar) |
 
-**deploy mode** บอกว่า driver อยู่ที่ไหน
+ส่วน **Deploy Mode** บอกว่า Driver อยู่ที่ไหน
 
-- `client` (ค่าเริ่มต้น): driver อยู่ในเครื่องที่รัน `spark-submit` หรือ Python script ของคุณ เห็น output ตรงๆ
-- `cluster`: driver ถูกส่งไปรันบน cluster ใช้กับงานที่ปล่อยทิ้งไว้
+- `client` (ค่าเริ่มต้น) Driver จะอยู่ในคอมพิวเตอร์ที่รัน `spark-submit` หรือ Python Script ของคุณ จึงเห็น Output ตรง ๆ
+- `cluster` Driver จะถูกส่งไปรันบน Cluster ซึ่งใช้กับงานที่ปล่อยทิ้งไว้
 
-ข้อจำกัดที่ตรวจจริง: **standalone cluster mode ไม่รองรับแอป Python** `spark-submit --master spark://... --deploy-mode cluster app.py` ได้ `Cluster deploy mode is currently not supported for python applications on standalone clusters` (มาจาก `SparkSubmit.scala:299`) ถ้าอยากรัน Python แบบ cluster mode ต้องใช้ YARN หรือ Kubernetes
+มีข้อจำกัดที่เราตรวจจริงแล้วคือ **standalone cluster mode ไม่รองรับแอป Python** เมื่อรัน `spark-submit --master spark://... --deploy-mode cluster app.py` จะได้ `Cluster deploy mode is currently not supported for python applications on standalone clusters` (มาจาก `SparkSubmit.scala:299`) ถ้าอยากรัน Python แบบ Cluster Mode ต้องใช้ YARN หรือ Kubernetes
 
 </Step>
 
 <Step>
 
-## จาก spark-submit ถึง Executor
+## จาก Spark-submit ถึง Executor
 
-ลองดูลำดับจริงบน standalone cluster ที่เปิดไว้ในแล็บ (Master หนึ่งตัว, Worker 2 core, executor ตัวละ 1 core)
+ลองดูลำดับจริงบน Standalone Cluster ที่เปิดไว้ในแล็บ (Master หนึ่งตัว, Worker 2 Core, Executor ตัวละ 1 Core)
 
 <SubmitFlowLab client:visible />
 
-คนที่ทำหน้าที่ในแต่ละขั้น (จาก source: `SparkSubmit.scala`, `StandaloneAppClient.scala`, `Master.scala`, `Worker.scala`, `ExecutorRunner.scala`, `CoarseGrainedExecutorBackend.scala`)
+ตารางนี้บอกว่าใครทำหน้าที่อะไรในแต่ละขั้น (จาก Source: `SparkSubmit.scala`, `StandaloneAppClient.scala`, `Master.scala`, `Worker.scala`, `ExecutorRunner.scala`, `CoarseGrainedExecutorBackend.scala`)
 
 | ผู้เล่น | หน้าที่ |
 |---|---|
-| `SparkSubmit` | จุดเข้าของ `spark-submit` แยกว่าจะ submit, kill หรือขอสถานะ แล้วเรียก main ของ application |
-| `StandaloneAppClient` | ฝั่ง driver คุยกับ Master: ลงทะเบียน application, ขอ/ปลด executor |
-| `Master` | รับ `RegisterWorker` และ `RegisterApplication` จัดคิวแบบ FIFO ตาม application ที่รออยู่ และเลือก Worker ให้ executor |
-| `Worker` | รับ `LaunchExecutor` และนับ core กับ memory ที่ใช้ไป |
-| `ExecutorRunner` | เปิด executor เป็น child process และรายงานสถานะกลับ Worker |
-| `CoarseGrainedExecutorBackend` | อยู่ในแต่ละ executor ลงทะเบียนกับ driver แล้วรับ `LaunchTask` |
+| `SparkSubmit` | เป็นจุดเข้าของ `spark-submit` แยกว่าจะ Submit, Kill หรือขอสถานะ แล้วเรียก Main ของ Application |
+| `StandaloneAppClient` | อยู่ฝั่ง Driver และคุยกับ Master โดยลงทะเบียน Application และขอหรือปลด Executor |
+| `Master` | รับ `RegisterWorker` และ `RegisterApplication` จัดคิวแบบ FIFO ตาม Application ที่รออยู่ และเลือก Worker ให้ Executor |
+| `Worker` | รับ `LaunchExecutor` และนับ Core กับ Memory ที่ใช้ไป |
+| `ExecutorRunner` | เปิด Executor เป็น Child Process และรายงานสถานะกลับไปที่ Worker |
+| `CoarseGrainedExecutorBackend` | อยู่ในแต่ละ Executor ลงทะเบียนกับ Driver แล้วรับ `LaunchTask` |
 
-ข้อสำคัญคือหลังจาก executor ถูกเปิดแล้ว **executor คุยกับ driver โดยตรง** ไม่ผ่าน Master ถ้า driver ตาย application ก็จบ ส่วนบน YARN และ Kubernetes ผู้เล่นฝั่ง cluster manager ต่างออกไป แต่ลำดับ "driver ขอ executor แล้ว executor ติดต่อกลับ driver" เหมือนกัน
+ข้อสำคัญคือหลังจาก Executor ถูกเปิดแล้ว **Executor คุยกับ Driver โดยตรง** ไม่ผ่าน Master ถ้า Driver ตาย Application ก็จบ ส่วนบน YARN และ Kubernetes ผู้เล่นฝั่ง Cluster Manager จะต่างออกไป แต่ลำดับ "Driver ขอ Executor แล้ว Executor ติดต่อกลับ Driver" เหมือนกัน
 
 </Step>
 
@@ -111,24 +111,24 @@ Spark UI หายไปเมื่อ application จบ ถ้าอยาก
 
 ## ขอ Resource และ Dynamic Allocation
 
-ค่าที่ต้องตัดสินใจเสมอเมื่อส่ง application ขึ้น cluster
+เมื่อส่ง Application ขึ้น Cluster เราต้องตัดสินใจเรื่องค่าเหล่านี้เสมอ
 
-| config | ความหมาย | ค่าเริ่มต้น |
+| Config | ความหมาย | ค่าเริ่มต้น |
 |---|---|---|
-| `spark.executor.memory` | heap ของแต่ละ executor (ขั้นต่ำ 450m ตาม doc) | ดู doc ของเวอร์ชัน |
-| `spark.executor.cores` | จำนวน core (= task ขนานกันได้) ต่อ executor | 1 |
-| `spark.driver.memory` | memory ของ driver | 1g |
-| `spark.executor.memoryOverhead` | memory นอก heap (ที่ Python worker, native, buffer ใช้) | คำนวณจากสัดส่วนของ executor memory |
+| `spark.executor.memory` | Heap ของแต่ละ Executor (ขั้นต่ำ 450m ตาม Doc) | ดู Doc ของเวอร์ชัน |
+| `spark.executor.cores` | จำนวน Core (= Task ขนานกันได้) ต่อ Executor | 1 |
+| `spark.driver.memory` | Memory ของ Driver | 1g |
+| `spark.executor.memoryOverhead` | Memory นอก Heap (ที่ Python Worker, Native, Buffer ใช้) | คำนวณจากสัดส่วนของ Executor Memory |
 | `spark.ui.port` | พอร์ตของ UI | 4040 |
 
-**Dynamic allocation** (`spark.dynamicAllocation.enabled`) ให้ Spark ขอและคืน executor ตามงาน (`ExecutorAllocationManager` ที่ driver) นโยบาย: เริ่มจาก `initialExecutors` เมื่อมี task ค้างเกิน `schedulerBacklogTimeout` (1 วินาที) ก็ขอเพิ่มทีละ 1, 2, 4 ตัวไปจนถึง `maxExecutors` และคืน executor ที่ว่างเกิน `executorIdleTimeout` (**60 วินาที** ค่าเริ่มต้น) ผลที่วัดบน cluster ที่ตั้ง `minExecutors = 0`, `idleTimeout = 4s`
+**Dynamic Allocation** (`spark.dynamicAllocation.enabled`) ให้ Spark ขอและคืน Executor ตามงาน (`ExecutorAllocationManager` ที่ Driver) นโยบายคือเริ่มจาก `initialExecutors` เมื่อมี Task ค้างเกิน `schedulerBacklogTimeout` (1 วินาที) ก็ขอเพิ่มทีละ 1, 2, 4 ตัวไปจนถึง `maxExecutors` และคืน Executor ที่ว่างเกิน `executorIdleTimeout` (**60 วินาที** ค่าเริ่มต้น) ผลที่วัดบน Cluster ที่ตั้ง `minExecutors = 0`, `idleTimeout = 4s` เป็นดังนี้
 
-1. ก่อนมีงาน: executor มีแต่ `driver`
-2. หลัง job `groupBy`: มี executor 2 ตัว (ตัวละ 1 core ตามที่ Worker มี)
-3. รอ 8 วินาที (เกิน idle timeout): ยังเหลือ 2 ตัว เพราะ executor เก็บ **shuffle data** ของ job ที่เพิ่งจบไว้
-4. application ที่ไม่มี shuffle (`range(...).collect()`): executor ถูกคืน กลับเหลือแต่ `driver`
+1. ก่อนมีงาน Executor มีแต่ `driver`
+2. หลัง Job `groupBy` มี Executor 2 ตัว (ตัวละ 1 Core ตามที่ Worker มี)
+3. รอ 8 วินาที (เกิน Idle Timeout) ยังเหลือ 2 ตัว เพราะ Executor เก็บ **Shuffle Data** ของ Job ที่เพิ่งจบไว้
+4. Application ที่ไม่มี Shuffle (`range(...).collect()`) จะคืน Executor กลับเหลือแต่ `driver`
 
-ข้อ 3 เป็นผลของ **shuffle tracking** (`spark.dynamicAllocation.shuffleTracking.enabled`) ซึ่งจำเป็นเมื่อไม่มี external shuffle service: Spark ไม่ปล่อย executor ที่ถือ shuffle file ที่อาจยังต้องใช้ และค่า `shuffleTracking.timeout` ค่าเริ่มต้นไม่มีกำหนด (`Long.MaxValue`) ดังนั้น job ที่มี shuffle บ่อยจะเห็น executor ค้างอยู่ แม้ว่างจริง
+ข้อ 3 เป็นผลของ **Shuffle Tracking** (`spark.dynamicAllocation.shuffleTracking.enabled`) ซึ่งจำเป็นเมื่อไม่มี external shuffle service Spark จะไม่ปล่อย Executor ที่ถือ Shuffle File ที่อาจยังต้องใช้ และค่า `shuffleTracking.timeout` ค่าเริ่มต้นไม่มีกำหนด (`Long.MaxValue`) ดังนั้น Job ที่มี Shuffle บ่อยจะเห็น Executor ค้างอยู่ แม้ว่างจริงก็ตาม
 
 </Step>
 
@@ -136,24 +136,24 @@ Spark UI หายไปเมื่อ application จบ ถ้าอยาก
 
 ## Spark Connect: Client กับ Server แยกกัน
 
-PySpark ปกติ (classic) เปิด JVM ไว้ใน process เดียวกับโปรแกรมของคุณ แล้วคุยผ่าน Py4J **Spark Connect** แยกสองส่วนจากกัน: ฝั่ง client บางๆ ที่สร้าง logical plan ส่งผ่าน **gRPC** (protobuf) ไปให้ server ที่รัน Spark เต็มตัว แล้วรับผลกลับเป็น Arrow
+PySpark ปกติ (Classic) เปิด JVM ไว้ใน Process เดียวกับโปรแกรมของคุณ แล้วคุยผ่าน Py4J ส่วน **Spark Connect** แยกเป็นสองส่วนจากกัน คือฝั่ง Client บาง ๆ ที่สร้าง Logical Plan แล้วส่งผ่าน **gRPC** (Protobuf) ไปให้ Server ที่รัน Spark เต็มตัว จากนั้นรับผลกลับเป็น Arrow
 
-จากการรันจริง (client ต่อกับ server local ที่ `SparkSession.builder.remote("local[2]")` เปิดให้)
+จากการรันจริง (Client ต่อกับ Server Local ที่ `SparkSession.builder.remote("local[2]")` เปิดให้) ได้ผลตามนี้
 
-| ที่ตรวจ | classic | Connect |
+| ที่ตรวจ | Classic | Connect |
 |---|---|---|
-| module ของ session | `pyspark.sql.session` | `pyspark.sql.connect.session` |
-| DataFrame ถืออะไร | proxy ของ JVM Dataset (`_jdf`) | logical plan ฝั่ง client (`_plan`) ซึ่ง `filter` ได้ `Filter` |
+| Module ของ Session | `pyspark.sql.session` | `pyspark.sql.connect.session` |
+| DataFrame ถืออะไร | Proxy ของ JVM Dataset (`_jdf`) | Logical Plan ฝั่ง Client (`_plan`) ซึ่ง `filter` ได้ `Filter` |
 | `df.collect()` | เหมือนกัน | ได้ `[0, 2, 4, 6, 8]` |
 | `df.explain()` | เหมือนกัน | แผนเดียวกัน `*(1) Filter ... Range (0, 10, step=1, splits=2)` |
 | `spark.sparkContext` | ใช้ได้ | `PySparkAttributeError` (ต้องพึ่ง JVM) |
 | `df.rdd` | ใช้ได้ | `PySparkNotImplementedError` |
 
-สิ่งที่หายไปคือทุกอย่างที่ต้องจับ JVM ตรงๆ (SparkContext, RDD) ได้มาคือ **client เบา**: ไม่ต้องมี JVM หรือ Spark ในเครื่องที่รันโค้ด เชื่อมต่อกับ cluster ระยะไกลได้ และ client ล้มไม่ทำให้ server ล้ม
+สิ่งที่หายไปคือทุกอย่างที่ต้องจับ JVM ตรง ๆ (SparkContext, RDD) ส่วนสิ่งที่ได้มาคือ **Client เบา** ที่ไม่ต้องมี JVM หรือ Spark ในคอมพิวเตอร์ที่รันโค้ด เชื่อมต่อกับ Cluster ระยะไกลได้ และถ้า Client ล้ม Server ก็ไม่ล้มตาม
 
-ฝั่ง server (จาก source): `SparkConnectService` เป็น gRPC service ที่มี `ExecutePlan` (ส่งผลกลับเป็น stream), `AnalyzePlan`, `Config`, `AddArtifacts`, `Interrupt`, `ReattachExecute` `SparkConnectPlanner` แปลง protobuf เป็น Catalyst plan แล้วจากนั้นเป็น Catalyst ปกติทั้งหมดที่เรียนมา ([บทที่ 6](/spark/catalyst-aqe/#query-ผ่านห้าขั้น)) แต่ละ session มี `SessionHolder` เก็บ state ฝั่ง server และแต่ละ operation มี `ExecuteHolder` กับ thread รัน (`ExecuteThreadRunner`) `ReattachExecute` ทำให้ client เชื่อมต่อใหม่แล้วรับผลต่อได้เมื่อสายหลุดกลางทาง
+ฝั่ง Server (จาก Source) `SparkConnectService` เป็น gRPC Service ที่มี `ExecutePlan` (ส่งผลกลับเป็น Stream), `AnalyzePlan`, `Config`, `AddArtifacts`, `Interrupt`, `ReattachExecute` โดย `SparkConnectPlanner` จะแปลง Protobuf เป็น Catalyst Plan แล้วจากนั้นก็เป็น Catalyst ปกติทั้งหมดที่เรียนมา ([บทที่ 6](/spark/catalyst-aqe/#query-ผ่านห้าขั้น)) แต่ละ Session มี `SessionHolder` เก็บ State ฝั่ง Server และแต่ละ Operation มี `ExecuteHolder` กับ Thread รัน (`ExecuteThreadRunner`) ส่วน `ReattachExecute` ทำให้ Client เชื่อมต่อใหม่แล้วรับผลต่อได้เมื่อสายหลุดกลางทาง
 
-Databricks และ EMR เป็นบริการที่เปิด cluster ให้ ผู้เขียนไม่ได้ทดสอบทั้งสองตัว ส่วนที่เกี่ยวข้องกับบทนี้คือการอ่าน Spark UI ซึ่งมีหน้าตาเหมือนกัน
+Databricks และ EMR เป็นบริการที่เปิด Cluster ให้ ผู้เขียนไม่ได้ทดสอบทั้งสองตัว ส่วนที่เกี่ยวข้องกับบทนี้คือการอ่าน Spark UI ซึ่งมีหน้าตาเหมือนกัน
 
 </Step>
 
@@ -166,13 +166,13 @@ cd subjects/spark/code
 uv run python exercises/11_deployment_ui.py
 ```
 
-สคริปต์เปิด standalone cluster เอง (Master + Worker ใน WSL) รัน application อ่าน REST และ event log ทดลอง dynamic allocation และ Spark Connect ใช้เวลาราว 2 ถึง 3 นาที ถ้าอยากดู UI จริง ให้เปิด Master UI ที่ `http://127.0.0.1:8080` ระหว่างที่รัน
+สคริปต์จะเปิด Standalone Cluster เอง (Master + Worker ใน WSL) รัน Application อ่าน REST และ Event Log ทดลอง Dynamic Allocation และ Spark Connect ใช้เวลาราว 2 ถึง 3 นาที ถ้าอยากดู UI จริง ให้เปิด Master UI ที่ `http://127.0.0.1:8080` ระหว่างที่รัน
 
-เช็กตัวเอง
+ลองตอบคำถามเหล่านี้ดูว่าเข้าใจแล้วหรือยัง
 
-- เจอ task ตัวเดียวช้ากว่าเพื่อนมาก ต้องเปิดหน้าไหน ดูอะไร
-- ทำไมตั้ง dynamic allocation แล้ว executor ยังไม่ถูกคืนหลัง job ที่มี shuffle
+- เจอ Task ตัวเดียวช้ากว่าเพื่อนมาก ต้องเปิดหน้าไหน ดูอะไร
+- ทำไมตั้ง Dynamic Allocation แล้ว Executor ยังไม่ถูกคืนหลัง Job ที่มี Shuffle
 - ทำไม `df.rdd` ใช้ไม่ได้ใน Spark Connect
-- ต้องการรัน Python แบบ cluster mode ต้องเลือก cluster manager ตัวไหน
+- ต้องการรัน Python แบบ Cluster Mode ต้องเลือก Cluster Manager ตัวไหน
 
 </Step>

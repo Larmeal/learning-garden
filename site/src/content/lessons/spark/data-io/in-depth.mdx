@@ -1,6 +1,6 @@
 ---
 title: Data I/O แบบเจาะลึก
-summary: วัดจริงว่า Parquet อ่านน้อยกว่า CSV เท่าไร row group และ min/max ข้าม filter ได้เมื่อไร partition pruning ข้ามโฟลเดอร์ เขียนกี่ไฟล์ อ่านแบ่ง partition อย่างไร write mode ทำอะไร และ inferSchema เสียอะไร
+summary: วัดจริงว่า Parquet อ่านน้อยกว่า CSV เท่าไร Row Group และ Min/Max ข้าม Filter ได้เมื่อไร Partition Pruning ข้ามโฟลเดอร์ เขียนกี่ไฟล์ อ่านแบ่ง Partition อย่างไร Write Mode ทำอะไร และ inferSchema เสียอะไร
 order: 10
 stage: sprout
 format: steps
@@ -11,24 +11,24 @@ import Step from '../../../../components/Step.astro';
 import Callout from '../../../../components/Callout.astro';
 import ParquetSkipLab from '../../../../components/labs/spark/ParquetSkipLab';
 
-ทุกตัวเลขในหน้านี้มาจาก `exercises/04_data_io.py` ที่เขียนไฟล์ CSV และ Parquet จริง 600,000 แถวแล้ววัด รันใน WSL เพราะ Windows เขียน Parquet ไม่ได้ (ดู[บทที่ 9](/spark/structured-streaming/#streaming-คือ-dataframe-ที่ไม่มีวันจบ) หัวข้อ `hadoop.dll`) ตัวเลขขนาดไฟล์และไบต์ที่อ่านเป็นของเครื่องผู้เขียน จึงดูที่สัดส่วน
+ทุกตัวเลขในหน้านี้มาจาก `exercises/04_data_io.py` ที่เขียนไฟล์ CSV และ Parquet จริง 600,000 แถวแล้ววัด โดยรันใน WSL เพราะ Windows เขียน Parquet ไม่ได้ (ดู[บทที่ 9](/spark/structured-streaming/#streaming-คือ-dataframe-ที่ไม่มีวันจบ) หัวข้อ `hadoop.dll`) ตัวเลขขนาดไฟล์และไบต์ที่อ่านเป็นของคอมพิวเตอร์ของผู้เขียน เราจึงควรดูที่สัดส่วนมากกว่า
 
 <Step>
 
 ## Parquet อ่านน้อยกว่า CSV เท่าไร
 
-ตารางทดลองมี 9 คอลัมน์: `id`, `country` (5 ค่า), `status` (4 ค่า), `user` (5,000 ค่า), `amount`, `qty`, `ts` และสตริง hash สุ่มสองคอลัมน์ (`token`, `note`) เขียนเป็น CSV (มี header) และ Parquet (snappy ค่าเริ่มต้น) แล้ววัด
+ตารางทดลองมี 9 คอลัมน์ ได้แก่ `id`, `country` (5 ค่า), `status` (4 ค่า), `user` (5,000 ค่า), `amount`, `qty`, `ts` และสตริง Hash สุ่มสองคอลัมน์ (`token`, `note`) เราเขียนเป็น CSV (มี Header) และ Parquet (Snappy ค่าเริ่มต้น) แล้ววัด
 
 | | CSV | Parquet |
 |---|---|---|
-| ขนาดบน disk | 71.7 MiB | 48.9 MiB |
+| ขนาดบน Disk | 71.7 MiB | 48.9 MiB |
 | ไบต์ที่อ่านตอน `agg(sum("amount"))` | **73.3 MiB** (ทั้งไฟล์) | **0.10 MiB** |
 
-- **ขนาดไฟล์**: Parquet เล็กกว่า CSV เพียงราวหนึ่งในสามในตารางนี้ เพราะสตริง hash สุ่มบีบอัดไม่ได้เลย ถ้าข้อมูลมีค่าซ้ำเยอะ (country, status, ตัวเลขช่วงแคบ) ส่วนต่างจะมากกว่านี้ ตัวเลขขนาดไฟล์ขึ้นกับข้อมูลมาก จึงอย่าจำเป็นตัวคูณ
-- **ไบต์ที่อ่าน**: นี่คือความต่างที่ชัดที่สุด CSV ต้องอ่านทุกบรรทัดตั้งแต่ต้นจนจบเพื่อหาคอลัมน์เดียว ได้ 73.3 MiB (มากกว่าไฟล์นิดหน่อยเพราะนับ header ของทุกไฟล์) Parquet เก็บข้อมูลทีละคอลัมน์ Spark อ่านเฉพาะ column chunk ของ `amount` ได้ **0.10 MiB** ราวหนึ่งในห้าร้อยของไฟล์
-- แผนยืนยันว่า Spark รู้ล่วงหน้า: `ReadSchema: struct<amount:double>` (column pruning ของ[บทที่ 6](/spark/catalyst-aqe/#ผลของ-pushdown-ที่เห็นใน-plan-ของไฟล์))
+- **ขนาดไฟล์** Parquet เล็กกว่า CSV เพียงราวหนึ่งในสามในตารางนี้ เพราะสตริง Hash สุ่มบีบอัดไม่ได้เลย ถ้าข้อมูลมีค่าซ้ำเยอะ (Country, Status, ตัวเลขช่วงแคบ) ส่วนต่างจะมากกว่านี้ เนื่องจากตัวเลขขนาดไฟล์ขึ้นกับข้อมูลมาก เราจึงอย่าจำเป็นตัวคูณ
+- **ไบต์ที่อ่าน** ตรงนี้คือความต่างที่ชัดที่สุด CSV ต้องอ่านทุกบรรทัดตั้งแต่ต้นจนจบเพื่อหาคอลัมน์เดียว จึงได้ 73.3 MiB (มากกว่าไฟล์นิดหน่อยเพราะนับ Header ของทุกไฟล์) ส่วน Parquet เก็บข้อมูลทีละคอลัมน์ Spark จึงอ่านเฉพาะ Column Chunk ของ `amount` ได้ **0.10 MiB** ราวหนึ่งในห้าร้อยของไฟล์
+- แผนยืนยันว่า Spark รู้ล่วงหน้า คือ `ReadSchema: struct<amount:double>` (Column Pruning ของ[บทที่ 6](/spark/catalyst-aqe/#ผลของ-pushdown-ที่เห็นใน-plan-ของไฟล์))
 
-"ไบต์ที่อ่าน" คือ `inputBytes` ที่ Spark UI แสดงในหน้า Stage อ่านผ่าน REST API ([บทที่ 11](/spark/deployment-spark-ui/#ทักษะที่สำคัญที่สุดคืออ่าน-spark-ui)) ส่วน "size of files read" ของ node `Scan` ใน SQL tab เป็นขนาดไฟล์ที่เปิด ไม่ใช่ไบต์ที่อ่านจริง ซึ่งให้ภาพที่ต่างกันได้
+"ไบต์ที่อ่าน" คือ `inputBytes` ที่ Spark UI แสดงในหน้า Stage ซึ่งเราอ่านผ่าน REST API ([บทที่ 11](/spark/deployment-spark-ui/#ทักษะที่สำคัญที่สุดคืออ่าน-spark-ui)) ส่วน "size of files read" ของ Node `Scan` ใน SQL Tab เป็นขนาดไฟล์ที่เปิด ไม่ใช่ไบต์ที่อ่านจริง ซึ่งให้ภาพที่ต่างกันได้
 
 </Step>
 
@@ -36,31 +36,31 @@ import ParquetSkipLab from '../../../../components/labs/spark/ParquetSkipLab';
 
 ## ข้างในไฟล์ Parquet: Row Group และสถิติ
 
-ไฟล์ Parquet แบ่งแถวเป็นก้อนเรียกว่า **row group** แต่ละ row group เก็บข้อมูลทีละคอลัมน์ (column chunk) และบันทึก **สถิติของแต่ละคอลัมน์** คือ `min`, `max` และจำนวน null ไว้ใน footer ของไฟล์
+ไฟล์ Parquet แบ่งแถวเป็นก้อนที่เรียกว่า **Row Group** แต่ละ Row Group จะเก็บข้อมูลทีละคอลัมน์ (Column Chunk) และบันทึก **สถิติของแต่ละคอลัมน์** คือ `min`, `max` และจำนวน Null ไว้ใน Footer ของไฟล์
 
-ในการทดลอง ตั้ง `parquet.block.size` เป็น 256 KiB เพื่อให้ไฟล์ 600,000 แถวมี **290 row group ก้อนละ 2,072 แถว** (ค่าเริ่มต้นของ Parquet ใหญ่กว่านี้มาก ไฟล์จริงจึงมี row group น้อยกว่า) อ่าน footer ด้วย `pyarrow` เห็น `min`/`max` ของ `id` ในแต่ละก้อน
+ในการทดลองนี้ เราตั้ง `parquet.block.size` เป็น 256 KiB เพื่อให้ไฟล์ 600,000 แถวมี **290 Row Group ก้อนละ 2,072 แถว** (ค่าเริ่มต้นของ Parquet ใหญ่กว่านี้มาก ไฟล์จริงจึงมี Row Group น้อยกว่า) พออ่าน Footer ด้วย `pyarrow` ก็เห็น `min`/`max` ของ `id` ในแต่ละก้อน
 
-Spark ส่งเงื่อนไข filter ไปให้ตัวอ่านไฟล์ (**predicate pushdown**) ตัวอ่านเทียบกับ `min`/`max` ของแต่ละ row group และข้ามก้อนที่ไม่มีทางมีแถวที่ตรง ใน plan เห็น
+Spark จะส่งเงื่อนไข Filter ไปให้ตัวอ่านไฟล์ (**Predicate Pushdown**) แล้วตัวอ่านก็เทียบกับ `min`/`max` ของแต่ละ Row Group และข้ามก้อนที่ไม่มีทางมีแถวที่ตรง ใน Plan เราจะเห็น
 
 ```
 PushedFilters: [IsNotNull(id), GreaterThanOrEqual(id,1000), LessThanOrEqual(id,1999)]
 ```
 
-และ **`Filter` ยังอยู่เหนือ scan เหมือนเดิม** เพราะการข้ามทำระดับ row group เท่านั้น แถวที่เหลือยังต้องกรองซ้ำ
+และ **`Filter` ยังอยู่เหนือ Scan เหมือนเดิม** เพราะการข้ามทำระดับ Row Group เท่านั้น แถวที่เหลือจึงยังต้องกรองซ้ำ
 
-ผลขึ้นกับว่าข้อมูลเรียงอย่างไร ทดลองสองไฟล์ที่มีแถวชุดเดียวกัน ต่างกันที่ลำดับ (เรียงตาม `id` กับเรียงตามคอลัมน์สตริงอื่น) กับ filter เดียวกัน `id BETWEEN 1000 AND 1999` วัดจำนวนแถวที่ตัวอ่านไฟล์ส่งออก (metric `number of output rows` ของ node scan)
+ผลจะเป็นอย่างไรขึ้นกับว่าข้อมูลเรียงแบบไหน เราทดลองกับสองไฟล์ที่มีแถวชุดเดียวกัน ต่างกันที่ลำดับ (เรียงตาม `id` กับเรียงตามคอลัมน์สตริงอื่น) ใช้ Filter เดียวกันคือ `id BETWEEN 1000 AND 1999` แล้ววัดจำนวนแถวที่ตัวอ่านไฟล์ส่งออก (Metric `number of output rows` ของ Node Scan)
 
 | ไฟล์ | แถวที่ตัวอ่านส่งออก |
 |---|---|
-| เรียงตาม `id` | **2,072** (row group เดียว) |
-| เรียงตามคอลัมน์อื่น | **597,928** (เกือบทุก row group) |
+| เรียงตาม `id` | **2,072** (Row Group เดียว) |
+| เรียงตามคอลัมน์อื่น | **597,928** (เกือบทุก Row Group) |
 
 <ParquetSkipLab client:visible />
 
-บทเรียน: pushdown ไม่ได้ช่วยเสมอ ต้องให้ข้อมูลเรียงหรือจัดกลุ่มตามคอลัมน์ที่ใช้ filter บ่อย เพื่อให้ `min`/`max` ของแต่ละก้อนแคบ (ตรงกับที่ table format อย่าง Delta ทำด้วย OPTIMIZE และ data skipping ใน[บทที่ 10](/spark/table-formats/#performance-log-ให้ของแถม))
+จะเห็นว่า Pushdown ไม่ได้ช่วยเสมอไป เราต้องให้ข้อมูลเรียงหรือจัดกลุ่มตามคอลัมน์ที่ใช้ Filter บ่อย เพื่อให้ `min`/`max` ของแต่ละก้อนแคบ (ตรงกับที่ Table Format อย่าง Delta ทำด้วย OPTIMIZE และ Data Skipping ใน[บทที่ 10](/spark/table-formats/#performance-log-ให้ของแถม))
 
 <Callout type="note" title="[บทที่ 6](/spark/catalyst-aqe/#ผลของ-pushdown-ที่เห็นใน-plan-ของไฟล์) เคยบอกว่ายังไม่ได้ทดสอบ">
-[บทที่ 6](/spark/catalyst-aqe/#ผลของ-pushdown-ที่เห็นใน-plan-ของไฟล์) ใช้ CSV ในตัวอย่าง pushdown เพราะตอนนั้นเขียน Parquet บน Windows ไม่ได้ ตอนนี้ตรวจแล้วว่า Parquet ข้าม row group ได้ตามที่เขียน และใน plan ของ Parquet `PushedFilters` กับ `Filter` อยู่คู่กันเหมือน CSV
+[บทที่ 6](/spark/catalyst-aqe/#ผลของ-pushdown-ที่เห็นใน-plan-ของไฟล์) ใช้ CSV ในตัวอย่าง Pushdown เพราะตอนนั้นเขียน Parquet บน Windows ไม่ได้ ตอนนี้เราตรวจแล้วว่า Parquet ข้าม Row Group ได้ตามที่เขียนไว้ และใน Plan ของ Parquet `PushedFilters` กับ `Filter` อยู่คู่กันเหมือน CSV
 </Callout>
 
 </Step>
@@ -69,16 +69,16 @@ PushedFilters: [IsNotNull(id), GreaterThanOrEqual(id,1000), LessThanOrEqual(id,1
 
 ## partitionBy และ Partition Pruning
 
-`df.write.partitionBy("country").parquet(path)` ได้โฟลเดอร์ `country=id`, `country=jp`, `country=sg`, `country=th`, `country=vn` (วัดจริง) และ **ค่า `country` ไม่ได้อยู่ในไฟล์ Parquet** เปิดไฟล์ในโฟลเดอร์ `country=th` ด้วย `pyarrow` ไม่เจอคอลัมน์ `country` ค่ามาจากชื่อโฟลเดอร์ ตอนอ่านทั้งโฟลเดอร์ Spark เติมคอลัมน์กลับให้
+`df.write.partitionBy("country").parquet(path)` ได้โฟลเดอร์ `country=id`, `country=jp`, `country=sg`, `country=th`, `country=vn` (วัดจริง) และ **ค่า `country` ไม่ได้อยู่ในไฟล์ Parquet** ถ้าเปิดไฟล์ในโฟลเดอร์ `country=th` ด้วย `pyarrow` จะไม่เจอคอลัมน์ `country` เพราะค่ามาจากชื่อโฟลเดอร์ ตอนอ่านทั้งโฟลเดอร์ Spark จะเติมคอลัมน์กลับให้
 
-filter ด้วยคอลัมน์ partition ถูกจัดการก่อนเปิดไฟล์ใดๆ ใน plan เห็น `PartitionFilters: [isnotnull(country#..), (country#.. = th)]` และผลที่วัด (`number of output rows` ของ scan)
+Filter ด้วยคอลัมน์ Partition จะถูกจัดการก่อนเปิดไฟล์ใด ๆ ใน Plan เราจะเห็น `PartitionFilters: [isnotnull(country#..), (country#.. = th)]` และผลที่วัดได้ (`number of output rows` ของ Scan) เป็นดังนี้
 
-| query | แถวที่อ่าน |
+| Query | แถวที่อ่าน |
 |---|---|
 | ทั้งตาราง | 600,000 |
 | `country = 'th'` | **120,000** (หนึ่งในห้า) |
 
-ต่างจาก predicate pushdown ข้างบน: partition pruning ไม่ต้องเปิดไฟล์ที่ถูกข้ามเลย (ข้ามทั้งโฟลเดอร์) ส่วน pushdown ต้องเปิดไฟล์อ่าน footer ก่อนจึงข้าม row group
+สิ่งที่ต่างจาก Predicate Pushdown ข้างบนคือ Partition Pruning ไม่ต้องเปิดไฟล์ที่ถูกข้ามเลย (ข้ามทั้งโฟลเดอร์) ส่วน Pushdown ต้องเปิดไฟล์อ่าน Footer ก่อนจึงข้าม Row Group ได้
 
 </Step>
 
@@ -86,18 +86,18 @@ filter ด้วยคอลัมน์ partition ถูกจัดการ�
 
 ## เขียนกี่ไฟล์
 
-จำนวนไฟล์ที่ได้ขึ้นกับ **จำนวน partition ของ DataFrame ตอนเขียน** แต่ละ task เขียนหนึ่งไฟล์ (วัดจริง)
+จำนวนไฟล์ที่ได้ขึ้นกับ **จำนวน Partition ของ DataFrame ตอนเขียน** โดยแต่ละ Task จะเขียนหนึ่งไฟล์ (วัดจริง)
 
 | DataFrame | ไฟล์ Parquet |
 |---|---|
 | `range` 16 partition | 16 |
 | `.repartition(50)` | 50 |
 | `.coalesce(1)` | 1 |
-| 16 partition แล้ว `partitionBy("k")` ที่มี 5 ค่า | **80** (16 task x 5 ค่า) |
+| 16 Partition แล้ว `partitionBy("k")` ที่มี 5 ค่า | **80** (16 Task x 5 ค่า) |
 
-แถวสุดท้ายคือกับดักไฟล์เล็ก: ทุก task เขียนไฟล์แยกให้ทุกค่า partition ที่มันถืออยู่ ถ้าแต่ละ task มีข้อมูลของหลายค่า จำนวนไฟล์เป็นผลคูณ แก้ด้วย `repartition("k")` ก่อนเขียน เพื่อให้ข้อมูลของค่าเดียวกันอยู่ใน task เดียวกัน (ข้อนี้เป็นหลักการจากการดูจำนวนไฟล์ ยังไม่ได้วัดเวลาอ่าน)
+แถวสุดท้ายคือกับดักไฟล์เล็ก เพราะทุก Task จะเขียนไฟล์แยกให้ทุกค่า Partition ที่มันถืออยู่ ถ้าแต่ละ Task มีข้อมูลของหลายค่า จำนวนไฟล์จึงเป็นผลคูณ วิธีแก้คือ `repartition("k")` ก่อนเขียน เพื่อให้ข้อมูลของค่าเดียวกันอยู่ใน Task เดียวกัน (ข้อนี้เป็นหลักการจากการดูจำนวนไฟล์ ยังไม่ได้วัดเวลาอ่าน)
 
-ไฟล์เล็กจำนวนมากแย่เพราะทุกไฟล์มีต้นทุนตอนเปิด (อ่าน footer, สร้าง task) และตอนอ่านจะได้ task เยอะเกินจำเป็น
+ไฟล์เล็กจำนวนมากแย่ตรงที่ทุกไฟล์มีต้นทุนตอนเปิด (อ่าน Footer, สร้าง Task) และตอนอ่านก็จะได้ Task เยอะเกินจำเป็น
 
 </Step>
 
@@ -105,9 +105,9 @@ filter ด้วยคอลัมน์ partition ถูกจัดการ�
 
 ## อ่านกี่ Partition
 
-ตอนอ่านไฟล์ Spark แบ่งงานเป็น partition ตามขนาดไฟล์ `spark.sql.files.maxPartitionBytes` มีค่าเริ่มต้น **128 MiB** (`134217728b` ที่อ่านจาก `spark.conf`) ไฟล์ที่ใหญ่กว่านั้นถูกหั่นเป็นช่วง ส่วนไฟล์เล็กอาจถูกรวมหลายไฟล์ต่อ partition หรืออยู่ partition ละไฟล์ ขึ้นกับจำนวน core และต้นทุนการเปิดไฟล์ (ผู้เขียนไม่ได้อ่านสูตรเต็ม ผลที่เห็นในแล็บคือหนึ่งไฟล์ต่อหนึ่ง partition)
+ตอนอ่านไฟล์ Spark จะแบ่งงานเป็น Partition ตามขนาดไฟล์ `spark.sql.files.maxPartitionBytes` มีค่าเริ่มต้น **128 MiB** (`134217728b` ที่อ่านจาก `spark.conf`) ไฟล์ที่ใหญ่กว่านั้นจะถูกหั่นเป็นช่วง ส่วนไฟล์เล็กอาจถูกรวมหลายไฟล์ต่อ Partition หรืออยู่ Partition ละไฟล์ ก็ขึ้นกับจำนวน Core และต้นทุนการเปิดไฟล์ (ผู้เขียนไม่ได้อ่านสูตรเต็ม ผลที่เห็นในแล็บคือหนึ่งไฟล์ต่อหนึ่ง Partition)
 
-วัดจริงกับ 16 ไฟล์เล็ก: ค่าเริ่มต้นได้ **16 partition** (หนึ่งต่อไฟล์) ตั้ง `maxPartitionBytes` เป็น 20,000 ไบต์ได้ **32 partition** (ไฟล์ถูกหั่นเป็นช่วง) ข้อนี้ปิดข้อสงสัยใน[บทที่ 7](/spark/performance-tuning/#จำนวน-partition-หลัง-shuffle) ที่เคยบอกว่ายังไม่ได้ทดสอบการแบ่ง partition ตอนอ่านไฟล์
+เราวัดจริงกับ 16 ไฟล์เล็ก ค่าเริ่มต้นได้ **16 Partition** (หนึ่งต่อไฟล์) แต่ถ้าตั้ง `maxPartitionBytes` เป็น 20,000 ไบต์จะได้ **32 Partition** (ไฟล์ถูกหั่นเป็นช่วง) ข้อนี้ปิดข้อสงสัยใน[บทที่ 7](/spark/performance-tuning/#จำนวน-partition-หลัง-shuffle) ที่เคยบอกว่ายังไม่ได้ทดสอบการแบ่ง Partition ตอนอ่านไฟล์
 
 </Step>
 
@@ -115,16 +115,16 @@ filter ด้วยคอลัมน์ partition ถูกจัดการ�
 
 ## Write Mode
 
-วัดจริงกับการเขียนซ้ำลงโฟลเดอร์เดิม
+เราวัดจริงกับการเขียนซ้ำลงโฟลเดอร์เดิม
 
-| mode | พฤติกรรม |
+| Mode | พฤติกรรม |
 |---|---|
 | `error` (ค่าเริ่มต้น) | `AnalysisException: [PATH_ALREADY_EXISTS]` |
 | `ignore` | ไม่ทำอะไร ข้อมูลเดิมอยู่ครบ (อ่านได้ 10 แถวเหมือนเดิม แม้สั่งเขียน 5 แถว) |
 | `append` | เพิ่ม (10 เป็น 20 แถว) |
 | `overwrite` | แทนที่ทั้งโฟลเดอร์ (เหลือ 3 แถว) |
 
-`overwrite` ลบของเดิมทั้งหมดก่อนเขียน ถ้า job ล้มกลางทาง ข้อมูลเดิมก็หายไปแล้วด้วย นี่คือเหตุผลหนึ่งที่ table format ([บทที่ 10](/spark/table-formats/#acid-ได้อย่างไรกับไฟล์ธรรมดา)) มี transaction
+`overwrite` จะลบของเดิมทั้งหมดก่อนเขียน ถ้า Job ล้มกลางทาง ข้อมูลเดิมก็หายไปแล้วด้วย ซึ่งเป็นเหตุผลหนึ่งที่ Table Format ([บทที่ 10](/spark/table-formats/#acid-ได้อย่างไรกับไฟล์ธรรมดา)) มี Transaction
 
 </Step>
 
@@ -132,8 +132,8 @@ filter ด้วยคอลัมน์ partition ถูกจัดการ�
 
 ## inferSchema ทำอะไรเบื้องหลัง
 
-`option("inferSchema", True)` ทำให้ Spark อ่านข้อมูลก่อนที่คุณจะเรียก action ใดๆ เพื่อเดาชนิด วัดด้วย job group: การเรียก `read.csv(..., inferSchema=True)` อย่างเดียวเริ่ม **2 job** ส่วนการให้ `schema` เองเริ่ม **0 job** (ไม่แตะข้อมูลเลยจนกว่า action จะมา)
+`option("inferSchema", True)` ทำให้ Spark อ่านข้อมูลก่อนที่คุณจะเรียก Action ใด ๆ เพื่อเดาชนิด เราวัดด้วย Job Group และพบว่าการเรียก `read.csv(..., inferSchema=True)` อย่างเดียวเริ่ม **2 Job** ส่วนการให้ `schema` เองเริ่ม **0 Job** (ไม่แตะข้อมูลเลยจนกว่า Action จะมา)
 
-ผลที่เดาได้ถูกในตารางนี้ (`qty` เป็น int, `amount` เป็น double) แต่การเดาต้องอ่านตัวอย่างข้อมูลทั้งหมดใน partition (ทุก 4 ไฟล์ในแล็บ) ถ้าไฟล์ใหญ่ ต้นทุนนี้จ่ายก่อนทุกอย่าง และถ้าไฟล์ใหม่มีค่าแปลกเพิ่มเข้ามา ชนิดที่เดาอาจเปลี่ยนไปเอง งานจริงจึงควรประกาศ schema ไว้ในโค้ด
+ผลที่เดาได้ถูกในตารางนี้ (`qty` เป็น Int, `amount` เป็น Double) แต่การเดาต้องอ่านตัวอย่างข้อมูลทั้งหมดใน Partition (ทุก 4 ไฟล์ในแล็บ) ถ้าไฟล์ใหญ่ ต้นทุนนี้ก็ต้องจ่ายก่อนทุกอย่าง และถ้าไฟล์ใหม่มีค่าแปลกเพิ่มเข้ามา ชนิดที่เดาอาจเปลี่ยนไปเอง ในงานจริงเราจึงควรประกาศ Schema ไว้ในโค้ด
 
 </Step>

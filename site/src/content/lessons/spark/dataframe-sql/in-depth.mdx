@@ -1,6 +1,6 @@
 ---
 title: DataFrame และ SQL แบบเจาะลึก
-summary: NULL เป็น logic สามค่า (ตารางผลทุกคู่), NOT IN ที่คืนว่างเมื่อมี NULL, join กับ key ที่เป็น NULL, rank กับ dense_rank เมื่อค่าเท่ากัน, frame แบบ RANGE และ ROWS, ANSI mode กับฟังก์ชัน try_ และกับดักของตัวเลขทศนิยม
+summary: NULL เป็น Logic สามค่า (ตารางผลทุกคู่), NOT IN ที่คืนว่างเมื่อมี NULL, Join กับ Key ที่เป็น NULL, Rank กับ dense_rank เมื่อค่าเท่ากัน, Frame แบบ RANGE และ ROWS, ANSI Mode กับฟังก์ชัน try_ และกับดักของตัวเลขทศนิยม
 order: 10
 stage: sprout
 format: steps
@@ -11,17 +11,17 @@ import Step from '../../../../components/Step.astro';
 import Callout from '../../../../components/Callout.astro';
 import NullLogicLab from '../../../../components/labs/spark/NullLogicLab';
 
-ทุกผลลัพธ์ในหน้านี้ถูกตรวจด้วย `assert` ใน `exercises/03_dataframe_sql.py` (Spark 4.2.0, ANSI mode เปิดตามค่าเริ่มต้น)
+ทุกผลลัพธ์ในหน้านี้ถูกตรวจด้วย `assert` ใน `exercises/03_dataframe_sql.py` (Spark 4.2.0, ANSI Mode เปิดตามค่าเริ่มต้น)
 
 <Step>
 
 ## NULL คือ "ไม่รู้" ไม่ใช่ค่า
 
-SQL มี logic สามค่า: TRUE, FALSE และ NULL (ไม่รู้) ลองกดแต่ละช่องของตาราง
+SQL มี Logic สามค่า ได้แก่ TRUE, FALSE และ NULL (ไม่รู้) ลองกดแต่ละช่องของตารางในแล็บนี้ดู
 
 <NullLogicLab client:visible />
 
-ผลที่ตรวจ
+ผลที่ตรวจได้เป็นดังนี้
 
 | นิพจน์ | ผล |
 |---|---|
@@ -32,7 +32,7 @@ SQL มี logic สามค่า: TRUE, FALSE และ NULL (ไม่รู
 | `NULL OR true` | TRUE |
 | `NOT NULL` | NULL |
 
-เหตุผล: ถ้าไม่รู้ค่าหนึ่ง แต่อีกค่าทำให้คำตอบแน่นอนอยู่แล้ว (`FALSE AND ...` ต้องเป็น FALSE เสมอ) ผลก็รู้ได้ ถ้าไม่ ผลก็ไม่รู้ และ `WHERE` เก็บแถวเฉพาะที่เงื่อนไขเป็น **TRUE** แถวที่ได้ NULL ถูกทิ้งเหมือน FALSE ทำให้ `!=` ก็ทิ้งแถวที่เป็น NULL ด้วย (วัดจริง: ตาราง 6 แถวที่หนึ่งแถวมี `sales` เป็น NULL, `sales != 100` ได้ 5 แถว ไม่ใช่ 6)
+เหตุผลคือ ถ้าเราไม่รู้ค่าหนึ่ง แต่อีกค่าทำให้คำตอบแน่นอนอยู่แล้ว (`FALSE AND ...` ต้องเป็น FALSE เสมอ) ผลก็ยังรู้ได้ แต่ถ้าไม่ใช่กรณีนั้น ผลก็ไม่รู้ นอกจากนี้ `WHERE` จะเก็บแถวเฉพาะที่เงื่อนไขเป็น **TRUE** แถวที่ได้ NULL จึงถูกทิ้งเหมือน FALSE ทำให้ `!=` ทิ้งแถวที่เป็น NULL ไปด้วย (วัดจริง: ตาราง 6 แถวที่หนึ่งแถวมี `sales` เป็น NULL, `sales != 100` ได้ 5 แถว ไม่ใช่ 6)
 
 </Step>
 
@@ -40,13 +40,13 @@ SQL มี logic สามค่า: TRUE, FALSE และ NULL (ไม่รู
 
 ## NULL ในการรวมและการจัดกลุ่ม
 
-บนตาราง `country, city, sales` ที่มี NULL ทั้งใน `country` และ `sales` ตรวจแล้ว
+บนตาราง `country, city, sales` ที่มี NULL ทั้งใน `country` และ `sales` เราตรวจแล้วพบว่า
 
-- `sum`, `avg` ข้าม NULL; `count(col)` นับเฉพาะที่ไม่ใช่ NULL ส่วน `count(*)` นับทุกแถว (กลุ่ม jp: total 200, n_sales 1, n_rows 2)
+- `sum`, `avg` ข้าม NULL ส่วน `count(col)` นับเฉพาะที่ไม่ใช่ NULL และ `count(*)` นับทุกแถว (กลุ่ม jp: Total 200, n_sales 1, n_rows 2)
 - ผลรวมของกลุ่มที่มีแต่ NULL คือ **NULL** ไม่ใช่ 0 (ตรวจแล้ว ต่างจากที่คนมักเดา)
 - `groupBy("country")` เก็บ NULL เป็น **กลุ่มของตัวเอง** (หนึ่งกลุ่ม) ส่วน `distinct()` ก็เก็บ NULL หนึ่งค่า ในขณะที่ `count(distinct country)` **ไม่นับ** NULL (ได้ 3 ไม่ใช่ 4)
-- `F.col("sales") == None` ไม่เจอแถวใดเลย (0 แถว) เพราะผลเป็น NULL เสมอ ใช้ `isNull()` (1 แถว) หรือ `eqNullSafe(None)` (1 แถว)
-- เรียงลำดับ: `asc` วาง NULL **ก่อน** (nulls first) `desc` วาง NULL **ท้าย** ใช้ `asc_nulls_last()` เมื่อต้องการเปลี่ยน
+- `F.col("sales") == None` ไม่เจอแถวใดเลย (0 แถว) เพราะผลเป็น NULL เสมอ เราต้องใช้ `isNull()` (1 แถว) หรือ `eqNullSafe(None)` (1 แถว) แทน
+- ตอนเรียงลำดับ `asc` จะวาง NULL **ก่อน** (Nulls First) ส่วน `desc` วาง NULL **ท้าย** ถ้าต้องการเปลี่ยนก็ใช้ `asc_nulls_last()`
 - `coalesce(NULL, NULL, 3)` ได้ 3 และ `nullif(2, 2)` ได้ NULL
 
 </Step>
@@ -59,9 +59,9 @@ SQL มี logic สามค่า: TRUE, FALSE และ NULL (ไม่รู
 SELECT x FROM a WHERE x NOT IN (SELECT y FROM b)      -- b มีค่า 1 และ NULL
 ```
 
-กับ `a` = (1, 2, 3) และ `b` = (1, NULL) ผลคือ **ว่าง 0 แถว** (วัดจริง) ทั้งที่ 2 และ 3 ไม่อยู่ใน `b` เหตุผล: `2 NOT IN (1, NULL)` กลายเป็น `2 <> 1 AND 2 <> NULL` ซึ่งเป็น `TRUE AND NULL` คือ NULL จึงถูกทิ้ง
+กับ `a` = (1, 2, 3) และ `b` = (1, NULL) ผลคือ **ว่าง 0 แถว** (วัดจริง) ทั้งที่ 2 และ 3 ไม่อยู่ใน `b` สาเหตุคือ `2 NOT IN (1, NULL)` กลายเป็น `2 <> 1 AND 2 <> NULL` ซึ่งเป็น `TRUE AND NULL` ได้ NULL จึงถูกทิ้ง
 
-ทางแก้: `NOT EXISTS (SELECT 1 FROM b WHERE b.y = a.x)` ซึ่งได้ 2 และ 3 ตามที่คาด (วัดจริง) หรือกรอง NULL ออกจาก subquery ก่อน
+วิธีแก้คือใช้ `NOT EXISTS (SELECT 1 FROM b WHERE b.y = a.x)` ซึ่งได้ 2 และ 3 ตามที่คาด (วัดจริง) หรือจะกรอง NULL ออกจาก Subquery ก่อนก็ได้
 
 </Step>
 
@@ -69,27 +69,27 @@ SELECT x FROM a WHERE x NOT IN (SELECT y FROM b)      -- b มีค่า 1 แ
 
 ## Join กับ Key ที่เป็น NULL
 
-ตารางซ้ายมี id (1, 2, NULL) ตารางขวามี id (1, 3, NULL) นับแถวผลลัพธ์ของแต่ละ join type
+สมมติว่าตารางซ้ายมี id (1, 2, NULL) และตารางขวามี id (1, 3, NULL) แล้วนับแถวผลลัพธ์ของแต่ละ Join Type
 
-| join | แถว | อธิบาย |
+| Join | แถว | อธิบาย |
 |---|---|---|
 | `inner` | 1 | จับคู่ได้เฉพาะ id = 1 (NULL ไม่เท่ากับ NULL) |
-| `left` | 3 | ซ้ายทุกแถว |
-| `right` | 3 | ขวาทุกแถว |
-| `full` | 5 | ทุกแถวของทั้งสองฝั่ง (NULL สองตัวไม่จับคู่กัน จึงเป็นสองแถวแยก) |
+| `left` | 3 | ได้ทุกแถวของฝั่งซ้าย |
+| `right` | 3 | ได้ทุกแถวของฝั่งขวา |
+| `full` | 5 | ได้ทุกแถวของทั้งสองฝั่ง (NULL สองตัวไม่จับคู่กัน จึงเป็นสองแถวแยก) |
 | `left_semi` | 1 | แถวซ้ายที่มีคู่ |
-| `left_anti` | 2 | แถวซ้ายที่ **ไม่มีคู่** รวมแถวที่ key เป็น NULL |
+| `left_anti` | 2 | แถวซ้ายที่ **ไม่มีคู่** รวมแถวที่ Key เป็น NULL |
 | `cross` | 9 | 3 x 3 |
 
-ถ้าต้องการให้ NULL จับคู่กับ NULL ใช้ `left.id.eqNullSafe(right.id)` เป็นเงื่อนไข ได้ inner 2 แถว (id = 1 และ NULL กับ NULL)
+ถ้าต้องการให้ NULL จับคู่กับ NULL ได้ ให้ใช้ `left.id.eqNullSafe(right.id)` เป็นเงื่อนไข ซึ่งจะได้ Inner 2 แถว (id = 1 และ NULL กับ NULL)
 
 </Step>
 
 <Step>
 
-## Window: rank, dense_rank และ Frame
+## Window: Rank, dense_rank และ Frame
 
-ข้อมูลกลุ่ม a มีค่า 10, 20, 20, 30 เรียงตาม `v` ผลของฟังก์ชัน ranking ที่ตรวจ
+ข้อมูลกลุ่ม a มีค่า 10, 20, 20, 30 เรียงตาม `v` ผลของฟังก์ชัน Ranking ที่ตรวจได้เป็นดังนี้
 
 | v | `rank` | `dense_rank` | `row_number` |
 |---|---|---|---|
@@ -98,11 +98,11 @@ SELECT x FROM a WHERE x NOT IN (SELECT y FROM b)      -- b มีค่า 1 แ
 | 20 | 2 | 2 | 3 หรือ 2 |
 | 30 | **4** | **3** | 4 |
 
-- `rank` **ข้ามลำดับ** หลังค่าที่เท่ากัน (1, 2, 2, **4**)
+- `rank` จะ **ข้ามลำดับ** หลังค่าที่เท่ากัน (1, 2, 2, **4**)
 - `dense_rank` ไม่ข้าม (1, 2, 2, **3**)
-- `row_number` ไม่ซ้ำเลย แต่ลำดับระหว่างค่าที่เท่ากันไม่แน่นอน (เป็น 2 กับ 3 สลับกันได้) ถ้าต้องการผลที่แน่นอนต้องใส่คอลัมน์ที่ทำให้ไม่เท่ากันใน `orderBy`
+- `row_number` ไม่ซ้ำเลย แต่ลำดับระหว่างค่าที่เท่ากันไม่แน่นอน (เป็น 2 กับ 3 สลับกันได้) ถ้าต้องการผลที่แน่นอน เราต้องใส่คอลัมน์ที่ทำให้ไม่เท่ากันลงใน `orderBy`
 
-เรื่อง **frame** ของ `sum(v).over(window ที่มี orderBy)`: ค่าเริ่มต้นคือ `RANGE` ซึ่งนับแถวที่ค่าเท่ากัน (peer) เป็นก้อนเดียวกัน ผลรวมสะสมได้ 10, 50, 50, 80 (สองแถวที่ v = 20 ได้ 50 ทั้งคู่) ส่วน `rowsBetween(unboundedPreceding, currentRow)` นับทีละแถว แถวที่ v = 20 ได้ 30 และ 50 ถ้าอยาก "running total ทีละแถว" ให้ระบุ frame เป็น `ROWS` เอง
+ทีนี้มาดูเรื่อง **Frame** ของ `sum(v).over(window ที่มี orderBy)` ค่าเริ่มต้นคือ `RANGE` ซึ่งนับแถวที่ค่าเท่ากัน (Peer) เป็นก้อนเดียวกัน ผลรวมสะสมจึงได้ 10, 50, 50, 80 (สองแถวที่ v = 20 ได้ 50 ทั้งคู่) ส่วน `rowsBetween(unboundedPreceding, currentRow)` นับทีละแถว แถวที่ v = 20 จึงได้ 30 และ 50 ถ้าอยากได้ "Running Total ทีละแถว" ให้ระบุ Frame เป็น `ROWS` เอง
 
 </Step>
 
@@ -110,7 +110,7 @@ SELECT x FROM a WHERE x NOT IN (SELECT y FROM b)      -- b มีค่า 1 แ
 
 ## ANSI Mode และฟังก์ชัน try_
 
-Spark 4 เปิด ANSI mode เป็นค่าเริ่มต้น ผลที่เคยเป็น NULL เงียบๆ กลายเป็น error (ตรวจแล้ว)
+Spark 4 เปิด ANSI Mode เป็นค่าเริ่มต้น ผลที่เคยเป็น NULL เงียบ ๆ จึงกลายเป็น Error (ตรวจแล้ว)
 
 | นิพจน์ | ผล |
 |---|---|
@@ -121,7 +121,7 @@ Spark 4 เปิด ANSI mode เป็นค่าเริ่มต้น ผ
 | `try_cast('abc' AS INT)` | NULL |
 | `try_add(2147483647, 1)` | NULL |
 
-ใช้ `try_` เมื่อ **ตั้งใจ** ให้ข้อมูลเสียกลายเป็น NULL (แล้วกรองหรือนับทีหลัง) ส่วน error แบบ ANSI ดีกว่าสำหรับงานที่ผลผิดไม่ได้ เพราะไม่ปล่อยให้ค่าผิดไหลไปเงียบๆ จำไว้ด้วยว่าโหมดถูกล็อกตอนนิยาม DataFrame (ดูหน้า [Lazy evaluation แบบเจาะลึก](/spark/lazy-evaluation/in-depth/#ansi-mode-ถูกล็อกตอนนิยาม-dataframe))
+เราใช้ `try_` เมื่อ **ตั้งใจ** ให้ข้อมูลเสียกลายเป็น NULL (แล้วค่อยกรองหรือนับทีหลัง) ส่วน Error แบบ ANSI ดีกว่าสำหรับงานที่ผลผิดไม่ได้ เพราะไม่ปล่อยให้ค่าผิดไหลไปเงียบ ๆ และจำไว้ด้วยนะว่าโหมดนี้ถูกล็อกตอนนิยาม DataFrame (ดูหน้า [Lazy Evaluation แบบเจาะลึก](/spark/lazy-evaluation/in-depth/#ansi-mode-ถูกล็อกตอนนิยาม-dataframe))
 
 </Step>
 
@@ -129,15 +129,15 @@ Spark 4 เปิด ANSI mode เป็นค่าเริ่มต้น ผ
 
 ## กับดักตัวเลขทศนิยม
 
-- ตัวเลขใน **SQL** เขียน `0.1` เป็น **decimal** ไม่ใช่ double จึง `SELECT 0.1 + 0.2 = 0.3` ได้ **TRUE** (วัดจริง)
-- แต่ column ที่เป็น `double` (เช่นสร้างจาก Python float) `0.1 + 0.2 == 0.3` ได้ **False** และ `CAST(0.1 AS DOUBLE) + CAST(0.2 AS DOUBLE)` = `0.30000000000000004`
-- ชนิดของ literal: `1` เป็น `int`, `1L` เป็น `bigint`, `1.0` เป็น `decimal(2,1)`, `1D` เป็น `double`, `'x'` เป็น `string` (ตรวจจาก `dtypes`)
-- `1 + 0.5` ได้ decimal ค่า 1.5 ส่วน `7 / 2` ได้ `3.500000` (decimal) ไม่ใช่ 3 ถ้าต้องการหารจำนวนเต็มใช้ `7 DIV 2` ซึ่งได้ 3
+- ตัวเลขใน **SQL** เขียน `0.1` เป็น **Decimal** ไม่ใช่ Double จึง `SELECT 0.1 + 0.2 = 0.3` ได้ **TRUE** (วัดจริง)
+- แต่ Column ที่เป็น `double` (เช่นสร้างจาก Python Float) `0.1 + 0.2 == 0.3` จะได้ **False** และ `CAST(0.1 AS DOUBLE) + CAST(0.2 AS DOUBLE)` = `0.30000000000000004`
+- Literal แต่ละแบบมีชนิดดังนี้ `1` เป็น `int`, `1L` เป็น `bigint`, `1.0` เป็น `decimal(2,1)`, `1D` เป็น `double`, `'x'` เป็น `string` (ตรวจจาก `dtypes`)
+- `1 + 0.5` ได้ Decimal ค่า 1.5 ส่วน `7 / 2` ได้ `3.500000` (Decimal) ไม่ใช่ 3 ถ้าต้องการหารจำนวนเต็มให้ใช้ `7 DIV 2` ซึ่งได้ 3
 
-เงินและค่าที่ต้องเท่ากันเป๊ะควรใช้ decimal ส่วน double เหมาะกับค่าทางวิทยาศาสตร์ที่ยอมรับความคลาดเคลื่อนเล็กน้อย
+สำหรับเงินและค่าที่ต้องเท่ากันเป๊ะ เราควรใช้ Decimal ส่วน Double เหมาะกับค่าทางวิทยาศาสตร์ที่ยอมรับความคลาดเคลื่อนเล็กน้อยได้
 
 <Callout type="note" title="DataFrame API กับ SQL ให้ผลเท่ากัน">
-`groupBy("country").agg(sum("sales"))` กับ `SELECT country, SUM(sales) ... GROUP BY country` ให้ผลเหมือนกันทุกแถว (ตรวจแล้ว) และได้แผนที่ optimize แล้วเดียวกัน ([บทที่ 6](/spark/catalyst-aqe/#optimizer-เขียนแผนใหม่ทีละกฎ)) `selectExpr` และ `where("sales > 100 AND country = 'th'")` ให้เขียนข้อความ SQL ใน DataFrame API ได้เมื่อ SQL อ่านง่ายกว่า
+`groupBy("country").agg(sum("sales"))` กับ `SELECT country, SUM(sales) ... GROUP BY country` ให้ผลเหมือนกันทุกแถว (ตรวจแล้ว) และได้แผนที่ Optimize แล้วเดียวกัน ([บทที่ 6](/spark/catalyst-aqe/#optimizer-เขียนแผนใหม่ทีละกฎ)) นอกจากนี้ `selectExpr` และ `where("sales > 100 AND country = 'th'")` ยังให้เราเขียนข้อความ SQL ใน DataFrame API ได้ เมื่อ SQL อ่านง่ายกว่า
 </Callout>
 
 </Step>

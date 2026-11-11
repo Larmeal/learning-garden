@@ -1,6 +1,6 @@
 ---
 title: Catalyst, AQE, explain()
-summary: Query ที่คุณเขียนถูกแปลงเป็นแผนสี่แบบก่อนรัน Catalyst เขียนแผนใหม่ด้วยกฎเล็กๆ ต่อกัน AQE แก้แผนซ้ำระหว่างรันจากขนาดข้อมูลจริง บทนี้สอนอ่าน explain() ทุกโหมดและดูทั้งสองอย่างทำงานทีละขั้น
+summary: Query ที่คุณเขียนจะถูกแปลงเป็นแผนสี่แบบก่อนรัน Catalyst เขียนแผนใหม่ด้วยกฎเล็ก ๆ ต่อกัน ส่วน AQE แก้แผนซ้ำระหว่างรันจากขนาดข้อมูลจริง บทนี้สอนอ่าน explain() ทุกโหมด และดูว่าทั้งสองอย่างทำงานทีละขั้นอย่างไร
 order: 6
 phase: B
 level: 4
@@ -20,17 +20,17 @@ import PushdownFlowLab from '../../../../components/labs/spark/PushdownFlowLab';
 
 ## Spark ไม่ได้รันสิ่งที่คุณเขียน
 
-เขียน `df.filter(...).select(...)` สองบรรทัดแล้วกด `show()` สิ่งที่ executor รันจริงไม่ใช่สองบรรทัดนั้นตรงๆ Spark เอาโค้ดของคุณไปแปลงเป็นต้นไม้ของ operator แล้วเขียนต้นไม้นั้นใหม่หลายรอบก่อนจะรัน เช่น ย้าย filter ลงไปใกล้ข้อมูล ตัด column ที่ไม่มีใครอ่าน คิดค่าคงที่ให้เสร็จ
+สมมติว่าเราเขียน `df.filter(...).select(...)` สองบรรทัดแล้วกด `show()` สิ่งที่ Executor รันจริงไม่ได้เป็นสองบรรทัดนั้นตรง ๆ Spark เอาโค้ดของคุณไปแปลงเป็นต้นไม้ของ Operator แล้วเขียนต้นไม้นั้นใหม่หลายรอบก่อนจะรัน เช่น ย้าย Filter ลงไปใกล้ข้อมูล ตัด Column ที่ไม่มีใครอ่าน และคิดค่าคงที่ให้เสร็จก่อน
 
-ส่วนที่ทำงานนี้ชื่อ **Catalyst** เป็น optimizer ของ Spark SQL ทุกอย่างที่คุณเขียนด้วย DataFrame หรือ SQL ผ่านมันหมด ไม่ว่าจะเขียนด้วย Python, Scala หรือ SQL ล้วน
+ส่วนที่ทำงานนี้ชื่อ **Catalyst** ซึ่งเป็น Optimizer ของ Spark SQL ทุกอย่างที่คุณเขียนด้วย DataFrame หรือ SQL จะผ่านมันหมด ไม่ว่าจะเขียนด้วย Python, Scala หรือ SQL ล้วน
 
-บทนี้ตอบสามคำถาม
+บทนี้จะตอบสามคำถาม
 
-1. ระหว่างโค้ดของคุณกับ task ที่รันจริง มีอะไรเกิดขึ้นบ้าง
-2. อ่านผล `explain()` อย่างไรให้รู้ว่า Spark ตัดสินใจอะไร
+1. ระหว่างโค้ดของคุณกับ Task ที่รันจริง มีอะไรเกิดขึ้นบ้าง
+2. เราอ่านผล `explain()` อย่างไรให้รู้ว่า Spark ตัดสินใจอะไร
 3. AQE (Adaptive Query Execution) แก้อะไรให้ ที่ Catalyst ทำเองก่อนรันไม่ได้
 
-บทนี้ต่อจากบทที่ [Execution model](/spark/execution-model/#narrow-กับ-wide) ที่สอนว่าแผนถูกตัดเป็น stage ตรงที่ shuffle ที่นี่เราดูว่าแผนนั้นมาจากไหนและเปลี่ยนได้อย่างไร
+บทนี้ต่อจากบทที่ [Execution Model](/spark/execution-model/#narrow-กับ-wide) ซึ่งสอนว่าแผนถูกตัดเป็น Stage ตรงที่ Shuffle ส่วนที่นี่เราจะดูว่าแผนนั้นมาจากไหนและเปลี่ยนได้อย่างไร
 
 </Step>
 
@@ -38,20 +38,20 @@ import PushdownFlowLab from '../../../../components/labs/spark/PushdownFlowLab';
 
 ## Query ผ่านห้าขั้น
 
-ทุก query มี object ชื่อ `QueryExecution` ถือไว้ มันเดินผ่านห้าขั้นตามลำดับ และทุกขั้นเป็น `lazy` คือคำนวณเมื่อมีคนขอเท่านั้น (source: `QueryExecution.scala:192-372`)
+ทุก Query มี Object ชื่อ `QueryExecution` ถือไว้ มันเดินผ่านห้าขั้นตามลำดับ และทุกขั้นเป็น `lazy` คือคำนวณเมื่อมีคนขอเท่านั้น (Source: `QueryExecution.scala:192-372`)
 
 | ขั้น | ได้อะไร | ใครทำ |
 |---|---|---|
-| 1. Parse | **Parsed Logical Plan**: ต้นไม้จากตัวอักษรของ SQL ยังไม่รู้ว่าชื่อ table หรือ column มีจริงไหม | `SparkSqlParser`, `AstBuilder` |
-| 2. Analyze | **Analyzed Logical Plan**: ทุกชื่อผูกกับของจริงแล้ว มีชนิดข้อมูล มี id | `Analyzer` |
-| 3. Optimize | **Optimized Logical Plan**: แผนเดิมที่ถูกเขียนใหม่ให้ถูกกว่า | `Optimizer` (Catalyst) |
-| 4. Plan | **Physical Plan**: เลือก operator ที่รันได้จริง เช่น `SortMergeJoin` หรือ `BroadcastHashJoin` | `SparkPlanner` + strategies |
-| 5. Prepare | เติมสิ่งที่ขาด: `Exchange`, `Sort`, whole-stage codegen, AQE | `preparations` ใน `QueryExecution` |
+| 1. Parse | **Parsed Logical Plan** คือต้นไม้ที่สร้างจากตัวอักษรของ SQL ซึ่งยังไม่รู้ว่าชื่อ Table หรือ Column มีจริงไหม | `SparkSqlParser`, `AstBuilder` |
+| 2. Analyze | **Analyzed Logical Plan** ที่ทุกชื่อผูกกับของจริงแล้ว มีชนิดข้อมูล มี id | `Analyzer` |
+| 3. Optimize | **Optimized Logical Plan** คือแผนเดิมที่ถูกเขียนใหม่ให้ถูกกว่า | `Optimizer` (Catalyst) |
+| 4. Plan | **Physical Plan** ที่เลือก Operator ที่รันได้จริง เช่น `SortMergeJoin` หรือ `BroadcastHashJoin` | `SparkPlanner` + Strategies |
+| 5. Prepare | เติมสิ่งที่ขาด ได้แก่ `Exchange`, `Sort`, Whole-stage Codegen, AQE | `preparations` ใน `QueryExecution` |
 
-ขั้น 1 ถึง 3 พูดถึง "ต้องการอะไร" (logical) ขั้น 4 และ 5 พูดถึง "ทำอย่างไร" (physical) แยกกันเพราะสิ่งที่ต้องการอย่าง join สองตารางมีวิธีทำหลายแบบ และการเลือกวิธีต้องรู้ขนาดข้อมูล
+ขั้น 1 ถึง 3 พูดถึง "ต้องการอะไร" (Logical) ส่วนขั้น 4 และ 5 พูดถึง "ทำอย่างไร" (Physical) ที่ต้องแยกกันเพราะสิ่งที่ต้องการอย่าง Join สองตารางมีวิธีทำได้หลายแบบ และการเลือกวิธีต้องรู้ขนาดข้อมูล
 
 <Callout type="note" title="DataFrame กับ SQL ไปถึงที่เดียวกัน">
-เขียน `spark.sql("... WHERE amt > 5 GROUP BY country")` กับ `df.filter(...).groupBy(...)` แล้วเทียบ Optimized Logical Plan จะได้แผนเดียวกัน (ตัด expression id แล้วเท่ากันเป๊ะ รัน: `exercises/06_catalyst_aqe.py`) ต่างกันแค่ Parsed plan เพราะ DataFrame API ต่อแผนใหม่บนแผนที่ resolve แล้วทุกครั้งที่เรียก transformation ส่วน SQL เริ่มจากข้อความที่ยังมี `UnresolvedRelation` ดังนั้นเลือกเขียนแบบไหนไม่มีผลต่อความเร็วของแผนที่รันจริง
+ถ้าเราเขียน `spark.sql("... WHERE amt > 5 GROUP BY country")` กับ `df.filter(...).groupBy(...)` แล้วเทียบ Optimized Logical Plan จะได้แผนเดียวกัน (ตัด Expression id แล้วเท่ากันเป๊ะ รัน: `exercises/06_catalyst_aqe.py`) ที่ต่างกันมีแค่ Parsed Plan เพราะ DataFrame API ต่อแผนใหม่บนแผนที่ Resolve แล้วทุกครั้งที่เรียก Transformation ส่วน SQL เริ่มจากข้อความที่ยังมี `UnresolvedRelation` ดังนั้นเราจะเขียนแบบไหนก็ไม่มีผลต่อความเร็วของแผนที่รันจริง
 </Callout>
 
 </Step>
@@ -60,7 +60,7 @@ import PushdownFlowLab from '../../../../components/labs/spark/PushdownFlowLab';
 
 ## อ่านแผนทั้งสี่ด้วย `explain(True)`
 
-query นี้ตั้งใจใส่เงื่อนไขที่ไม่มีความหมายอย่าง `1 = 1` เพื่อดูว่า Catalyst จัดการอย่างไร (รัน: `exercises/06_catalyst_aqe.py`)
+Query นี้ตั้งใจใส่เงื่อนไขที่ไม่มีความหมายอย่าง `1 = 1` เพื่อดูว่า Catalyst จัดการอย่างไร (รัน: `exercises/06_catalyst_aqe.py`)
 
 ```python
 df = (spark.range(1000)
@@ -92,17 +92,17 @@ Project [id#0L, ((id#0L * 2) + 3) AS x#1L]
    +- *(1) Range (0, 1000, step=1, splits=16)
 ```
 
-อ่านจากบนลงล่าง สังเกตสี่อย่าง
+ให้อ่านจากบนลงล่าง จะสังเกตเห็นสี่อย่าง
 
-1. เครื่องหมาย `'` ใน `'Filter` ของ Parsed plan แปลว่า "ยังไม่ resolve" ใน Analyzed plan เครื่องหมายนี้หายและ `id` มี `#0L` (id ของ attribute กับชนิด `L` = bigint)
-2. `cast(10 as bigint)` โผล่ใน Analyzed plan เพราะ `id` เป็น bigint ส่วน `10` เป็น int Analyzer เติม cast ให้ชนิดตรงกัน (type coercion)
-3. ใน Optimized plan `1 = 1` หายไป `cast(2 as bigint)` เป็น `2` และ `Filter` ย้ายลงไปอยู่ใต้ `Project`
-4. ใน Physical plan มี `*(1)` นำหน้า operator แปลว่ารันใน whole-stage codegen stage หมายเลข 1
+1. เครื่องหมาย `'` ใน `'Filter` ของ Parsed Plan แปลว่า "ยังไม่ Resolve" พอมาถึง Analyzed Plan เครื่องหมายนี้ก็หายไป และ `id` มี `#0L` (id ของ Attribute กับชนิด `L` = Bigint)
+2. `cast(10 as bigint)` โผล่ใน Analyzed Plan เพราะ `id` เป็น Bigint ส่วน `10` เป็น Int Analyzer จึงเติม Cast ให้ชนิดตรงกัน (Type Coercion)
+3. ใน Optimized Plan `1 = 1` หายไป `cast(2 as bigint)` กลายเป็น `2` และ `Filter` ย้ายลงไปอยู่ใต้ `Project`
+4. ใน Physical Plan มี `*(1)` นำหน้า Operator แปลว่ารันใน whole-stage codegen stage หมายเลข 1
 
-ตัวเลข `#0L`, `#1L` เปลี่ยนทุกครั้งที่รัน อย่าไปจำมัน ให้อ่านแค่โครงของต้นไม้
+ตัวเลข `#0L`, `#1L` เปลี่ยนทุกครั้งที่รัน เราไม่ต้องจำมัน ให้อ่านแค่โครงของต้นไม้
 
-<Callout type="warn" title="explain() ไม่ได้รัน query">
-เรียก `explain()` กี่ครั้งก็ไม่เกิด Spark job (วัดจริงด้วย job group: 0 job) มันแค่พิมพ์แผนที่ Spark มีอยู่ในมือ ถ้าเปิด AQE แผนที่พิมพ์ก่อน action ยังไม่ใช่แผนสุดท้าย ดูหัวข้อ AQE ข้างล่าง
+<Callout type="warn" title="explain() ไม่ได้รัน Query">
+เรียก `explain()` กี่ครั้งก็ไม่เกิด Spark Job (วัดจริงด้วย Job Group: 0 Job) มันแค่พิมพ์แผนที่ Spark มีอยู่ในมือ และถ้าเปิด AQE แผนที่พิมพ์ก่อน Action ก็ยังไม่ใช่แผนสุดท้าย ดูหัวข้อ AQE ข้างล่าง
 </Callout>
 
 </Step>
@@ -113,15 +113,15 @@ Project [id#0L, ((id#0L * 2) + 3) AS x#1L]
 
 | เรียกด้วย | พิมพ์อะไร |
 |---|---|
-| `explain()` | Physical plan แบบย่อ |
+| `explain()` | Physical Plan แบบย่อ |
 | `explain(True)` หรือ `"extended"` | Parsed, Analyzed, Optimized และ Physical |
-| `explain("formatted")` | **Physical plan อย่างเดียว** แต่จัดเป็นต้นไม้มีเลข และมีบล็อกรายละเอียดของ operator ทีละตัว |
-| `explain("cost")` | Optimized plan พร้อมสถิติ (`sizeInBytes`, `rowCount`) |
-| `explain("codegen")` | โค้ด Java ที่ whole-stage codegen สร้าง |
+| `explain("formatted")` | **Physical Plan อย่างเดียว** แต่จัดเป็นต้นไม้มีเลข และมีบล็อกรายละเอียดของ Operator ทีละตัว |
+| `explain("cost")` | Optimized Plan พร้อมสถิติ (`sizeInBytes`, `rowCount`) |
+| `explain("codegen")` | โค้ด Java ที่ Whole-stage Codegen สร้าง |
 
-ความสับสนที่เจอบ่อยคือคิดว่า `formatted` แสดงมากกว่า `extended` จริงๆ แล้ว `formatted` ไม่พิมพ์ Parsed, Analyzed หรือ Optimized เลย ถ้าอยากได้สี่แผนต้องใช้ `explain(True)`
+คนมักสับสนว่า `formatted` แสดงมากกว่า `extended` แต่จริง ๆ แล้ว `formatted` ไม่พิมพ์ Parsed, Analyzed หรือ Optimized เลย ถ้าอยากได้สี่แผนต้องใช้ `explain(True)`
 
-`formatted` อ่านง่ายกว่าเมื่อแผนยาว เพราะ operator ถูกเลขกำกับ แล้วรายละเอียดอยู่ข้างล่างตามเลข
+`formatted` อ่านง่ายกว่าเมื่อแผนยาว เพราะ Operator ถูกเลขกำกับ แล้วรายละเอียดอยู่ข้างล่างตามเลข
 
 ```
 == Physical Plan ==
@@ -144,23 +144,23 @@ Condition : (id#0L > 10)
 
 ## Optimizer เขียนแผนใหม่ทีละกฎ
 
-Optimizer ไม่ได้คิดแผนที่ดีที่สุดในครั้งเดียว มันมี **rule** เป็นร้อยตัว แต่ละตัวทำเรื่องเล็กมาก (ย้าย filter, รวม project สองชั้น, คิด `1 + 2` ให้เป็น `3`) แล้วรันซ้ำจนแผนไม่เปลี่ยน ลองกดไล่ดูทีละกฎ นี่คือ trace จริงของ query หนึ่งตัวที่ใช้ view ซ้อนกัน
+Optimizer ไม่ได้คิดแผนที่ดีที่สุดในครั้งเดียว แต่มี **Rule** เป็นร้อยตัว ซึ่งแต่ละตัวทำเรื่องเล็กมาก (ย้าย Filter, รวม Project สองชั้น, คิด `1 + 2` ให้เป็น `3`) แล้วรันซ้ำจนแผนไม่เปลี่ยน ลองกดไล่ดูทีละกฎ ในแล็บนี้เป็น Trace จริงของ Query หนึ่งตัวที่ใช้ View ซ้อนกัน
 
-ก่อนดู trace จริง ลองดูภาพรวมว่ากฎของ optimizer ช่วยอะไร ภาพนี้เป็น query ที่มี join กับ filter จุดที่วิ่งขึ้นคือแถวที่ไหลผ่านแต่ละ node
+ก่อนดู Trace จริง ลองดูภาพรวมว่ากฎของ Optimizer ช่วยอะไรบ้าง ภาพนี้เป็น Query ที่มี Join กับ Filter จุดที่วิ่งขึ้นคือแถวที่ไหลผ่านแต่ละ Node
 
 <PushdownFlowLab client:visible />
 
-แล้วจึงดู trace ของ query จริงทีละกฎ
+แล้วจึงดู Trace ของ Query จริงทีละกฎ
 
 <PlanPipelineLab client:visible />
 
-สิ่งที่ควรสังเกต
+มีสามอย่างที่ควรสังเกต
 
 - `1 = 1` ถูกกำจัดด้วยกฎสองตัวต่อกัน (`ConstantFolding` แล้ว `BooleanSimplification`) ไม่มีกฎไหนทำคนเดียว
-- `PushDownPredicates` ทำให้ filter ลงไปอยู่ติด `Range` ซึ่งถ้าเป็นไฟล์ Parquet นี่คือจุดที่ filter ถูกส่งต่อให้ตัวอ่านไฟล์
-- `ColumnPruning` ทำให้ column `dbl` ที่ไม่มีใครอ่านถูกตัดทิ้ง ก่อนจะรวม Project ด้วย `CollapseProject`
+- `PushDownPredicates` ทำให้ Filter ลงไปอยู่ติด `Range` ซึ่งถ้าเป็นไฟล์ Parquet ตรงนี้คือจุดที่ Filter ถูกส่งต่อให้ตัวอ่านไฟล์
+- `ColumnPruning` ทำให้ Column `dbl` ที่ไม่มีใครอ่านถูกตัดทิ้ง ก่อนที่จะรวม Project ด้วย `CollapseProject`
 
-กฎทั้งหมดอยู่ใน batch ที่รันต่างกัน บาง batch รันครั้งเดียว (`Once`) บาง batch รันซ้ำจนแผนไม่เปลี่ยน (`FixedPoint` สูงสุด 100 รอบ) รายละเอียดของแต่ละ batch อยู่ในหน้า [Catalyst ข้างใน](/spark/catalyst-aqe/in-depth/#batch-ของ-optimizer)
+กฎทั้งหมดอยู่ใน Batch ที่รันต่างกัน บาง Batch รันครั้งเดียว (`Once`) บาง Batch รันซ้ำจนแผนไม่เปลี่ยน (`FixedPoint` สูงสุด 100 รอบ) รายละเอียดของแต่ละ Batch อยู่ในหน้า [Catalyst ข้างใน](/spark/catalyst-aqe/in-depth/#batch-ของ-optimizer)
 
 </Step>
 
@@ -168,7 +168,7 @@ Optimizer ไม่ได้คิดแผนที่ดีที่สุด�
 
 ## ผลของ Pushdown ที่เห็นใน Plan ของไฟล์
 
-กฎอย่าง `ColumnPruning` และ `PushDownPredicates` ส่งผลไปถึงตัวอ่านไฟล์ ตัวอย่างนี้อ่านไฟล์ CSV 4 column แล้วเลือกแค่ `name` กรองด้วย `amount` และ `country` (รัน: `exercises/06_catalyst_aqe.py`)
+กฎอย่าง `ColumnPruning` และ `PushDownPredicates` ส่งผลไปถึงตัวอ่านไฟล์ ตัวอย่างนี้อ่านไฟล์ CSV 4 Column แล้วเลือกแค่ `name` กรองด้วย `amount` และ `country` (รัน: `exercises/06_catalyst_aqe.py`)
 
 ```python
 spark.sql("SELECT name FROM orders WHERE amount > 100 AND country = 'th'").explain()
@@ -182,15 +182,15 @@ spark.sql("SELECT name FROM orders WHERE amount > 100 AND country = 'th'").expla
       ReadSchema: struct<name:string,amount:double,country:string>
 ```
 
-- `ReadSchema` มี 3 column จาก 4 ตัว (`id` ถูกตัด) นี่คือ **column pruning**
-- `PushedFilters` คือเงื่อนไขที่ Spark ส่งให้ตัวอ่านไฟล์ มี `IsNotNull` ที่ Catalyst เติมเองด้วย (rule `InferFiltersFromConstraints`) เพราะ `amount > 100` เป็นจริงไม่ได้ถ้า `amount` เป็น null
-- `Filter` ยังอยู่เหนือ scan แม้ push แล้ว
+- `ReadSchema` มี 3 Column จาก 4 ตัว (`id` ถูกตัด) นี่คือ **Column Pruning**
+- `PushedFilters` คือเงื่อนไขที่ Spark ส่งให้ตัวอ่านไฟล์ โดยมี `IsNotNull` ที่ Catalyst เติมเองด้วย (Rule `InferFiltersFromConstraints`) เพราะ `amount > 100` เป็นจริงไม่ได้ถ้า `amount` เป็น Null
+- `Filter` ยังอยู่เหนือ Scan แม้ Push แล้ว
 
 <Callout type="warn" title="Pushdown ไม่ได้แปลว่า Filter หายไป">
-`PushedFilters` คือคำใบ้ที่ส่งให้ตัวอ่านไฟล์ ตัวอ่านบางชนิด (เช่น Parquet) ใช้มันข้ามข้อมูลได้ แต่ Spark ยังเก็บ `Filter` ไว้ตรวจซ้ำเสมอ ตัวอย่างนี้ใช้ CSV เพราะตรวจบนเครื่องนี้ได้ ส่วนพฤติกรรมของ Parquet เช่นการข้าม row group ยังไม่ได้ทดสอบที่นี่ จึงไม่ขอยืนยันตัวเลข
+`PushedFilters` คือคำใบ้ที่ส่งให้ตัวอ่านไฟล์ ตัวอ่านบางชนิด (เช่น Parquet) ใช้มันข้ามข้อมูลได้ แต่ Spark ยังเก็บ `Filter` ไว้ตรวจซ้ำเสมอ ตัวอย่างนี้ใช้ CSV เพราะตรวจบนคอมพิวเตอร์เครื่องนี้ได้ ส่วนพฤติกรรมของ Parquet เช่นการข้าม Row Group ยังไม่ได้ทดสอบที่นี่ จึงไม่ขอยืนยันตัวเลข
 </Callout>
 
-Filter ยังถูกส่งข้ามไปอีกฝั่งของ join ได้ด้วย เขียน `WHERE a_id > 990` ครั้งเดียวบน `a JOIN c ON a_id = c_id` แล้ว Optimized plan มี `Filter (id > 990)` สองตัว ทั้งฝั่ง a และฝั่ง c เพราะเงื่อนไข join ทำให้ `c_id > 990` เป็นจริงโดยปริยาย
+Filter ยังถูกส่งข้ามไปอีกฝั่งของ Join ได้ด้วย ถ้าเราเขียน `WHERE a_id > 990` ครั้งเดียวบน `a JOIN c ON a_id = c_id` Optimized Plan จะมี `Filter (id > 990)` สองตัว ทั้งฝั่ง a และฝั่ง c เพราะเงื่อนไข Join ทำให้ `c_id > 990` เป็นจริงโดยปริยาย
 
 </Step>
 
@@ -198,13 +198,13 @@ Filter ยังถูกส่งข้ามไปอีกฝั่งขอ�
 
 ## Join ตัวไหน และใครเลือก
 
-Catalyst เลือก **physical join** ตามขนาดข้อมูล ลำดับคร่าวๆ ที่ `JoinSelection` ใช้เมื่อไม่มี hint (source: `SparkStrategies.scala:219-236`)
+Catalyst เลือก **Physical Join** ตามขนาดข้อมูล ลำดับคร่าว ๆ ที่ `JoinSelection` ใช้เมื่อไม่มี Hint เป็นดังนี้ (Source: `SparkStrategies.scala:219-236`)
 
-1. ถ้าฝั่งหนึ่งเล็กกว่า `spark.sql.autoBroadcastJoinThreshold` (ค่าเริ่มต้น **10 MB**) ใช้ `BroadcastHashJoin`
-2. ถ้าข้อมูลเรียงลำดับได้ ใช้ `SortMergeJoin`
-3. ที่เหลือคือ cartesian หรือ nested loop ซึ่งช้ามาก
+1. ถ้าฝั่งหนึ่งเล็กกว่า `spark.sql.autoBroadcastJoinThreshold` (ค่าเริ่มต้น **10 MB**) ก็ใช้ `BroadcastHashJoin`
+2. ถ้าข้อมูลเรียงลำดับได้ ก็ใช้ `SortMergeJoin`
+3. ที่เหลือคือ Cartesian หรือ Nested Loop ซึ่งช้ามาก
 
-เทียบ plan ของ join เดียวกันที่ต่างกันแค่ threshold (รัน: `exercises/06_catalyst_aqe.py`, ตาราง `big` 5 ล้านแถวกับ `small` 100 แถว)
+ลองเทียบ Plan ของ Join เดียวกันที่ต่างกันแค่ Threshold (รัน: `exercises/06_catalyst_aqe.py`, ตาราง `big` 5 ล้านแถวกับ `small` 100 แถว)
 
 ```
 -- threshold ค่าเริ่มต้น --          -- spark.sql.autoBroadcastJoinThreshold = -1 --
@@ -217,12 +217,12 @@ BroadcastHashJoin [k], [k], Inner     SortMergeJoin [k], [k], Inner
                                             +- Range (100)
 ```
 
-Broadcast join ไม่มี `Exchange` ฝั่งตารางใหญ่ ข้อมูลของตารางใหญ่ไม่ต้องย้ายเลย ส่วน sort-merge ต้อง shuffle และ sort ทั้งสองฝั่ง
+Broadcast Join ไม่มี `Exchange` ฝั่งตารางใหญ่ ข้อมูลของตารางใหญ่จึงไม่ต้องย้ายเลย ส่วน Sort-merge ต้อง Shuffle และ Sort ทั้งสองฝั่ง
 
-hint `F.broadcast(small)` ชนะ threshold เสมอ: ตั้ง threshold เป็น -1 แล้วใส่ hint ก็ยังได้ `BroadcastHashJoin`
+ถ้าใส่ Hint `F.broadcast(small)` Hint จะชนะ Threshold เสมอ ต่อให้ตั้ง Threshold เป็น -1 แล้วใส่ Hint ก็ยังได้ `BroadcastHashJoin`
 
-<Callout type="note" title="Catalyst ไม่ได้เรียงลำดับ join ตามขนาด">
-มี 2 อย่างที่มักเข้าใจผิด rule `ReorderJoin` ที่เปิดอยู่เสมอ แค่จัดลำดับเพื่อไม่ให้เกิด cartesian product (a join b โดยไม่มีเงื่อนไข) โดยไม่ดูขนาด ส่วน cost-based reorder (`CostBasedJoinReorder`) ต้องเปิด `spark.sql.cbo.enabled` กับ `spark.sql.cbo.joinReorder.enabled` ซึ่งปิดอยู่ทั้งคู่ (ตรวจแล้วเป็น `false`)
+<Callout type="note" title="Catalyst ไม่ได้เรียงลำดับ Join ตามขนาด">
+มี 2 อย่างที่มักเข้าใจผิด Rule `ReorderJoin` ที่เปิดอยู่เสมอ แค่จัดลำดับเพื่อไม่ให้เกิด Cartesian Product (a join b โดยไม่มีเงื่อนไข) โดยไม่ดูขนาด ส่วน Cost-based Reorder (`CostBasedJoinReorder`) ต้องเปิด `spark.sql.cbo.enabled` กับ `spark.sql.cbo.joinReorder.enabled` ซึ่งปิดอยู่ทั้งคู่ (ตรวจแล้วเป็น `false`)
 </Callout>
 
 </Step>
@@ -231,15 +231,15 @@ hint `F.broadcast(small)` ชนะ threshold เสมอ: ตั้ง thresho
 
 ## ปัญหาที่ Catalyst แก้ไม่ได้
 
-ทั้งหมดข้างบนเกิด **ก่อน** รัน Catalyst ตัดสินใจจากสถิติที่รู้ล่วงหน้า เช่นขนาดไฟล์ แต่หลายครั้งมันรู้ไม่ได้
+ทั้งหมดข้างบนเกิด **ก่อน** รัน Catalyst จึงตัดสินใจจากสถิติที่รู้ล่วงหน้า เช่นขนาดไฟล์ แต่หลายครั้งมันรู้ไม่ได้ เช่น
 
 - หลัง `filter` ซับซ้อนหรือ `groupBy` จะเหลือกี่แถว
-- ข้อมูลหลัง shuffle ที่แบ่งเป็น 200 partition กระจายเท่ากันไหม
-- ตารางที่ดูใหญ่ จริงๆ หลังกรองแล้วเล็กพอ broadcast ได้ไหม
+- ข้อมูลหลัง Shuffle ที่แบ่งเป็น 200 Partition กระจายเท่ากันไหม
+- ตารางที่ดูใหญ่ จริง ๆ แล้วหลังกรองจะเล็กพอ Broadcast ได้ไหม
 
-ถ้าเดาผิด คุณจะได้ shuffle 200 partition ที่แต่ละก้อนมีไม่กี่ไบต์ (เปลือง task) หรือ sort-merge join ทั้งที่ฝั่งหนึ่งเล็กนิดเดียว
+ถ้าเดาผิด เราจะได้ Shuffle 200 Partition ที่แต่ละก้อนมีไม่กี่ไบต์ (เปลือง Task) หรือได้ Sort-merge Join ทั้งที่ฝั่งหนึ่งเล็กนิดเดียว
 
-**AQE** แก้ตรงนี้ด้วยการ "รันไปก่อนครึ่งหนึ่ง แล้วค่อยตัดสินใจใหม่" มันตัดแผนที่ shuffle ออกเป็นช่วงๆ เรียกว่า **query stage** รัน stage แรกให้จบ อ่านขนาดข้อมูลจริงที่ออกมา แล้ว optimize แผนส่วนที่เหลืออีกครั้งด้วยตัวเลขจริง
+**AQE** แก้ตรงนี้ด้วยการ "รันไปก่อนครึ่งหนึ่ง แล้วค่อยตัดสินใจใหม่" โดยตัดแผนที่ Shuffle ออกเป็นช่วง ๆ เรียกว่า **Query Stage** รัน Stage แรกให้จบ อ่านขนาดข้อมูลจริงที่ออกมา แล้ว Optimize แผนส่วนที่เหลืออีกครั้งด้วยตัวเลขจริง
 
 </Step>
 
@@ -247,7 +247,7 @@ hint `F.broadcast(small)` ชนะ threshold เสมอ: ตั้ง thresho
 
 ## เปิดอยู่แล้ว: `AdaptiveSparkPlan`
 
-`spark.sql.adaptive.enabled` เป็น `true` โดยค่าเริ่มต้น ผลที่เห็นคือ plan ของ query ที่มี shuffle ขึ้นต้นด้วย `AdaptiveSparkPlan` (รัน: `exercises/06_catalyst_aqe.py`)
+`spark.sql.adaptive.enabled` เป็น `true` โดยค่าเริ่มต้น ผลที่เห็นคือ Plan ของ Query ที่มี Shuffle จะขึ้นต้นด้วย `AdaptiveSparkPlan` (รัน: `exercises/06_catalyst_aqe.py`)
 
 ```python
 g = spark.range(1_000_000).groupBy((F.col("id") % 3).alias("k")).count()
@@ -278,13 +278,13 @@ AdaptiveSparkPlan isFinalPlan=true
 ```
 
 - `isFinalPlan=false` ก่อนรัน แปลว่าแผนนี้ยังเปลี่ยนได้
-- หลังรัน แผนมีสองส่วน: **Final Plan** (สิ่งที่รันจริง) และ **Initial Plan** (ที่ Spark วางไว้ตอนแรก)
-- บรรทัด `Exchange ... 200` ยังอยู่ใน Final Plan แต่ไม่ได้แปลว่ามี 200 task จริง ให้ดูบรรทัด `AQEShuffleRead coalesced` ที่รวม partition แล้ว (วัดจริง: `getNumPartitions()` ได้ **1**)
+- หลังรัน แผนจะมีสองส่วน คือ **Final Plan** (สิ่งที่รันจริง) และ **Initial Plan** (ที่ Spark วางไว้ตอนแรก)
+- บรรทัด `Exchange ... 200` ยังอยู่ใน Final Plan แต่ไม่ได้แปลว่ามี 200 Task จริง ให้ดูบรรทัด `AQEShuffleRead coalesced` ที่รวม Partition แล้ว (วัดจริง: `getNumPartitions()` ได้ **1**)
 
 <Callout type="warn" title="กับดักสามข้อของ isFinalPlan">
-1. `isFinalPlan` พลิกเป็น `true` เฉพาะ DataFrame **ตัวที่รันจริง** เรียก `g.count()` หรือ `g.show()` จะสร้าง query ใหม่ (เพิ่ม aggregate หรือ limit) `g.explain()` หลังจากนั้นยังเป็น `false` ต้องใช้ `g.collect()` หรือ `g.rdd` บน object เดิม
-2. ไม่ใช่ทุก plan มี `AdaptiveSparkPlan` ถ้า query ไม่มี shuffle และไม่มี subquery (เช่น `range` กับ `filter`) Spark ไม่ห่อด้วย AQE
-3. AQE ทำให้ action เดียวเกิดหลาย job (วัดจริง: 2 job คือ map stage แล้วค่อย result stage) ใน Spark UI จะเห็น job มากกว่าที่คิด
+1. `isFinalPlan` จะพลิกเป็น `true` เฉพาะ DataFrame **ตัวที่รันจริง** ถ้าเรียก `g.count()` หรือ `g.show()` จะสร้าง Query ใหม่ (เพิ่ม Aggregate หรือ Limit) `g.explain()` หลังจากนั้นจึงยังเป็น `false` ต้องใช้ `g.collect()` หรือ `g.rdd` บน Object เดิม
+2. ไม่ใช่ทุก Plan ที่มี `AdaptiveSparkPlan` ถ้า Query ไม่มี Shuffle และไม่มี Subquery (เช่น `range` กับ `filter`) Spark จะไม่ห่อด้วย AQE
+3. AQE ทำให้ Action เดียวเกิดหลาย Job (วัดจริง: 2 Job คือ Map Stage แล้วค่อย Result Stage) ใน Spark UI จึงเห็น Job มากกว่าที่คิด
 </Callout>
 
 </Step>
@@ -293,22 +293,22 @@ AdaptiveSparkPlan isFinalPlan=true
 
 ## AQE ทำสามอย่าง
 
-ทั้งสามอย่างทำตามลำดับเดียวกัน: stage แรกรันจบ แล้ว AQE วัดขนาดจริง แล้วเขียนแผนใหม่ แล้ว stage ถัดไปรันตามแผนใหม่ แถบสี่ช่วงด้านบนของภาพบอกว่าตอนนี้อยู่ช่วงไหน และบรรทัดแผนใต้แถบเปลี่ยนตามเหมือนที่ `explain()` แสดง เลือกสถานการณ์แล้วกดเล่น หรือลาก slider ตัวเลขของ coalesce และ join มาจากการรันจริง ส่วนขนาด partition ใน skew ใช้ตัวอย่างสมมติ (ชื่อ config และสูตรเป็นของจริง)
+ทั้งสามอย่างทำตามลำดับเดียวกัน คือ Stage แรกรันจบ แล้ว AQE วัดขนาดจริง จากนั้นเขียนแผนใหม่ และ Stage ถัดไปรันตามแผนใหม่ แถบสี่ช่วงด้านบนของภาพบอกว่าตอนนี้อยู่ช่วงไหน และบรรทัดแผนใต้แถบก็เปลี่ยนตามเหมือนที่ `explain()` แสดง เลือกสถานการณ์แล้วกดเล่น หรือลาก Slider ได้เลย ตัวเลขของ Coalesce และ Join มาจากการรันจริง ส่วนขนาด Partition ใน Skew ใช้ตัวอย่างสมมติ (ชื่อ Config และสูตรเป็นของจริง)
 
 <AqeFlowLab client:visible />
 
-| ทำอะไร | rule | config หลัก (ค่าเริ่มต้น) |
+| ทำอะไร | Rule | Config หลัก (ค่าเริ่มต้น) |
 |---|---|---|
-| รวม partition เล็กหลัง shuffle | `CoalesceShufflePartitions` | `coalescePartitions.enabled` (true), `advisoryPartitionSizeInBytes` (64 MB), `minPartitionSize` (1 MB) |
-| เปลี่ยน join เป็น broadcast | `DynamicJoinSelection` + `OptimizeShuffleWithLocalRead` | `autoBroadcastJoinThreshold` (10 MB), `localShuffleReader.enabled` (true) |
-| แยก partition ที่ skew (ใหญ่ไม่สมดุลกับตัวอื่น) | `OptimizeSkewedJoin` | `skewJoin.enabled` (true), `skewedPartitionFactor` (5.0), `skewedPartitionThresholdInBytes` (256 MB) |
+| รวม Partition เล็กหลัง Shuffle | `CoalesceShufflePartitions` | `coalescePartitions.enabled` (True), `advisoryPartitionSizeInBytes` (64 MB), `minPartitionSize` (1 MB) |
+| เปลี่ยน Join เป็น Broadcast | `DynamicJoinSelection` + `OptimizeShuffleWithLocalRead` | `autoBroadcastJoinThreshold` (10 MB), `localShuffleReader.enabled` (True) |
+| แยก Partition ที่ Skew (ใหญ่ไม่สมดุลกับตัวอื่น) | `OptimizeSkewedJoin` | `skewJoin.enabled` (True), `skewedPartitionFactor` (5.0), `skewedPartitionThresholdInBytes` (256 MB) |
 
-ทุก config ข้างบนมีคำนำหน้า `spark.sql.adaptive.` ยกเว้น `autoBroadcastJoinThreshold` ที่มีคำนำหน้า `spark.sql.`
+ทุก Config ข้างบนมีคำนำหน้า `spark.sql.adaptive.` ยกเว้น `autoBroadcastJoinThreshold` ที่มีคำนำหน้า `spark.sql.`
 
 <Callout type="warn" title="สองสิ่งที่ AQE ไม่ได้สัญญา">
-AQE ไม่ได้ broadcast ฝั่งเล็กเสมอไป ถ้าฝั่งเล็กกระจายอยู่ใน partition ที่ไม่ว่างน้อยกว่า 20% (`nonEmptyPartitionRatioForBroadcastJoin`) AQE ยังคง sort-merge join ไว้ (รันแล้วพบจริง: 4 แถวใน 200 partition ไม่ถูกเปลี่ยน)
+AQE ไม่ได้ Broadcast ฝั่งเล็กเสมอไป ถ้าฝั่งเล็กกระจายอยู่ใน Partition ที่ไม่ว่างน้อยกว่า 20% (`nonEmptyPartitionRatioForBroadcastJoin`) AQE ยังคง Sort-merge Join ไว้ (รันแล้วพบจริง: 4 แถวใน 200 Partition ไม่ถูกเปลี่ยน)
 
-skew join ไม่ทำงานกับข้อมูลทดลองเล็กๆ เพราะ threshold ค่าเริ่มต้นคือ 256 MB ในแล็บของบทนี้ต้องลดเป็น 50 KB กับ advisory 100 KB ถึงเห็น `SortMergeJoin(skew=true)` (partition ของผลลัพธ์: 1 ตอนค่าเริ่มต้น, 23 ตอนลด threshold, 8 ตอนปิด skew join)
+Skew Join ไม่ทำงานกับข้อมูลทดลองเล็ก ๆ เพราะ Threshold ค่าเริ่มต้นคือ 256 MB ในแล็บของบทนี้เราต้องลดเป็น 50 KB กับ Advisory 100 KB ถึงจะเห็น `SortMergeJoin(skew=true)` (Partition ของผลลัพธ์: 1 ตอนค่าเริ่มต้น, 23 ตอนลด Threshold, 8 ตอนปิด Skew Join)
 </Callout>
 
 </Step>
@@ -317,12 +317,12 @@ skew join ไม่ทำงานกับข้อมูลทดลองเ�
 
 ## Tungsten แบบย่อ
 
-Catalyst เลือกว่าจะรันอะไร ส่วน **Tungsten** คือวิธีรันให้เร็วในระดับ CPU และ memory มีสองเรื่องที่ควรรู้
+Catalyst เลือกว่าจะรันอะไร ส่วน **Tungsten** คือวิธีรันให้เร็วในระดับ CPU และ Memory มีสองเรื่องที่ควรรู้
 
-- **Whole-stage codegen**: operator ที่ต่อกันและไม่ต้อง shuffle (เช่น `Range` → `Filter` → `Project`) ถูกรวมเป็นโค้ด Java ก้อนเดียวที่ลูปครั้งเดียว แทนที่จะส่งแถวต่อกันทีละ operator ใน plan คือ `*(1)` ที่นำหน้า operator ส่วน `Exchange` ไม่เคยอยู่ใน codegen เพราะเป็นขอบเขตของ stage
-- **UnsafeRow**: แถวข้อมูลถูกเก็บเป็นไบต์ดิบ ไม่ใช่ object ของ JVM ลดภาระ garbage collector และเปรียบเทียบข้อมูลได้เร็ว (off-heap memory ปิดอยู่เป็นค่าเริ่มต้น: `spark.memory.offHeap.enabled=false`)
+- **Whole-stage Codegen** เป็นการรวม Operator ที่ต่อกันและไม่ต้อง Shuffle (เช่น `Range` → `Filter` → `Project`) ให้เป็นโค้ด Java ก้อนเดียวที่ลูปครั้งเดียว แทนที่จะส่งแถวต่อกันทีละ Operator ใน Plan จะเห็นเป็น `*(1)` ที่นำหน้า Operator ส่วน `Exchange` ไม่เคยอยู่ใน Codegen เพราะเป็นขอบเขตของ Stage
+- **UnsafeRow** เก็บแถวข้อมูลเป็นไบต์ดิบ ไม่ใช่ Object ของ JVM ทำให้ลดภาระ Garbage Collector และเปรียบเทียบข้อมูลได้เร็ว (Off-heap Memory ปิดอยู่เป็นค่าเริ่มต้น: `spark.memory.offHeap.enabled=false`)
 
-บทนี้ไม่อ้างตัวเลขว่า codegen เร็วกี่เท่า เพราะยังไม่ได้วัดเอง
+บทนี้ไม่อ้างตัวเลขว่า Codegen เร็วกี่เท่า เพราะยังไม่ได้วัดเอง
 
 </Step>
 
@@ -335,19 +335,19 @@ cd subjects/spark/code
 uv run python exercises/06_catalyst_aqe.py
 ```
 
-สคริปต์รันทุกตัวอย่างในบทและ `assert` ผลของแต่ละข้อ รันครั้งเดียวใช้เวลาราว 20 วินาที ถ้า Spark เวอร์ชันที่คุณใช้ให้ผลต่างจากบท สคริปต์จะบอกว่าข้อไหนไม่ตรง
+สคริปต์จะรันทุกตัวอย่างในบทและ `assert` ผลของแต่ละข้อ รันครั้งเดียวใช้เวลาราว 20 วินาที ถ้า Spark เวอร์ชันที่คุณใช้ให้ผลต่างจากบท สคริปต์ก็จะบอกว่าข้อไหนไม่ตรง
 
-ลองเล่นเอง
+ลองเล่นเองดูได้เลย
 
-1. เปลี่ยน `spark.sql.autoBroadcastJoinThreshold` เป็น `-1` แล้วดู `explain()` ของ join ว่า `Exchange` โผล่มาสองตัวไหม
-2. ปิด AQE (`spark.sql.adaptive.enabled=false`) แล้วรัน `groupBy` เดิม เทียบ `getNumPartitions()` ได้ 200 แทน 1
-3. ตั้ง `spark.sql.planChangeLog.level=WARN` แล้วรัน query ที่มี `WHERE 1 = 1` ดูกฎที่ทำงานใน log
+1. เปลี่ยน `spark.sql.autoBroadcastJoinThreshold` เป็น `-1` แล้วดู `explain()` ของ Join ว่า `Exchange` โผล่มาสองตัวไหม
+2. ปิด AQE (`spark.sql.adaptive.enabled=false`) แล้วรัน `groupBy` เดิม เทียบ `getNumPartitions()` ที่ได้ 200 แทน 1
+3. ตั้ง `spark.sql.planChangeLog.level=WARN` แล้วรัน Query ที่มี `WHERE 1 = 1` ดูกฎที่ทำงานใน Log
 
 ## เช็กตัวเอง
 
 - ดู `explain(True)` แล้วชี้ได้ไหมว่า Filter ถูกย้ายตรงไหน และอ่านจากอะไร
-- `PushedFilters` กับ `Filter` ที่ยังอยู่ใน plan ต่างกันอย่างไร
-- ทำไม AQE ถึงต้องรัน stage แรกให้จบก่อนถึงเปลี่ยนแผนได้
+- `PushedFilters` กับ `Filter` ที่ยังอยู่ใน Plan ต่างกันอย่างไร
+- ทำไม AQE ถึงต้องรัน Stage แรกให้จบก่อนถึงเปลี่ยนแผนได้
 - `isFinalPlan=false` หลัง `df.count()` แปลว่าอะไร
 
 </Step>

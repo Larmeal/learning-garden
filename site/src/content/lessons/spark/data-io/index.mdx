@@ -1,6 +1,6 @@
 ---
 title: Data I/O
-summary: อ่านและเขียน CSV กับ Parquet กำหนด schema และจัด partition บน disk ให้ Spark ข้ามข้อมูลที่ไม่ต้องใช้ได้
+summary: เราจะอ่านและเขียน CSV กับ Parquet กำหนด Schema และจัด Partition บน Disk เพื่อให้ Spark ข้ามข้อมูลที่ไม่ต้องใช้ได้
 order: 4
 phase: A
 level: 2
@@ -23,22 +23,22 @@ df = spark.read.csv("sales.csv", header=True, inferSchema=True)
 df.printSchema()
 ```
 
-ผลจากไฟล์ตัวอย่างบนเครื่องที่ใช้ทดสอบ `sales` ถูกเดาเป็น integer และช่องว่างในไฟล์กลายเป็น NULL
+จากไฟล์ตัวอย่างบนคอมพิวเตอร์ที่ใช้ทดสอบ `sales` ถูกเดาเป็น Integer และช่องว่างในไฟล์กลายเป็น NULL
 
-`inferSchema=True` ทำให้ Spark อ่านข้อมูลเพิ่มอีกรอบเพื่อเดาชนิด สะดวกแต่ช้าบนไฟล์ใหญ่ และเดาผิดได้ งานจริงควรส่ง schema เอง
+`inferSchema=True` ทำให้ Spark ต้องอ่านข้อมูลเพิ่มอีกรอบเพื่อเดาชนิด ซึ่งสะดวกแต่จะช้าบนไฟล์ใหญ่ และอาจเดาผิดได้ ในงานจริงเราจึงควรส่ง Schema เอง
 
 ```python
 df = spark.read.csv("sales.csv", header=True, schema="country string, city string, sales int")
 ```
 
-อ่านและเขียนใช้รูปแบบเดียวกันทุกชนิดไฟล์
+การอ่านและเขียนใช้รูปแบบเดียวกันกับไฟล์ทุกชนิด
 
 | งาน | คำสั่ง |
 |---|---|
 | อ่าน | `spark.read.csv(path)`, `.json(path)`, `.parquet(path)` |
 | เขียน | `df.write.mode("overwrite").parquet(path)` |
 
-`mode` มีสี่ค่า `error` (ค่าเริ่มต้น ถ้ามีไฟล์อยู่แล้วจะ error), `overwrite`, `append` และ `ignore`
+`mode` มีสี่ค่า คือ `error` (ค่าเริ่มต้น ถ้ามีไฟล์อยู่แล้วจะ Error), `overwrite`, `append` และ `ignore`
 
 </Step>
 
@@ -46,11 +46,11 @@ df = spark.read.csv("sales.csv", header=True, schema="country string, city strin
 
 ## partitionBy
 
-`df.write.partitionBy("country").parquet(path)` เขียนข้อมูลแยกเป็นโฟลเดอร์ตามค่าของ `country` เช่น `country=th/` ค่าของคอลัมน์นั้นอยู่ในชื่อโฟลเดอร์ ไม่ถูกเก็บซ้ำในไฟล์ และ Spark ใส่กลับให้ตอนอ่าน
+`df.write.partitionBy("country").parquet(path)` จะเขียนข้อมูลแยกเป็นโฟลเดอร์ตามค่าของ `country` เช่น `country=th/` ค่าของคอลัมน์นั้นอยู่ในชื่อโฟลเดอร์แล้ว จึงไม่ถูกเก็บซ้ำในไฟล์ และ Spark จะใส่กลับให้ตอนอ่าน
 
 <PruneLab client:visible />
 
-ผลคือ query ที่กรองด้วยคอลัมน์ partition อ่านเฉพาะโฟลเดอร์ที่เกี่ยวข้อง (partition pruning) เหมาะกับคอลัมน์ที่มีค่าไม่กี่แบบและถูกกรองบ่อย เช่น วันที่หรือประเทศ
+ผลก็คือ Query ที่กรองด้วยคอลัมน์ Partition จะอ่านเฉพาะโฟลเดอร์ที่เกี่ยวข้อง (Partition Pruning) วิธีนี้เหมาะกับคอลัมน์ที่มีค่าไม่กี่แบบและถูกกรองบ่อย เช่น วันที่หรือประเทศ
 
 </Step>
 
@@ -59,10 +59,10 @@ df = spark.read.csv("sales.csv", header=True, schema="country string, city strin
 ## ระวังไฟล์เล็กจำนวนมาก
 
 <Callout type="warn" title="คอลัมน์ที่ค่าไม่ซ้ำเยอะ">
-ถ้า partitionBy ด้วยคอลัมน์ที่มีค่าหลากหลายมาก เช่น `user_id` จะได้โฟลเดอร์และไฟล์เล็กๆ จำนวนมหาศาล ทุกไฟล์มีต้นทุนตอนเปิดอ่าน อ่านทั้งหมดจึงช้ากว่าเดิม
+ถ้า partitionBy ด้วยคอลัมน์ที่มีค่าหลากหลายมาก เช่น `user_id` เราจะได้โฟลเดอร์และไฟล์เล็ก ๆ จำนวนมหาศาล ทุกไฟล์มีต้นทุนตอนเปิดอ่าน การอ่านทั้งหมดจึงช้ากว่าเดิม
 </Callout>
 
-Spark เขียนหนึ่งไฟล์ต่อหนึ่ง partition ในแต่ละโฟลเดอร์ ถ้าจำนวน partition ของ DataFrame เยอะ ไฟล์ก็เยอะตาม การควบคุมด้วย `repartition` หรือ `coalesce` ก่อนเขียนอยู่ใน[บทที่ 7](/spark/performance-tuning/#repartition-กับ-coalesce)
+Spark จะเขียนหนึ่งไฟล์ต่อหนึ่ง Partition ในแต่ละโฟลเดอร์ ดังนั้นถ้าจำนวน Partition ของ DataFrame เยอะ ไฟล์ก็จะเยอะตามไปด้วย การควบคุมด้วย `repartition` หรือ `coalesce` ก่อนเขียนอยู่ใน[บทที่ 7](/spark/performance-tuning/#repartition-กับ-coalesce)
 
 </Step>
 
@@ -71,9 +71,9 @@ Spark เขียนหนึ่งไฟล์ต่อหนึ่ง partiti
 ## เขียนไฟล์ไม่ได้บน Windows เครื่องนี้
 
 <Callout type="warn" title="บันทึกจากเครื่องผู้เขียน">
-บน Windows ที่ใช้ทำบทเรียนนี้ `df.write.parquet(...)` ล้มด้วย `UnsatisfiedLinkError: NativeIO$Windows.access0` โฟลเดอร์ `bin` ใต้ `HADOOP_HOME` มีแค่ `winutils.exe` ไม่มี `hadoop.dll` ซึ่งน่าจะเป็นสาเหตุ เพราะ PySpark 4.2.0 มาพร้อม Hadoop 3.5.0 ที่ต้องการไฟล์ native ที่ตรงเวอร์ชัน (ยังไม่ได้ลองเติมไฟล์เพื่อยืนยัน)
+บน Windows ที่ใช้ทำบทเรียนนี้ `df.write.parquet(...)` ล้มด้วย `UnsatisfiedLinkError: NativeIO$Windows.access0` โฟลเดอร์ `bin` ใต้ `HADOOP_HOME` มีแค่ `winutils.exe` ไม่มี `hadoop.dll` ซึ่งน่าจะเป็นสาเหตุ เพราะ PySpark 4.2.0 มาพร้อม Hadoop 3.5.0 ที่ต้องการไฟล์ Native ที่ตรงเวอร์ชัน (ยังไม่ได้ลองเติมไฟล์เพื่อยืนยัน)
 
-การอ่านไฟล์และ `show()` ไม่กระทบ ทางเลี่ยงคือใส่ `hadoop.dll` กับ `winutils.exe` ที่ตรงเวอร์ชัน หรือรัน Spark ใน WSL หรือ Docker ตัวอย่างที่เขียนไฟล์ใน[บทที่ 4](/spark/data-io/) เป็นต้นไปของคอร์สนี้ผู้เขียนรันใน WSL (Ubuntu, Java 21) ด้วยสคริปต์ `subjects/spark/code/run_wsl.sh` ซึ่งเขียน Parquet ได้ปกติ ผลที่วัดอยู่ใน [Data I/O แบบเจาะลึก](/spark/data-io/in-depth/)
+การอ่านไฟล์และ `show()` ไม่ได้รับผลกระทบ ถ้าอยากเลี่ยงปัญหานี้ ก็ใส่ `hadoop.dll` กับ `winutils.exe` ที่ตรงเวอร์ชัน หรือรัน Spark ใน WSL หรือ Docker ก็ได้ ตัวอย่างที่เขียนไฟล์ใน[บทที่ 4](/spark/data-io/) เป็นต้นไปของคอร์สนี้ ผู้เขียนรันใน WSL (Ubuntu, Java 21) ด้วยสคริปต์ `subjects/spark/code/run_wsl.sh` ซึ่งเขียน Parquet ได้ปกติ ผลที่วัดอยู่ใน [Data I/O แบบเจาะลึก](/spark/data-io/in-depth/)
 </Callout>
 
 </Step>

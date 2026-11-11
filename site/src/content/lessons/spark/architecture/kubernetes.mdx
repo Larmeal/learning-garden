@@ -1,6 +1,6 @@
 ---
 title: Kubernetes
-summary: ใน Kubernetes ไม่มี Master หรือ ResourceManager ของ Spark ทุกอย่างเป็น pod และ driver เป็นคนขอ executor pod เองผ่าน API server ดูว่า pod เกิดอย่างไร ขอทีละกี่ตัว ownerReference ทำให้ลบ driver แล้ว executor หายตามอย่างไร และอะไรที่ต่างจาก YARN (อ่านจากซอร์ส ยังไม่ได้รันบน Kubernetes)
+summary: ใน Kubernetes ไม่มี Master หรือ ResourceManager ของ Spark ทุกอย่างเป็น Pod และ Driver เป็นคนขอ Executor Pod เองผ่าน API Server เราจะดูว่า Pod เกิดอย่างไร ขอทีละกี่ตัว ownerReference ทำให้ลบ Driver แล้ว Executor หายตามอย่างไร และอะไรที่ต่างจาก YARN (อ่านจากซอร์ส ยังไม่ได้รันบน Kubernetes)
 order: 13
 stage: sprout
 format: steps
@@ -13,24 +13,24 @@ import ClusterLaunchLab from '../../../../components/labs/spark/ClusterLaunchLab
 import K8sBatchLab from '../../../../components/labs/spark/K8sBatchLab';
 
 <Callout type="warn" title="หน้านี้ยังไม่ได้รันบน Kubernetes">
-เครื่องที่เขียนบทนี้ไม่มี Kubernetes cluster ทุกข้อในหน้านี้อ่านจากซอร์ส Spark 4.2.0 (`resource-managers/kubernetes/`) และเอกสารของ Spark ไม่ได้ทดลอง PySpark มี jar `spark-kubernetes` มาในแพ็กเกจ จึงเปิดใช้ได้เมื่อมี cluster
+คอมพิวเตอร์ที่ใช้เขียนบทนี้ไม่มี Kubernetes Cluster ดังนั้นทุกข้อในหน้านี้จึงอ่านจากซอร์ส Spark 4.2.0 (`resource-managers/kubernetes/`) และเอกสารของ Spark โดยไม่ได้ทดลองรันเอง PySpark มี Jar `spark-kubernetes` มาในแพ็กเกจอยู่แล้ว จึงเปิดใช้ได้เมื่อมี Cluster
 </Callout>
 
 <Step>
 
 ## ไม่มี Cluster Manager ของ Spark
 
-Kubernetes ไม่มีบทบาทอย่าง Master หรือ ResourceManager ที่ Spark ต้องคุยด้วย สิ่งที่ Spark คุยคือ **API server** ของ Kubernetes เพื่อสร้างและดู pod ส่วนการเลือกว่า pod ไปอยู่ node ไหนเป็นงานของ `kube-scheduler` ซึ่ง Spark ไม่เกี่ยว
+Kubernetes ไม่มีบทบาทอย่าง Master หรือ ResourceManager ที่ Spark ต้องคุยด้วย สิ่งที่ Spark คุยด้วยคือ **API Server** ของ Kubernetes เพื่อสร้างและดู Pod ส่วนการเลือกว่า Pod จะไปอยู่ Node ไหนเป็นงานของ `kube-scheduler` ซึ่ง Spark ไม่เกี่ยวข้อง
 
 | ของที่เกี่ยวข้อง | ทำอะไร |
 |---|---|
-| `spark-submit` | ประกอบ driver pod จาก config (feature step หลายตัว) สร้าง pod กับ ConfigMap แล้วเฝ้าดูสถานะ pod (`KubernetesClientApplication`) |
-| API server | ที่เดียวที่ทุกฝ่ายอ่าน/เขียนสถานะ pod |
-| driver pod | pod ที่ข้างในรัน `spark-submit` แบบ client mode อีกชั้น (จาก `entrypoint.sh` คำสั่ง `driver`) |
-| `ExecutorPodsAllocator` (ใน driver) | เทียบจำนวน executor ที่ต้องการกับ pod ที่มี แล้วสร้าง executor pod เพิ่มเอง |
-| executor pod | JVM ที่ลงทะเบียนกับ driver แล้วรับ task |
+| `spark-submit` | ประกอบ Driver Pod จาก Config (Feature Step หลายตัว) สร้าง Pod กับ ConfigMap แล้วเฝ้าดูสถานะ Pod (`KubernetesClientApplication`) |
+| API Server | เป็นที่เดียวที่ทุกฝ่ายใช้อ่านและเขียนสถานะ Pod |
+| Driver Pod | Pod ที่ข้างในรัน `spark-submit` แบบ Client Mode อีกชั้น (จาก `entrypoint.sh` คำสั่ง `driver`) |
+| `ExecutorPodsAllocator` (ใน Driver) | เทียบจำนวน Executor ที่ต้องการกับ Pod ที่มีอยู่ แล้วสร้าง Executor Pod เพิ่มเอง |
+| Executor Pod | JVM ที่ลงทะเบียนกับ Driver แล้วรับ Task |
 
-ข้อสำคัญที่ต่างจาก YARN คือ **driver เป็นคนสั่งสร้าง executor เอง** ไม่มี AM คั่นกลาง ดูลำดับ (สลับดูสถานการณ์ที่ driver pod ถูกลบ)
+ข้อสำคัญที่ต่างจาก YARN คือ **Driver เป็นคนสั่งสร้าง Executor เอง** ไม่มี AM คั่นกลาง ลองดูลำดับในแล็บนี้ (สลับไปดูสถานการณ์ที่ Driver Pod ถูกลบได้ด้วย)
 
 <ClusterLaunchLab cm="k8s" client:visible />
 
@@ -40,15 +40,15 @@ Kubernetes ไม่มีบทบาทอย่าง Master หรือ Res
 
 ## Driver ขอ Executor Pod ทีละกี่ตัว
 
-driver ไม่ได้สร้างครบทีเดียว `ExecutorPodsAllocator` ทำเป็นรอบ แต่ละรอบสร้าง pod ไม่เกิน `spark.kubernetes.allocation.batch.size` (ค่าเริ่มต้น 20) แล้วรอ `spark.kubernetes.allocation.batch.delay` (1 วินาที) ก่อนรอบถัดไป ลองเปลี่ยนจำนวนที่ต้องการ
+Driver ไม่ได้สร้างครบทีเดียว `ExecutorPodsAllocator` ทำเป็นรอบ ๆ โดยแต่ละรอบจะสร้าง Pod ไม่เกิน `spark.kubernetes.allocation.batch.size` (ค่าเริ่มต้น 20) แล้วรอ `spark.kubernetes.allocation.batch.delay` (1 วินาที) ก่อนเริ่มรอบถัดไป ลองเปลี่ยนจำนวนที่ต้องการดู
 
 <K8sBatchLab client:visible />
 
-สิ่งที่ต้องรู้
+มีสามเรื่องที่ควรรู้
 
-- ถ้าขอ executor จำนวนมาก (หลักร้อย) การสร้างคำขอใช้เวลาหลายวินาทีก่อนที่ Kubernetes จะเริ่มวาง pod แรกด้วยซ้ำ ปรับ `batch.size` ได้ถ้า cluster รับไหว
-- `spark.kubernetes.allocation.maxPendingPods` (ค่าเริ่มต้นไม่จำกัด) จำกัดจำนวน pod ที่ค้างที่ Pending พร้อมกัน ช่วยไม่ให้แอปเดียวถมคำขอจน scheduler ล้น
-- pod ที่ค้างที่ Pending นานเกินไปไม่ได้ถูกแก้โดย Spark: ถ้า node ไม่พอ pod รอ cluster autoscaler หรือรอจน node ว่าง `spark.kubernetes.allocation.executor.timeout` (600 วินาที) ลบเฉพาะ pod ที่ Kubernetes ยังไม่เห็นในสถานะ Pending
+- ถ้าขอ Executor จำนวนมาก (หลักร้อย) การสร้างคำขอจะใช้เวลาหลายวินาทีก่อนที่ Kubernetes จะเริ่มวาง Pod แรกด้วยซ้ำ เราปรับ `batch.size` ได้ถ้า Cluster รับไหว
+- `spark.kubernetes.allocation.maxPendingPods` (ค่าเริ่มต้นไม่จำกัด) จำกัดจำนวน Pod ที่ค้างอยู่ที่ Pending พร้อมกัน ช่วยไม่ให้แอปเดียวถมคำขอจน Scheduler ล้น
+- Pod ที่ค้างที่ Pending นานเกินไป Spark ไม่ได้แก้ให้ ถ้า Node ไม่พอ Pod จะรอ Cluster Autoscaler หรือรอจน Node ว่าง ส่วน `spark.kubernetes.allocation.executor.timeout` (600 วินาที) จะลบเฉพาะ Pod ที่ Kubernetes ยังไม่เห็นในสถานะ Pending
 
 </Step>
 
@@ -56,11 +56,11 @@ driver ไม่ได้สร้างครบทีเดียว `Executor
 
 ## ทำไมลบ Driver Pod แล้ว Executor หายตาม
 
-pod ของ executor ที่ `BasicExecutorFeatureStep` ประกอบมี **ownerReference ชี้ไปที่ driver pod** (ตั้งเป็น controller) เมื่อ driver pod ถูกลบหรือหายไป garbage collector ของ Kubernetes ลบ object ที่ owner หายไป ผลคือไม่ต้องมี cluster manager คอยตามเก็บ executor ที่เหลือ ใน Kubernetes การ "ปิดแอป" คือการลบ driver pod
+Pod ของ Executor ที่ `BasicExecutorFeatureStep` ประกอบขึ้นมี **ownerReference ชี้ไปที่ Driver Pod** (ตั้งเป็น Controller) เมื่อ Driver Pod ถูกลบหรือหายไป Garbage Collector ของ Kubernetes จะลบ Object ที่ Owner หายไปด้วย ผลคือไม่ต้องมี Cluster Manager คอยตามเก็บ Executor ที่เหลือ ใน Kubernetes การ "ปิดแอป" จึงเท่ากับการลบ Driver Pod
 
-ConfigMap ของ spark conf และ resource อื่นที่ driver ต้องใช้ก็ผูก ownerReference กับ driver pod ในลักษณะเดียวกัน (`KubernetesClientApplication.run`)
+ConfigMap ของ Spark Conf และ Resource อื่นที่ Driver ต้องใช้ ก็ผูก ownerReference กับ Driver Pod ในลักษณะเดียวกัน (`KubernetesClientApplication.run`)
 
-ส่วน executor ที่ตายกลางทางเองต่างออกไป driver เฝ้าสถานะ pod ผ่านการ watch (`ExecutorPodsWatchSnapshotSource`) และ polling สำรอง (`ExecutorPodsPollingSnapshotSource`) เมื่อรู้ว่า pod หายมันขอ pod ใหม่มาแทน จนถึง `spark.executor.maxNumFailures` ที่ทำให้แอปล้ม
+ส่วน Executor ที่ตายกลางทางเองจะต่างออกไป Driver เฝ้าสถานะ Pod ผ่านการ Watch (`ExecutorPodsWatchSnapshotSource`) และ Polling สำรอง (`ExecutorPodsPollingSnapshotSource`) เมื่อรู้ว่า Pod หายไป ก็จะขอ Pod ใหม่มาแทน จนกว่าจะถึง `spark.executor.maxNumFailures` ซึ่งทำให้แอปล้ม
 
 </Step>
 
@@ -70,13 +70,13 @@ ConfigMap ของ spark conf และ resource อื่นที่ driver �
 
 | | standalone | YARN | Kubernetes |
 |---|---|---|---|
-| ใครแบ่ง resource | Master ของ Spark | ResourceManager | kube-scheduler |
-| ใครขอ executor แทนแอป | `StandaloneAppClient` ใน driver | ApplicationMaster | `ExecutorPodsAllocator` ใน driver |
-| หน่วยที่รัน | process ที่ Worker เปิด | container | pod |
-| driver ใน cluster ได้ | ไม่ได้สำหรับ Python | ได้ (cluster mode ใน AM) | ได้ (driver pod) |
-| ปิดแอปด้วย | driver จบ | driver/AM จบ | ลบ driver pod (executor หายตาม) |
+| ใครแบ่ง Resource | Master ของ Spark | ResourceManager | Kube-scheduler |
+| ใครขอ Executor แทนแอป | `StandaloneAppClient` ใน Driver | ApplicationMaster | `ExecutorPodsAllocator` ใน Driver |
+| หน่วยที่รัน | Process ที่ Worker เปิด | Container | Pod |
+| Driver ใน Cluster ได้ | ไม่ได้สำหรับ Python | ได้ (Cluster Mode ใน AM) | ได้ (Driver Pod) |
+| ปิดแอปด้วย | Driver จบ | Driver/AM จบ | ลบ Driver Pod (Executor หายตาม) |
 
-หลายเรื่องที่ต้องตั้งเพิ่มบน Kubernetes ไม่มีใน cluster manager อื่น เช่น image ที่มี Spark (`spark.kubernetes.container.image`), namespace, service account ที่มีสิทธิ์สร้าง pod และเรื่อง resource ของ pod (`spark.kubernetes.executor.request.cores` ต่างจาก `spark.executor.cores` ที่เป็นจำนวน task พร้อมกัน)
+บน Kubernetes มีหลายเรื่องที่ต้องตั้งเพิ่ม ซึ่งไม่มีใน Cluster Manager อื่น เช่น Image ที่มี Spark (`spark.kubernetes.container.image`), Namespace, Service Account ที่มีสิทธิ์สร้าง Pod และเรื่อง Resource ของ Pod (`spark.kubernetes.executor.request.cores` ต่างจาก `spark.executor.cores` ที่เป็นจำนวน Task พร้อมกัน)
 
 </Step>
 
@@ -84,9 +84,9 @@ ConfigMap ของ spark conf และ resource อื่นที่ driver �
 
 ## เช็กตัวเอง
 
-- บน Kubernetes ใครเป็นคนบอกให้สร้าง executor pod และผ่านใคร
-- ทำไมลบ driver pod แล้ว executor pod หายไปด้วยโดยไม่มีใครสั่ง
-- ขอ executor 100 ตัวด้วยค่าเริ่มต้น ใช้กี่รอบ และกี่วินาทีกว่าจะสร้างคำขอครบ
-- pod ของ executor ค้างที่ Pending ควรไปดูที่ไหน (Spark หรือ Kubernetes)
+- บน Kubernetes ใครเป็นคนบอกให้สร้าง Executor Pod และผ่านใคร
+- ทำไมลบ Driver Pod แล้ว Executor Pod หายไปด้วยโดยไม่มีใครสั่ง
+- ขอ Executor 100 ตัวด้วยค่าเริ่มต้น ใช้กี่รอบ และกี่วินาทีกว่าจะสร้างคำขอครบ
+- Pod ของ Executor ค้างที่ Pending ควรไปดูที่ไหน (Spark หรือ Kubernetes)
 
 </Step>

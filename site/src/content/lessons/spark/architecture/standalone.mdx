@@ -1,6 +1,6 @@
 ---
 title: Standalone
-summary: cluster manager ที่มากับ Spark เอง มี Master กับ Worker สองบทบาท ดูว่าใครสั่งใคร Master แจก core ให้แอปอย่างไร (วัดจริงบน cluster 3 Worker) เกิดอะไรขึ้นเมื่อ executor หรือ Worker ตาย และทำไม Python ใช้ cluster mode ไม่ได้
+summary: Cluster Manager ที่มากับ Spark เอง มี Master กับ Worker สองบทบาท เราจะดูว่าใครสั่งใคร Master แจก Core ให้แอปอย่างไร (วัดจริงบน Cluster 3 Worker) เกิดอะไรขึ้นเมื่อ Executor หรือ Worker ตาย และทำไม Python ใช้ Cluster Mode ไม่ได้
 order: 11
 stage: sprout
 format: steps
@@ -12,27 +12,27 @@ import Callout from '../../../../components/Callout.astro';
 import ClusterLaunchLab from '../../../../components/labs/spark/ClusterLaunchLab';
 import StandaloneSpreadLab from '../../../../components/labs/spark/StandaloneSpreadLab';
 
-หน้านี้อธิบาย standalone cluster manager ที่มากับ Spark (`--master spark://host:7077`) ส่วนที่รันจริงคือ `exercises/11_deployment_ui.py` และ `exercises/11b_standalone_spread.py` (ทั้งคู่เปิด cluster เองใน WSL) ส่วนที่อ่านจากซอร์ส Spark 4.2.0 จะบอกไว้
+หน้านี้อธิบาย standalone cluster manager ที่มากับ Spark (`--master spark://host:7077`) ส่วนที่รันจริงคือ `exercises/11_deployment_ui.py` และ `exercises/11b_standalone_spread.py` (ทั้งคู่เปิด Cluster เองใน WSL) ส่วนไหนที่อ่านจากซอร์ส Spark 4.2.0 เราจะบอกไว้ให้
 
 <Step>
 
 ## Master และ Worker ทำอะไร
 
-standalone มีแค่สองบทบาท แต่ละบทบาทเป็น JVM process หนึ่งตัว
+Standalone มีแค่สองบทบาท และแต่ละบทบาทเป็น JVM Process หนึ่งตัว
 
 | บทบาท | ทำอะไร | ไม่ทำอะไร |
 |---|---|---|
-| `Master` (พอร์ต 7077, UI 8080) | รู้ว่ามี Worker กี่ตัว ว่างกี่ core กี่ memory รับ application ที่ลงทะเบียนมา แล้วตัดสินว่า core ไหนของ Worker ไหนให้แอปไหน | ไม่ถือข้อมูล ไม่แจก task ไม่อยู่ในเส้นทางที่ executor ส่งผล |
-| `Worker` (UI 8081) | ลงทะเบียนกับ Master บอกว่ามี core และ memory เท่าไร เปิด executor เป็น child process เมื่อ Master สั่ง รายงานสถานะ executor กลับ Master | ไม่ตัดสินว่าใครได้ core |
+| `Master` (พอร์ต 7077, UI 8080) | รู้ว่ามี Worker กี่ตัว แต่ละตัวว่างกี่ Core กี่ Memory รับ Application ที่มาลงทะเบียน แล้วตัดสินว่าจะให้ Core ไหนของ Worker ไหนกับแอปไหน | ไม่ถือข้อมูล ไม่แจก Task และไม่อยู่ในเส้นทางที่ Executor ส่งผลกลับ |
+| `Worker` (UI 8081) | ลงทะเบียนกับ Master พร้อมบอกว่ามี Core และ Memory เท่าไร เปิด Executor เป็น Child Process เมื่อ Master สั่ง และรายงานสถานะของ Executor กลับไปที่ Master | ไม่ตัดสินว่าใครได้ Core |
 
-ส่วนที่เหลืออยู่ที่ฝั่งแอป ตัว driver มี `StandaloneAppClient` ไว้คุยกับ Master และแต่ละ executor คือ `CoarseGrainedExecutorBackend` ที่ Worker เปิดให้ ดูลำดับที่เกิดขึ้นจริงตั้งแต่ลงทะเบียนจนได้ task
+ส่วนที่เหลืออยู่ที่ฝั่งแอป Driver มี `StandaloneAppClient` ไว้คุยกับ Master และแต่ละ Executor ก็คือ `CoarseGrainedExecutorBackend` ที่ Worker เปิดให้ เรามาดูลำดับที่เกิดขึ้นจริงตั้งแต่ลงทะเบียนจนได้ Task กัน
 
 <ClusterLaunchLab cm="standalone" client:visible />
 
-มีสองจุดที่ภาพนี้ทำให้เห็นชัด
+ภาพนี้ทำให้เห็นชัดสองจุด
 
-- **Master อยู่ในเส้นทางแค่ตอนเริ่ม** หลังจากแจก core และสั่งเปิด executor แล้ว driver กับ executor คุยกันเอง task และผลไม่ผ่าน Master เลย (อ่านจากซอร์ส: executor ได้ที่อยู่ของ driver ในคำสั่งที่ Worker ใช้เปิดมัน แล้วลงทะเบียนกับ driver ตรงๆ)
-- **เลขในช่อง core คือการตัดสินใจของ Master** ว่าจะให้แอปอยู่ที่ Worker ไหนกี่ core ซึ่งเป็นเรื่องของหัวข้อถัดไป
+- **Master อยู่ในเส้นทางแค่ตอนเริ่ม** หลังจากแจก Core และสั่งเปิด Executor แล้ว Driver กับ Executor จะคุยกันเอง Task และผลลัพธ์ไม่ผ่าน Master เลย (อ่านจากซอร์ส: Executor ได้ที่อยู่ของ Driver ในคำสั่งที่ Worker ใช้เปิดมัน แล้วลงทะเบียนกับ Driver ตรง ๆ)
+- **เลขในช่อง Core คือการตัดสินใจของ Master** ว่าจะให้แอปอยู่ที่ Worker ไหนกี่ Core ซึ่งเป็นเรื่องของหัวข้อถัดไป
 
 </Step>
 
@@ -40,29 +40,29 @@ standalone มีแค่สองบทบาท แต่ละบทบา�
 
 ## Master แจก Core อย่างไร
 
-ถ้าแอปขอ 6 core และ cluster มี Worker 3 ตัว ตัวละ 4 core จะได้ core จากที่ไหน สองค่าตัดสิน ค่าแรกคือ `spark.deploy.spreadOutApps` ที่ตั้งที่ Master (ค่าเริ่มต้น `true`) ค่าที่สองคือ `spark.executor.cores` ที่ตั้งที่แอป ลองเปลี่ยนทั้งสองค่า
+สมมติว่าแอปขอ 6 Core และ Cluster มี Worker 3 ตัว ตัวละ 4 Core แล้วแอปจะได้ Core มาจากที่ไหนบ้าง เรื่องนี้ขึ้นอยู่กับสองค่า ค่าแรกคือ `spark.deploy.spreadOutApps` ที่ตั้งที่ Master (ค่าเริ่มต้น `true`) ค่าที่สองคือ `spark.executor.cores` ที่ตั้งที่แอป ลองเปลี่ยนทั้งสองค่าดูได้เลย
 
 <StandaloneSpreadLab client:visible />
 
-ผลที่วัดจริงบน cluster 3 Worker (ตัวละ 4 core, `spark.cores.max = 6`) ตรงกับภาพทั้ง 6 กรณี
+ผลที่วัดจริงบน Cluster 3 Worker (ตัวละ 4 Core, `spark.cores.max = 6`) ตรงกับภาพทั้ง 6 กรณี
 
-| `spreadOutApps` | `spark.executor.cores` | core ต่อ Worker | executor |
+| `spreadOutApps` | `spark.executor.cores` | Core ต่อ Worker | Executor |
 |---|---|---|---|
-| true (ค่าเริ่มต้น) | ไม่ตั้ง | 2 · 2 · 2 | 3 |
+| True (ค่าเริ่มต้น) | ไม่ตั้ง | 2 · 2 · 2 | 3 |
 | true | 1 | 2 · 2 · 2 | 6 |
 | true | 2 | 2 · 2 · 2 | 3 |
-| false | ไม่ตั้ง | 4 · 2 · 0 | 2 |
+| False | ไม่ตั้ง | 4 · 2 · 0 | 2 |
 | false | 1 | 4 · 2 · 0 | 6 |
 | false | 2 | 4 · 2 · 0 | 3 |
 
-สิ่งที่ต้องสังเกต
+มีสามอย่างที่น่าสังเกต
 
-- **ไม่ตั้ง `spark.executor.cores`** แล้ว Master ให้ executor ตัวเดียวต่อ Worker โดยใส่ core ทั้งหมดที่ได้ในตัวนั้น (`oneExecutorPerWorker` ใน `Master.scala:741`) ตั้งค่านี้แล้วทุกก้อนที่แจกคือ executor ใหม่ จึงมีหลาย executor ต่อ Worker ได้
-- **ถ้าแอปไม่ตั้ง `spark.cores.max`** แอปจะขอทุก core ที่ cluster มี (`spark.deploy.defaultCores` ค่าเริ่มต้นไม่จำกัด) และกินหมดจนแอปถัดไปต้องรอ ในกรณีนี้ standalone จัดคิวแบบ FIFO ตามลำดับที่แอปลงทะเบียน
-- **เลือกกระจายหรือรวม** เอกสาร Spark ว่าการกระจายมักดีต่อ data locality ของ HDFS ส่วนการรวมไว้ในเครื่องน้อยๆ เหมาะกับงานที่ใช้ CPU หนัก (อ่านจากเอกสาร ไม่ได้ทดสอบความต่างของความเร็ว)
+- ถ้า **ไม่ตั้ง `spark.executor.cores`** Master จะให้ Executor ตัวเดียวต่อ Worker โดยใส่ Core ทั้งหมดที่ได้ไว้ในตัวนั้น (`oneExecutorPerWorker` ใน `Master.scala:741`) แต่ถ้าตั้งค่านี้ ทุกก้อนที่แจกจะเป็น Executor ใหม่ จึงมีหลาย Executor ต่อ Worker ได้
+- **ถ้าแอปไม่ตั้ง `spark.cores.max`** แอปจะขอทุก Core ที่ Cluster มี (`spark.deploy.defaultCores` ค่าเริ่มต้นไม่จำกัด) และกินหมดจนแอปถัดไปต้องรอ ในกรณีนี้ Standalone จัดคิวแบบ FIFO ตามลำดับที่แอปลงทะเบียน
+- ส่วน **การเลือกกระจายหรือรวม** เอกสาร Spark บอกว่าการกระจายมักดีต่อ Data Locality ของ HDFS ส่วนการรวมไว้ในคอมพิวเตอร์ไม่กี่เครื่องเหมาะกับงานที่ใช้ CPU หนัก (อ่านจากเอกสาร ไม่ได้ทดสอบความต่างของความเร็ว)
 
-<Callout type="warn" title="ภาพไม่ได้จำลอง memory">
-Master ตรวจ memory ของ Worker ด้วยก่อนเปิด executor (`spark.executor.memory` ต่อตัว) ภาพนี้สมมติว่า memory พอเสมอ ถ้า memory ไม่พอ Worker นั้นจะถูกข้ามแม้ยังมี core ว่าง
+<Callout type="warn" title="ภาพไม่ได้จำลอง Memory">
+Master ตรวจ Memory ของ Worker ด้วยก่อนเปิด Executor (`spark.executor.memory` ต่อตัว) แต่ภาพนี้สมมติว่า Memory พอเสมอ ถ้า Memory ไม่พอ Worker นั้นจะถูกข้ามไป แม้จะยังมี Core ว่างอยู่ก็ตาม
 </Callout>
 
 </Step>
@@ -71,16 +71,16 @@ Master ตรวจ memory ของ Worker ด้วยก่อนเปิด
 
 ## เมื่อมีอะไรตาย
 
-ใครดูแลใคร (อ่านจากซอร์ส `Master.scala` เว้นแต่ระบุ)
+ตารางนี้บอกว่าใครดูแลใคร (อ่านจากซอร์ส `Master.scala` เว้นแต่ระบุไว้)
 
 | ตายอะไร | เกิดอะไรขึ้น |
 |---|---|
-| executor | Worker รายงาน `ExecutorStateChanged` Master ถอด executor ออกแล้วเรียก `schedule()` เพื่อแจก core ใหม่ ถ้า executor ออกผิดปกติซ้ำถึง `spark.deploy.maxExecutorRetries` (10) ครั้งติดกัน (นับใหม่ทุกครั้งที่มี executor ขึ้นเป็น RUNNING) และตอนนั้นไม่มี executor ใดรันอยู่ Master ถือว่าแอปล้มและถอดแอปออก |
-| Worker | Master ไม่ได้ heartbeat เกิน `spark.worker.timeout` (60 วินาที) จึง `removeWorker` และ executor ของ Worker นั้นถูกนับว่าหาย |
-| Master | ค่าเริ่มต้น `spark.deploy.recoveryMode = NONE` Master ที่เปิดใหม่ไม่รู้เรื่องแอปเก่า ตั้งเป็น `ZOOKEEPER`, `FILESYSTEM` หรือ `ROCKSDB` เพื่อเก็บสถานะไว้กู้คืน (ZooKeeper ใช้เลือก Master ตัวสำรองด้วย) เอกสารระบุว่าแอปที่รันอยู่แล้วไม่กระทบเมื่อ Master สลับตัว เพราะ executor คุยกับ driver โดยตรง (อ่านจากเอกสาร ไม่ได้ทดสอบ) |
-| driver | ใน client mode ถ้า driver ตาย application จบ เพราะ executor ไม่มีใครสั่งงานแล้ว |
+| Executor | Worker รายงาน `ExecutorStateChanged` Master จะถอด Executor ออกแล้วเรียก `schedule()` เพื่อแจก Core ใหม่ ถ้า Executor ออกผิดปกติซ้ำถึง `spark.deploy.maxExecutorRetries` (10) ครั้งติดกัน (นับใหม่ทุกครั้งที่มี Executor ขึ้นเป็น RUNNING) และตอนนั้นไม่มี Executor ใดรันอยู่ Master จะถือว่าแอปล้มและถอดแอปออก |
+| Worker | Master ไม่ได้รับ Heartbeat เกิน `spark.worker.timeout` (60 วินาที) จึง `removeWorker` และ Executor ของ Worker นั้นจะถูกนับว่าหายไป |
+| Master | ค่าเริ่มต้น `spark.deploy.recoveryMode = NONE` ทำให้ Master ที่เปิดใหม่ไม่รู้เรื่องแอปเก่า เราสามารถตั้งเป็น `ZOOKEEPER`, `FILESYSTEM` หรือ `ROCKSDB` เพื่อเก็บสถานะไว้กู้คืนได้ (ZooKeeper ใช้เลือก Master ตัวสำรองด้วย) เอกสารระบุว่าแอปที่รันอยู่แล้วจะไม่กระทบเมื่อ Master สลับตัว เพราะ Executor คุยกับ Driver โดยตรง (อ่านจากเอกสาร ไม่ได้ทดสอบ) |
+| Driver | ใน Client Mode ถ้า Driver ตาย Application จะจบ เพราะ Executor ไม่มีใครสั่งงานแล้ว |
 
-พฤติกรรมของ task ที่รันอยู่บน executor ที่หายไปเป็นเรื่องของ scheduler ของ driver (retry ตาม `spark.task.maxFailures`) ซึ่งเหมือนกันทุก cluster manager จึงไม่อยู่ในหน้านี้
+ส่วนพฤติกรรมของ Task ที่รันอยู่บน Executor ที่หายไป เป็นเรื่องของ Scheduler ของ Driver (Retry ตาม `spark.task.maxFailures`) ซึ่งเหมือนกันในทุก Cluster Manager เราจึงไม่ได้พูดถึงในหน้านี้
 
 </Step>
 
@@ -88,16 +88,16 @@ Master ตรวจ memory ของ Worker ด้วยก่อนเปิด
 
 ## Deploy Mode: Python ใช้ Cluster Mode ไม่ได้
 
-standalone มีสอง deploy mode: `client` (ค่าเริ่มต้น driver อยู่ที่เครื่องที่รัน `spark-submit`) และ `cluster` (Master สั่งให้ Worker เปิด driver ให้) แต่สำหรับแอป Python
+Standalone มีสอง Deploy Mode คือ `client` (ค่าเริ่มต้น โดย Driver จะอยู่ที่คอมพิวเตอร์ที่รัน `spark-submit`) และ `cluster` (Master สั่งให้ Worker เปิด Driver ให้) แต่สำหรับแอป Python จะเป็นแบบนี้
 
 ```
 spark-submit --master spark://... --deploy-mode cluster app.py
 → Cluster deploy mode is currently not supported for python applications on standalone clusters.
 ```
 
-ข้อความนี้มาจาก `SparkSubmit.scala:299` และตรวจแล้วว่าได้ข้อความนี้จริง ([บท 11](/spark/deployment-spark-ui/#จาก-spark-submit-ถึง-executor)) ดังนั้นภาพด้านบนจึงเป็น client mode ทางเดียวที่ PySpark ใช้บน standalone ถ้าต้องการรัน driver ใน cluster ด้วย Python ต้องใช้ [YARN](/spark/architecture/yarn/) หรือ [Kubernetes](/spark/architecture/kubernetes/)
+ข้อความนี้มาจาก `SparkSubmit.scala:299` และตรวจแล้วว่าได้ข้อความนี้จริง ([บท 11](/spark/deployment-spark-ui/#จาก-spark-submit-ถึง-executor)) ดังนั้นภาพด้านบนจึงเป็น Client Mode ซึ่งเป็นทางเดียวที่ PySpark ใช้บน Standalone ได้ ถ้าอยากให้ Driver รันใน Cluster ด้วย Python เราต้องใช้ [YARN](/spark/architecture/yarn/) หรือ [Kubernetes](/spark/architecture/kubernetes/)
 
-ผลที่ตามมาของ client mode คือเครื่องที่รัน driver ต้องเปิดอยู่ตลอดและ executor ต้องต่อกลับเครื่องนั้นได้ (`spark.driver.host`, `spark.driver.port`) ตอนทดสอบในบทนี้ตั้ง `spark.driver.host = 127.0.0.1` เพราะ cluster อยู่บนเครื่องเดียวกัน
+เมื่อใช้ Client Mode คอมพิวเตอร์ที่รัน Driver ต้องเปิดอยู่ตลอด และ Executor ต้องต่อกลับมาที่คอมพิวเตอร์เครื่องนั้นได้ (`spark.driver.host`, `spark.driver.port`) ตอนทดสอบในบทนี้เราตั้ง `spark.driver.host = 127.0.0.1` เพราะ Cluster อยู่บนคอมพิวเตอร์เครื่องเดียวกัน
 
 </Step>
 
@@ -105,14 +105,14 @@ spark-submit --master spark://... --deploy-mode cluster app.py
 
 ## เปิด Cluster เองและเช็กตัวเอง
 
-เปิด Master กับ Worker ด้วย `spark-class` (สคริปต์ `sbin/start-master.sh` เรียกตัวเดียวกัน)
+เราเปิด Master กับ Worker ได้ด้วย `spark-class` (สคริปต์ `sbin/start-master.sh` ก็เรียกตัวเดียวกัน)
 
 ```bash
 spark-class org.apache.spark.deploy.master.Master --host 127.0.0.1 --port 7077 --webui-port 8080
 spark-class org.apache.spark.deploy.worker.Worker --cores 4 --memory 2g spark://127.0.0.1:7077
 ```
 
-แล้วรันแอปกับ `--master spark://127.0.0.1:7077` เปิด `http://127.0.0.1:8080` ดูว่า Worker กับ application ปรากฏ สคริปต์ทั้งสองในโปรเจกต์ทำให้ครบ ทั้งเปิด cluster รันแอป อ่านผลและปิดให้
+จากนั้นรันแอปกับ `--master spark://127.0.0.1:7077` แล้วเปิด `http://127.0.0.1:8080` ดูว่า Worker กับ Application ปรากฏขึ้นมาไหม สคริปต์ทั้งสองในโปรเจกต์ทำให้ครบทุกขั้น ทั้งเปิด Cluster รันแอป อ่านผล และปิดให้ด้วย
 
 ```bash
 cd subjects/spark/code
@@ -120,11 +120,11 @@ uv run python exercises/11_deployment_ui.py
 uv run python exercises/11b_standalone_spread.py
 ```
 
-เช็กตัวเอง
+ลองตอบคำถามเหล่านี้ดูว่าเข้าใจแล้วหรือยัง
 
 - Master ตัดสินอะไร และอะไรที่มันไม่เกี่ยวเลย
-- แอปขอ 6 core, spreadOutApps ปิด, ไม่ตั้ง `spark.executor.cores` จะได้ executor กี่ตัว ตัวละกี่ core
-- ทำไมถ้าไม่ตั้ง `spark.cores.max` แอปที่สองบน cluster เดียวกันอาจไม่ได้ executor
-- ทำไมแอป Python บน standalone ต้องใช้ client mode
+- แอปขอ 6 Core, spreadOutApps ปิด, ไม่ตั้ง `spark.executor.cores` จะได้ Executor กี่ตัว ตัวละกี่ Core
+- ทำไมถ้าไม่ตั้ง `spark.cores.max` แอปที่สองบน Cluster เดียวกันอาจไม่ได้ Executor
+- ทำไมแอป Python บน Standalone ต้องใช้ Client Mode
 
 </Step>

@@ -1,6 +1,6 @@
 ---
 title: DataFrame + Spark SQL
-summary: DataFrame คือตารางที่กระจายอยู่หลาย partition เขียนด้วย DataFrame API หรือ SQL ก็ได้ผลเหมือนกัน ส่วนที่ต้องระวังคือ NULL
+summary: DataFrame คือตารางที่กระจายอยู่ในหลาย Partition เราจะเขียนด้วย DataFrame API หรือ SQL ก็ได้ผลเหมือนกัน ส่วนที่ต้องระวังคือ NULL
 order: 3
 phase: A
 level: 2
@@ -18,9 +18,9 @@ import QueryLab from '../../../../components/labs/spark/QueryLab';
 
 ## DataFrame คือตารางที่มี Schema
 
-DataFrame เป็นแถวและคอลัมน์ ทุกคอลัมน์มีชื่อกับชนิดข้อมูล (schema) แต่ข้อมูลกระจายอยู่ในหลาย partition บนหลาย executor คุณเขียนเหมือนใช้ตารางเดียว Spark เป็นคนแบ่งงาน
+DataFrame ประกอบด้วยแถวและคอลัมน์ ซึ่งทุกคอลัมน์มีชื่อกับชนิดข้อมูล (Schema) แต่ตัวข้อมูลจะกระจายอยู่ในหลาย Partition บนหลาย Executor เราเขียนโค้ดเหมือนกำลังใช้ตารางเดียว แล้ว Spark จะเป็นคนแบ่งงานให้เอง
 
-คำสั่งพื้นฐานมี SQL เทียบเท่าทุกตัว
+คำสั่งพื้นฐานแต่ละตัวมี SQL ที่เทียบเท่ากัน ดังตารางนี้
 
 | DataFrame API | SQL |
 |---|---|
@@ -44,7 +44,7 @@ DataFrame เป็นแถวและคอลัมน์ ทุกคอล
 
 ## DataFrame API กับ SQL
 
-ทั้งสองแบบเข้า optimizer ตัวเดียวกัน (Catalyst [บทที่ 6](/spark/catalyst-aqe/#optimizer-เขียนแผนใหม่ทีละกฎ)) จึงเลือกแบบที่อ่านง่ายกว่าสำหรับงานนั้นได้ และผสมกันได้ด้วย
+ทั้งสองแบบเข้า Optimizer ตัวเดียวกัน (Catalyst [บทที่ 6](/spark/catalyst-aqe/#optimizer-เขียนแผนใหม่ทีละกฎ)) เราจึงเลือกแบบที่อ่านง่ายกว่าสำหรับงานนั้นได้ และจะผสมกันก็ได้
 
 ```python
 df.createOrReplaceTempView("t")
@@ -57,14 +57,14 @@ spark.sql("SELECT country, SUM(sales) FROM t GROUP BY country")
 
 ## NULL
 
-NULL เป็นต้นเหตุของผลลัพธ์ที่ผิดคาดบ่อยที่สุดในบทนี้ กฎมีสามข้อ
+NULL เป็นต้นเหตุของผลลัพธ์ที่ผิดคาดบ่อยที่สุดในบทนี้ โดยมีกฎอยู่สามข้อ
 
-- ฟังก์ชันรวมค่าอย่าง `sum` ข้าม NULL ไป
+- ฟังก์ชันรวมค่าอย่าง `sum` จะข้าม NULL ไป
 - `count(col)` นับเฉพาะแถวที่ `col` ไม่เป็น NULL ส่วน `count(*)` นับทุกแถว
-- เทียบ NULL กับค่าใดๆ ได้ NULL ไม่ใช่ true หรือ false ดังนั้น `filter` จะตัดแถวนั้นทิ้ง
+- เมื่อเทียบ NULL กับค่าใด ๆ จะได้ NULL ไม่ใช่ True หรือ False ดังนั้น `filter` จะตัดแถวนั้นทิ้ง
 
 <Callout type="warn" title="เช็ก NULL ด้วย isNull()">
-`F.col("sales") == None` ไม่ได้ผล เพราะเทียบแล้วได้ NULL เสมอ และ filter ตัดทุกแถวทิ้ง ใช้ `F.col("sales").isNull()` หรือ `isNotNull()` แทน
+`F.col("sales") == None` ใช้ไม่ได้ เพราะเทียบแล้วได้ NULL เสมอ และ Filter จะตัดทุกแถวทิ้ง ให้ใช้ `F.col("sales").isNull()` หรือ `isNotNull()` แทน
 </Callout>
 
 </Step>
@@ -102,7 +102,7 @@ df.groupBy("country").agg(
 +-------+-----+-------+------+
 ```
 
-กลุ่ม jp มีสองแถวแต่ `n_sales` เป็น 1 เพราะแถว osa เป็น NULL
+กลุ่ม jp มีสองแถวแต่ `n_sales` เป็น 1 เพราะแถว Osa มี `sales` เป็น NULL
 
 </Callout>
 

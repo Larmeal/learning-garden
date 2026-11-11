@@ -17,10 +17,10 @@ import Question from '../../../../components/Question';
 
 <Question
   client:visible
-  q="join ตาราง 2 ล้านแถวกับตาราง 100 แถวด้วยค่าเริ่มต้น แต่แผนเป็น SortMergeJoin ข้อไหนไม่ใช่สาเหตุที่เป็นไปได้"
-  options={['ตารางเล็กอยู่ฝั่งซ้ายของ left join ซึ่ง broadcast ไม่ได้', 'เป็น full outer join', 'ตารางเล็กมีแถวน้อยกว่าตารางใหญ่']}
+  q="Join ตาราง 2 ล้านแถวกับตาราง 100 แถวด้วยค่าเริ่มต้น แต่แผนเป็น SortMergeJoin ข้อไหนไม่ใช่สาเหตุที่เป็นไปได้"
+  options={['ตารางเล็กอยู่ฝั่งซ้ายของ Left Join ซึ่ง Broadcast ไม่ได้', 'เป็น Full Outer Join', 'ตารางเล็กมีแถวน้อยกว่าตารางใหญ่']}
   answer={2}
-  why="จำนวนแถวที่น้อยกว่าไม่ใช่เงื่อนไข สิ่งที่ Spark ดูคือขนาดที่ประเมินเทียบกับ threshold และ join type ว่าฝั่งนั้น build ได้ไหม left join ฝั่งซ้ายและ full outer broadcast ไม่ได้ ตรวจด้วย explain()"
+  why="จำนวนแถวที่น้อยกว่าไม่ใช่เงื่อนไข สิ่งที่ Spark ดูคือขนาดที่ประเมินเทียบกับ Threshold และดู Join Type ว่าฝั่งนั้น Build ได้ไหม ฝั่งซ้ายของ Left Join และ Full Outer Broadcast ไม่ได้ ให้ตรวจด้วย explain()"
 />
 
 </Step>
@@ -30,9 +30,9 @@ import Question from '../../../../components/Question';
 <Question
   client:visible
   q="เปิด AQE ตามค่าเริ่มต้น แล้วเรียก df.repartition(200) ผลของ rdd.getNumPartitions() ได้เท่าไร"
-  options={['1 เพราะ AQE รวม partition เล็กทุกชนิด', '200 เพราะ repartition(n) ที่ระบุตัวเลขเองไม่ถูก AQE รวม', 'ขึ้นกับจำนวน core ของเครื่อง']}
+  options={['1 เพราะ AQE รวม Partition เล็กทุกชนิด', '200 เพราะ repartition(n) ที่ระบุตัวเลขเองจะไม่ถูก AQE รวม', 'ขึ้นกับจำนวน Core ของคอมพิวเตอร์']}
   answer={1}
-  why="CoalesceShufflePartitions รวมเฉพาะ shuffle ที่ origin เป็น ENSURE_REQUIREMENTS, REPARTITION_BY_COL และ REBALANCE ส่วน repartition(n) เป็น REPARTITION_BY_NUM ถือว่าตั้งใจจึงไม่แตะ"
+  why="CoalesceShufflePartitions รวมเฉพาะ Shuffle ที่ Origin เป็น ENSURE_REQUIREMENTS, REPARTITION_BY_COL และ REBALANCE ส่วน repartition(n) เป็น REPARTITION_BY_NUM ซึ่งถือว่าเราตั้งใจ จึงไม่แตะ"
 />
 
 </Step>
@@ -41,10 +41,10 @@ import Question from '../../../../components/Question';
 
 <Question
   client:visible
-  q="join มี key เดียวที่มี 90% ของแถว บนข้อมูลรวม 50 MB ด้วยค่าเริ่มต้นของ AQE OptimizeSkewedJoin จะทำงานไหม"
-  options={['ทำงาน เพราะ key เดียวใหญ่กว่า median เกิน 5 เท่า', 'ไม่ทำงาน เพราะ partition ต้องใหญ่กว่า 256 MB ด้วย ข้อมูลรวม 50 MB ไม่มีทางถึง', 'ทำงานเฉพาะเมื่อปิด coalescePartitions']}
+  q="Join มี Key เดียวที่มี 90% ของแถว บนข้อมูลรวม 50 MB ด้วยค่าเริ่มต้นของ AQE OptimizeSkewedJoin จะทำงานไหม"
+  options={['ทำงาน เพราะ Key เดียวใหญ่กว่า Median เกิน 5 เท่า', 'ไม่ทำงาน เพราะ Partition ต้องใหญ่กว่า 256 MB ด้วย ข้อมูลรวม 50 MB ไม่มีทางถึง', 'ทำงานเฉพาะเมื่อปิด coalescePartitions']}
   answer={1}
-  why="เส้น skew คือ max(256 MB, median x 5) partition ต้องเกินทั้งสองข้อ บนข้อมูลเล็กจึงไม่ทำงานเอง ต้องลด skewedPartitionThresholdInBytes ถึงจะเห็น SortMergeJoin(skew=true)"
+  why="เส้น Skew คือ max(256 MB, Median x 5) และ Partition ต้องเกินทั้งสองข้อ บนข้อมูลเล็กจึงไม่ทำงานเอง ต้องลด skewedPartitionThresholdInBytes ถึงจะเห็น SortMergeJoin(skew=True)"
 />
 
 </Step>
@@ -53,10 +53,10 @@ import Question from '../../../../components/Question';
 
 <Question
   client:visible
-  q="เรียก df.cache() แล้วเรียก explain() เห็น InMemoryTableScan แล้ว ตอนนี้ข้อมูลถูกเก็บไว้ใน memory แล้วหรือยัง"
-  options={['เก็บแล้ว เพราะ plan เปลี่ยนเป็น InMemoryTableScan', 'ยังไม่เก็บ cache() แค่ลงทะเบียนแผน ข้อมูลถูกสร้างตอน action แรก', 'เก็บแล้วบน disk เท่านั้น']}
+  q="เรียก df.cache() แล้วเรียก explain() เห็น InMemoryTableScan แล้ว ตอนนี้ข้อมูลถูกเก็บไว้ใน Memory แล้วหรือยัง"
+  options={['เก็บแล้ว เพราะ Plan เปลี่ยนเป็น InMemoryTableScan', 'ยังไม่เก็บ cache() แค่ลงทะเบียนแผน ข้อมูลจะถูกสร้างตอน Action แรก', 'เก็บแล้วบน Disk เท่านั้น']}
   answer={1}
-  why="cache() เป็น lazy plan เปลี่ยนทันทีเพราะ cache ถูกค้นด้วยแผน แต่ Storage ยังว่างจนกว่าจะมี action แรกที่ทำให้ InMemoryRelation สร้าง buffer"
+  why="cache() เป็น Lazy Plan จึงเปลี่ยนทันทีเพราะ Cache ถูกค้นด้วยแผน แต่ Storage ยังว่างอยู่จนกว่าจะมี Action แรกที่ทำให้ InMemoryRelation สร้าง Buffer"
 />
 
 </Step>
@@ -66,9 +66,9 @@ import Question from '../../../../components/Question';
 <Question
   client:visible
   q="ต่างกันอย่างไรระหว่าง coalesce(1) กับ repartition(1) ที่ต่อท้ายการคำนวณที่หนัก"
-  options={['ไม่ต่าง ทั้งสองรวมเป็น 1 partition เหมือนกัน', 'coalesce(1) ไม่มี Exchange จึงทำให้การคำนวณก่อนหน้าไปรันใน task เดียว repartition(1) ใส่ Exchange หลังการคำนวณ', 'repartition(1) ไม่ shuffle แต่ coalesce(1) shuffle']}
+  options={['ไม่ต่าง ทั้งสองรวมเป็น 1 Partition เหมือนกัน', 'coalesce(1) ไม่มี Exchange จึงทำให้การคำนวณก่อนหน้าไปรันใน Task เดียว ส่วน repartition(1) ใส่ Exchange หลังการคำนวณ', 'repartition(1) ไม่ Shuffle แต่ coalesce(1) Shuffle']}
   answer={1}
-  why="จากแผน coalesce(1) ครอบ Project ที่คำนวณไว้ใน stage เดียวกัน ส่วน repartition(1) ใส่ Exchange SinglePartition หลังการคำนวณ จึงยังคำนวณขนานได้ (ข้อนี้อ่านจากแผน ไม่ได้วัดจำนวน task)"
+  why="จากแผน coalesce(1) ครอบ Project ที่คำนวณไว้ใน Stage เดียวกัน ส่วน repartition(1) ใส่ Exchange SinglePartition หลังการคำนวณ จึงยังคำนวณขนานได้ (ข้อนี้อ่านจากแผน ไม่ได้วัดจำนวน Task)"
 />
 
 </Step>
@@ -77,10 +77,10 @@ import Question from '../../../../components/Question';
 
 <Question
   client:visible
-  q="ใช้ salting แก้ skew ใน join ต้องทำอะไรกับตารางฝั่งเล็กเพื่อให้ผล join ถูกต้อง"
-  options={['ไม่ต้องทำอะไร เพราะ salt แค่ใช้กับฝั่งใหญ่', 'ทำสำเนาทุกแถวให้ครบทุกค่า salt แล้ว join ด้วย key กับ salt', 'ลบ key ที่ซ้ำออกก่อน']}
+  q="ใช้ Salting แก้ Skew ใน Join ต้องทำอะไรกับตารางฝั่งเล็กเพื่อให้ผล Join ถูกต้อง"
+  options={['ไม่ต้องทำอะไร เพราะ Salt ใช้กับฝั่งใหญ่ฝั่งเดียว', 'ทำสำเนาทุกแถวให้ครบทุกค่า Salt แล้ว Join ด้วย Key กับ Salt', 'ลบ Key ที่ซ้ำออกก่อน']}
   answer={1}
-  why="แถวฝั่งใหญ่ถูกสุ่ม salt แล้ว ฝั่งเล็กต้องมีทุก salt เพื่อจับคู่ได้ครบ ในแล็บ 1,003 แถว x 64 salt = 64,192 แถว และผล join ได้ 2,000,000 แถวเท่าเดิม ราคาที่จ่ายคือฝั่งเล็กใหญ่ขึ้นเท่าจำนวน salt"
+  why="แถวฝั่งใหญ่ถูกสุ่ม Salt แล้ว ฝั่งเล็กจึงต้องมีทุก Salt เพื่อจับคู่ได้ครบ ในแล็บ 1,003 แถว x 64 Salt = 64,192 แถว และผล Join ได้ 2,000,000 แถวเท่าเดิม ราคาที่จ่ายคือฝั่งเล็กใหญ่ขึ้นเท่าจำนวน Salt"
 />
 
 </Step>

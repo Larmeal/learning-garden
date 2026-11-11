@@ -1,6 +1,6 @@
 ---
 title: Architecture แบบเจาะลึก
-summary: session แบบ local[*] คืออะไรจริงๆ (process เดียว, executor ตัวเดียวคือ driver), PySpark เป็น client ของ JVM ผ่าน Py4J, memory ของ driver ถูกแบ่งอย่างไรจนได้ตัวเลข 455,501,414 และอะไรบ้างที่ถูกส่งกลับมาที่ driver
+summary: Session แบบ local[*] คืออะไรจริง ๆ (Process เดียว, Executor ตัวเดียวคือ Driver), PySpark เป็น Client ของ JVM ผ่าน Py4J, Memory ของ Driver ถูกแบ่งอย่างไรจนได้ตัวเลข 455,501,414 และอะไรบ้างที่ถูกส่งกลับมาที่ Driver
 order: 10
 stage: sprout
 format: steps
@@ -12,20 +12,20 @@ import Callout from '../../../../components/Callout.astro';
 import Py4jLab from '../../../../components/labs/spark/Py4jLab';
 import DriverMemoryLab from '../../../../components/labs/spark/DriverMemoryLab';
 
-ทุกข้อมาจาก `exercises/01_architecture.py` (Spark 4.2.0, PySpark ใน WSL, 16 core, Java 21)
+ทุกข้อในหน้านี้มาจาก `exercises/01_architecture.py` (Spark 4.2.0, PySpark ใน WSL, 16 Core, Java 21)
 
 <Step>
 
 ## local[*] คืออะไรกันแน่
 
-`get_spark()` ในโปรเจกต์นี้สร้าง session แบบ `local[*]` สิ่งที่ตรวจได้
+`get_spark()` ในโปรเจกต์นี้สร้าง Session แบบ `local[*]` และเราตรวจเจอว่า
 
-- `sc.master` คือ `local[*]` และ `defaultParallelism` เท่ากับจำนวน core ของเครื่อง (16)
-- ถาม executor ผ่าน REST API ของ UI ได้รายการเดียวคือ `driver` ที่มี `totalCores` = 16 **ใน local mode driver คือ executor เพียงตัวเดียว** task ทุกตัวรันเป็น thread ใน JVM เดียวกัน
-- `spark.range(1_000_000)` แตกเป็น 16 partition ตามจำนวน core
-- เรียก `SparkSession.builder.getOrCreate()` อีกครั้งได้ **object เดิม** (`is spark` เป็น True) ไม่ได้สร้างใหม่ จึงปลอดภัยที่จะเรียกซ้ำในหลายไฟล์
+- `sc.master` คือ `local[*]` และ `defaultParallelism` เท่ากับจำนวน Core ของคอมพิวเตอร์ (16)
+- ถ้าถาม Executor ผ่าน REST API ของ UI จะได้รายการเดียวคือ `driver` ที่มี `totalCores` = 16 นั่นคือ **ใน local mode driver เป็น Executor เพียงตัวเดียว** และ Task ทุกตัวรันเป็น Thread ใน JVM เดียวกัน
+- `spark.range(1_000_000)` แตกเป็น 16 Partition ตามจำนวน Core
+- ถ้าเรียก `SparkSession.builder.getOrCreate()` อีกครั้ง เราจะได้ **Object เดิม** (`is spark` เป็น True) ไม่ได้สร้างใหม่ จึงปลอดภัยที่จะเรียกซ้ำในหลายไฟล์
 
-ผลคือบนเครื่องเดียวคุณเห็นการรันแบบขนานจริง (task ขนานกันหลาย thread) แต่ไม่มีเครือข่ายคั่นกลาง ต้นทุนของ shuffle ใน cluster จริงสูงกว่าที่เห็นที่นี่ (ดู[บทที่ 11](/spark/deployment-spark-ui/#cluster-manager-และ-deploy-mode) สำหรับ cluster ที่เปิดเองได้)
+ผลก็คือบนคอมพิวเตอร์เครื่องเดียว คุณจะเห็นการรันแบบขนานจริง (Task ขนานกันหลาย Thread) แต่ไม่มีเครือข่ายคั่นกลาง ต้นทุนของ Shuffle ใน Cluster จริงจึงสูงกว่าที่เห็นที่นี่ (ดู[บทที่ 11](/spark/deployment-spark-ui/#cluster-manager-และ-deploy-mode) สำหรับ Cluster ที่เปิดเองได้)
 
 </Step>
 
@@ -33,17 +33,17 @@ import DriverMemoryLab from '../../../../components/labs/spark/DriverMemoryLab';
 
 ## PySpark คือ Client ของ JVM
 
-Spark เขียนด้วย Scala/Java โปรแกรม Python ของคุณไม่ได้รัน Spark เอง แต่คุยกับ JVM ผ่าน **Py4J** (gateway ที่ให้ Python เรียก method ของ object ใน JVM)
+Spark เขียนด้วย Scala/Java ดังนั้นโปรแกรม Python ของคุณจึงไม่ได้รัน Spark เอง แต่คุยกับ JVM ผ่าน **Py4J** (Gateway ที่ให้ Python เรียก Method ของ Object ใน JVM)
 
-- `type(spark).__module__` คือ `pyspark.sql.session` และ `sc._jvm` เป็นทางเข้าสู่ JVM จากตรงนี้เรียกคลาสของ Spark ได้ตรงๆ เช่น `sc._jvm.org.apache.spark.sql.SparkSession.active().version()` ได้ `4.2.0` และ `sc._jvm.java.lang.System.getProperty("java.version")` ได้ `21.0.13` (Spark 4 ต้องใช้ Java 17 ขึ้นไป)
-- DataFrame ใน Python เก็บ **handle** ของ Dataset ที่อยู่ใน JVM (`df._jdf` ซึ่งเป็น `JavaObject`) ทุก transformation ที่คุณเรียกคือการเรียก method ฝั่ง JVM ผ่าน gateway และได้ handle ใหม่กลับมา ข้อมูลไม่เคยอยู่ใน Python ยกเว้นเมื่อสั่งดึง (หัวข้อสุดท้าย)
-- เพราะการเรียกแต่ละครั้งเป็นแค่ข้อความเล็กๆ ผ่าน socket โค้ด DataFrame ใน Python จึงไม่ช้ากว่า Scala ในส่วนที่เป็นแผน ส่วนที่ช้ากว่าคือเมื่อข้อมูลต้องข้ามไป Python จริง เช่น Python UDF ([บทที่ 8](/spark/udf/#ข้อมูลเดินทางอย่างไร))
+- `type(spark).__module__` คือ `pyspark.sql.session` และ `sc._jvm` เป็นทางเข้าสู่ JVM จากตรงนี้เราเรียกคลาสของ Spark ได้ตรง ๆ เช่น `sc._jvm.org.apache.spark.sql.SparkSession.active().version()` ได้ `4.2.0` และ `sc._jvm.java.lang.System.getProperty("java.version")` ได้ `21.0.13` (Spark 4 ต้องใช้ Java 17 ขึ้นไป)
+- DataFrame ใน Python เก็บ **Handle** ของ Dataset ที่อยู่ใน JVM (`df._jdf` ซึ่งเป็น `JavaObject`) ทุก Transformation ที่คุณเรียกจึงเป็นการเรียก Method ฝั่ง JVM ผ่าน Gateway แล้วได้ Handle ใหม่กลับมา ข้อมูลไม่เคยอยู่ใน Python เลย ยกเว้นตอนที่สั่งดึง (หัวข้อสุดท้าย)
+- การเรียกแต่ละครั้งเป็นแค่ข้อความเล็ก ๆ ผ่าน Socket โค้ด DataFrame ใน Python จึงไม่ช้ากว่า Scala ในส่วนที่เป็นแผน ส่วนที่ช้ากว่าคือตอนที่ข้อมูลต้องข้ามไป Python จริง ๆ เช่น Python UDF ([บทที่ 8](/spark/udf/#ข้อมูลเดินทางอย่างไร))
 
-เลือก action แล้วกดเล่น ดูว่าอะไรข้าม gateway กลับมา และอะไรไม่ข้ามเลย
+ลองเลือก Action แล้วกดเล่น เราจะเห็นว่าอะไรข้าม Gateway กลับมา และอะไรไม่ข้ามเลย
 
 <Py4jLab client:visible />
 
-นี่ยังเป็นเหตุผลที่ Spark Connect ([บทที่ 11](/spark/deployment-spark-ui/#spark-connect-client-กับ-server-แยกกัน)) แยกฝั่ง client ออกมาได้: เปลี่ยนจาก Py4J เป็น gRPC แต่ client ยังส่งแค่ "แผน" ไปให้ฝั่งที่มี JVM
+เรื่องนี้ก็เป็นเหตุผลที่ Spark Connect ([บทที่ 11](/spark/deployment-spark-ui/#spark-connect-client-กับ-server-แยกกัน)) แยกฝั่ง Client ออกมาได้ คือเปลี่ยนจาก Py4J เป็น gRPC แต่ Client ก็ยังส่งแค่ "แผน" ไปให้ฝั่งที่มี JVM
 
 </Step>
 
@@ -51,17 +51,17 @@ Spark เขียนด้วย Scala/Java โปรแกรม Python ขอ
 
 ## Memory ของ Driver
 
-driver ของ local session ได้ heap 1 GiB ตามค่าเริ่มต้น (`spark.driver.memory`) ตัวเลขที่ UI รายงานคือ **455,501,414 ไบต์** ซึ่งคือสิ่งที่ Spark นำไปจัดการเอง ตรงกับสูตรเป๊ะ (ตรวจแล้ว)
+Driver ของ Local Session ได้ Heap 1 GiB ตามค่าเริ่มต้น (`spark.driver.memory`) ตัวเลขที่ UI รายงานคือ **455,501,414 ไบต์** ซึ่งเป็นส่วนที่ Spark นำไปจัดการเอง และตรงกับสูตรเป๊ะ (ตรวจแล้ว)
 
 ```
 (heap 1,073,741,824 - reserved 314,572,800) x 0.6 = 455,501,414
 ```
 
-ลองเปลี่ยนขนาด heap ดูว่าส่วนที่ Spark จัดการได้จริงเป็นสัดส่วนเท่าไร
+ลองเปลี่ยนขนาด Heap ดูว่าส่วนที่ Spark จัดการได้จริงเป็นสัดส่วนเท่าไร
 
 <DriverMemoryLab client:visible />
 
-ส่วนที่เหลือเป็น reserved (300 MiB ที่ Spark กันไว้) และ user memory (ที่เหลือของ heap) [บทที่ 13](/spark/internals/#unified-memory-storage-กับ-execution-แบ่งกัน) อธิบายสูตรนี้ละเอียดและแสดงว่า storage กับ execution แบ่งกันอย่างไร ข้อสรุปที่ใช้ได้ตอนนี้คือ heap 1 GiB ไม่ได้แปลว่าข้อมูลของคุณใช้ได้ 1 GiB: Spark เอาไปจัดการจริงราวสองในห้า ที่เหลือของ driver ใช้กับ object อื่น
+ส่วนที่เหลือคือ Reserved (300 MiB ที่ Spark กันไว้) และ User Memory (ที่เหลือของ Heap) [บทที่ 13](/spark/internals/#unified-memory-storage-กับ-execution-แบ่งกัน) อธิบายสูตรนี้ไว้ละเอียดกว่านี้ และแสดงว่า Storage กับ Execution แบ่งกันอย่างไร ตอนนี้เราเอาไปใช้ได้ว่า Heap 1 GiB ไม่ได้แปลว่าข้อมูลของคุณจะใช้ได้ 1 GiB เพราะ Spark เอาไปจัดการจริงราวสองในห้า ส่วนที่เหลือของ Driver ใช้กับ Object อื่น
 
 </Step>
 
@@ -69,17 +69,17 @@ driver ของ local session ได้ heap 1 GiB ตามค่าเริ�
 
 ## อะไรกลับมาที่ Driver
 
-ข้อมูลอยู่ที่ executor ส่วนที่ถูกส่งกลับมา **เฉพาะเมื่อคุณสั่ง** (ตรวจแล้ว)
+ข้อมูลอยู่ที่ Executor และจะถูกส่งกลับมา **เฉพาะตอนที่คุณสั่ง** เท่านั้น (ตรวจแล้ว)
 
-- `collect()` คืน `Row` ทั้งหมดเป็น list ใน memory ของ driver (`[(0, 0), (1, 1), (2, 4), ...]`)
-- `show()` พิมพ์ (ค่าเริ่มต้น 20 แถว) และคืน `None`
-- `toPandas()` ก๊อปผลทั้งหมดเข้า memory ของ driver เป็น pandas DataFrame (บน `limit(2)` ได้รูปร่าง `(2, 1)`)
-- `write` ไม่ผ่าน driver: executor เขียนไฟล์เอง
+- `collect()` คืน `Row` ทั้งหมดเป็น List ใน Memory ของ Driver (`[(0, 0), (1, 1), (2, 4), ...]`)
+- `show()` พิมพ์ผล (ค่าเริ่มต้น 20 แถว) และคืน `None`
+- `toPandas()` ก๊อปผลทั้งหมดเข้า Memory ของ Driver เป็น Pandas DataFrame (บน `limit(2)` ได้รูปร่าง `(2, 1)`)
+- `write` ไม่ผ่าน Driver เพราะ Executor เขียนไฟล์เอง
 
-ผลทั้งหมดของ `collect()` และ `toPandas()` ต้องพอดี memory ของ driver (และไม่เกิน `spark.driver.maxResultSize` ที่ตั้งไว้ 1g ตาม[บทที่ 7](/spark/performance-tuning/#ข้อห้ามที่มีหลักฐาน) ซึ่งตรวจแล้วว่าตั้ง 1m แล้ว `collect()` 2 ล้านแถวล้ม) จึงควรกรองหรือรวมข้อมูลให้เล็กลงก่อนดึงมา
+ผลทั้งหมดของ `collect()` และ `toPandas()` ต้องพอดีกับ Memory ของ Driver (และต้องไม่เกิน `spark.driver.maxResultSize` ที่ตั้งไว้ 1g ตาม[บทที่ 7](/spark/performance-tuning/#ข้อห้ามที่มีหลักฐาน) ซึ่งตรวจแล้วว่าตั้ง 1m แล้ว `collect()` 2 ล้านแถวล้ม) เราจึงควรกรองหรือรวมข้อมูลให้เล็กลงก่อนดึงมา
 
 <Callout type="tip" title="ทุกอย่างที่ตามมาใช้ภาพนี้">
-driver วางแผนและแจกงาน executor ทำงานและถือข้อมูล cluster manager จัดสรรเครื่อง ภาพนี้ใช้ต่อใน scheduler ([บทที่ 13](/spark/internals/)), การ deploy ([บทที่ 11](/spark/deployment-spark-ui/#cluster-manager-และ-deploy-mode)) และการตามหา memory ที่หายไป ([บทที่ 7](/spark/performance-tuning/#spill-เมื่อ-memory-ไม่พอ))
+Driver วางแผนและแจกงาน Executor ทำงานและถือข้อมูล Cluster Manager จัดสรรคอมพิวเตอร์ให้ ภาพนี้จะถูกใช้ต่อใน Scheduler ([บทที่ 13](/spark/internals/)), การ Deploy ([บทที่ 11](/spark/deployment-spark-ui/#cluster-manager-และ-deploy-mode)) และการตามหา Memory ที่หายไป ([บทที่ 7](/spark/performance-tuning/#spill-เมื่อ-memory-ไม่พอ))
 </Callout>
 
 </Step>

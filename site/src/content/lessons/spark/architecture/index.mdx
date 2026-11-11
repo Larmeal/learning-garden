@@ -1,6 +1,6 @@
 ---
 title: Architecture
-summary: Driver วางแผนและแจกงาน executor ลงมือทำ cluster manager จัดสรรเครื่อง ดูตามลำดับเวลาว่าใครเข้ามาตอนไหน cluster manager มีสามแบบ (Standalone, YARN, Kubernetes) แยกเป็นหน้าย่อย และ SparkSession คือประตูเข้าใช้งาน
+summary: Driver วางแผนและแจกงาน Executor ลงมือทำ Cluster Manager จัดสรรคอมพิวเตอร์ให้ เราจะดูตามลำดับเวลาว่าใครเข้ามาตอนไหน Cluster Manager มีสามแบบ (Standalone, YARN, Kubernetes) ซึ่งแยกเป็นหน้าย่อย และ SparkSession คือประตูเข้าใช้งาน
 order: 1
 phase: A
 level: 2
@@ -18,19 +18,19 @@ import RolesFlowLab from '../../../../components/labs/spark/RolesFlowLab';
 
 ## ใครทำอะไร
 
-แอปพลิเคชัน Spark มีสามบทบาท driver ที่ถือโปรแกรมของคุณและวางแผน executor ที่ลงมือคำนวณ และ cluster manager ที่จัดสรรเครื่องให้ ดูว่าแต่ละบทบาทเข้ามาเมื่อไรและทำอะไร ตามลำดับเวลาของแอปหนึ่งตัว (เลือกได้ว่าจบด้วย `collect()` หรือ `write`)
+แอปพลิเคชัน Spark มีสามบทบาท ได้แก่ Driver ที่ถือโปรแกรมของคุณและคอยวางแผน, Executor ที่ลงมือคำนวณ และ Cluster Manager ที่จัดสรรคอมพิวเตอร์ให้ ลองดูในแล็บด้านล่างว่าแต่ละบทบาทเข้ามาตอนไหนและทำอะไรบ้าง ตามลำดับเวลาของแอปหนึ่งตัว (เลือกได้ว่าจะให้จบด้วย `collect()` หรือ `write`)
 
 <RolesFlowLab client:visible />
 
-สรุปจากภาพ
+จากภาพ เราสรุปหน้าที่ของแต่ละบทบาทได้ตามตารางนี้
 
 | บทบาท | ทำอะไร | ไม่ทำอะไร |
 |---|---|---|
-| Driver | ถือโค้ดของคุณ สร้างแผน ขอ executor แบ่งงานเป็น task ส่ง task และรวมสถานะ | ไม่คำนวณข้อมูล (ยกเว้นเมื่อคุณสั่งดึงผลมา) |
-| Cluster manager | รู้ว่าเครื่องไหนว่างเท่าไร และเปิด executor ให้ตามที่ driver ขอ | ไม่ถือข้อมูล ไม่แจก task ไม่อยู่ระหว่าง driver กับ executor หลังเปิด executor แล้ว |
-| Executor | รับ task อ่าน partition จาก storage คำนวณ เก็บ cache และเขียนผล | ไม่ตัดสินว่าจะทำงานอะไร |
+| Driver | ถือโค้ดของคุณ สร้างแผน ขอ Executor แบ่งงานเป็น Task ส่ง Task ออกไป และรวมสถานะกลับมา | ไม่คำนวณข้อมูลเอง (ยกเว้นตอนที่คุณสั่งดึงผลมา) |
+| Cluster Manager | รู้ว่าคอมพิวเตอร์เครื่องไหนว่างเท่าไร และเปิด Executor ให้ตามที่ Driver ขอ | ไม่ถือข้อมูล ไม่แจก Task และเมื่อเปิด Executor แล้วก็ไม่อยู่ระหว่าง Driver กับ Executor อีก |
+| Executor | รับ Task มา อ่าน Partition จาก Storage คำนวณ เก็บ Cache และเขียนผลลัพธ์ | ไม่ได้เป็นคนตัดสินว่าจะทำงานอะไร |
 
-โค้ด PySpark ของคุณรันใน Python process แล้วคุยกับ JVM ของ Spark ผ่าน Py4J การคำนวณหนักเกิดใน JVM ฝั่ง executor ยกเว้น Python UDF ที่ต้องเรียก Python process เพิ่ม ([บทที่ 8](/spark/udf/#ข้อมูลเดินทางอย่างไร))
+โค้ด PySpark ของคุณจะรันอยู่ใน Python Process แล้วคุยกับ JVM ของ Spark ผ่าน Py4J ส่วนการคำนวณหนัก ๆ จะเกิดใน JVM ฝั่ง Executor ยกเว้น Python UDF ที่ต้องเรียก Python Process เพิ่มอีกชั้น ([บทที่ 8](/spark/udf/#ข้อมูลเดินทางอย่างไร))
 
 </Step>
 
@@ -38,7 +38,7 @@ import RolesFlowLab from '../../../../components/labs/spark/RolesFlowLab';
 
 ## เครื่องคุณรันแบบไหน
 
-`get_spark()` ใน `spark_session.py` สร้าง session แบบ `local[*]` driver และ executor อยู่ใน process เดียว และ executor คือ thread จำนวนเท่า core ของเครื่อง
+`get_spark()` ใน `spark_session.py` จะสร้าง Session แบบ `local[*]` ซึ่ง Driver และ Executor อยู่ใน Process เดียวกัน และ Executor ก็คือ Thread ที่มีจำนวนเท่ากับ Core ของคอมพิวเตอร์เรา
 
 <Callout type="try" title="ลองดูในเครื่อง">
 
@@ -50,20 +50,19 @@ sc = spark.sparkContext
 print(sc.master, sc.defaultParallelism, spark.version)
 ```
 
-บนเครื่องที่ใช้ทดสอบบทนี้ ได้ `local[*] 16 4.2.0` เลข 16 คือจำนวน core ของเครื่องนั้น เครื่องคุณอาจได้เลขอื่น
-
+บนคอมพิวเตอร์ที่ใช้ทดสอบบทนี้ ได้ `local[*] 16 4.2.0` เลข 16 คือจำนวน Core ของคอมพิวเตอร์เครื่องนั้น ส่วนของคุณอาจได้เลขอื่นก็ได้นะ
 </Callout>
 
-เพราะเหตุนี้ การเรียนแนวคิดแบบกระจายบนเครื่องเดียวจึงทำได้ task หลายตัวรันพร้อมกันจริง แต่ไม่มีเครือข่ายคั่นกลาง ใน cluster จริง ต้นทุนการส่งข้อมูลข้ามเครื่องจะสูงกว่าที่เห็นที่นี่ ตารางนี้เทียบสองแบบ บทบาทยังเป็นสามอย่างเดิม ที่ต่างคือแต่ละบทบาทอยู่ที่ไหน
+เพราะอย่างนี้ เราจึงเรียนแนวคิดแบบกระจายบนคอมพิวเตอร์เครื่องเดียวได้ Task หลายตัวรันพร้อมกันจริง ๆ เพียงแต่ไม่มีเครือข่ายคั่นกลาง ใน Cluster จริง ต้นทุนของการส่งข้อมูลข้ามคอมพิวเตอร์จะสูงกว่าที่เห็นที่นี่ ตารางด้านล่างเทียบทั้งสองแบบ บทบาทยังเป็นสามอย่างเดิม สิ่งที่ต่างกันคือแต่ละบทบาทไปอยู่ที่ไหน
 
-| | `local[*]` (เครื่องคุณ) | cluster (หลายเครื่อง) |
+| | `local[*]` (คอมพิวเตอร์ของคุณ) | Cluster (คอมพิวเตอร์หลายเครื่อง) |
 |---|---|---|
-| Driver | อยู่ใน process เดียวกับ executor | เป็น process ของตัวเอง ตัวเดียวต่อแอปพลิเคชัน |
-| Executor | thread ใน process ของ driver จำนวนเท่า core ของเครื่อง | process (JVM) แยกกัน หลายตัว กระจายหลายเครื่อง |
-| Cluster manager | ไม่ต้องมี | ต้องมี: standalone, YARN หรือ Kubernetes (แยกเป็นหน้าย่อยด้านล่าง) |
-| Task ที่รันพร้อมกัน | ได้ ตามจำนวน core ของเครื่อง | ได้ ตามจำนวน core รวมของ executor ทั้งหมด |
-| ข้อมูลที่ shuffle | ย้ายกันใน memory ของ process เดียว ไม่ผ่านเครือข่าย | ส่งข้ามเครื่องผ่านเครือข่าย จึงแพงกว่า |
-| ข้อมูลต้นทาง | ไฟล์ใน disk ของเครื่อง | storage ที่ทุกเครื่องเข้าถึงได้ เช่น HDFS หรือ S3 |
+| Driver | อยู่ใน Process เดียวกับ Executor | เป็น Process ของตัวเอง และมีตัวเดียวต่อแอปพลิเคชัน |
+| Executor | เป็น Thread ใน Process ของ Driver มีจำนวนเท่า Core ของคอมพิวเตอร์ | เป็น Process (JVM) แยกกัน มีหลายตัวและกระจายอยู่บนคอมพิวเตอร์หลายเครื่อง |
+| Cluster Manager | ไม่ต้องมี | ต้องมี ได้แก่ Standalone, YARN หรือ Kubernetes (แยกเป็นหน้าย่อยด้านล่าง) |
+| Task ที่รันพร้อมกัน | ได้ ตามจำนวน Core ของคอมพิวเตอร์ | ได้ ตามจำนวน Core รวมของ Executor ทั้งหมด |
+| ข้อมูลที่ Shuffle | ย้ายกันใน Memory ของ Process เดียว ไม่ผ่านเครือข่าย | ส่งข้ามคอมพิวเตอร์ผ่านเครือข่าย จึงแพงกว่า |
+| ข้อมูลต้นทาง | ไฟล์ใน Disk ของคอมพิวเตอร์เครื่องนั้น | Storage ที่คอมพิวเตอร์ทุกเครื่องเข้าถึงได้ เช่น HDFS หรือ S3 |
 
 </Step>
 
@@ -71,16 +70,16 @@ print(sc.master, sc.defaultParallelism, spark.version)
 
 ## Cluster Manager มีกี่แบบ
 
-เมื่อรันบน cluster จริง driver ต้องรู้ว่าจะไปขอ executor จากใคร บอกผ่าน `--master` ลำดับ "driver ขอ แล้ว executor ติดต่อกลับ" เหมือนกันหมด สิ่งที่ต่างคือใครคือผู้จัดสรร และใครเป็นคนสั่งเปิด executor
+เมื่อรันบน Cluster จริง Driver ต้องรู้ว่าจะไปขอ Executor จากใคร ซึ่งเราบอกผ่าน `--master` ลำดับ "Driver ขอ แล้ว Executor ติดต่อกลับ" เหมือนกันหมดทุกแบบ สิ่งที่ต่างกันคือใครเป็นผู้จัดสรร และใครเป็นคนสั่งเปิด Executor
 
 | `--master` | ผู้จัดสรร | หน่วยที่รัน | อ่านต่อ |
 |---|---|---|---|
-| `local[N]` | ไม่มี (process เดียว) | thread | หัวข้อก่อนหน้า |
-| `spark://host:7077` | Master ของ Spark เอง | process ที่ Worker เปิด | [Standalone](/spark/architecture/standalone/) (รันจริงแล้ว) |
-| `yarn` | ResourceManager ของ Hadoop (มี ApplicationMaster คั่น) | container | [YARN](/spark/architecture/yarn/) (อ่านจากซอร์ส) |
-| `k8s://https://...` | kube-scheduler (driver ขอ pod เองผ่าน API server) | pod | [Kubernetes](/spark/architecture/kubernetes/) (อ่านจากซอร์ส) |
+| `local[N]` | ไม่มี (Process เดียว) | Thread | หัวข้อก่อนหน้า |
+| `spark://host:7077` | Master ของ Spark เอง | Process ที่ Worker เปิด | [Standalone](/spark/architecture/standalone/) (รันจริงแล้ว) |
+| `yarn` | ResourceManager ของ Hadoop (มี ApplicationMaster คั่นอยู่) | Container | [YARN](/spark/architecture/yarn/) (อ่านจากซอร์ส) |
+| `k8s://https://...` | Kube-scheduler (Driver ขอ Pod เองผ่าน API Server) | Pod | [Kubernetes](/spark/architecture/kubernetes/) (อ่านจากซอร์ส) |
 
-แต่ละหน้ามีแอนิเมชันของลำดับตั้งแต่ส่งงานจนได้ task และแล็บเฉพาะของ cluster manager นั้น เรื่อง deploy mode, Spark UI และ dynamic allocation อยู่ใน[บทที่ 11](/spark/deployment-spark-ui/)
+แต่ละหน้ามีแอนิเมชันของลำดับตั้งแต่ส่งงานจนได้ Task และมีแล็บเฉพาะของ Cluster Manager นั้น ส่วนเรื่อง Deploy Mode, Spark UI และ Dynamic Allocation อยู่ใน[บทที่ 11](/spark/deployment-spark-ui/)
 
 </Step>
 
@@ -88,7 +87,7 @@ print(sc.master, sc.defaultParallelism, spark.version)
 
 ## SparkSession
 
-`SparkSession` เป็นจุดเข้าใช้งานเดียวสำหรับอ่านข้อมูล สร้าง DataFrame และรัน SQL สร้างด้วย `SparkSession.builder...getOrCreate()` ถ้ามี session อยู่แล้วจะได้ตัวเดิมกลับมา ใน notebook หรือ Databricks มักมีตัวแปร `spark` ให้ใช้เลย
+`SparkSession` เป็นจุดเข้าใช้งานเดียวสำหรับอ่านข้อมูล สร้าง DataFrame และรัน SQL เราสร้างมันด้วย `SparkSession.builder...getOrCreate()` ถ้ามี Session อยู่แล้วก็จะได้ตัวเดิมกลับมา ส่วนใน Notebook หรือ Databricks มักจะมีตัวแปร `spark` ให้ใช้เลย
 
 </Step>
 
@@ -96,14 +95,14 @@ print(sc.master, sc.defaultParallelism, spark.version)
 
 ## ข้อมูลมาถึง Driver เมื่อไร
 
-โดยปกติข้อมูลอยู่ที่ executor และไม่ผ่าน driver คำสั่งที่ดึงข้อมูลมาที่ driver มีไม่กี่ตัว
+โดยปกติข้อมูลจะอยู่ที่ Executor และไม่ผ่าน Driver มีคำสั่งไม่กี่ตัวที่ดึงข้อมูลมาที่ Driver
 
 - `show()` ดึง 20 แถวแรกมาพิมพ์
-- `collect()` และ `toPandas()` ดึงผลทั้งหมด
-- `write` ให้ executor เขียนไฟล์เอง ไม่ผ่าน driver
+- `collect()` และ `toPandas()` ดึงผลทั้งหมดมา
+- `write` ให้ Executor เขียนไฟล์เอง โดยไม่ผ่าน Driver
 
 <Callout type="warn" title="ระวัง collect() กับข้อมูลใหญ่">
-ผลของ `collect()` และ `toPandas()` ต้องไปอยู่ในหน่วยความจำของ driver ตัวเดียว ถ้าผลใหญ่กว่าหน่วยความจำที่ driver มี โปรแกรมจะล้ม ให้กรองหรือรวมข้อมูลให้เล็กลงก่อนเรียกสองคำสั่งนี้
+ผลของ `collect()` และ `toPandas()` ต้องไปอยู่ในหน่วยความจำของ Driver ตัวเดียว ถ้าผลใหญ่กว่าหน่วยความจำที่ Driver มี โปรแกรมจะล้ม เพราะฉะนั้นให้กรองหรือรวมข้อมูลให้เล็กลงก่อนเรียกสองคำสั่งนี้
 </Callout>
 
 </Step>

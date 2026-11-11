@@ -1,6 +1,6 @@
 ---
 title: Internals (RDD, scheduler, codegen)
-summary: เปิดฝาดูสิ่งที่ Spark ทำจริงหลังบรรทัดที่คุณเขียน RDD และ lineage, DAGScheduler ตัด job เป็น stage, ไฟล์ shuffle บน disk, unified memory ที่ storage กับ execution แบ่งกัน และ Java ที่ whole-stage codegen สร้าง ทุกตัวเลขวัดจากการรันจริง
+summary: เปิดฝาดูสิ่งที่ Spark ทำจริงหลังบรรทัดที่เราเขียน ไม่ว่าจะเป็น RDD และ Lineage, DAGScheduler ที่ตัด Job เป็น Stage, ไฟล์ Shuffle บน Disk, Unified Memory ที่ Storage กับ Execution แบ่งกันใช้ และ Java ที่ Whole-stage Codegen สร้างขึ้น ทุกตัวเลขวัดจากการรันจริง
 order: 13
 phase: E
 level: 5
@@ -19,14 +19,9 @@ import MemoryLab from '../../../../components/labs/spark/MemoryLab';
 
 ## บทนี้สำหรับใคร
 
-[บทที่ 1](/spark/architecture/) ถึง [12](/spark/mllib/) เพียงพอสำหรับการใช้ Spark ให้ดี บทนี้เป็นของคนที่อยากรู้ว่าใต้ผิวเกิดอะไรขึ้น เช่นเมื่อต้องอ่าน log ของ scheduler หรือแก้ปัญหา memory ที่ไม่ตรงตำรา ทุกหัวข้อมี source ของ Spark 4.2.0 รองรับ (ผ่าน knowledge graph ที่เรียกใช้ใน `subjects/spark/graphs/`) และตัวเลขทุกตัวมาจาก `exercises/13_internals.py`
+[บทที่ 1](/spark/architecture/) ถึง [12](/spark/mllib/) เพียงพอแล้วสำหรับการใช้ Spark ให้ดี ส่วนบทนี้เหมาะกับคนที่อยากรู้ว่าใต้ผิวเกิดอะไรขึ้น เช่นเมื่อต้องอ่าน Log ของ Scheduler หรือแก้ปัญหา Memory ที่ไม่ตรงตามตำรา ทุกหัวข้อมี Source ของ Spark 4.2.0 รองรับ (ผ่าน Knowledge Graph ที่เรียกใช้ใน `subjects/spark/graphs/`) และตัวเลขทุกตัวมาจาก `exercises/13_internals.py`
 
-เส้นทางของงานหนึ่งชิ้นจากข้างในมองเป็นสี่ชั้น
-
-1. **RDD**: โครงข้อมูลที่ทุกอย่างสร้างอยู่บน
-2. **DAGScheduler**: ตัดงานเป็น stage
-3. **TaskScheduler และ Executor**: เอา task ไปรัน
-4. **Memory และ codegen**: สิ่งที่ task ใช้ตอนรัน
+ถ้ามองจากข้างใน เส้นทางของงานหนึ่งชิ้นแบ่งได้เป็นสี่ชั้น ชั้นแรกคือ RDD ซึ่งเป็นโครงข้อมูลที่ทุกอย่างสร้างอยู่บนนั้น ชั้นที่สองคือ DAGScheduler ที่ตัดงานเป็น Stage ชั้นที่สามคือ TaskScheduler และ Executor ที่เอา Task ไปรัน และชั้นสุดท้ายคือ Memory และ Codegen ซึ่งเป็นสิ่งที่ Task ใช้ตอนรัน
 
 </Step>
 
@@ -34,24 +29,24 @@ import MemoryLab from '../../../../components/labs/spark/MemoryLab';
 
 ## RDD และ Lineage
 
-DataFrame ที่คุณเขียน ถูกแปลงเป็นแผนของ operator ([บทที่ 6](/spark/catalyst-aqe/#query-ผ่านห้าขั้น)) แล้วสุดท้ายรันเป็น **RDD** เสมอ RDD (`RDD.scala`) คือคอลเลกชัน immutable ที่แบ่งเป็น partition และนิยามด้วยห้าอย่าง
+DataFrame ที่เราเขียนจะถูกแปลงเป็นแผนของ Operator ([บทที่ 6](/spark/catalyst-aqe/#query-ผ่านห้าขั้น)) แล้วสุดท้ายก็รันเป็น **RDD** เสมอ RDD (`RDD.scala`) คือคอลเลกชัน Immutable ที่แบ่งเป็น Partition และนิยามด้วยห้าอย่าง
 
 | อย่าง | ความหมาย |
 |---|---|
-| partitions | รายการ partition |
-| `compute` | ฟังก์ชันคำนวณ partition หนึ่งก้อน |
-| dependencies | RDD พ่อที่มันอ่าน |
-| partitioner (ไม่บังคับ) | วิธีแบ่ง key ไป partition |
-| preferred locations (ไม่บังคับ) | เครื่องที่ข้อมูลอยู่ ใช้เลือกว่าจะรัน task ที่ไหน |
+| Partitions | รายการ Partition |
+| `compute` | ฟังก์ชันคำนวณ Partition หนึ่งก้อน |
+| Dependencies | RDD พ่อที่มันอ่าน |
+| Partitioner (ไม่บังคับ) | วิธีแบ่ง Key ไป Partition |
+| Preferred Locations (ไม่บังคับ) | คอมพิวเตอร์ที่ข้อมูลอยู่ ใช้เลือกว่าจะรัน Task ที่ไหน |
 
-transformation (`map`, `filter`, `union`) แค่สร้าง RDD ใหม่ที่จำว่ามาจากใคร ไม่รันอะไร (ตรงกับ lazy ใน[บทที่ 2](/spark/lazy-evaluation/#สองประเภทของคำสั่ง)) action (`collect`, `count`) เรียก `sc.runJob` ถึงเริ่มทำงาน
+Transformation (`map`, `filter`, `union`) แค่สร้าง RDD ใหม่ที่จำว่ามาจากใคร ไม่ได้รันอะไร (ตรงกับ Lazy ใน[บทที่ 2](/spark/lazy-evaluation/#สองประเภทของคำสั่ง)) จนกว่า Action (`collect`, `count`) จะเรียก `sc.runJob` งานถึงเริ่มทำจริง
 
-dependency มีสองแบบที่กำหนดทุกอย่างของ stage
+Dependency มีสองแบบ ซึ่งกำหนดทุกอย่างของ Stage
 
-- **NarrowDependency**: partition ลูกอ่าน partition พ่อไม่กี่ตัวที่รู้ล่วงหน้า ไม่ต้องย้ายข้อมูล จึง pipeline อยู่ในงานเดียวกันได้
-- **ShuffleDependency** (`Dependency.scala`): ต้องการผลจาก partition พ่อ **ทุกตัว** นี่คือขอบเขตของ stage ตอนสร้างมันขอ `shuffleId` จาก SparkContext และลงทะเบียน handle กับ `ShuffleManager`
+- NarrowDependency คือแบบที่ Partition ลูกอ่าน Partition พ่อไม่กี่ตัวที่รู้ล่วงหน้า ไม่ต้องย้ายข้อมูล จึง Pipeline อยู่ในงานเดียวกันได้
+- ShuffleDependency (`Dependency.scala`) คือแบบที่ต้องการผลจาก Partition พ่อ **ทุกตัว** นี่คือขอบเขตของ Stage ตอนสร้าง มันจะขอ `shuffleId` จาก SparkContext และลงทะเบียน Handle กับ `ShuffleManager`
 
-ดู lineage ได้ด้วย `toDebugString()` (รัน: `exercises/13_internals.py`)
+เราดู Lineage ได้ด้วย `toDebugString()` (รัน: `exercises/13_internals.py`)
 
 ```python
 base = sc.parallelize(range(100), 4)
@@ -64,7 +59,7 @@ narrow.partitioner        # None
 reduced.partitioner       # มีค่า (reduceByKey กำหนด partitioner)
 ```
 
-ข้อควรจำ: `Pipeline` ของ narrow transformation หลายตัวรวมเป็นก้อนเดียว ใน PySpark การ `map` กับ `filter` ต่อกันกลายเป็น `PythonRDD` เดียวที่รันฟังก์ชันต่อกันในรอบเดียว ส่วน `reduceByKey` เริ่ม shuffle
+ข้อที่ควรจำคือ `Pipeline` ของ Narrow Transformation หลายตัวจะรวมเป็นก้อนเดียว ใน PySpark การ `map` กับ `filter` ต่อกันจะกลายเป็น `PythonRDD` เดียวที่รันฟังก์ชันต่อกันในรอบเดียว ส่วน `reduceByKey` จะเริ่ม Shuffle
 
 </Step>
 
@@ -72,29 +67,29 @@ reduced.partitioner       # มีค่า (reduceByKey กำหนด partiti
 
 ## DAGScheduler: ตัด Job เป็น Stage
 
-เมื่อเรียก action `DAGScheduler` (ที่ driver, `DAGScheduler.scala:124`) สร้าง stage โดยไล่ย้อนจาก RDD สุดท้ายตาม dependency
+เมื่อเราเรียก Action `DAGScheduler` (ที่ Driver, `DAGScheduler.scala:124`) จะสร้าง Stage โดยไล่ย้อนจาก RDD สุดท้ายตาม Dependency
 
-- RDD สุดท้ายอยู่ใน **`ResultStage`** (stage สุดท้ายของ job) ซึ่งถือฟังก์ชันที่ต้องรันกับแต่ละ partition
-- ถ้าเจอ narrow dependency ก็รวม RDD พ่อเข้า stage เดียวกัน
-- ถ้าเจอ shuffle dependency สร้าง **`ShuffleMapStage`** ให้ฝั่งพ่อ stage นี้จบด้วยการเขียนไฟล์ shuffle แล้วทำซ้ำ
-- ส่ง stage ได้เมื่อ stage พ่อที่ต้องการทุกตัวมี output ครบ ห่อ partition ที่ขาดเป็น `TaskSet` ส่งให้ TaskScheduler
+- RDD สุดท้ายอยู่ใน **`ResultStage`** (Stage สุดท้ายของ Job) ซึ่งถือฟังก์ชันที่ต้องรันกับแต่ละ Partition
+- ถ้าเจอ Narrow Dependency ก็รวม RDD พ่อเข้า Stage เดียวกัน
+- ถ้าเจอ Shuffle Dependency ก็สร้าง **`ShuffleMapStage`** ให้ฝั่งพ่อ Stage นี้จะจบด้วยการเขียนไฟล์ Shuffle แล้วทำซ้ำแบบเดิม
+- จะส่ง Stage ได้ก็ต่อเมื่อ Stage พ่อที่ต้องการทุกตัวมี Output ครบ จากนั้นห่อ Partition ที่ขาดเป็น `TaskSet` ส่งให้ TaskScheduler
 
-ลองดูงานที่มี shuffle สองครั้ง (`reduceByKey` สองครั้งต่อกัน)
+ลองดูงานที่มี Shuffle สองครั้ง (`reduceByKey` สองครั้งต่อกัน)
 
 <SchedulerLab client:visible />
 
-ผลที่วัดจริงจาก `statusTracker` (task ต่อ stage)
+ผลที่วัดจริงจาก `statusTracker` (Task ต่อ Stage) เป็นดังนี้
 
-| งาน | stage (task) |
+| งาน | Stage (Task) |
 |---|---|
-| `map().filter().map()` แล้ว `collect` | 1 stage (4) |
-| `reduceByKey` แล้ว `collect` | 2 stage (4, 4) |
-| `reduceByKey` สองครั้งต่อกัน | **3 stage (4, 4, 4)** |
-| `pairs.join(other)` ของ RDD ใน PySpark | 2 stage (6, 6) |
+| `map().filter().map()` แล้ว `collect` | 1 Stage (4) |
+| `reduceByKey` แล้ว `collect` | 2 Stage (4, 4) |
+| `reduceByKey` สองครั้งต่อกัน | **3 Stage (4, 4, 4)** |
+| `pairs.join(other)` ของ RDD ใน PySpark | 2 Stage (6, 6) |
 
-แถวสุดท้ายน่าสนใจ: join ของสอง RDD น่าจะมี 3 stage (สองฝั่งพ่อกับหนึ่ง result) แต่ PySpark implement `join` ด้วยการ union สองฝั่ง (4 + 2 = 6 partition) แล้ว shuffle ครั้งเดียว จึงได้ 2 stage ข้อสรุปคือจำนวน stage มาจาก dependency ของ RDD ที่ถูกสร้างจริง ไม่ใช่จากชื่อของคำสั่ง
+แถวสุดท้ายน่าสนใจตรงที่ Join ของสอง RDD น่าจะมี 3 Stage (สองฝั่งพ่อกับหนึ่ง Result) แต่ PySpark Implement `join` ด้วยการ Union สองฝั่ง (4 + 2 = 6 Partition) แล้ว Shuffle ครั้งเดียว จึงได้ 2 Stage ข้อสรุปคือจำนวน Stage มาจาก Dependency ของ RDD ที่ถูกสร้างจริง ไม่ได้มาจากชื่อของคำสั่ง
 
-**เมื่อ executor หาย** ไฟล์ shuffle ที่อยู่บน disk ของมันหายไปด้วย task ฝั่ง reduce ที่พยายามอ่านจะได้ `FetchFailedException` DAGScheduler ตอบสนองโดยส่ง stage พ่อที่ขาด output ใหม่ (stage attempt ถัดไป) แล้วกลับมารัน stage ที่ล้ม โดยไม่เริ่ม job ทั้งก้อนใหม่ (อ่านจาก source ไม่ได้บังคับให้เกิดในการทดลองนี้)
+ถ้า **Executor หาย** ไฟล์ Shuffle ที่อยู่บน Disk ของมันจะหายไปด้วย Task ฝั่ง Reduce ที่พยายามอ่านจะได้ `FetchFailedException` DAGScheduler จะตอบสนองโดยส่ง Stage พ่อที่ขาด Output ใหม่ (Stage Attempt ถัดไป) แล้วกลับมารัน Stage ที่ล้ม โดยไม่ต้องเริ่ม Job ทั้งก้อนใหม่ (ส่วนนี้อ่านจาก Source ไม่ได้บังคับให้เกิดในการทดลองนี้)
 
 </Step>
 
@@ -104,18 +99,18 @@ reduced.partitioner       # มีค่า (reduceByKey กำหนด partiti
 
 DAGScheduler ตัดสินใจว่า "รันอะไร" ส่วน **TaskSchedulerImpl** ตัดสินว่า "ให้ใครรัน"
 
-- `submitTasks` สร้าง **`TaskSetManager`** หนึ่งตัวต่อ TaskSet แล้วเรียกให้ backend เสนอ resource
-- `resourceOffers` เรียงลำดับ TaskSetManager ผ่าน **`Pool`** ที่ใช้ FIFO หรือ FAIR (ตาม `spark.scheduler.mode`) แล้วแจก task ตามระดับ locality (ดู[บทที่ 7](/spark/performance-tuning/))
-- `TaskSetManager` เก็บประวัติของแต่ละ task: ถ้า task ล้มจะลองใหม่จนถึง `maxTaskFailures` แล้ว **ยกเลิกทั้ง TaskSet** และเมื่อ task สำเร็จหมดมันกลายเป็น zombie
+- `submitTasks` สร้าง **`TaskSetManager`** หนึ่งตัวต่อ TaskSet แล้วเรียกให้ Backend เสนอ Resource
+- `resourceOffers` เรียงลำดับ TaskSetManager ผ่าน **`Pool`** ที่ใช้ FIFO หรือ FAIR (ตาม `spark.scheduler.mode`) แล้วแจก Task ตามระดับ Locality (ดู[บทที่ 7](/spark/performance-tuning/))
+- `TaskSetManager` เก็บประวัติของแต่ละ Task ถ้า Task ล้มก็จะลองใหม่จนถึง `maxTaskFailures` แล้ว **ยกเลิกทั้ง TaskSet** และเมื่อ Task สำเร็จหมด มันก็กลายเป็น Zombie
 
-ฝั่ง executor (`Executor.scala`): ใช้ thread pool ที่ launch **`TaskRunner`** หนึ่งตัวต่อ task ลำดับของ `TaskRunner.run`
+ฝั่ง Executor (`Executor.scala`) ใช้ Thread Pool ที่ Launch **`TaskRunner`** หนึ่งตัวต่อ Task โดย `TaskRunner.run` ทำตามลำดับนี้
 
-1. สร้าง `TaskMemoryManager` ของ task นี้ (ที่แบ่ง memory ให้ operator ใน task)
-2. ดาวน์โหลด dependency (jar/ไฟล์) ถ้าขาด
-3. deserialize `Task` ที่ driver ส่งมา แล้วรัน
-4. serialize ผล บันทึก metrics แล้วส่งสถานะกลับ driver
+1. สร้าง `TaskMemoryManager` ของ Task นี้ (ที่แบ่ง Memory ให้ Operator ใน Task)
+2. ดาวน์โหลด Dependency (Jar/ไฟล์) ถ้าขาด
+3. Deserialize `Task` ที่ Driver ส่งมา แล้วรัน
+4. Serialize ผล บันทึก Metrics แล้วส่งสถานะกลับ Driver
 
-และมี `Heartbeater` ส่งสัญญาณกลับ driver เป็นระยะ ทำให้ driver รู้ว่า executor ยังอยู่ และรวบรวม metric ของ task ที่กำลังรันมาแสดงใน Spark UI ([บทที่ 11](/spark/deployment-spark-ui/#ทักษะที่สำคัญที่สุดคืออ่าน-spark-ui))
+นอกจากนี้ยังมี `Heartbeater` ที่ส่งสัญญาณกลับ Driver เป็นระยะ ทำให้ Driver รู้ว่า Executor ยังอยู่ และรวบรวม Metric ของ Task ที่กำลังรันมาแสดงใน Spark UI ได้ ([บทที่ 11](/spark/deployment-spark-ui/#ทักษะที่สำคัญที่สุดคืออ่าน-spark-ui))
 
 </Step>
 
@@ -123,7 +118,7 @@ DAGScheduler ตัดสินใจว่า "รันอะไร" ส่ว
 
 ## ไฟล์ Shuffle บน Disk
 
-shuffle ไม่ใช่การส่งข้อมูลผ่านเครือข่ายตรงๆ แต่ผ่านไฟล์ ฝั่ง map เขียนไฟล์แล้วฝั่ง reduce ไปอ่าน (ข้อมูลเขียนด้วย writer ที่เลือกตาม[บทที่ 7](/spark/performance-tuning/#ที่ซ่อนอยู่-shuffle-writer-และค่า-200)) วัดจริงบน `groupBy` ที่มี 8 map task (ตั้ง `spark.local.dir` ให้ชี้โฟลเดอร์ที่ตรวจได้)
+Shuffle ไม่ได้ส่งข้อมูลผ่านเครือข่ายตรง ๆ แต่ส่งผ่านไฟล์ คือฝั่ง Map เขียนไฟล์แล้วฝั่ง Reduce ไปอ่าน (ข้อมูลเขียนด้วย Writer ที่เลือกตาม[บทที่ 7](/spark/performance-tuning/#ที่ซ่อนอยู่-shuffle-writer-และค่า-200)) เราวัดจริงบน `groupBy` ที่มี 8 Map Task (ตั้ง `spark.local.dir` ให้ชี้โฟลเดอร์ที่ตรวจได้)
 
 ```
 blockmgr-<uuid>/<hash>/shuffle_0_0_0.data
@@ -132,15 +127,15 @@ blockmgr-<uuid>/<hash>/shuffle_0_0_0.data
                        shuffle_0_1_0.data ...
 ```
 
-รวม **24 ไฟล์ = 8 map task x 3 ชนิด** ชื่อ `shuffle_<shuffleId>_<mapId>_0`
+รวมได้ **24 ไฟล์ = 8 map task x 3 ชนิด** โดยชื่อเป็นแบบ `shuffle_<shuffleId>_<mapId>_0`
 
-- **`.data`**: ข้อมูลของ **ทุก reduce partition** จาก map task นั้น ต่อเรียงกันในไฟล์เดียว (`IndexShuffleBlockResolver`: ข้อมูลของทุก reduce block ของ map task หนึ่งอยู่ในไฟล์ `.data` ไฟล์เดียว)
-- **`.index`**: offset ที่บอกว่า reduce partition ไหนเริ่มและจบตรงไหนของ `.data`
-- **`.checksum.ADLER32`**: ค่า checksum ไว้ตรวจว่าไฟล์เสียหรือเปล่า
+- ไฟล์ `.data` เก็บข้อมูลของ **ทุก Reduce Partition** จาก Map Task นั้น ต่อเรียงกันในไฟล์เดียว (`IndexShuffleBlockResolver`: ข้อมูลของทุก Reduce Block ของ Map Task หนึ่งอยู่ในไฟล์ `.data` ไฟล์เดียว)
+- ไฟล์ `.index` เก็บ Offset ที่บอกว่า Reduce Partition ไหนเริ่มและจบตรงไหนของ `.data`
+- ไฟล์ `.checksum.ADLER32` เก็บค่า Checksum ไว้ตรวจว่าไฟล์เสียหายหรือเปล่า
 
-ทำไมไฟล์เดียวต่อ map task แทนที่จะเป็นไฟล์ต่อ reduce partition: ถ้ามี M map และ R reduce จะได้ M x R ไฟล์ซึ่งมากเกินไป ไฟล์เดียวบวก index ลดเหลือ M
+แล้วทำไมถึงใช้ไฟล์เดียวต่อ Map Task แทนที่จะเป็นไฟล์ต่อ Reduce Partition ล่ะ ก็เพราะถ้ามี M Map และ R Reduce จะได้ M x R ไฟล์ ซึ่งมากเกินไป การใช้ไฟล์เดียวบวก Index จึงลดเหลือ M
 
-ฝั่ง reduce: `MapOutputTracker` ที่ driver รู้ว่า map output แต่ละตัวอยู่ที่ executor ไหน reduce task ถามตำแหน่งแล้วใช้ `ShuffleBlockFetcherIterator` ดึงบล็อก มันแบ่งบล็อกเป็นกลุ่ม local และ remote ส่งคำขอ remote ได้ไม่เกิน `maxBytesInFlight`, `maxReqsInFlight` และ `maxBlocksInFlightPerAddress` เพื่อไม่ให้ท่วมเครือข่ายหรือ memory ถ้าบล็อกเสียหรือหายจะเกิด `FetchFailedException` ที่กล่าวไปข้างบน
+ส่วนฝั่ง Reduce นั้น `MapOutputTracker` ที่ Driver รู้ว่า Map Output แต่ละตัวอยู่ที่ Executor ไหน Reduce Task จะถามตำแหน่งแล้วใช้ `ShuffleBlockFetcherIterator` ดึงบล็อกมา โดยมันแบ่งบล็อกเป็นกลุ่ม Local และ Remote และส่งคำขอ Remote ได้ไม่เกิน `maxBytesInFlight`, `maxReqsInFlight` และ `maxBlocksInFlightPerAddress` เพื่อไม่ให้ท่วมเครือข่ายหรือ Memory ถ้าบล็อกเสียหรือหายก็จะเกิด `FetchFailedException` ที่กล่าวไปข้างบน
 
 </Step>
 
@@ -148,7 +143,7 @@ blockmgr-<uuid>/<hash>/shuffle_0_0_0.data
 
 ## Unified Memory: Storage กับ Execution แบ่งกัน
 
-executor (หรือ driver ใน local mode) แบ่ง heap ตามสูตรที่วัดและยืนยันตรงตัว (heap 600 MiB)
+Executor (หรือ Driver ใน Local Mode) แบ่ง Heap ตามสูตรที่วัดและยืนยันตรงตัว (Heap 600 MiB)
 
 ```
 unified = (heap - 300 MiB reserved) x spark.memory.fraction (0.6)
@@ -156,19 +151,19 @@ unified = (heap - 300 MiB reserved) x spark.memory.fraction (0.6)
 storage region = unified x spark.memory.storageFraction (0.5) = 90 MiB
 ```
 
-ที่เหลือ 120 MiB เป็น user memory สำหรับ object ฝั่ง JVM ที่ไม่อยู่ใต้การจัดการของ Spark (เช่น โครงสร้างข้อมูลภายในของ library) ลองดูว่า storage กับ execution ยืมกันอย่างไร
+ที่เหลืออีก 120 MiB เป็น User Memory สำหรับ Object ฝั่ง JVM ที่ไม่อยู่ใต้การจัดการของ Spark (เช่น โครงสร้างข้อมูลภายในของ Library) ทีนี้ลองดูว่า Storage กับ Execution ยืมกันอย่างไร
 
 <MemoryLab client:visible />
 
 กฎของ `UnifiedMemoryManager` (บรรทัด 58 เป็นต้นไป) สรุปได้สามข้อ
 
-1. มี **เส้นแบ่งนุ่ม**: storage ยืม execution ที่ว่างได้ และ execution ยืม storage ที่ว่างได้
-2. **execution เอาคืนได้** โดย evict block ของ storage ที่ใช้เกินพื้นที่ของตัวเอง (`MemoryStore` ใช้ LRU และไม่ evict block ของ RDD เดียวกับที่กำลังเข้ามา)
-3. **storage เอาคืนจาก execution ไม่ได้** เพราะ task กำลังใช้ memory นั้นอยู่ ผลคือถ้า execution ถือเกือบหมดการ cache ใหม่อาจใส่ไม่ได้
+1. มีเส้นแบ่งนุ่ม คือ Storage ยืม Execution ที่ว่างได้ และ Execution ก็ยืม Storage ที่ว่างได้
+2. Execution เอาคืนได้ โดย Evict Block ของ Storage ที่ใช้เกินพื้นที่ของตัวเอง (`MemoryStore` ใช้ LRU และไม่ Evict Block ของ RDD เดียวกับที่กำลังเข้ามา)
+3. Storage เอาคืนจาก Execution ไม่ได้ เพราะ Task กำลังใช้ Memory นั้นอยู่ ผลคือถ้า Execution ถือเกือบหมด การ Cache ใหม่อาจใส่ไม่ได้
 
-ผลวัด (`MEMORY_ONLY`): cache ข้อมูล 4 block ได้ storage ใช้ **153.9 MiB เกินเส้น 90 MiB** แล้วรัน sort 6 ล้านแถวที่ต้องการ memory ของ execution พบ storage ลดเหลือ **77.0 MiB** และ cache เหลือ 2 จาก 4 partition นี่คือเหตุผลที่ `MEMORY_ONLY` ไม่รับประกันว่า cache อยู่ครบ
+ผลที่วัดได้ (`MEMORY_ONLY`) คือเมื่อ Cache ข้อมูล 4 Block จะได้ Storage ใช้ **153.9 MiB เกินเส้น 90 MiB** แล้วพอรัน Sort 6 ล้านแถวที่ต้องการ Memory ของ Execution พบว่า Storage ลดเหลือ **77.0 MiB** และ Cache เหลือ 2 จาก 4 Partition นี่คือเหตุผลที่ `MEMORY_ONLY` ไม่รับประกันว่า Cache จะอยู่ครบ
 
-**ระดับ task**: `TaskMemoryManager` (`TaskMemoryManager.java`) ดูแล memory แบบ Tungsten ของ task หนึ่ง มี page table 8192 ช่อง และเข้ารหัสเลข page กับ offset เป็นเลข 64 บิตตัวเดียว เพื่อให้ pointer ของ record ใช้ได้เหมือนกันทั้ง on-heap และ off-heap เมื่อ pool ให้ memory ไม่พอ มันสั่ง consumer (sorter, hash map) ให้ **spill** ตามที่เรียนใน[บทที่ 7](/spark/performance-tuning/#spill-เมื่อ-memory-ไม่พอ)
+ในระดับ Task นั้น `TaskMemoryManager` (`TaskMemoryManager.java`) ดูแล Memory แบบ Tungsten ของ Task หนึ่ง มี Page Table 8192 ช่อง และเข้ารหัสเลข Page กับ Offset เป็นเลข 64 บิตตัวเดียว เพื่อให้ Pointer ของ Record ใช้ได้เหมือนกันทั้ง On-heap และ Off-heap เมื่อ Pool ให้ Memory ไม่พอ มันจะสั่ง Consumer (Sorter, Hash Map) ให้ **Spill** ตามที่เรียนใน[บทที่ 7](/spark/performance-tuning/#spill-เมื่อ-memory-ไม่พอ)
 
 </Step>
 
@@ -176,7 +171,7 @@ storage region = unified x spark.memory.storageFraction (0.5) = 90 MiB
 
 ## Whole-Stage Codegen: Java ที่ Spark เขียนให้
 
-[บทที่ 6](/spark/catalyst-aqe/#tungsten-แบบย่อ) บอกว่า `*(1)` คือ operator ที่ถูกรวมใน codegen ลองดูโค้ดที่ได้จริงจาก `explain("codegen")` ของ `range(1000).filter("id % 3 = 0").selectExpr("id * 2")` (ตัดเหลือส่วนสำคัญ)
+[บทที่ 6](/spark/catalyst-aqe/#tungsten-แบบย่อ) บอกว่า `*(1)` คือ Operator ที่ถูกรวมใน Codegen ทีนี้ลองดูโค้ดที่ได้จริงจาก `explain("codegen")` ของ `range(1000).filter("id % 3 = 0").selectExpr("id * 2")` (ตัดเหลือส่วนสำคัญ)
 
 ```java
 final class GeneratedIteratorForCodegenStage1 extends BufferedRowIterator {
@@ -203,26 +198,26 @@ final class GeneratedIteratorForCodegenStage1 extends BufferedRowIterator {
 }
 ```
 
-สังเกตสามอย่าง
+มีสามอย่างที่น่าสังเกต
 
-1. **ทั้ง `Range`, `Filter`, `Project` อยู่ใน loop เดียว** ตัวแปร `range_value_0` ส่งต่อให้ filter และ project ตรงๆ ไม่มีการสร้าง object ต่อแถวและไม่มีการเรียก `next()` ของ iterator ทีละ operator เหมือนโหมดตีความ (volcano)
-2. `MathUtils.multiplyExact` ปรากฏเพราะ ANSI mode เปิด ([บทที่ 6](/spark/catalyst-aqe/in-depth/#analyzer-และ-ansi-mode-ที่ถูกล็อกตอน-analyze)) การคูณที่ล้นจึง error แทนที่จะวนค่า
-3. แถวผลลัพธ์ถูกเขียนเป็น `UnsafeRow` ผ่าน `UnsafeRowWriter` (ไบต์ดิบ ไม่ใช่ object)
+1. ทั้ง `Range`, `Filter`, `Project` อยู่ใน Loop เดียว ตัวแปร `range_value_0` ถูกส่งต่อให้ Filter และ Project ตรง ๆ ไม่มีการสร้าง Object ต่อแถว และไม่มีการเรียก `next()` ของ Iterator ทีละ Operator เหมือนโหมดตีความ (Volcano)
+2. `MathUtils.multiplyExact` ปรากฏขึ้นเพราะ ANSI Mode เปิดอยู่ ([บทที่ 6](/spark/catalyst-aqe/in-depth/#analyzer-และ-ansi-mode-ที่ถูกล็อกตอน-analyze)) การคูณที่ล้นจึง Error แทนที่จะวนค่า
+3. แถวผลลัพธ์ถูกเขียนเป็น `UnsafeRow` ผ่าน `UnsafeRowWriter` (ไบต์ดิบ ไม่ใช่ Object)
 
-โครงที่เกี่ยวข้อง (จาก source)
+โครงที่เกี่ยวข้อง (จาก Source) มีดังนี้
 
 | ส่วน | หน้าที่ |
 |---|---|
-| `CollapseCodegenStages` (`WholeStageCodegenExec.scala:914`) | rule ใน `preparations` เลือก operator ที่ codegen ได้ ครอบ operator ที่ทำไม่ได้ด้วย `InputAdapter` และใส่ `WholeStageCodegenExec` พร้อมหมายเลข stage |
-| `WholeStageCodegenExec` (บรรทัด 643) | รวม subtree เป็นคลาส Java หนึ่งคลาส compile ด้วย Janino แล้วรัน **ถ้า compile ล้มจะถอยไปรันแบบตีความ (interpreted)** |
-| `CodeGenerator` | ตัวสร้างโค้ดและ cache ของคลาสที่ compile แล้ว มีขีดจำกัดของ JVM เช่น method ที่ยาวเกิน 8000 ไบต์ bytecode จะไม่ถูก JIT ง่าย จึงมีการแบ่ง method |
+| `CollapseCodegenStages` (`WholeStageCodegenExec.scala:914`) | Rule ใน `preparations` เลือก Operator ที่ Codegen ได้ ครอบ Operator ที่ทำไม่ได้ด้วย `InputAdapter` และใส่ `WholeStageCodegenExec` พร้อมหมายเลข Stage |
+| `WholeStageCodegenExec` (บรรทัด 643) | รวม Subtree เป็นคลาส Java หนึ่งคลาส Compile ด้วย Janino แล้วรัน **ถ้า Compile ล้มจะถอยไปรันแบบตีความ (Interpreted)** |
+| `CodeGenerator` | ตัวสร้างโค้ดและ Cache ของคลาสที่ Compile แล้ว มีขีดจำกัดของ JVM เช่น Method ที่ยาวเกิน 8000 ไบต์ Bytecode จะไม่ถูก JIT ง่าย จึงมีการแบ่ง Method |
 
-`Exchange` ไม่เคยอยู่ใน codegen: ใน plan ของ `groupBy` มี `*(1)` ที่ฝั่งก่อน shuffle และ `*(2)` ที่ฝั่งหลัง โดย `Exchange` ที่คั่นกลางไม่มี `*` เพราะเป็นขอบเขตของ stage (ตรวจจริง) ปิด `spark.sql.codegen.wholeStage` แล้ว `*(n)` หายไปจากทุก operator
+`Exchange` ไม่เคยอยู่ใน Codegen ใน Plan ของ `groupBy` จะมี `*(1)` ที่ฝั่งก่อน Shuffle และ `*(2)` ที่ฝั่งหลัง โดย `Exchange` ที่คั่นกลางไม่มี `*` เพราะเป็นขอบเขตของ Stage (ตรวจจริง) และถ้าปิด `spark.sql.codegen.wholeStage` แล้ว `*(n)` จะหายไปจากทุก Operator
 
-**เร็วขึ้นเท่าไร**: วัดบนเครื่องผู้เขียน `range(30 ล้านแถว).filter(...).agg(sum)` ใช้เวลาราว 0.09 วินาทีเมื่อเปิด whole-stage codegen และ 0.23 วินาทีเมื่อปิด (เร็วขึ้นราว 2.5 เท่า) เป็นตัวอย่างเล็กที่ CPU ทำงานล้วนๆ งานจริงที่มี I/O หรือ shuffle จะเห็นส่วนต่างน้อยกว่านี้ ตัวเลขนี้ขึ้นกับเครื่องและงาน จึงไม่ใช่ตัวคูณที่ใช้ทั่วไปได้
+แล้วเร็วขึ้นเท่าไร เราวัดบนคอมพิวเตอร์ของผู้เขียน `range(30 ล้านแถว).filter(...).agg(sum)` ใช้เวลาราว 0.09 วินาทีเมื่อเปิด Whole-stage Codegen และ 0.23 วินาทีเมื่อปิด (เร็วขึ้นราว 2.5 เท่า) นี่เป็นตัวอย่างเล็กที่ CPU ทำงานล้วน ๆ งานจริงที่มี I/O หรือ Shuffle จะเห็นส่วนต่างน้อยกว่านี้ และตัวเลขนี้ขึ้นกับคอมพิวเตอร์และงาน จึงไม่ใช่ตัวคูณที่ใช้ทั่วไปได้
 
-<Callout type="note" title="ไม่ใช่ทุกอย่างอยู่ใน codegen">
-operator ที่ไม่ codegen (เช่น `Exchange`) และ expression ที่ implement ด้วยการตีความ (CodegenFallback) ตัดสาย codegen ออกเป็นสองก้อน Python UDF ก็ตัดด้วยเหตุผลต่างกัน (ต้องส่งข้อมูลไปนอก JVM ดู[บทที่ 8](/spark/udf/#ข้อมูลเดินทางอย่างไร)) ใน plan คุณเห็นเลข `*(n)` ต่างกันคือขอบเขตเหล่านี้
+<Callout type="note" title="ไม่ใช่ทุกอย่างอยู่ใน Codegen">
+Operator ที่ไม่ Codegen (เช่น `Exchange`) และ Expression ที่ Implement ด้วยการตีความ (CodegenFallback) จะตัดสาย Codegen ออกเป็นสองก้อน Python UDF ก็ตัดเหมือนกันแต่ด้วยเหตุผลต่างกัน (ต้องส่งข้อมูลไปนอก JVM ดู[บทที่ 8](/spark/udf/#ข้อมูลเดินทางอย่างไร)) เลข `*(n)` ที่ต่างกันใน Plan ก็คือขอบเขตเหล่านี้นั่นเอง
 </Callout>
 
 </Step>
@@ -236,17 +231,17 @@ cd subjects/spark/code
 uv run python exercises/13_internals.py
 ```
 
-ใช้เวลาราว 1 ถึง 2 นาที (ส่วน memory เปิด JVM แยกที่มี heap 600 MiB) ลองดัดแปลง
+ใช้เวลาราว 1 ถึง 2 นาที (ส่วน Memory เปิด JVM แยกที่มี Heap 600 MiB) แล้วลองดัดแปลงดูได้ตามนี้
 
-1. เปลี่ยนจำนวน partition ของข้อมูลต้นทางแล้วนับไฟล์ shuffle (ต้องเท่ากับจำนวน map task x 3)
-2. เปลี่ยน `spark.driver.memory` เป็นค่าอื่นแล้วตรวจสูตร unified memory กับ `SparkEnv.get.memoryManager.maxHeapMemory`
-3. เปิด `explain("codegen")` ของ query ที่มี `groupBy` แล้วหาว่ามีกี่คลาสที่ generate
+1. เปลี่ยนจำนวน Partition ของข้อมูลต้นทางแล้วนับไฟล์ Shuffle (ต้องเท่ากับจำนวน map task x 3)
+2. เปลี่ยน `spark.driver.memory` เป็นค่าอื่นแล้วตรวจสูตร Unified Memory กับ `SparkEnv.get.memoryManager.maxHeapMemory`
+3. เปิด `explain("codegen")` ของ Query ที่มี `groupBy` แล้วหาว่ามีกี่คลาสที่ Generate
 
-เช็กตัวเอง
+ลองเช็กตัวเองด้วยคำถามเหล่านี้
 
-- ทำไม `reduceByKey` สองครั้งต่อกันถึงได้ 3 stage ไม่ใช่ 2
-- ไฟล์ `.index` มีไว้ทำอะไร และทำไมต้องไฟล์ `.data` ไฟล์เดียวต่อ map task
-- ทำไม storage ยืม execution ได้ แต่ execution ถึงเอาคืนได้ฝ่ายเดียว
-- ในโค้ด codegen ทำไมถึงไม่มี object ต่อแถว
+- ทำไม `reduceByKey` สองครั้งต่อกันถึงได้ 3 Stage ไม่ใช่ 2
+- ไฟล์ `.index` มีไว้ทำอะไร และทำไมต้องไฟล์ `.data` ไฟล์เดียวต่อ Map Task
+- ทำไม Storage ยืม Execution ได้ แต่ Execution ถึงเอาคืนได้ฝ่ายเดียว
+- ในโค้ด Codegen ทำไมถึงไม่มี Object ต่อแถว
 
 </Step>

@@ -1,6 +1,6 @@
 ---
 title: Structured Streaming แบบเจาะลึก
-summary: โครง class ของ micro-batch engine, log สองตัวของ checkpoint และเหตุที่ commit ด้วยการ rename, watermark ถูกคำนวณและส่งต่ออย่างไร, StateStoreSave ปล่อยผลตามโหมดอย่างไร, provider ของ state สองแบบ, trigger executor และ config ที่ควรรู้
+summary: โครง Class ของ Micro-batch Engine, Log สองตัวของ Checkpoint และเหตุที่ Commit ด้วยการ Rename, Watermark ถูกคำนวณและส่งต่ออย่างไร, StateStoreSave ปล่อยผลตามโหมดอย่างไร, Provider ของ State สองแบบ, Trigger Executor และ Config ที่ควรรู้
 order: 10
 stage: sprout
 format: steps
@@ -12,21 +12,21 @@ import Callout from '../../../../components/Callout.astro';
 import CheckpointCrashLab from '../../../../components/labs/spark/CheckpointCrashLab';
 import StateStoreLab from '../../../../components/labs/spark/StateStoreLab';
 
-หน้านี้ต่อจากหน้าหลัก ข้อความที่ติดป้าย "source" มาจากการอ่านไฟล์ใน repo ของ Spark 4.2.0 และสรุปใน knowledge graph ของ Spark (`subjects/spark/graphs/`) ส่วนที่รันมาจาก `exercises/09_streaming.py`
+หน้านี้ต่อจากหน้าหลักนะ ข้อความที่ติดป้าย "Source" มาจากการอ่านไฟล์ใน Repo ของ Spark 4.2.0 และสรุปไว้ใน Knowledge Graph ของ Spark (`subjects/spark/graphs/`) ส่วนที่รันมาจาก `exercises/09_streaming.py`
 
 <Step>
 
 ## โครง Class ของ Engine
 
-| class | หน้าที่ |
+| Class | หน้าที่ |
 |---|---|
-| `StreamExecution` (abstract, `StreamExecution.scala:74`) | ถือ query ที่รันใน thread ของตัวเอง สร้าง `offsetLog` กับ `commitLog` จาก checkpoint ถือ `committedOffsets` และให้ API `status`, `progress`, `awaitTermination`, `stop` ส่วนลูปจริงมอบให้ `runActivatedStream` |
-| `MicroBatchExecution` (`MicroBatchExecution.scala:60`) | ตัวที่ทำงานจริง ใช้กับ micro-batch, `Trigger.AvailableNow` และ real-time |
-| `IncrementalExecution` | `QueryExecution` ของ **หนึ่ง batch** รับ output mode, checkpoint location, run id, batch id, watermark และ timestamp ของ batch ปัจจุบันและก่อนหน้า ข้ามการตรวจ analysis ซ้ำเพราะตรวจไปแล้ว |
-| `ProgressReporter` | เก็บคิวของ progress ล่าสุด (`spark.sql.streaming.numRecentProgressUpdates`, ค่าเริ่มต้น **100**) และส่ง event เข้า listener bus |
-| `TriggerExecutor` และลูก | ตัดสินว่าเมื่อไรเรียก batch ถัดไป (`ProcessingTimeExecutor` รอจนถึงขอบเขตเวลาครั้งถัดไป ถ้า batch ช้ากว่าช่วงเวลาจะเตือน และถ้า interval เป็น 0 รันติดกัน) |
+| `StreamExecution` (Abstract, `StreamExecution.scala:74`) | ถือ Query ที่รันใน Thread ของตัวเอง สร้าง `offsetLog` กับ `commitLog` จาก Checkpoint ถือ `committedOffsets` และให้ API `status`, `progress`, `awaitTermination`, `stop` ส่วนลูปจริงมอบให้ `runActivatedStream` |
+| `MicroBatchExecution` (`MicroBatchExecution.scala:60`) | ตัวที่ทำงานจริง ใช้กับ Micro-batch, `Trigger.AvailableNow` และ Real-time |
+| `IncrementalExecution` | `QueryExecution` ของ **หนึ่ง Batch** รับ Output Mode, Checkpoint Location, Run id, Batch id, Watermark และ Timestamp ของ Batch ปัจจุบันและก่อนหน้า ข้ามการตรวจ Analysis ซ้ำเพราะตรวจไปแล้ว |
+| `ProgressReporter` | เก็บคิวของ Progress ล่าสุด (`spark.sql.streaming.numRecentProgressUpdates`, ค่าเริ่มต้น **100**) และส่ง Event เข้า Listener Bus |
+| `TriggerExecutor` และลูก | ตัดสินว่าเมื่อไรเรียก Batch ถัดไป (`ProcessingTimeExecutor` รอจนถึงขอบเขตเวลาครั้งถัดไป ถ้า Batch ช้ากว่าช่วงเวลาจะเตือน และถ้า Interval เป็น 0 รันติดกัน) |
 
-query ของแต่ละ batch เป็น query ปกติ: `MicroBatchExecution` แทนที่ `StreamingRelation` ในแผน logical ด้วยข้อมูลของช่วง offset นั้น แล้วเรียก `IncrementalExecution` ผ่าน Catalyst เดิมทุกขั้นที่เรียนในบทที่ [Catalyst และ AQE](/spark/catalyst-aqe/) ผลคือ AQE และ whole-stage codegen ใช้ได้ ยกเว้นกรณีที่ `InsertAdaptiveSparkPlan` ข้ามไว้ให้ streaming แบบ stateful ([บทที่ 6](/spark/catalyst-aqe/in-depth/#เมื่อไหร่ที่-aqe-ไม่ห่อแผน) หัวข้อเมื่อไหร่ AQE ไม่ห่อแผน)
+Query ของแต่ละ Batch ก็คือ Query ปกตินั่นเอง เพราะ `MicroBatchExecution` จะแทนที่ `StreamingRelation` ในแผน Logical ด้วยข้อมูลของช่วง Offset นั้น แล้วเรียก `IncrementalExecution` ผ่าน Catalyst เดิมทุกขั้นที่เรียนในบทที่ [Catalyst และ AQE](/spark/catalyst-aqe/) ผลคือ AQE และ Whole-stage Codegen ใช้ได้ ยกเว้นกรณีที่ `InsertAdaptiveSparkPlan` ข้ามไว้ให้ Streaming แบบ Stateful ([บทที่ 6](/spark/catalyst-aqe/in-depth/#เมื่อไหร่ที่-aqe-ไม่ห่อแผน) หัวข้อเมื่อไหร่ AQE ไม่ห่อแผน)
 
 </Step>
 
@@ -34,17 +34,17 @@ query ของแต่ละ batch เป็น query ปกติ: `MicroBatc
 
 ## Log สองตัวและการเขียนแบบ Atomic
 
-`offsets/` และ `commits/` เป็น `HDFSMetadataLog` (`HDFSMetadataLog.scala:51`) ที่ **batch id N คือไฟล์ชื่อ N** ไม่มีนามสกุล วิธีเขียนทำให้การ commit ปลอดภัย
+`offsets/` และ `commits/` เป็น `HDFSMetadataLog` (`HDFSMetadataLog.scala:51`) ซึ่ง **batch id N คือไฟล์ชื่อ N** โดยไม่มีนามสกุล และวิธีเขียนของมันทำให้การ Commit ปลอดภัย
 
-- `add(batchId, metadata)` เขียนไป **ไฟล์ชั่วคราว** ก่อนแล้ว **rename** เป็น `N` ผ่าน `CheckpointFileManager.createAtomic` ถ้ามีสอง writer เขียน batch id เดียวกัน คนที่แพ้ได้ `false` หรือ error ใน `MicroBatchExecution` เมื่อ `commitLog.add` คืน false จะ throw `concurrentStreamLogUpdate` (บรรทัด 1515)
-- ใช้ cache เก็บ 2 รายการล่าสุด และใช้การ list directory เพื่อหา batch ล่าสุด
-- **ไม่รองรับ object store แบบที่ list ได้ไม่สดเช่น S3 เดิมๆ** เพราะการหา batch ล่าสุดพึ่งการ list (จาก doc ของ class) บน cloud ให้ดูว่า file manager ของ storage นั้นรับประกัน rename แบบ atomic หรือใช้ `spark.sql.streaming.checkpointFileManagerClass`
+- `add(batchId, metadata)` จะเขียนไปที่ **ไฟล์ชั่วคราว** ก่อน แล้ว **Rename** เป็น `N` ผ่าน `CheckpointFileManager.createAtomic` ถ้ามีสอง Writer เขียน Batch id เดียวกัน คนที่แพ้จะได้ `false` หรือ Error ใน `MicroBatchExecution` เมื่อ `commitLog.add` คืน False จะ Throw `concurrentStreamLogUpdate` (บรรทัด 1515)
+- มี Cache เก็บ 2 รายการล่าสุด และใช้การ List Directory เพื่อหา Batch ล่าสุด
+- **ไม่รองรับ Object Store แบบที่ List ได้ไม่สดเช่น S3 เดิม ๆ** เพราะการหา Batch ล่าสุดพึ่งการ List (จาก Doc ของ Class) ดังนั้นบน Cloud ให้ดูว่า File Manager ของ Storage นั้นรับประกัน Rename แบบ Atomic หรือไม่ หรือจะใช้ `spark.sql.streaming.checkpointFileManagerClass` ก็ได้
 
-**`OffsetSeqLog`** (`OffsetSeqLog.scala:54`) เขียนเวอร์ชันหนึ่งบรรทัด, metadata (watermark, timestamp, conf) และ offset ของแต่ละ source (รุ่น `v1` เป็นรายการตามลำดับ source, รุ่น `v2` เป็นแผนที่ตามชื่อ) ค่าที่ไม่มี offset แทนด้วย `-` **`CommitLog`** (`CommitLog.scala:51`) เขียนเวอร์ชันบวก JSON เวอร์ชันเลือกตามรุ่นของ state store checkpoint (สูงสุด v3) และ doc ของ class บันทึกลำดับไว้ชัด: ขอ offset ของ batch → เขียน offset log → ประมวลผล → เขียน commit log → trigger batch ถัดไป
+**`OffsetSeqLog`** (`OffsetSeqLog.scala:54`) เขียนเวอร์ชันหนึ่งบรรทัด, Metadata (Watermark, Timestamp, Conf) และ Offset ของแต่ละ Source (รุ่น `v1` เป็นรายการตามลำดับ Source, รุ่น `v2` เป็นแผนที่ตามชื่อ) โดยค่าที่ไม่มี Offset จะแทนด้วย `-` ส่วน **`CommitLog`** (`CommitLog.scala:51`) เขียนเวอร์ชันบวก JSON ซึ่งเวอร์ชันเลือกตามรุ่นของ state store checkpoint (สูงสุด v3) และ Doc ของ Class บันทึกลำดับไว้ชัดเจนว่า ขอ Offset ของ Batch → เขียน Offset Log → ประมวลผล → เขียน Commit Log → Trigger Batch ถัดไป
 
-ตอนเริ่มใหม่ `populateStartOffsets` (`MicroBatchExecution.scala:743`) อ่านทั้งสอง log: ถ้าตัวล่าสุดของ `offsets/` ไม่มี `commits/` คู่กัน ก็รัน batch นั้นซ้ำด้วยช่วง offset จากไฟล์ ถ้ามีครบก็เริ่ม batch ถัดไป หลัง `constructNextBatch` เขียน offset แล้ว มันลบ log เก่าเกิน `spark.sql.streaming.minBatchesToRetain` (ค่าเริ่มต้น **100**) ทิ้งด้วย (`purge`, บรรทัด 990-1005)
+ตอนเริ่มใหม่ `populateStartOffsets` (`MicroBatchExecution.scala:743`) จะอ่านทั้งสอง Log ถ้าตัวล่าสุดของ `offsets/` ไม่มี `commits/` คู่กัน ก็รัน Batch นั้นซ้ำด้วยช่วง Offset จากไฟล์ แต่ถ้ามีครบก็เริ่ม Batch ถัดไป และหลัง `constructNextBatch` เขียน Offset แล้ว มันจะลบ Log เก่าที่เกิน `spark.sql.streaming.minBatchesToRetain` (ค่าเริ่มต้น **100**) ทิ้งด้วย (`purge`, บรรทัด 990-1005)
 
-ลองเลือกจุดที่โปรแกรมล่มในระหว่าง batch 2 แล้วดูว่าตอนรีสตาร์ท Spark ตัดสินอย่างไร จากสองไฟล์ที่เหลืออยู่ใน checkpoint และสังเกตว่าล่มตรงไหนที่ sink อาจได้ข้อมูลซ้ำ
+ลองเลือกจุดที่โปรแกรมล่มระหว่าง Batch 2 ดูนะ แล้วสังเกตว่าตอนรีสตาร์ท Spark ตัดสินใจอย่างไรจากสองไฟล์ที่เหลืออยู่ใน Checkpoint และล่มตรงไหนที่ Sink อาจได้ข้อมูลซ้ำ
 
 <CheckpointCrashLab client:visible />
 
@@ -54,12 +54,12 @@ query ของแต่ละ batch เป็น query ปกติ: `MicroBatc
 
 ## Watermark ถูกคำนวณและส่งต่ออย่างไร
 
-- `EventTimeWatermarkExec` (`withWatermark`) ส่งแถวผ่านโดยไม่แก้ แต่ป้อน event time ของทุกแถวเข้า `eventTimeStats` และใส่ delay ใน metadata ของ column
-- `WatermarkTracker` ถือ watermark ต่อ node และ watermark **ทั่วไป** เป็นมิลลิวินาที เริ่มที่ 0 (ตรงกับ `1970-01-01T00:00:00Z` ใน progress ของ batch แรก) หลังจบ batch คำนวณ `watermark = max event time ที่เห็น - delay` และ `markMicroBatchEnd` เรียก `updateWatermark` (`MicroBatchExecution.scala:1406-1408`) ค่านี้ถูกเขียนใน `commits/N` เป็น `nextBatchWatermarkMs` และอยู่ใน `offsets/N+1` เป็น `batchWatermarkMs`
-- ถ้าในแผนมี `withWatermark` หลายจุด global watermark เลือกตาม `spark.sql.streaming.multipleWatermarkPolicy` (ค่าเริ่มต้น `min`) ค่านี้ **เปลี่ยนไม่ได้ระหว่างรีสตาร์ทจาก checkpoint เดิม**
-- `WatermarkPropagator` ส่งค่าลงไปยัง operator ที่มี state แต่ละตัว มีสองค่า: ค่าสำหรับ **ตัดสินว่า event มาช้า** (`getInputWatermarkForLateEvents`) และค่าสำหรับ **ลบ state** (`getInputWatermarkForEviction`) เพราะ operator ที่อยู่ท้ายๆ ของแผนอาจเห็นเวลาต่างจากต้นแผน
+- `EventTimeWatermarkExec` (`withWatermark`) ส่งแถวผ่านไปโดยไม่แก้ แต่จะป้อน Event Time ของทุกแถวเข้า `eventTimeStats` และใส่ Delay ลงใน Metadata ของ Column
+- `WatermarkTracker` ถือ Watermark ต่อ Node และ Watermark **ทั่วไป** เป็นมิลลิวินาที โดยเริ่มที่ 0 (ตรงกับ `1970-01-01T00:00:00Z` ใน Progress ของ Batch แรก) หลังจบ Batch จะคำนวณ `watermark = max event time ที่เห็น - delay` และ `markMicroBatchEnd` เรียก `updateWatermark` (`MicroBatchExecution.scala:1406-1408`) ค่านี้ถูกเขียนใน `commits/N` เป็น `nextBatchWatermarkMs` และอยู่ใน `offsets/N+1` เป็น `batchWatermarkMs`
+- ถ้าในแผนมี `withWatermark` หลายจุด Global Watermark จะเลือกตาม `spark.sql.streaming.multipleWatermarkPolicy` (ค่าเริ่มต้น `min`) ซึ่งค่านี้ **เปลี่ยนไม่ได้ระหว่างรีสตาร์ทจาก Checkpoint เดิม**
+- `WatermarkPropagator` ส่งค่าลงไปยัง Operator ที่มี State แต่ละตัว โดยมีสองค่า คือค่าสำหรับ **ตัดสินว่า Event มาช้า** (`getInputWatermarkForLateEvents`) และค่าสำหรับ **ลบ State** (`getInputWatermarkForEviction`) เพราะ Operator ที่อยู่ท้าย ๆ ของแผนอาจเห็นเวลาต่างจากต้นแผน
 
-ผลต่อสิ่งที่เห็น: ที่ batch 0 รับ event 12:00 ถึง 12:03 watermark ที่ batch 0 **ใช้** คือ 0 ค่า 11:53 ที่คำนวณหลังจบ batch 0 จะถูกใช้ครั้งแรกที่ batch 1 นั่นคือเหตุผลที่ต้องมี batch ที่ไม่มีข้อมูล (`spark.sql.streaming.noDataMicroBatches.enabled` ค่าเริ่มต้น true) ถ้าปิดค่านี้ window ที่ถึงเวลาปิดแล้วจะรอจนมีข้อมูลใหม่เข้ามา
+ลองดูผลที่เราเห็น ใน Batch 0 ที่รับ Event 12:00 ถึง 12:03 Watermark ที่ Batch 0 **ใช้** คือ 0 ส่วนค่า 11:53 ที่คำนวณหลังจบ Batch 0 จะถูกใช้ครั้งแรกที่ Batch 1 นี่คือเหตุผลที่ต้องมี Batch ที่ไม่มีข้อมูล (`spark.sql.streaming.noDataMicroBatches.enabled` ค่าเริ่มต้น True) เพราะถ้าปิดค่านี้ Window ที่ถึงเวลาปิดแล้วจะรอจนมีข้อมูลใหม่เข้ามา
 
 </Step>
 
@@ -67,16 +67,16 @@ query ของแต่ละ batch เป็น query ปกติ: `MicroBatc
 
 ## Operator ที่มี State
 
-`StateStoreRestoreExec` และ `StateStoreSaveExec` (`statefulOperators.scala:732-998`) ล้อม aggregation ต่อ partition
+`StateStoreRestoreExec` และ `StateStoreSaveExec` (`statefulOperators.scala:732-998`) ล้อม Aggregation ไว้ในแต่ละ Partition
 
-1. **Restore** คำนวณ key ของแต่ละแถว อ่านค่าสะสมเดิมจาก state store (อ่านอย่างเดียว) แล้วส่งคู่กับแถวใหม่ เพื่อให้ aggregate ด้านบนรวมค่าเก่ากับใหม่
-2. **Save** เขียนผลลง state store และ **ตัดสินว่าส่งอะไรออก** ตาม output mode: `Complete` เขียนทั้งหมดแล้วส่ง state ทั้งหมด, `Append` ส่งเฉพาะ key ที่ถูก watermark ไล่ออก, `Update` ส่งแถวที่เปลี่ยนและลบ key ที่หมดอายุ state ถูก commit ตอน iterator ปิด ซึ่งเพิ่มเวอร์ชันหนึ่ง
+1. **Restore** จะคำนวณ Key ของแต่ละแถว แล้วอ่านค่าสะสมเดิมจาก State Store (อ่านอย่างเดียว) ส่งออกไปคู่กับแถวใหม่ เพื่อให้ Aggregate ด้านบนรวมค่าเก่ากับค่าใหม่ได้
+2. **Save** เขียนผลลง State Store และ **ตัดสินว่าส่งอะไรออก** ตาม Output Mode โดย `Complete` เขียนทั้งหมดแล้วส่ง State ทั้งหมด, `Append` ส่งเฉพาะ Key ที่ถูก Watermark ไล่ออก, `Update` ส่งแถวที่เปลี่ยนและลบ Key ที่หมดอายุ จากนั้น State จะถูก Commit ตอน Iterator ปิด ซึ่งเพิ่มเวอร์ชันหนึ่ง
 
-`StreamingAggregationStateManager` (เวอร์ชัน 1 และ 2 โดยเวอร์ชัน 1 เป็นของเก่า) กำหนดรูปแบบเก็บค่า และ `StateStoreRDD` (`StateStoreRDD.scala:130`) คือ RDD ที่โหลด store ตามเวอร์ชันของ batch ก่อน รันฟังก์ชันอัปเดต แล้ว commit เป็นเวอร์ชันถัดไป
+`StreamingAggregationStateManager` (เวอร์ชัน 1 และ 2 โดยเวอร์ชัน 1 เป็นของเก่า) กำหนดรูปแบบเก็บค่า ส่วน `StateStoreRDD` (`StateStoreRDD.scala:130`) คือ RDD ที่โหลด Store ตามเวอร์ชันของ Batch ก่อน แล้วรันฟังก์ชันอัปเดต จากนั้นถึง Commit เป็นเวอร์ชันถัดไป
 
-ตำแหน่งของ state บนเครื่องที่รัน partition ถูกบันทึกกับ `StateStoreCoordinator` ที่ driver ซึ่งเก็บที่อยู่ของ provider แต่ละตัว เพื่อให้ scheduler วาง task ของ batch ถัดไปไว้ใกล้ state เดิม
+คอมพิวเตอร์ที่รัน Partition จะบันทึกตำแหน่งของ State กับ `StateStoreCoordinator` ที่ Driver ซึ่งเก็บที่อยู่ของ Provider แต่ละตัวไว้ เพื่อให้ Scheduler วาง Task ของ Batch ถัดไปไว้ใกล้ State เดิม
 
-กดเล่นเพื่อดู batch ทีละตัวผ่านสามขั้น และดูไฟล์ใน `state/` ที่เพิ่มขึ้นทีละเวอร์ชัน (สลับ provider เพื่อดูหน้าตาไฟล์ต่างกัน)
+ลองกดเล่นเพื่อดู Batch ทีละตัวผ่านสามขั้น แล้วดูไฟล์ใน `state/` ที่เพิ่มขึ้นทีละเวอร์ชัน (ลองสลับ Provider เพื่อดูว่าหน้าตาไฟล์ต่างกัน)
 
 <StateStoreLab client:visible />
 
@@ -88,12 +88,12 @@ query ของแต่ละ batch เป็น query ปกติ: `MicroBatc
 
 | | `HDFSBackedStateStoreProvider` (ค่าเริ่มต้น) | `RocksDBStateStoreProvider` |
 |---|---|---|
-| ที่เก็บหลัก | memory ของ executor (cache เวอร์ชันล่าสุด) | RocksDB บน disk ของ executor |
-| ไฟล์ใน checkpoint | `.delta` ต่อเวอร์ชัน และ snapshot (รวมเมื่อมี delta อย่างน้อย `minDeltasForSnapshot` = 10, internal) | `.zip` snapshot, `.sst`, changelog |
-| state ใหญ่เกิน memory | ไม่เหมาะ | รับได้ |
-| ความสามารถ | ไม่รองรับ column family, หลายค่าต่อ key, range scan | รองรับ column family, หลายค่าต่อ key, replay จาก snapshot, อ่าน change data |
+| ที่เก็บหลัก | Memory ของ Executor (Cache เวอร์ชันล่าสุด) | RocksDB บน Disk ของ Executor |
+| ไฟล์ใน Checkpoint | `.delta` ต่อเวอร์ชัน และ Snapshot (รวมเมื่อมี Delta อย่างน้อย `minDeltasForSnapshot` = 10, Internal) | `.zip` Snapshot, `.sst`, Changelog |
+| State ใหญ่เกิน Memory | ไม่เหมาะ | รับได้ |
+| ความสามารถ | ไม่รองรับ Column Family, หลายค่าต่อ Key, Range Scan | รองรับ Column Family, หลายค่าต่อ Key, Replay จาก Snapshot, อ่าน Change Data |
 
-จากที่รันจริง: เปลี่ยน provider แล้ว query นับผลเท่าเดิม และ checkpoint มีนามสกุล `.sst`, `.zip` แทน `.delta` เลือก RocksDB เมื่อ state ใหญ่หรือต้องการ operator ใหม่ๆ ที่ต้องใช้ความสามารถเพิ่ม ถ้าเปลี่ยน provider กลางทางของ query ที่มี checkpoint อยู่แล้วจะอ่าน state เก่าไม่ได้ จึงตั้งตั้งแต่เริ่ม (ข้อหลังเป็นข้อควรระวังเชิงหลักการ ยังไม่ได้ทดสอบการเปลี่ยนกลางทาง)
+จากที่รันจริง เมื่อเปลี่ยน Provider Query ยังนับผลได้เท่าเดิม และ Checkpoint มีนามสกุล `.sst`, `.zip` แทน `.delta` เราจึงเลือก RocksDB เมื่อ State ใหญ่ หรือต้องการ Operator ใหม่ ๆ ที่ต้องใช้ความสามารถเพิ่ม ส่วนถ้าเปลี่ยน Provider กลางทางของ Query ที่มี Checkpoint อยู่แล้ว จะอ่าน State เก่าไม่ได้ จึงควรตั้งตั้งแต่เริ่ม (ข้อหลังเป็นข้อควรระวังเชิงหลักการ ยังไม่ได้ทดสอบการเปลี่ยนกลางทาง)
 
 </Step>
 
@@ -101,14 +101,14 @@ query ของแต่ละ batch เป็น query ปกติ: `MicroBatc
 
 ## Trigger ในโค้ด
 
-`MicroBatchExecution` เลือก executor ตามชนิด trigger (บรรทัด 150 เป็นต้นไป)
+`MicroBatchExecution` เลือก Executor ตามชนิด Trigger (บรรทัด 150 เป็นต้นไป)
 
-- `ProcessingTimeTrigger` ใช้ `ProcessingTimeExecutor` เรียก batch ตามขอบเขตเวลา
-- `OneTimeTrigger` ใช้ `SingleBatchExecutor` รัน batch เดียวแล้วจบ ประกาศเลิกใช้ตั้งแต่ 3.4.0 (`Trigger.java:102`) ให้ใช้ `AvailableNow`
-- `AvailableNowTrigger` ใช้ `MultiBatchExecutor` รันต่อเนื่องจนไม่มีข้อมูลค้าง (ใน `executeOneBatch` เมื่อไม่มี batch ให้สร้างและ executor เป็น `MultiBatchExecutor` ก็ตั้ง state เป็น `TERMINATED`, บรรทัด 690-692) ทำให้ query จบเอง
-- `RealTimeTrigger` เป็นโหมดใหม่ที่เพิ่มใน source ของ 4.2 ซึ่งเขียน offset ท้าย batch แทนต้น (comment ใน `markMicroBatchEnd` บรรทัด 1412-1420) ยังไม่ได้ทดสอบ
+- `ProcessingTimeTrigger` ใช้ `ProcessingTimeExecutor` เรียก Batch ตามขอบเขตเวลา
+- `OneTimeTrigger` ใช้ `SingleBatchExecutor` รัน Batch เดียวแล้วจบ ซึ่งประกาศเลิกใช้ตั้งแต่ 3.4.0 (`Trigger.java:102`) ให้ใช้ `AvailableNow` แทน
+- `AvailableNowTrigger` ใช้ `MultiBatchExecutor` รันต่อเนื่องจนไม่มีข้อมูลค้าง (ใน `executeOneBatch` เมื่อไม่มี Batch ให้สร้างและ Executor เป็น `MultiBatchExecutor` ก็ตั้ง State เป็น `TERMINATED`, บรรทัด 690-692) ทำให้ Query จบเอง
+- `RealTimeTrigger` เป็นโหมดใหม่ที่เพิ่มใน Source ของ 4.2 ซึ่งเขียน Offset ท้าย Batch แทนต้น (Comment ใน `markMicroBatchEnd` บรรทัด 1412-1420) และยังไม่ได้ทดสอบ
 
-เมื่อไม่มี batch ที่รันได้และไม่ใช่ `AvailableNow` loop หลับ `pollingDelayMs` แล้วลองใหม่ ซึ่งเป็นสาเหตุที่ status แสดง "Waiting for data to arrive"
+เมื่อไม่มี Batch ที่รันได้และไม่ใช่ `AvailableNow` Loop จะหลับ `pollingDelayMs` แล้วลองใหม่ นี่เป็นสาเหตุที่ Status แสดง "Waiting for data to arrive"
 
 </Step>
 
@@ -116,11 +116,11 @@ query ของแต่ละ batch เป็น query ปกติ: `MicroBatc
 
 ## สิ่งที่ยังไม่ได้พิสูจน์
 
-- stream-stream join, `flatMapGroupsWithState` และ operator ที่มี state แบบอื่น (ยังไม่อยู่ใน knowledge graph และไม่ได้รัน)
-- Kafka source/sink, sink แบบไฟล์ที่ใช้ manifest, `foreachBatch` กับ sink จริงภายนอก
-- การเปลี่ยน state store provider หรือ shuffle partitions ของ query ที่มี checkpoint อยู่แล้ว
-- ขนาด state และความเร็วของ provider ทั้งสองแบบ (ไม่ได้วัด)
-- real-time mode ของ Spark 4.2
-- พฤติกรรมของ S3 และ object store อื่นกับ `HDFSMetadataLog` (อ่านจาก doc ของ class เท่านั้น)
+- Stream-stream Join, `flatMapGroupsWithState` และ Operator ที่มี State แบบอื่น (ยังไม่อยู่ใน Knowledge Graph และไม่ได้รัน)
+- Kafka Source/Sink, Sink แบบไฟล์ที่ใช้ Manifest, `foreachBatch` กับ Sink จริงภายนอก
+- การเปลี่ยน state store provider หรือ Shuffle Partitions ของ Query ที่มี Checkpoint อยู่แล้ว
+- ขนาด State และความเร็วของ Provider ทั้งสองแบบ (ไม่ได้วัด)
+- Real-time Mode ของ Spark 4.2
+- พฤติกรรมของ S3 และ Object Store อื่นกับ `HDFSMetadataLog` (อ่านจาก Doc ของ Class เท่านั้น)
 
 </Step>
