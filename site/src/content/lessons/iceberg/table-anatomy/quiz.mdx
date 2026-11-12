@@ -1,0 +1,62 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจบทนี้แค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="เมื่อ Commit ใหม่เกิดขึ้น ไฟล์ metadata.json ฉบับก่อนหน้าเป็นอย่างไร"
+  options={['ถูกแก้ให้มี Snapshot ใหม่เพิ่มเข้าไป', 'ไม่ถูกแก้ มีไฟล์ฉบับใหม่เกิดขึ้นเพิ่ม และฉบับใหม่จดชื่อฉบับเก่าไว้ใน metadata-log', 'ถูกลบทิ้งทันทีเพราะไม่ใช้แล้ว']}
+  answer={1}
+  why="เราคำนวณ SHA-256 ของ metadata.json ทุกฉบับก่อนและหลัง Commit แล้วได้ค่าเท่าเดิมทุกไฟล์ ไฟล์ใน Iceberg จึงไม่ถูกแก้หลังเขียน การเปลี่ยนแปลงคือการสร้างไฟล์ใหม่ แล้วให้ Catalog ชี้ไปที่ไฟล์ใหม่ ส่วนไฟล์เก่ายังอยู่จนกว่าจะมีคนสั่งลบ (การลบไฟล์เก่าเป็นงานดูแลตาราง)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ตารางมี 3 Snapshot จาก INSERT สามครั้ง Manifest List ของ Snapshot ที่ 3 มีกี่แถว และแถวเหล่านั้นอ้างถึง Manifest ที่เกิดจาก Commit ไหนบ้าง"
+  options={['1 แถว อ้างถึง Manifest ของ Commit ที่ 3 เท่านั้น', '3 แถว อ้างถึง Manifest ของ Commit ที่ 1, 2 และ 3', '3 แถว แต่ทุกแถวเป็น Manifest ใหม่ที่คัดลอกมาจากของเดิม']}
+  answer={1}
+  why="Append ไม่แตะ Manifest เดิม Snapshot ใหม่จึงเอารายการ Manifest ของ Snapshot ก่อนหน้ามาทั้งหมดแล้วเพิ่ม Manifest ใหม่เข้าไปหนึ่งแถว ในแบบฝึกเราเห็นว่า Manifest List ของ Snapshot ที่ 1, 2, 3 มี 1, 2, 3 แถวตามลำดับ และมี Manifest ทั้งหมดบนดิสก์แค่ 3 ไฟล์"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ไฟล์ข้อมูลหนึ่งไฟล์มี order_id ตั้งแต่ 5 ถึง 6 Query ถามหา order_id = 2 Engine ข้ามไฟล์นี้ได้โดยไม่ต้องเปิดอ่านเพราะข้อมูลอะไร"
+  options={['Bounds ของ order_id ใน Manifest (Lower Bound 5, Upper Bound 6) ซึ่ง 2 อยู่นอกช่วง', 'ชื่อไฟล์ที่บอกช่วงของ order_id', 'ค่า record_count ที่เท่ากับ 2']}
+  answer={0}
+  why="Manifest เก็บ lower_bounds และ upper_bounds ของแต่ละ Column ต่อไฟล์ ถ้าค่าที่ค้นอยู่นอกช่วง ไฟล์นั้นก็ไม่มีทางมี Row ที่ตรง Engine จึงข้ามไฟล์ได้ เราถอด Bytes ออกมาได้ 5 กับ 6 และเทียบกับ Parquet จริงแล้วตรงกัน ส่วนชื่อไฟล์เป็นแค่ UUID กับเลขลำดับ ไม่ได้บอกช่วงของข้อมูลเลย"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="สถิติของ Column (value_counts, lower_bounds ฯลฯ) ใน Manifest ใช้อะไรเป็น Key"
+  options={['ชื่อ Column เช่น order_id', 'Field ID ของ Column เช่น 1', 'ลำดับของ Column ในไฟล์ Parquet']}
+  answer={1}
+  why="Key ของ Map สถิติในแบบฝึกเป็นตัวเลข 1, 2, 3 ซึ่งตรงกับ Field ID ใน Schema การใช้ ID แทนชื่อทำให้เปลี่ยนชื่อ Column ได้โดยที่สถิติและไฟล์เก่ายังใช้ได้ ซึ่งเราลองจริงกันใน[บท 3](/iceberg/schema-partitioning/#เปลี่ยนชื่อ-column-แล้วไฟล์เก่าไม่พัง)"
+/>
+
+</Step>

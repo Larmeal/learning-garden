@@ -1,0 +1,62 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจบทนี้แค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="ทำไมการเปลี่ยนชื่อ Column ใน Iceberg จึงไม่ต้องเขียนไฟล์ข้อมูลใหม่ และไฟล์เก่ายังอ่านได้"
+  options={['Iceberg ไล่แก้ชื่อ Column ในไฟล์ Parquet ทุกไฟล์ให้เองเบื้องหลัง', 'Iceberg อ้างอิง Column ด้วย Field ID ซึ่งไม่เปลี่ยนเมื่อเปลี่ยนชื่อ และไฟล์ Parquet เก็บ ID ไว้ข้างใน', 'Iceberg เก็บชื่อ Column เดิมไว้ใน Catalog แล้วแปลงชื่อตอนอ่าน']}
+  answer={1}
+  why="เราเปลี่ยน Price เป็น unit_price แล้วอ่าน Event 10 ได้ 10.5 ตามเดิม โดยไฟล์เก่าไม่ถูกแตะเลย เพราะทั้งสอง Schema ใช้ Field ID 4 และไฟล์ Parquet เก็บ ID นี้ไว้ใน Schema ของมันเองอยู่แล้ว ไม่มีการแก้ไฟล์ และ Catalog ก็เก็บแค่ตำแหน่งของ metadata.json"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ตารางประกาศ PARTITIONED BY (Days(ts)) ผู้ใช้ควรเขียน Query ที่ต้องการดูข้อมูลวันที่ 2 อย่างไรให้ข้าม Partition ของวันอื่น"
+  options={['WHERE ts >= วันที่ 2 AND ts < วันที่ 3 กรองด้วย Column ts ตามปกติ', 'WHERE ts_day = วันที่ 2 เพราะต้องกรองด้วยชื่อ Partition', 'ต้องสร้าง Column วันที่ขึ้นเองตอนเขียนข้อมูลแล้วค่อยกรองด้วย Column นั้น']}
+  answer={0}
+  why="นี่คือ Hidden Partitioning ts_day ไม่ได้เป็น Column ของตาราง ผู้ใช้แค่กรองด้วย ts แล้ว Iceberg จะแปลงเงื่อนไขเป็น Partition ให้เอง ในแบบฝึกเราให้ PyIceberg วางแผนด้วยเงื่อนไขกับ ts แล้วเลือกได้ 1 ไฟล์จาก 5 ไฟล์ ส่วนตัวเลือกที่สองจะ Error เพราะไม่มี Column ชื่อ ts_day และตัวเลือกที่สามเป็นวิธีของตารางแบบ Hive ซึ่งในกรณีนี้ไม่จำเป็นอีกแล้ว"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ตาราง Events Partition ด้วย Days(ts) แต่ละไฟล์มี Country ทั้ง TH และ US ผสมกัน Query WHERE country = 'TH' ต้องเปิดกี่ไฟล์จาก 5 ไฟล์"
+  options={['1 ไฟล์ เพราะ Iceberg รู้ว่า TH อยู่ที่ไหน', 'ทั้ง 5 ไฟล์ เพราะ Country ไม่ได้ถูกใช้แบ่ง Partition และ Min/Max ของแต่ละไฟล์ครอบคลุม TH อยู่แล้ว ตัดไฟล์ไหนไม่ได้', '0 ไฟล์ เพราะต้องกรองด้วย Partition ก่อน']}
+  answer={1}
+  why="เราวัดได้ 5 ไฟล์ การข้ามไฟล์มีสองทาง คือค่า Partition กับสถิติ Min/Max ใน Manifest แต่ข้อมูลของเราสลับ TH กับ US อยู่ในทุกไฟล์ ช่วง Min/Max ของ Country ทุกไฟล์จึงครอบคลุม TH เอาไว้หมด ถ้าข้อมูลของ TH รวมกันอยู่ในไฟล์ไม่กี่ไฟล์ สถิติจะช่วยข้ามได้มากกว่านี้ (ส่วนนี้เป็นข้อสังเกตของผู้เขียนนะ ยังไม่ได้ทดลอง)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Spark คำนวณ Bucket(4, user_id) ได้ 3 สำหรับ user_id 103 ถ้า PyIceberg เขียนแถวของ User 103 ลงตารางเดียวกัน มันจะวางไว้ใน Bucket ไหน"
+  options={['Bucket 3 เหมือนกัน เพราะ Spec กำหนด Hash (Murmur3) และวิธีหารเศษไว้ตายตัว ทุก Engine จึงได้ผลเดียวกัน', 'ไม่แน่นอน เพราะแต่ละไลบรารีเลือก Hash ของตัวเอง', 'Bucket 0 เสมอ เพราะ PyIceberg ไม่รองรับ Bucket']}
+  answer={0}
+  why="เราคำนวณ Bucket ด้วยฟังก์ชันของ Spark และด้วย BucketTransform ของ PyIceberg กับ user_id 101, 103, 106, 107 ได้ 0, 3, 2, 1 ตรงกันทุกตัว ถ้า Engine ต่างกันคำนวณ Bucket ไม่เหมือนกัน ข้อมูลของ User คนเดียวกันจะกระจายอยู่หลาย Partition และ Query ที่ใช้เงื่อนไข user_id ก็จะข้ามไฟล์ผิดพลาดไปด้วย"
+/>
+
+</Step>

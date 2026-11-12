@@ -1,0 +1,202 @@
+---
+title: Time Travel, Branch และ Tag
+summary: อ่านตารางย้อนหลังตาม Snapshot หรือเวลา ตั้งชื่อให้ Snapshot ด้วย Tag แยกงานทดลองด้วย Branch ย้อนตารางด้วย Rollback เผยแพร่ข้อมูลที่ตรวจแล้วด้วย Write-Audit-Publish และดูการเปลี่ยนแปลงด้วย Changelog
+order: 8
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [evolution]
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import BranchLab from '../../../../components/labs/iceberg/BranchLab';
+
+<Step>
+
+## ทุก Snapshot คือหนังสือฉบับเก่าที่ยังเปิดได้
+
+เพราะไฟล์ของ Iceberg ไม่เคยถูกแก้ ทุกครั้งที่ Commit จึงมีสารบัญฉบับใหม่เกิดขึ้น และสารบัญฉบับเก่ายังชี้ไปหน้าเก่าได้เสมอ ตราบที่ยังไม่มีใครลบไฟล์ ทำให้เราอ่านตารางตามที่เป็นในอดีตได้ เรียกว่า **Time Travel** (รัน: `exercises/08_time_travel.py`)
+
+เราสร้างตาราง `t` แล้วเขียนสามครั้ง ครั้งละ 2, 1 และ 2 Row จนได้ 3 Snapshot (`s1`, `s2`, `s3`) และ Row ทั้งหมด 5 Row
+
+```python
+spark.sql(f"SELECT id FROM lab.db.t VERSION AS OF {s1}")                   # 1, 2
+spark.sql(f"SELECT id FROM lab.db.t FOR SYSTEM_VERSION AS OF {s2}")        # 1, 2, 3
+spark.sql("SELECT id FROM lab.db.t TIMESTAMP AS OF TIMESTAMP'2026-... 12:00:00.600'")   # เวลาที่อยู่หลัง Commit ที่ 2 ก่อน Commit ที่ 3
+```
+
+`VERSION AS OF` ใช้ Snapshot ID ส่วน `TIMESTAMP AS OF` หา Snapshot ที่เป็นปัจจุบัน ณ เวลานั้น (แบบฝึกตั้ง Timezone ของ Session เป็น UTC เพื่อให้ Timestamp Literal ไม่เพี้ยน) และ PyIceberg ทำได้เหมือนกัน คือ `t.scan(snapshot_id=s1)` และ `t.snapshot_as_of_timestamp(เวลาเป็น ms)`
+
+ถ้าเราอ่านด้วย DataFrame ของ Spark 4.1 กับ Iceberg 1.12.0 ให้ใช้ `spark.read.option("versionAsOf", s2)` แบบฝึกลองใช้ Option `snapshot-id` แบบเก่าแล้ว Spark ปฏิเสธว่า `Time travel option snapshot-id is no longer supported, use Spark built-in versionAsOf instead` ถ้าคุณมีโค้ดเก่าที่ใช้ Option นั้น ควรเปลี่ยน
+
+</Step>
+
+<Step>
+
+## Tag ตั้งชื่อให้ Snapshot
+
+ตัวเลข Snapshot ID จำยาก เราจึงตั้งชื่อให้ได้ด้วย **Tag** และกำหนดได้ด้วยว่าจะเก็บไว้นานเท่าไร
+
+```python
+spark.sql(f"ALTER TABLE lab.db.t CREATE TAG before_cleanup AS OF VERSION {s2} RETAIN 30 DAYS")
+spark.sql("SELECT id FROM lab.db.t VERSION AS OF 'before_cleanup'")     # 1, 2, 3
+```
+
+ตาราง `.refs` ลิสต์ชื่ออ้างอิงทั้งหมดของตาราง ตอนนี้มีสองอัน
+
+```text
+main            BRANCH   -> s3
+before_cleanup  TAG      -> s2
+```
+
+`main` คือ Branch ปัจจุบันที่เราเขียนอยู่ตลอด ส่วน Tag คือชื่อที่ชี้ Snapshot ไว้เฉย ๆ ไม่ขยับเมื่อมี Commit ใหม่ ประโยชน์ที่สำคัญคือ Tag กันไม่ให้ Snapshot นั้นถูกลบตอนดูแลตาราง (ตามอายุที่ตั้ง `RETAIN`) ซึ่งเราจะใช้ในบทดูแลตาราง
+
+</Step>
+
+<Step>
+
+## Branch แยกเส้นสำหรับงานที่ยังไม่แน่ใจ
+
+**Branch** คือเส้นประวัติอีกสายหนึ่งที่ Commit ใหม่ต่อได้โดยไม่ขยับ `main` เหมาะกับการลองเขียนข้อมูลแล้วตรวจก่อนเผยแพร่
+
+```python
+spark.sql("ALTER TABLE lab.db.t CREATE BRANCH audit")
+spark.sql("INSERT INTO lab.db.t.branch_audit VALUES (100, 'try')")
+```
+
+อ่านจาก `main` ได้ `[1, 2, 3, 4, 5]` เท่าเดิม แต่อ่านจาก Branch ได้ `[1, 2, 3, 4, 5, 100]` ด้วย `VERSION AS OF 'audit'` PyIceberg ก็เขียนลง Branch ได้ผ่าน `t.append(df, branch="audit")` แล้วฝั่งนั้นอ่านได้ 7 Row ขณะที่ `main` ยังมี 5 Row
+
+เมื่อตรวจเสร็จแล้วอยากเผยแพร่ เราให้ `main` เลื่อนไปที่ปลายของ Branch
+
+```python
+spark.sql("CALL lab.system.fast_forward('db.t', 'main', 'audit')")
+```
+
+หลังจากนั้น `main` เห็น Row 100 และ 101 ครบ แล้วเราลบ Branch ทิ้งได้ด้วย `DROP BRANCH audit` Fast Forward ทำได้เมื่อ `main` ยังอยู่ที่จุดที่ Branch แตกออกไป ถ้ามี Commit บน `main` เพิ่มระหว่างนั้น ตัวเลือกจะซับซ้อนกว่านี้ ซึ่งเรายังไม่ได้ทดลอง
+
+</Step>
+
+<Step>
+
+## ดูป้ายขยับ
+
+ลองกดไล่ทีละขั้น แล้วดูว่าแต่ละคำสั่งย้ายป้ายไหน และ Snapshot (จุดบนเส้น) ถูกลบหรือเปล่า จากนั้นดูสองบรรทัดด้านล่างว่าผู้อ่านเห็น id อะไรบ้าง
+
+<BranchLab client:visible />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เขียน INSERT ลง Branch ชื่อ Audit แล้วคนอื่นที่อ่านตารางตามปกติ (Branch หลัก) จะเห็นอะไร"
+  options={['เห็น Row ใหม่ทันทีเพราะอยู่ในตารางเดียวกัน', 'ไม่เห็น เพราะ Branch หลักยังชี้ Snapshot เดิม จนกว่าจะ Fast Forward หรือ Merge', 'เห็นแค่ครึ่งเดียว']}
+  answer={1}
+  why="เราอ่าน Branch หลักได้ 5 Row เท่าเดิมหลังเขียนลง Branch และอ่านผ่าน VERSION AS OF 'audit' ได้ 6 Row Branch คือตัวชี้อีกอันใน metadata.json ที่ชี้ไป Snapshot ของตัวเอง การเขียนลง Branch จึงไม่แตะ Branch หลัก"
+/>
+
+</Step>
+
+<Step>
+
+## Rollback ย้ายตัวชี้ ไม่ได้ลบอะไร
+
+ถ้า Commit ล่าสุดมีปัญหา เรากลับไปสถานะก่อนหน้าได้ด้วย Procedure
+
+```python
+spark.sql(f"CALL lab.system.rollback_to_snapshot('db.t', {s2})")     # main กลับไปที่ s2: 1, 2, 3
+spark.sql(f"CALL lab.system.set_current_snapshot('db.t', {s3})")     # ไปข้างหน้าอีกครั้ง
+```
+
+หลัง Rollback ตารางอ่านได้ `[1, 2, 3]` แต่ตาราง `.snapshots` ยังมี Snapshot ครบเท่าเดิม และ `.history` บอกว่า `s3` ไม่ได้อยู่บนสายของ `main` ปัจจุบันอีกแล้ว (`is_current_ancestor = false`) แต่ข้อมูลของมันยังอยู่ ทำให้เรา `set_current_snapshot` ไปข้างหน้ากลับได้ นี่คือเหตุผลที่ Rollback ปลอดภัยแต่ไฟล์จะไม่หายไปจนกว่าจะลบ Snapshot (เรื่อง `expire_snapshots` อยู่ในบทดูแลตาราง)
+
+</Step>
+
+<Step>
+
+## Write-Audit-Publish ด้วย Snapshot ที่ยังไม่เผยแพร่
+
+อีกวิธีที่ไม่ต้องใช้ Branch คือเขียนแบบ **Staged** ตั้งค่า `write.wap.enabled` ที่ตาราง แล้วบอก Spark ว่างานรอบนี้มีรหัส
+
+```python
+spark.sql("ALTER TABLE lab.db.t SET TBLPROPERTIES ('write.wap.enabled' = 'true')")
+spark.conf.set("spark.wap.id", "batch-42")
+spark.sql("INSERT INTO lab.db.t VALUES (200, 'staged')")
+```
+
+Snapshot ที่เกิดขึ้นถูกจดไว้ว่า `wap.id = batch-42` แต่ไม่ใช่ Snapshot ปัจจุบัน ผู้อ่านจึงยังเห็นแค่ `[1, 2, 3, 4, 5]` เราตรวจข้อมูลก้อนนั้นได้ตามสบาย (เช่นเปิดผ่าน `VERSION AS OF` ด้วย Snapshot ID) พอผ่านก็เผยแพร่ด้วย
+
+```python
+spark.sql(f"CALL lab.system.cherrypick_snapshot('db.t', {staged})")
+```
+
+หลัง Cherrypick ผู้อ่านเห็น Row 200 ทันที สังเกตว่าทั้งสามขั้น คือเขียน ตรวจ และเผยแพร่ เกิดจากการเปลี่ยนตัวชี้เท่านั้น ไม่มีการคัดลอกข้อมูล
+
+</Step>
+
+<Step>
+
+## Changelog ดูว่าอะไรเปลี่ยนไป
+
+เมื่ออยากรู้ว่าระหว่างสอง Snapshot มี Row ไหนเข้าและออก Procedure `create_changelog_view` สร้าง View ให้
+
+```python
+spark.sql("INSERT INTO lab.db.t VALUES (300, 'new')")
+spark.sql("DELETE FROM lab.db.t WHERE id = 1")
+spark.sql(f"CALL lab.system.create_changelog_view(table => 'db.t', options => map('start-snapshot-id', '{start}'), changelog_view => 'changes')")
+spark.sql("SELECT id, _change_type, _change_ordinal FROM changes ORDER BY _change_ordinal, id")
+```
+
+```text
++---+------------+---------------+
+|id |_change_type|_change_ordinal|
++---+------------+---------------+
+|300|INSERT      |0              |
+|1  |DELETE      |1              |
++---+------------+---------------+
+```
+
+แต่ละ Commit ได้เลขลำดับของมัน (`_change_ordinal`) และ Row ที่เพิ่มเป็น `INSERT` ที่ลบเป็น `DELETE` ซึ่งใช้ต่อกับระบบปลายทางที่ต้องการรับเฉพาะส่วนที่เปลี่ยน (ตัวอย่างนี้ไม่ได้ทดลองกรณี `UPDATE` ที่ต้องตั้ง Identifier Column)
+
+มีข้อจำกัดที่เราเจอตอนทำ[บท 14](/iceberg/capstone/) คือ Changelog View อ่านช่วง Snapshot ที่มี Delete File จาก Merge-on-read ไม่ได้ Spark แจ้งว่า `Delete files are currently not supported in changelog scans` ตารางที่ตั้ง Merge-on-read จึงใช้ Changelog ในช่วงที่มีการลบหรือแก้ไม่ได้
+
+<Callout type="warn" title="Time Travel อยู่ได้เท่าที่ Snapshot ยังอยู่">
+Snapshot เก่าจะอ่านได้ก็ต่อเมื่อไฟล์ของมันยังอยู่ งานดูแลตารางที่ลบ Snapshot เก่า (เรียก `expire_snapshots`) ทำให้ย้อนไปจุดนั้นไม่ได้อีก Tag และ Branch จึงเป็นวิธีขอให้ระบบเก็บ Snapshot สำคัญไว้
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="หลัง rollback_to_snapshot ไปที่ Snapshot เก่า ตาราง Snapshots เป็นอย่างไร"
+  options={['Snapshot ที่อยู่หลังจุดนั้นถูกลบออกจากตาราง', 'จำนวน Snapshot เท่าเดิม แต่ตัวชี้ของ Branch หลักย้ายไปที่ Snapshot เก่า', 'ตารางว่างเปล่า']}
+  answer={1}
+  why="เรานับ Snapshot ก่อนและหลัง Rollback ได้เท่ากัน และตาราง History บอกว่า Snapshot ที่ถูก Rollback ไม่ได้อยู่บนสายปัจจุบันแล้ว เราไปข้างหน้าอีกครั้งด้วย set_current_snapshot ได้ เพราะข้อมูลยังอยู่"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| `VERSION AS OF`, `FOR SYSTEM_VERSION AS OF`, `TIMESTAMP AS OF` ใน Spark; `scan(snapshot_id=)` และ `snapshot_as_of_timestamp` ใน PyIceberg | รัน: `exercises/08_time_travel.py` |
+| DataFrame ใช้ `versionAsOf` และ Option `snapshot-id` ถูกปฏิเสธใน Spark 4.1.3 กับ Iceberg 1.12.0 | รัน: `exercises/08_time_travel.py` |
+| Tag ชื่อ `before_cleanup` และตาราง `.refs` | รัน: `exercises/08_time_travel.py` |
+| Branch รับ Commit โดย `main` ไม่ขยับ; PyIceberg เขียนลง Branch ได้; `fast_forward` | รัน: `exercises/08_time_travel.py` |
+| `rollback_to_snapshot` ไม่ลบ Snapshot และ `set_current_snapshot` ไปข้างหน้าได้ | รัน: `exercises/08_time_travel.py` |
+| WAP ด้วย `write.wap.enabled`, `spark.wap.id` และ `cherrypick_snapshot` | รัน: `exercises/08_time_travel.py` |
+| Changelog View แสดง `INSERT` และ `DELETE` พร้อมลำดับ Commit | รัน: `exercises/08_time_travel.py` |
+| Tag ช่วยกัน `expire_snapshots` ลบ Snapshot | Docs (ไม่ได้รันในบทนี้ ดูบทดูแลตาราง) |
+| Fast Forward เมื่อ `main` ขยับไปแล้ว; Changelog ของ `UPDATE` | ผู้เขียน (ไม่ได้ทดลอง) |
+
+</Step>

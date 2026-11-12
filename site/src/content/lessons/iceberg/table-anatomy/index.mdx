@@ -1,0 +1,212 @@
+---
+title: ข้างในตาราง
+summary: ไล่จาก metadata.json ลงไปถึง Parquet ด้วยมือผ่าน Snapshot, Manifest List และ Manifest เพื่อเห็นว่าไฟล์แต่ละชั้นเก็บอะไร ทำไม Commit ถึงเขียนไฟล์น้อย และสถิติของ Column ถูกเก็บไว้ที่ไหน
+order: 2
+phase: A
+level: 2
+stage: sprout
+format: steps
+requires: [what-is-iceberg]
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import TreeLab from '../../../../components/labs/iceberg/TreeLab';
+
+<Step>
+
+## ไล่จากป้ายบนชั้นไปถึงหน้ากระดาษ
+
+ใน[บท 1](/iceberg/what-is-iceberg/#catalog-เก็บแค่-pointer) เราเห็นแล้วว่า Catalog ชี้ไปที่ `metadata.json` และ `metadata.json` ก็ชี้ต่อไปยังไฟล์ที่เหลือ บทนี้เราจะเดินตามลูกศรทั้งหมดด้วยมือ โดยไม่ใช้ไลบรารีของ Iceberg เลย ใช้แค่ `json` อ่านไฟล์ JSON, `fastavro` อ่านไฟล์ Avro และ `pyarrow` อ่านไฟล์ Parquet สิ่งที่เราเห็นจึงเป็นสิ่งที่เขียนอยู่บนดิสก์จริง ๆ (รัน: `exercises/02_table_anatomy.py`)
+
+ตารางที่เราใช้คือ `orders` ที่ไม่มี Partition มี 3 Column และเรา `INSERT` สามครั้ง ครั้งละ 2 Row
+
+```python
+spark.sql("CREATE TABLE lab.db.orders (order_id bigint, customer string, amount double) USING iceberg")
+spark.sql("INSERT INTO lab.db.orders VALUES (1, 'ann', 120.0), (2, 'bob', 80.5)")
+spark.sql("INSERT INTO lab.db.orders VALUES (3, 'ann', 42.0), (4, 'cara', 300.0)")
+spark.sql("INSERT INTO lab.db.orders VALUES (5, 'dan', 10.0), (6, 'eve', 999.0)")
+```
+
+เมื่อจบเราได้ไฟล์ทั้งหมดนี้ แบ่งตามชนิด
+
+```text
+files by kind: {'data': 3, 'metadata.json': 4, 'manifest': 3, 'manifest list': 3}
+```
+
+ก็คือไฟล์ข้อมูลสามไฟล์ (ครั้งละหนึ่งไฟล์) `metadata.json` สี่ฉบับ (หนึ่งฉบับตอน `CREATE` กับอีกสามฉบับตอน `INSERT`) Manifest สามไฟล์ และ Manifest List สามไฟล์ เดี๋ยวเราจะเปิดดูทีละชั้น
+
+</Step>
+
+<Step>
+
+## ชั้นที่ 1: `metadata.json` กับ Snapshot
+
+เปิด `metadata.json` ฉบับล่าสุด เราจะเจอ `snapshots` สามอัน และ `current-snapshot-id` ที่ชี้ไปอันสุดท้าย แต่ละ Snapshot บอกสถานะของตารางหนึ่งช่วงเวลา และมีลิงก์ไป Manifest List ของมันเอง
+
+```text
+current snapshot: {'snapshot-id': 7182852630908158332, 'parent-snapshot-id': 9155986098875928415, 'sequence-number': 3}
+                  -> snap-7182852630908158332-1-d1c62e09-....avro
+```
+
+`parent-snapshot-id` ทำให้ Snapshot ต่อกันเป็นสาย ส่วน `sequence-number` เป็นเลขลำดับของ Commit ที่เพิ่มทีละหนึ่ง ตัวเลขใหญ่ ๆ ของ `snapshot-id` สุ่มขึ้นมา จึงใช้เรียงลำดับไม่ได้ ต้องใช้ `sequence-number` ในส่วน `refs` มีชื่อ `main` ซึ่งเป็น Branch ปัจจุบันของตาราง ชี้ไปที่ Snapshot นี้ ถ้าเราเปรียบกับหนังสือ Branch `main` ก็คือ "ฉบับที่ใช้อยู่" ส่วน Snapshot อื่นคือฉบับเก่าที่ยังเก็บไว้
+
+มีอีกจุดที่ตรวจแล้วไม่เปลี่ยน คือก่อนจะ `INSERT` ครั้งที่สาม เราคำนวณ SHA-256 ของ `metadata.json` ทุกฉบับที่มีไว้ แล้วคำนวณซ้ำหลัง Commit ปรากฏว่าค่าเท่ากันทุกไฟล์ นั่นคือ Commit ใหม่ **ไม่เคยแก้ไฟล์เก่า** มีแต่สร้างไฟล์ใหม่เพิ่ม และเมื่อ `metadata.json` ฉบับใหม่มี `metadata-log` ที่ไล่ชื่อฉบับเก่าทั้งหมด ฉบับล่าสุดก็ย้อนดูประวัติได้เองโดยไม่ต้องถาม Catalog
+
+</Step>
+
+<Step>
+
+## ชั้นที่ 2: Manifest List
+
+Snapshot แต่ละอันชี้ไปที่ไฟล์ Avro หนึ่งไฟล์ที่ขึ้นต้นด้วย `snap-` ซึ่งก็คือ **Manifest List** ข้างในมีหนึ่งแถวต่อหนึ่ง Manifest เราเปิดของทั้งสาม Snapshot แล้วนับแถว
+
+```text
+snapshot 1: manifest list has 1 manifest(s)
+snapshot 2: manifest list has 2 manifest(s)
+snapshot 3: manifest list has 3 manifest(s)
+```
+
+`INSERT` แต่ละครั้งเพิ่ม Manifest ใหม่หนึ่งไฟล์ แล้วนำ Manifest ของ Snapshot ก่อนหน้ามาใช้ซ้ำทั้งหมด แถวหนึ่งแถวของ Manifest List หน้าตาแบบนี้ (แถวของ Snapshot ล่าสุด)
+
+```text
+{'manifest_length': 7126, 'content': 0, 'sequence_number': 3, 'min_sequence_number': 3,
+ 'added_files_count': 1, 'existing_files_count': 0, 'deleted_files_count': 0, 'added_rows_count': 2}
+```
+
+`content: 0` แปลว่า Manifest นี้ลิสต์ไฟล์ข้อมูล (ถ้าเป็น `1` จะลิสต์ไฟล์ Delete ซึ่งเราจะเจอใน[บท 6](/iceberg/row-level/)) ตัวเลข `added_files_count`, `existing_files_count` และ `deleted_files_count` บอกว่า Manifest นี้เพิ่ม คงไว้ หรือเอาไฟล์ออกกี่ไฟล์ ทำให้ Engine ตัดสินใจข้าม Manifest ทั้งก้อนได้โดยไม่ต้องเปิดอ่าน และยังมี `partitions` ซึ่งเก็บช่วงค่า Partition ของไฟล์ทั้งหมดใน Manifest นั้นด้วย (ตารางนี้ไม่มี Partition แบบฝึกจึงเห็นเป็นรายการว่าง)
+
+</Step>
+
+<Step>
+
+## ลองเอง: ต้นไม้ไฟล์งอกตาม Commit
+
+ลองกดปุ่ม Append ทีละครั้ง แล้วดูว่าไฟล์ไหนเกิดใหม่ (ไฮไลต์สีส้ม) และไฟล์ไหนถูกใช้ซ้ำ จากนั้นเลือก Snapshot ที่อยากให้ผู้อ่านเปิด เส้นที่ไฮไลต์คือทางที่ผู้อ่านเดินจาก Manifest List ไปถึง Data File และลองกด "รวม Manifest" ดูด้วยว่า Snapshot ถัดไปจะชี้ Manifest กี่ไฟล์
+
+<TreeLab client:visible />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="หลัง INSERT ครบสามครั้ง ในโฟลเดอร์ Metadata มีไฟล์ Manifest (ลงท้าย -m0.avro) ทั้งหมดกี่ไฟล์"
+  options={['6 ไฟล์ เพราะ Manifest List ของแต่ละ Snapshot ต้องมี Manifest เป็นของตัวเอง 1 + 2 + 3 ไฟล์', '3 ไฟล์ เพราะ Snapshot ที่ใหม่กว่าชี้ไปที่ Manifest เก่าซ้ำได้ และเขียนใหม่เฉพาะอันที่ Commit นั้นสร้าง', '1 ไฟล์ เพราะ Iceberg รวม Manifest ทุกครั้งที่ Commit']}
+  answer={1}
+  why="เรานับได้ 3 ไฟล์ และตรวจว่าเซตของ Manifest ใน Snapshot ที่ 1 เป็นส่วนย่อยของ Snapshot ที่ 2 ซึ่งก็เป็นส่วนย่อยของ Snapshot ที่ 3 Manifest ไม่ถูกแก้หลังเขียน จึงแชร์กันระหว่าง Snapshot ได้ นี่คือเหตุผลที่ Commit เขียนไฟล์น้อยมาก คือ Manifest ใหม่หนึ่งไฟล์ กับ Manifest List ใหม่หนึ่งไฟล์ Iceberg จะรวม Manifest เล็ก ๆ ให้เองเมื่อจำนวนถึงเกณฑ์ (`commit.manifest.min-count-to-merge` ค่าเริ่มต้น 100 ตามที่อ่านจาก Source เรายังไม่ได้ทดลองถึงเกณฑ์นี้) และเราสั่งรวมเองได้ด้วย"
+/>
+
+</Step>
+
+<Step>
+
+## ชั้นที่ 3: Manifest
+
+Manifest ก็เป็นไฟล์ Avro ที่มีหนึ่งแถวต่อหนึ่งไฟล์ข้อมูล เราเปิด Manifest ของ `INSERT` ครั้งสุดท้าย แล้วดูแถวเดียวที่มี
+
+```text
+manifest entry: {'status': 1, 'snapshot_id': 7182852630908158332, 'sequence_number': None}
+data_file keys: ['column_sizes', 'content', 'equality_ids', 'file_format', 'file_path', 'file_size_in_bytes',
+  'key_metadata', 'lower_bounds', 'nan_value_counts', 'null_value_counts', 'partition', 'record_count',
+  'referenced_data_file', 'sort_order_id', 'split_offsets', 'upper_bounds', 'value_counts']
+```
+
+`status: 1` แปลว่าไฟล์นี้ถูก **เพิ่ม** (ADDED) โดย Snapshot นั้น ค่าอื่นของ `status` คือ `0` (EXISTING) และ `2` (DELETED) สังเกตว่า `sequence_number` ใน Entry เป็น `None` ไม่ได้หายไปไหน Entry ไม่เก็บเลขของตัวเอง แต่ **สืบทอด** มาจากแถวของ Manifest นั้นใน Manifest List (ซึ่งมี `sequence_number: 3`) ตัวเลขนี้จึงถูกเขียนครั้งเดียวต่อ Commit
+
+ส่วน `data_file` ก็คือคำอธิบายของไฟล์ข้อมูลหนึ่งไฟล์ ซึ่งแบบฝึกยืนยันว่า `file_format` เป็น `PARQUET`, `record_count` เป็น 2, `file_size_in_bytes` ตรงกับขนาดจริงของไฟล์บนดิสก์ และ `content` เป็น `0` (ไฟล์ข้อมูล) สิ่งที่น่าสนใจที่สุดคือสถิติของแต่ละ Column ได้แก่ `value_counts`, `null_value_counts`, `lower_bounds` และ `upper_bounds` ซึ่งใช้ **Field ID** เป็น Key ไม่ใช่ชื่อ Column ค่าของ Bounds ถูกเก็บเป็น Bytes เราถอดออกมาได้แบบนี้
+
+```python
+struct.unpack("<q", lo[1])   # order_id: long เป็น 8 bytes little-endian
+struct.unpack("<d", lo[3])   # amount: double เป็น 8 bytes little-endian
+lo[2].decode()               # customer: string เป็น UTF-8
+```
+
+```text
+bounds from the manifest: {'order_id': (5, 6), 'customer': ('dan', 'eve'), 'amount': (10.0, 999.0)}
+```
+
+ไฟล์นี้มี Row ที่ 5 กับ 6 ค่าต่ำสุดจึงเป็น 5 ส่วนค่าสูงสุดเป็น 6 ทั้ง `customer` และ `amount` ก็เช่นกัน ข้อมูลพวกนี้แหละที่ทำให้ Engine ตัดสินใจ **ไม่เปิดไฟล์** ได้ เช่นถ้า Query ถามหา `order_id = 2` ไฟล์นี้ที่มีช่วง 5 ถึง 6 ก็ข้ามไปได้เลย เราจะใช้มันจริง ๆ ใน[บท 5](/iceberg/reading/)
+
+</Step>
+
+<Step>
+
+## เช็กกับไฟล์ Parquet
+
+ตัวเลข Bounds ใน Manifest ถูกต้องไหม เราเปิดไฟล์ Parquet นั้นด้วย `pyarrow` ตรง ๆ แล้วหา Min กับ Max เอง
+
+```python
+t = pq.read_table(path)
+t.column("order_id").to_pylist()                  # [5, 6]
+min(t["amount"].to_pylist()), max(t["amount"].to_pylist())   # (10.0, 999.0)
+```
+
+ได้ค่าเท่ากับที่อยู่ใน Manifest ทุกตัว อีกจุดที่แบบฝึกตรวจคือ Schema ของไฟล์ Parquet เอง มันเก็บ Field ID ไว้ด้วย (`PARQUET:field_id`) โดย `order_id` เป็น 1, `customer` เป็น 2 และ `amount` เป็น 3 ตรงกับ Schema ใน `metadata.json` ทุกประการ ทำให้ไฟล์ข้อมูลอ่านได้ถูกต้องแม้ชื่อ Column จะเปลี่ยนไปในภายหลัง เรื่องนี้เราจะลองกันใน[บท 3](/iceberg/schema-partitioning/#field-id-คือสิ่งที่-iceberg-ใช้อ้างอิง-column)
+
+<Callout type="note" title="สถิติใน Manifest เป็นการเก็บค่าตอนเขียน">
+Bounds เป็นค่าที่ Writer คำนวณตอนเขียนไฟล์ และ Iceberg ถือว่าเชื่อได้เพื่อใช้ข้ามไฟล์ ตัวอย่างนี้เราตรวจเทียบกับ Parquet แล้วตรงกัน แต่ถ้า Writer บางตัวไม่เก็บสถิติของบาง Column (ตั้ง Metrics Mode ได้) ค่าเหล่านั้นก็จะไม่มี และ Engine จะข้ามไฟล์ด้วย Column นั้นไม่ได้ ส่วนนี้ยังไม่ได้ทดลอง
+</Callout>
+
+</Step>
+
+<Step>
+
+## Spark เล่าเรื่องเดียวกันผ่าน Metadata Table
+
+เราไม่ต้องเปิด Avro เองทุกครั้ง Spark ให้ตารางพิเศษที่อ่านจาก Metadata ชุดเดียวกัน ต่อท้ายชื่อตารางด้วย `.snapshots`, `.manifests` หรือ `.files`
+
+```python
+spark.sql("SELECT snapshot_id, parent_id, operation FROM lab.db.orders.snapshots ORDER BY committed_at").show()
+spark.sql("SELECT length, partition_spec_id, content, added_data_files_count AS added, existing_data_files_count AS existing "
+          "FROM lab.db.orders.manifests").show()
+```
+
+```text
++-------------------+-------------------+---------+     +------+-----------------+-------+-----+--------+
+|snapshot_id        |parent_id          |operation|     |length|partition_spec_id|content|added|existing|
++-------------------+-------------------+---------+     +------+-----------------+-------+-----+--------+
+|3547069458439888680|NULL               |append   |     |7126  |0                |0      |1    |0       |
+|9155986098875928415|3547069458439888680|append   |     |7128  |0                |0      |1    |0       |
+|7182852630908158332|9155986098875928415|append   |     |7128  |0                |0      |1    |0       |
++-------------------+-------------------+---------+     +------+-----------------+-------+-----+--------+
+```
+
+แบบฝึกยืนยันว่า `snapshot_id` ที่ Spark ให้ ตรงกับที่เราอ่านจาก `metadata.json` เอง ตาราง `.files` ก็คืนรายชื่อไฟล์ข้อมูลเซตเดียวกับที่เราไล่ได้จาก Manifest ทั้งสามไฟล์ (3 ไฟล์ ไฟล์ละ 2 Row) ถ้าสงสัยว่าตารางมีอะไรอยู่ข้างใน ตารางพวกนี้คือจุดเริ่มต้นที่เร็วที่สุด และ PyIceberg ก็มีของที่คล้ายกันผ่าน `table.inspect` ซึ่งเราจะใช้ในบทถัด ๆ ไป
+
+</Step>
+
+<Step>
+
+## ทำไมต้องแยกเป็นหลายชั้น
+
+เมื่อรู้แล้วว่าแต่ละชั้นมีอะไร คำถามที่ควรถามคือ ทำไมไม่เก็บรายชื่อไฟล์ทั้งหมดใน `metadata.json` ไฟล์เดียวเลย ส่วนตัวผู้เขียนเห็นเหตุผลสามข้อจากสิ่งที่เราเพิ่งดูกัน ซึ่งเป็นความเห็นของผู้เขียนเอง ไม่ได้มาจาก Spec นะ
+
+อย่างแรก ตารางใหญ่อาจมีไฟล์เป็นแสนไฟล์ ถ้าอยู่ใน `metadata.json` ไฟล์เดียว ทุก Commit ต้องเขียนไฟล์ใหญ่นั้นใหม่ทั้งไฟล์ ตอนนี้ Commit เขียนเพียง Manifest หนึ่งไฟล์ Manifest List หนึ่งไฟล์ และ `metadata.json` ที่เล็ก อย่างที่สอง Manifest ใช้ซ้ำข้าม Snapshot ได้ ทำให้ Snapshot เก่าราคาถูกมาก ไม่ต้องคัดลอกรายชื่อไฟล์ทั้งหมดซ้ำ อย่างที่สาม สถิติของ Partition ใน Manifest List ช่วยให้ข้าม Manifest ทั้งก้อนได้ก่อนจะเปิดอ่านสักไฟล์ ซึ่งเราจะเห็นผลจริงตอนที่ตารางมี Partition
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| `INSERT` สามครั้งสร้าง `metadata.json` 4 ฉบับ, Manifest 3 ไฟล์, Manifest List 3 ไฟล์, ไฟล์ข้อมูล 3 ไฟล์ | รัน: `exercises/02_table_anatomy.py` |
+| `metadata.json` เก่าไม่ถูกแก้ตอน Commit ใหม่ (SHA-256 เท่าเดิม) และ `metadata-log` ไล่ฉบับเก่าครบ | รัน: `exercises/02_table_anatomy.py` |
+| Manifest List มี 1, 2, 3 แถว และ Manifest ถูกใช้ซ้ำข้าม Snapshot | รัน: `exercises/02_table_anatomy.py` |
+| `sequence_number` ของ Entry เป็น `None` และสืบทอดจาก Manifest List | รัน: `exercises/02_table_anatomy.py` |
+| Bounds ถอดจาก Bytes ได้ (5 ถึง 6, `dan` ถึง `eve`, 10.0 ถึง 999.0) และตรงกับ Parquet | รัน: `exercises/02_table_anatomy.py` |
+| ไฟล์ Parquet เก็บ Field ID ตรงกับ `metadata.json` | รัน: `exercises/02_table_anatomy.py` |
+| Metadata Table `.snapshots`, `.manifests`, `.files` ตรงกับที่อ่านจากไฟล์เอง | รัน: `exercises/02_table_anatomy.py` |
+| Metrics Mode ทำให้บาง Column ไม่มีสถิติ | ผู้เขียน (ไม่ได้รัน) |
+| `status` ของ Entry มีสามค่า (0 EXISTING, 1 ADDED, 2 DELETED) และ `content` 1 คือ Manifest ของไฟล์ Delete | Source: `format/spec.md` (ตาราง Manifest Entry) |
+| `sequence_number` ของ Entry สืบทอดจาก Manifest List เมื่อเป็น `null` และ `status` เป็น ADDED | Source: `format/spec.md` |
+| `commit.manifest.min-count-to-merge` ค่าเริ่มต้น 100 และเปิดการรวม Manifest ไว้เป็นค่าเริ่มต้น | Source: `TableProperties.java` |
+| เหตุผลสามข้อที่แยกเป็นหลายชั้น | ผู้เขียน |
+| สามชั้นของตาราง: Catalog, Metadata (metadata.json, Manifest List, Manifest) และ Data | หนังสือ: Apache Iceberg: The Definitive Guide บทที่ 2 หน้า 29 (Figure 2-1) |
+
+</Step>

@@ -1,0 +1,62 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจบทนี้แค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="ทำไมงานของ PyIceberg จึงควรเขียนลง Branch ก่อนแทนที่จะเขียนลงตารางหลักตรง ๆ ในโจทย์นี้"
+  options={['เพราะ PyIceberg เขียนลงตารางหลักไม่ได้', 'เพราะผู้อ่านจะได้ไม่เห็นข้อมูลล็อตใหม่จนกว่าจะตรวจผ่านและเผยแพร่ ถ้าเจอแถวผิดก็แก้บน Branch ได้โดยไม่กระทบผู้อ่าน', 'เพราะ Branch เร็วกว่า']}
+  answer={1}
+  why="การเขียนลง Branch ไม่ขยับ Branch หลัก ในแบบฝึกเราตรวจเจอแถวยอดติดลบบน Branch จึงลบมันก่อน แล้วค่อย Fast Forward ผู้อ่านเลยไม่เคยเห็นแถวนั้น ส่วน PyIceberg ก็เขียนลงตารางหลักได้ตามปกติอยู่แล้ว"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="หลัง MERGE แก้ยอดของคำสั่งซื้อที่ 2 ในตารางที่ตั้ง Merge-on-read ข้อใดถูกต้อง"
+  options={['ไฟล์ข้อมูลเดิมถูกแก้ตรง ๆ ให้ยอดเป็น 85.0', 'มี Position Delete File ที่ข้ามแถวเดิม และมีไฟล์ข้อมูลใหม่ที่มีแถวยอด 85.0', 'ตารางมีแถว order_id 2 สองแถว']}
+  answer={1}
+  why="ไฟล์ข้อมูลไม่เคยถูกแก้ MERGE ในโหมด Merge-on-read จึงเขียน Delete File สำหรับแถวเดิม และเขียนไฟล์ใหม่สำหรับแถวที่แก้ เราตรวจเจอไฟล์ที่ Content = 1 และยอดรวมเป็น 562.0 ผู้อ่านเห็นแถวเดียวเพราะระบบหักแถวที่ถูกลบออกไปแล้ว"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ตาราง Merge-on-read ที่ยอดถูกแก้ด้วย MERGE ระบบปลายทางอยากได้เฉพาะส่วนที่เปลี่ยน ทางที่แบบฝึกใช้ได้จริงคืออะไร"
+  options={['Changelog View ซึ่งอ่านช่วงที่มี Delete File ได้', 'เทียบตารางที่ Snapshot ที่จดไว้กับตารางปัจจุบันด้วย Time Travel', 'อ่านทั้งตารางแล้วเขียนทับระบบปลายทางทุกครั้ง']}
+  answer={1}
+  why="Changelog View แจ้งว่า Delete files are currently not supported in changelog scans ส่วน Incremental Read ใช้ได้กับ Snapshot ที่เป็น Append เท่านั้น เราเลยเทียบสองฉบับด้วย VERSION AS OF ได้ผลว่าเพิ่ม 4 และ 5 แก้ 2 และไม่มีการลบ ตัวเลือกสุดท้ายก็ทำได้เหมือนกัน แต่ไม่ได้ส่งเฉพาะส่วนที่เปลี่ยน"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราตั้ง Tag ไว้ที่ Snapshot สิ้นเดือนแล้วสั่ง expire_snapshots ให้เก็บแค่ Snapshot ล่าสุด Snapshot สิ้นเดือนเป็นอย่างไร"
+  options={['ถูกลบเหมือน Snapshot อื่น', 'ยังอยู่และอ่านได้ เพราะ Tag ชี้ไว้ตามอายุที่ตั้ง (RETAIN)', 'ถูกย้ายไปเป็น Snapshot ปัจจุบัน']}
+  answer={1}
+  why="หลัง expire_snapshots เราเหลือชื่ออ้างอิงสองอัน คือ Main กับ month_end และอ่านตารางตาม Tag ได้ 5 Row ถ้าไม่ตั้ง Tag ไว้ Snapshot นั้นจะถูกลบไปพร้อมกับไฟล์ที่มีเฉพาะมันใช้"
+/>
+
+</Step>

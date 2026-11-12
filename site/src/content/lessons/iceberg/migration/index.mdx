@@ -1,0 +1,139 @@
+---
+title: ย้ายตารางเดิมเข้า Iceberg
+summary: มีไฟล์ Parquet หรือตาราง Hive อยู่แล้ว จะเอาเข้า Iceberg ได้ทางไหนบ้าง ดู add_files ที่ลงทะเบียนไฟล์เดิมโดยไม่คัดลอก Snapshot ที่ลองก่อนโดยไม่แตะต้นฉบับ Migrate ที่แทนที่ตารางเดิม และ add_files ของ PyIceberg
+order: 11
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [maintenance]
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## ข้อมูลที่มีอยู่แล้ว ไม่ต้องเขียนใหม่
+
+ส่วนใหญ่เราไม่ได้เริ่มจากตารางว่างเปล่า มักมีโฟลเดอร์ Parquet หรือตารางแบบ Hive ที่ใช้งานอยู่แล้ว Iceberg เตรียมวิธีเอาข้อมูลเดิมเข้ามาไว้สามแบบ คือ `add_files` (เอาไฟล์เข้าตาราง Iceberg ที่มีอยู่), `snapshot` (สร้างตาราง Iceberg ข้าง ๆ ตารางเดิมเพื่อทดลอง) และ `migrate` (แทนที่ตารางเดิมเป็น Iceberg) จุดร่วมของทั้งสามคือไม่ต้องอ่านแล้วเขียนข้อมูลใหม่ แค่สร้าง Metadata ที่ชี้ไฟล์เดิม (รัน: `exercises/11_migration.py`)
+
+</Step>
+
+<Step>
+
+## add_files ลงทะเบียนไฟล์เดิมโดยไม่คัดลอก
+
+เราสร้างโฟลเดอร์ Parquet แบบ Hive เอง สองวัน (`d=2026-01-01` มี 2 Row และ `d=2026-01-02` มี 1 Row) แล้วสร้างตาราง Iceberg ว่างที่ Partition ตาม `d` จากนั้นเรียก
+
+```python
+spark.sql(f"CALL lab.system.add_files(table => 'db.legacy', source_table => '`parquet`.`{src}`')")
+# added_files_count = 2
+```
+
+ตารางนับได้ 3 Row ทันที และเมื่อดูโฟลเดอร์ `data/` ของตารางจะ **ว่างเปล่า** เพราะไม่มีไฟล์ถูกคัดลอก ตาราง `.files` แสดงว่าตารางชี้ไปที่ไฟล์เดิมโดยตรง
+
+```text
+file:<root>/legacy/d=2026-01-01/part-0.parquet
+file:<root>/legacy/d=2026-01-02/part-0.parquet
+```
+
+Snapshot ที่เกิดขึ้นเป็น `append` ธรรมดา Iceberg อ่านสถิติของแต่ละไฟล์จาก Footer ของ Parquet มาใส่ Manifest ไม่ต้องอ่านข้อมูลทั้งไฟล์ ข้อควรระวังคือไฟล์เหล่านั้นตอนนี้ **ถูกใช้ร่วมกัน** ระหว่างโฟลเดอร์เดิมกับตาราง ถ้ามีโปรแกรมอื่นลบหรือเขียนทับไฟล์ในโฟลเดอร์เดิม ตาราง Iceberg จะเพี้ยนไปด้วย
+
+แล้ว Row ใหม่ที่เขียนต่อจะไปที่ไหน แบบฝึก `INSERT` เพิ่มหนึ่ง Row ได้ไฟล์ใหม่ในโฟลเดอร์ `data/` ของตารางเอง (1 ไฟล์) จากนั้นเรารวมไฟล์ด้วย `rewrite_data_files` แบบ `rewrite-all` ผลคือทุกไฟล์ที่ตารางชี้ไปอยู่ในโฟลเดอร์ของตารางหมดแล้ว ส่วนไฟล์ต้นฉบับ 2 ไฟล์ยังอยู่ที่เดิม ไม่ถูกลบ (เป็นหน้าที่เราจะเก็บกวาดเอง)
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="หลังเรียก add_files กับโฟลเดอร์ Parquet เดิม โฟลเดอร์ข้อมูลของตาราง Iceberg มีอะไรอยู่"
+  options={['สำเนาของไฟล์ Parquet ทุกไฟล์', 'ไม่มีไฟล์ข้อมูลเลย เพราะตารางชี้ไปที่ไฟล์เดิมในตำแหน่งเดิม', 'ไฟล์ที่แปลงเป็นฟอร์แมตของ Iceberg']}
+  answer={1}
+  why="เราตรวจแล้วว่าโฟลเดอร์ข้อมูลของตารางว่างเปล่า และ Path ในตาราง Files ชี้ไปที่ไฟล์ part-0.parquet ในโฟลเดอร์เดิม ไฟล์ข้อมูลของ Iceberg ก็คือ Parquet ธรรมดาอยู่แล้ว จึงไม่ต้องแปลงอะไร แต่ต้องระวังว่าไฟล์ถูกใช้ร่วมกันกับต้นฉบับ"
+/>
+
+</Step>
+
+<Step>
+
+## Snapshot ลองก่อนโดยไม่แตะต้นฉบับ และ Migrate แทนที่ของเดิม
+
+สองคำสั่งนี้ทำงานกับตารางใน Catalog ปกติของ Spark (ตาราง `USING parquet` ที่สร้างด้วย `CREATE TABLE`) ต้องตั้ง Iceberg ให้ครอบ Catalog เดิมของ Spark ด้วย `SparkSessionCatalog` ในแบบฝึกเราตั้ง
+
+```text
+spark.sql.catalog.spark_catalog           = org.apache.iceberg.spark.SparkSessionCatalog
+spark.sql.catalog.spark_catalog.type      = hadoop
+spark.sql.catalog.spark_catalog.warehouse = file:<root>/sc_wh
+spark.sql.warehouse.dir                   = <root>/sc_wh/default
+```
+
+เราสร้างตาราง `default.old` (Parquet, Partition ตาม `d`, 3 Row) แล้วเรียก
+
+```python
+spark.sql("CALL spark_catalog.system.snapshot(source_table => 'default.old', table => 'default.old_ice')")
+# imported_files_count = 2
+```
+
+ตาราง `old_ice` นับได้ 3 Row และไฟล์ในตารางเดิมไม่เปลี่ยนเลย (แบบฝึกเทียบรายการไฟล์ก่อนและหลัง) เมื่อ `INSERT` เข้า `old_ice` อีกหนึ่ง Row ตารางเดิมยังนับได้ 3 เหมือนเดิม เพราะ Row ใหม่ไปอยู่ในโฟลเดอร์ของ `old_ice` เอง จึงใช้ `snapshot` ทดสอบการอ่านเขียนกับข้อมูลจริงได้โดยไม่เสี่ยง
+
+ส่วน `migrate` แทนที่ตารางเดิม
+
+```python
+spark.sql("CALL spark_catalog.system.migrate('default.old')")
+# migrated_files_count = 2
+```
+
+หลังจากนั้น `default.old` มี Provider เป็น `iceberg` และยังนับได้ 3 Row แบบฝึกยังเห็นตารางชื่อ `old_backup_` โผล่ขึ้นมา คือคำนิยามตารางเดิมที่ Iceberg เก็บไว้เป็นข้อมูลสำรอง (ชื่อรูปแบบนี้ตรงกับที่เอกสารบอก แต่เราไม่ได้ทดลองใช้มันกู้ตาราง)
+
+<Callout type="warn" title="ตั้งค่า Warehouse ให้ตรงกับ Location เดิม">
+ตอนแรกที่เราลอง `migrate` ได้ Error ว่า `Cannot set a custom location for a path-based table` เพราะ Location ของตารางเดิมกับ Warehouse ของ Catalog ไม่ตรงกัน (ต่างแค่คำนำหน้า `file:`) เราแก้ด้วยการตั้ง `spark.sql.warehouse.dir` และ Warehouse ของ Catalog ให้เป็นที่เดียวกัน และใส่ `file:` ให้ครบ ถ้าตารางจริงของคุณอยู่ในตำแหน่งอื่น ควรลองด้วย `snapshot` ก่อน
+</Callout>
+
+</Step>
+
+<Step>
+
+## PyIceberg ก็เพิ่มไฟล์ได้
+
+ฝั่ง PyIceberg ตารางต้องมี Schema ที่ตรงกับไฟล์ก่อน แล้วเรียก `add_files`
+
+```python
+t = cat.create_table("py.t", schema=schema)
+t.add_files(["file://.../legacy/d=2026-01-01/part-0.parquet", "file://.../legacy/d=2026-01-02/part-0.parquet"])
+```
+
+แบบฝึกนับได้ 3 Row จากไฟล์ชุดเดียวกัน ตารางนี้ไม่ได้ตั้ง Partition ไว้ เราจึงอ่านได้เฉพาะ Column ที่อยู่ใน Parquet (`id`, `amount`) เมื่อไฟล์เก็บใน Hive Partition ที่ค่าอยู่ในชื่อโฟลเดอร์ ต้องจัดการเรื่อง Partition ให้ตรงกันเอง ซึ่งเราไม่ได้ทดลองกับ PyIceberg
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="อยากลองว่าข้อมูล Hive เดิมทำงานบน Iceberg ได้ไหม โดยไม่เสี่ยงให้ตารางเดิมเสียหาย ควรใช้อะไร"
+  options={['Migrate เพราะเร็วที่สุด', 'Snapshot เพราะสร้างตาราง Iceberg ข้าง ๆ โดยไม่แตะตารางเดิม และ Row ใหม่ไปอยู่คนละโฟลเดอร์', 'add_files เข้าตารางเดิมโดยตรง']}
+  answer={1}
+  why="เราเทียบรายการไฟล์ของตารางต้นฉบับก่อนและหลังเรียก Snapshot ได้เหมือนกัน และเมื่อ INSERT เข้าตารางใหม่ ตารางเดิมก็ไม่มี Row เพิ่มขึ้น ส่วน Migrate จะแทนที่ตารางเดิมเลย จึงควรใช้หลังจากทดสอบแล้วเท่านั้น"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| `add_files` เพิ่มไฟล์ Parquet 2 ไฟล์ ตารางนับ 3 Row โฟลเดอร์ `data/` ว่าง และ Path ชี้ไฟล์เดิม | รัน: `exercises/11_migration.py` |
+| หลังเขียนต่อและ `rewrite_data_files` ไฟล์ทั้งหมดอยู่ในโฟลเดอร์ตารางและไฟล์ต้นฉบับไม่ถูกลบ | รัน: `exercises/11_migration.py` |
+| `snapshot` นำเข้า 2 ไฟล์ ไม่แตะต้นฉบับ และเขียนใหม่ไม่ย้อนไปต้นฉบับ | รัน: `exercises/11_migration.py` |
+| `migrate` เปลี่ยน Provider เป็น Iceberg, นับ 3 Row และสร้างตาราง `old_backup_` | รัน: `exercises/11_migration.py` |
+| Error `Cannot set a custom location for a path-based table` เมื่อ Warehouse ไม่ตรง | รัน: `exercises/11_migration.py` (ข้อผิดพลาดที่เจอจริง) |
+| PyIceberg `add_files` อ่านได้ 3 Row | รัน: `exercises/11_migration.py` |
+| กู้ตารางจาก `_backup_`; Hive Partition กับ `add_files` ของ PyIceberg | ผู้เขียน (ไม่ได้ทดลอง) |
+
+</Step>

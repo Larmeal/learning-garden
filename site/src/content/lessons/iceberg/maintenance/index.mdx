@@ -1,0 +1,161 @@
+---
+title: ดูแลตาราง
+summary: ตารางที่ถูกเขียนถี่ ๆ จะมีไฟล์เล็กและ Manifest สะสม ดู Procedure ที่รวมไฟล์ (rewrite_data_files) รวม Manifest ลบ Snapshot เก่า (expire_snapshots) และลบไฟล์กำพร้า พร้อมตัวเลขว่าแต่ละตัวทำให้ไฟล์บนดิสก์เปลี่ยนไปอย่างไร
+order: 10
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [catalogs]
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## ตารางที่ไม่มีใครดูแลจะโตขึ้นเรื่อย ๆ
+
+ทุก Commit ของ Iceberg เพิ่มไฟล์ใหม่และไม่ลบอะไรเลย ([บท 2](/iceberg/table-anatomy/)) ถ้าเขียนทีละนิดบ่อย ๆ ตารางจะสะสมไฟล์ข้อมูลเล็ก ๆ จำนวนมาก Manifest จำนวนมาก และ Snapshot เก่าที่ยังถือไฟล์เก่าไว้ทั้งหมด บทนี้เราสร้างสถานการณ์นั้นด้วย `INSERT` ครั้งละ 1 Row จำนวน 20 ครั้ง (รัน: `exercises/10_maintenance.py`) ได้ตารางที่มี
+
+```text
+data files: 20    manifests: 20    snapshots: 20    metadata.json: 21    ไฟล์ทั้งหมดบนดิสก์: 81
+```
+
+งานดูแลตารางของ Iceberg แก้ได้ทีละด้าน เราจะไล่ทีละ Procedure ของ Spark และเทียบจำนวนไฟล์ทุกครั้ง
+
+</Step>
+
+<Step>
+
+## rewrite_manifests รวม Manifest เล็ก ๆ
+
+```python
+spark.sql("CALL lab.system.rewrite_manifests('db.t')")
+# rewritten_manifests_count = 20, added_manifests_count = 1
+```
+
+Manifest 20 ไฟล์ถูกรวมเป็นไฟล์เดียว ซึ่งลิสต์ไฟล์ข้อมูลครบทั้ง 20 ไฟล์ โดยตัวข้อมูลไม่ถูกแตะเลย ข้อดีคือตอนทำ Scan Planning ([บท 5](/iceberg/reading/)) Engine เปิด Manifest น้อยลง
+
+</Step>
+
+<Step>
+
+## rewrite_data_files รวมไฟล์ข้อมูลเล็ก ๆ
+
+ไฟล์ข้อมูลเล็กจำนวนมากทำให้ Engine เปิดไฟล์เยอะและเสียเวลากับ Overhead ของแต่ละไฟล์ Procedure `rewrite_data_files` เอาไฟล์เล็ก ๆ มาเขียนใหม่เป็นไฟล์ที่ใหญ่ขึ้น (เรียกว่า Compaction)
+
+```python
+spark.sql("CALL lab.system.rewrite_data_files(table => 'db.t')")
+```
+
+```text
+rewritten_data_files_count: 20    added_data_files_count: 1    rewritten_bytes_count: 12819
+```
+
+ไฟล์ 20 ไฟล์กลายเป็น 1 ไฟล์ และ Snapshot ใหม่เป็น `operation = replace` ซึ่งหมายถึงข้อมูลเหมือนเดิมแต่เป็นไฟล์ชุดใหม่ แบบฝึกตรวจแล้ว Row ทั้ง 20 Row เหมือนเดิมทุกแถว ข้อที่หลายคนไม่คาดคิดคือ **ไฟล์บนดิสก์ไม่ได้น้อยลง** หลัง Compaction เรามี 21 ไฟล์ข้อมูลบนดิสก์ (20 ไฟล์เก่า + 1 ไฟล์ใหม่) เพราะ Snapshot เก่ายังอ้างถึงไฟล์เก่าอยู่ และ Snapshot ทั้งหมดก็ยังเก็บประวัติครบ 22 อัน ถ้าอยากให้ไฟล์เก่าหายไป เราต้องลบ Snapshot เก่าก่อน ซึ่งอยู่ในหัวข้อถัดไป
+
+เราลองอีกกลยุทธ์ด้วย คือ `strategy => 'sort'` เพื่อเขียนไฟล์ใหม่โดยเรียงตาม `id DESC` ผลคือแถวที่อ่านออกมาเรียงจาก 20, 19, 18 ตามที่สั่ง นอกจากนี้ยังมี `zorder(...)` ที่ใช้เรียงหลาย Column พร้อมกัน ซึ่งเราไม่ได้ทดลองในบทนี้
+
+<Callout type="note" title="PyIceberg 0.12.0 ไม่มีการรวมไฟล์">
+เราเปิดดู API ของ `table.maintenance` ใน PyIceberg 0.12.0 แล้ว มีแค่ `expire_snapshots` ไม่มีการรวมไฟล์ ไม่มีการลบไฟล์กำพร้า ดังนั้นงานรวมไฟล์ของตารางที่ PyIceberg เขียนต้องให้ Spark (หรือ Engine อื่น) ทำ
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="หลังรัน rewrite_data_files จนเหลือไฟล์ข้อมูลที่ใช้งาน 1 ไฟล์ ไฟล์ข้อมูลเดิม 20 ไฟล์บนดิสก์เป็นอย่างไร"
+  options={['ถูกลบทันทีเพราะไม่ได้ใช้แล้ว', 'ยังอยู่บนดิสก์ เพราะ Snapshot เก่ายังอ้างถึง จนกว่าจะ Expire Snapshot เหล่านั้น', 'ถูกย้ายไปโฟลเดอร์สำรอง']}
+  answer={1}
+  why="เรานับไฟล์ข้อมูลบนดิสก์ได้ 21 ไฟล์หลัง Compaction ทั้งที่ Snapshot ปัจจุบันใช้ไฟล์เดียว ที่เป็นอย่างนี้เพราะ Time Travel ต้องอ่านไฟล์เก่าได้ การคืนพื้นที่จึงมาพร้อมกับการลบ Snapshot เก่า"
+/>
+
+</Step>
+
+<Step>
+
+## expire_snapshots ลบ Snapshot เก่าและไฟล์ที่มีแต่มันใช้
+
+```python
+spark.sql("ALTER TABLE lab.db.t CREATE TAG first AS OF VERSION {snap_first} RETAIN 30 DAYS")
+spark.sql("CALL lab.system.expire_snapshots(table => 'db.t', older_than => TIMESTAMP'...', retain_last => 1)")
+```
+
+เราตั้ง Tag ไว้ที่ Snapshot แรกก่อน แล้วสั่งลบทุก Snapshot ที่อายุเกินเวลาที่กำหนด (ในแบบฝึกคือเวลาอีกหนึ่งชั่วโมงข้างหน้า เพื่อให้ทุก Snapshot นับว่าเก่า) แต่เก็บล่าสุดไว้ 1 อัน ผลคือ
+
+```text
+before: data files on disk 22, snapshots 23, ไฟล์ทั้งหมดบนดิสก์ 95
+after : data files on disk  2, snapshots  2, ไฟล์ทั้งหมดบนดิสก์ 33
+deleted_data_files_count: 20   deleted_manifest_files_count: 22   deleted_manifest_lists_count: 21
+```
+
+เหลือ 2 Snapshot คือ Snapshot ปัจจุบัน กับ Snapshot ที่ Tag ไว้ (`snap_first` ยังอ่านได้ 1 Row) ส่วน Snapshot อื่นถูกลบ ไฟล์ข้อมูลที่มีแต่ Snapshot ที่ถูกลบใช้อยู่ก็หายไปด้วย ถ้าลองอ่านย้อนด้วย Snapshot ที่ไม่มีแล้ว Spark แจ้งว่า `Cannot find snapshot with ID ...` ข้อมูลปัจจุบันครบเหมือนเดิม
+
+สิ่งที่ยังไม่หายไปคือไฟล์ `metadata.json` เก่า ก่อนลบมี 25 ไฟล์ หลังลบมี 26 (เพิ่มขึ้นหนึ่งฉบับ ผู้เขียนเดาว่าเป็นของ Commit ที่ลบ Snapshot เอง) Iceberg ลบ `metadata.json` เก่าให้อัตโนมัติก็ต่อเมื่อตั้ง `write.metadata.delete-after-commit.enabled` เป็น `true` ซึ่งค่าเริ่มต้นเป็น `false` และจำนวนฉบับเก่าที่จดใน `metadata-log` มีเพดานที่ `write.metadata.previous-versions-max` ค่าเริ่มต้น 100 (Source: `TableProperties.java`)
+
+ถ้าไม่ระบุ `older_than` ค่าเริ่มต้นของอายุ Snapshot คือ 5 วัน และเก็บอย่างน้อย 1 Snapshot (`MAX_SNAPSHOT_AGE_MS_DEFAULT`, `MIN_SNAPSHOTS_TO_KEEP_DEFAULT` ใน Source ของ Iceberg 1.12.0 เราอ่านค่านี้ ไม่ได้ทดลองการทิ้ง 5 วัน)
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="หลัง expire_snapshots ที่ใช้ retain_last เท่ากับ 1 แล้ว เราย้อนอ่านตารางตาม Snapshot ที่เคยมีเมื่อวานได้อีกไหม"
+  options={['ได้ เพราะ Time Travel เก็บไว้ถาวร', 'ไม่ได้ เพราะ Snapshot นั้นถูกลบ (ยกเว้นมี Tag หรือ Branch ชี้ไว้) อ่านแล้วจะได้ Cannot find snapshot', 'ได้ แต่ต้อง REFRESH TABLE ก่อน']}
+  answer={1}
+  why="เราอ่านด้วยรหัส Snapshot ที่ไม่มีแล้วได้ Error Cannot find snapshot with ID และเหลือเพียง Snapshot ปัจจุบันกับอันที่ Tag ไว้ การตั้งนโยบายเก็บ Snapshot จึงเป็นการตัดสินใจว่า Time Travel จะย้อนได้ไกลแค่ไหน"
+/>
+
+</Step>
+
+<Step>
+
+## remove_orphan_files ลบไฟล์ที่ไม่มี Snapshot ไหนอ้างถึง
+
+ไฟล์กำพร้าเกิดจากงานที่ล้มหลังเขียนไฟล์ไปแล้ว (เราพูดถึงใน[บท 4](/iceberg/writing/#งานที่ล้มกลางทางไม่ทิ้งอะไรไว้ในตาราง)) เราจำลองด้วยการสร้างไฟล์ `stray-file.parquet` ไว้ในโฟลเดอร์ `data/` ของตารางเอง แล้วสั่ง
+
+```python
+spark.sql("CALL lab.system.remove_orphan_files(table => 'db.t', dry_run => true)")
+```
+
+มีกฎความปลอดภัยสองข้อที่แบบฝึกเจอจริง ข้อแรก ถ้าตั้ง `older_than` ให้ใหม่กว่า 24 ชั่วโมง Procedure ปฏิเสธว่า `Cannot remove orphan files with an interval less than 24 hours` เพราะไฟล์ที่เพิ่งเขียนและยังไม่ Commit ก็หน้าตาเหมือนไฟล์กำพร้า ถ้าลบไปมันจะทำให้งานที่กำลังเขียนอยู่พัง ข้อที่สอง ไฟล์ใหม่ไม่ถูกแตะด้วยค่าเริ่มต้น (3 วัน) เราจึงปรับเวลาแก้ไขไฟล์ให้เป็น 4 วันก่อน
+
+หลังปรับ `dry_run` เจอ `stray-file.parquet` เพียงไฟล์เดียว จากนั้นสั่งลบจริง ไฟล์หายไป และจำนวนไฟล์ทั้งหมดลดลงหนึ่งไฟล์ ข้อมูลของตารางไม่เปลี่ยน
+
+<Callout type="warn" title="อย่ารันตอนมีงานเขียนค้างอยู่">
+`remove_orphan_files` ตัดสินว่าอะไรเป็นกำพร้าจากเวลาแก้ไขไฟล์ ถ้ามีงานเขียนที่ใช้เวลานานกว่า `older_than` อยู่ ไฟล์ของงานนั้นอาจถูกลบก่อน Commit ตั้ง `older_than` ให้นานกว่างานเขียนที่ยาวที่สุดของคุณเสมอ (คำเตือนนี้อาศัยข้อความ Error ที่เราเจอและความเข้าใจของผู้เขียน เราไม่ได้ทดลองลบไฟล์ของงานที่กำลังเขียนอยู่)
+</Callout>
+
+</Step>
+
+<Step>
+
+## ลำดับที่ควรทำ
+
+เมื่อรวมสี่อย่างนี้เข้าด้วยกัน ลำดับที่ผู้เขียนเห็นว่าสมเหตุสมผลจากตัวเลขข้างบนคือ รวม Manifest และไฟล์ข้อมูลก่อน เพราะสร้าง Snapshot ใหม่ จากนั้น `expire_snapshots` เพื่อปล่อยไฟล์เก่า และลบไฟล์กำพร้าเป็นลำดับสุดท้ายด้วยช่วงเวลาปลอดภัย ลำดับนี้เป็นข้อสรุปของผู้เขียน ไม่ใช่คำสั่งตายตัวจากเอกสาร ส่วนความถี่ที่เหมาะสมขึ้นกับว่าตารางถูกเขียนถี่แค่ไหน ซึ่งแบบฝึกเล็ก ๆ นี้บอกไม่ได้
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| `rewrite_manifests` รวม Manifest 20 ไฟล์เป็น 1 | รัน: `exercises/10_maintenance.py` |
+| `rewrite_data_files` รวม 20 ไฟล์เป็น 1, `operation = replace`, ไฟล์เก่ายังอยู่บนดิสก์ (21 ไฟล์) | รัน: `exercises/10_maintenance.py` |
+| `strategy => 'sort'` ให้แถวเรียงตามที่สั่ง | รัน: `exercises/10_maintenance.py` |
+| `expire_snapshots` เหลือ Snapshot ปัจจุบันกับอันที่ Tag, ลบไฟล์ข้อมูล 20 ไฟล์ และ Snapshot ที่หายอ่านไม่ได้ | รัน: `exercises/10_maintenance.py` |
+| `metadata.json` เก่าไม่ถูกลบโดย `expire_snapshots` (25 เป็น 26) | รัน: `exercises/10_maintenance.py` |
+| `remove_orphan_files` ปฏิเสธช่วงสั้นกว่า 24 ชั่วโมง ไม่แตะไฟล์ใหม่ และพบไฟล์เก่าด้วย `dry_run` | รัน: `exercises/10_maintenance.py` |
+| PyIceberg 0.12.0 `table.maintenance` มีเฉพาะ `expire_snapshots` | รัน: `exercises/10_maintenance.py` |
+| ค่าเริ่มต้นของ `previous-versions-max` (100), `delete-after-commit` (ปิดไว้), อายุ Snapshot (5 วัน) และจำนวนขั้นต่ำ (1) | Source: `TableProperties.java` |
+| `zorder`; ผลของ Compaction ต่อเวลา Query; ลำดับและความถี่ที่เหมาะสม | ผู้เขียน (ไม่ได้ทดลอง) |
+
+</Step>

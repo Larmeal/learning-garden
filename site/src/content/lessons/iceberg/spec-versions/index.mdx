@@ -1,0 +1,152 @@
+---
+title: เวอร์ชันของ Spec, View และสถิติ
+summary: Iceberg มี Format Version 1, 2 และ 3 แต่ละเวอร์ชันเพิ่มอะไร ดูว่าเปลี่ยนเวอร์ชันได้ทางเดียว Row Lineage ของเวอร์ชัน 3 หน้าตาอย่างไร View ถูกเก็บใน Catalog อย่างไร และสถิติ Puffin ที่เขียนด้วย compute_table_stats
+order: 13
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [streaming]
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## Format Version คือสัญญาระหว่างตารางกับ Engine
+
+ทุกตารางจดตัวเลข `format-version` ไว้ใน `metadata.json` มันบอกว่าตารางนี้ใช้กฎของ Spec ฉบับไหน Engine ที่เก่าเกินไปจะอ่านตารางเวอร์ชันใหม่ไม่ได้ (รัน: `exercises/13_spec_versions_views_stats.py`) เราสร้างตารางเปล่าสามตารางด้วยเวอร์ชัน 1, 2 และ 3 ใส่ข้อมูลเหมือนกัน แล้วเทียบ `metadata.json` ของทั้งสามตาราง ผลที่เห็นคือ
+
+```text
+ตารางที่สร้างโดยไม่ระบุเวอร์ชัน: 2
+v1 มี partition-spec และ schema (รูปแบบเก่า)  ส่วน v2 มี last-sequence-number
+v3 มี next-row-id เพิ่มจาก v2   และ Snapshot ของ v3 มี first-row-id กับ added-rows
+```
+
+Spark 4.1 กับ Iceberg 1.12.0 สร้างตารางใหม่เป็นเวอร์ชัน 2 ถ้าเราไม่บอก ตามที่เห็นจากการทดลอง แต่ละเวอร์ชันเพิ่มความสามารถต่างกัน เวอร์ชัน 2 เริ่มมีเลขลำดับ (`last-sequence-number`) ซึ่งเป็นรากฐานของ Delete File ส่วนเวอร์ชัน 3 เพิ่ม Row Lineage ที่เราจะดูในหัวข้อถัดไป (เรื่อง Deletion Vector ใน[บท 6](/iceberg/row-level/#format-version-3-deletion-vector) ก็เป็นของเวอร์ชัน 3 เหมือนกัน) ส่วนความสามารถอื่น ๆ ที่เราไม่ได้ทดลอง ให้ดูใน `format/spec.md` ของ Iceberg
+
+</Step>
+
+<Step>
+
+## เวอร์ชัน 1 ไม่มี Delete File
+
+ตาราง v1 ตั้ง `write.delete.mode` เป็น `merge-on-read` แล้วลอง `DELETE`
+
+```text
+IllegalArgumentException: Deletes are supported in V2 and above
+```
+
+Spark ปฏิเสธเลย (แบบฝึกบันทึก Error ที่เจอตรง ๆ) เพราะ Delete File เป็นของเวอร์ชัน 2 ขึ้นไป ใครยังมีตาราง v1 และอยากใช้ Merge-on-read ต้องอัปเกรดก่อน
+
+</Step>
+
+<Step>
+
+## อัปเกรดได้ ลดไม่ได้
+
+เวอร์ชันของตารางเพิ่มได้ด้วยการตั้งคุณสมบัติของตาราง
+
+```python
+spark.sql("ALTER TABLE lab.db.v1 SET TBLPROPERTIES ('format-version' = '2')")   # สำเร็จ
+spark.sql("ALTER TABLE lab.db.v1 SET TBLPROPERTIES ('format-version' = '3')")   # สำเร็จ
+spark.sql("ALTER TABLE lab.db.v1 SET TBLPROPERTIES ('format-version' = '2')")   # Cannot downgrade v3 table to v2
+```
+
+แบบฝึกยืนยันทั้งสามบรรทัด การอัปเกรดเขียนแค่ `metadata.json` ฉบับใหม่ ส่วนการย้อนกลับทำไม่ได้ ก่อนอัปเกรดตารางที่มีหลาย Engine มาอ่านจึงควรเช็กก่อนว่า Engine ทุกตัวรองรับเวอร์ชันปลายทาง (ข้อแนะนำนี้เป็นของผู้เขียน)
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ตารางเวอร์ชัน 3 ที่ใช้มาสักพักแล้วเกิดปัญหากับ Engine ตัวหนึ่ง ทีมสั่ง SET TBLPROPERTIES เป็นเวอร์ชัน 2 เพื่อถอยกลับ ผลเป็นอย่างไร"
+  options={['สำเร็จ ตารางกลับเป็นเวอร์ชัน 2', 'ถูกปฏิเสธด้วยข้อความ Cannot downgrade v3 table to v2 เพราะอัปเกรดได้ทางเดียว', 'สำเร็จแต่ข้อมูลหาย']}
+  answer={1}
+  why="เราอัปเกรดตารางจาก v1 เป็น v2 แล้วเป็น v3 ได้ แต่พอสั่งกลับเป็น v2 ก็ได้ Cannot downgrade v3 table to v2 ดังนั้นต้องคิดให้รอบคอบก่อนอัปเกรด ทางถอยที่เหลือคือสร้างตารางใหม่เวอร์ชันเก่าแล้วคัดลอกข้อมูลไป"
+/>
+
+</Step>
+
+<Step>
+
+## Row Lineage ในเวอร์ชัน 3
+
+ตารางเวอร์ชัน 3 ให้คอลัมน์พิเศษสองตัวที่ไม่ได้อยู่ใน Schema ของเรา คือ `_row_id` และ `_last_updated_sequence_number` เราลอง `SELECT` ออกมา
+
+```python
+spark.sql("SELECT id, _row_id, _last_updated_sequence_number FROM lab.db.v3 ORDER BY id")
+# (1, 0, 1), (2, 1, 1), (3, 2, 1)
+```
+
+แต่ละ Row มีรหัสประจำตัว `_row_id` ที่ Iceberg แจกตอนเขียน และ `_last_updated_sequence_number` บอกว่า Commit ลำดับที่เท่าไรเขียนค่าล่าสุดของ Row นี้ เมื่อเราสั่ง `UPDATE ... SET name = 'B' WHERE id = 2`
+
+```text
+id 1: (0, 1)    id 2: (1, 2)    id 3: (2, 1)
+```
+
+Row ของ `id = 2` ยังมี `_row_id` เดิมคือ 1 แต่ `_last_updated_sequence_number` เปลี่ยนเป็น 2 ส่วน Row อื่นไม่เปลี่ยน หมายความว่าระบบปลายทางที่ติดตามการเปลี่ยนแปลงรู้ได้ว่า Row ไหน "เป็นตัวเดิมที่ถูกแก้" และ "แก้ตอน Commit ไหน" แทนที่จะเห็นเป็นการลบ Row เก่าแล้วเพิ่ม Row ใหม่ (การนำไปใช้ในระบบปลายทางเป็นความเข้าใจของผู้เขียนจากคอลัมน์ทั้งสอง ไม่ได้ทดลองสร้างระบบแบบนั้น)
+
+</Step>
+
+<Step>
+
+## View อยู่ใน Catalog ข้างตาราง
+
+Iceberg เก็บ **View** (คำถาม SQL ที่ตั้งชื่อไว้) ใน Catalog ได้ด้วย เมื่อ Catalog รองรับ เราสร้างด้วย SQL ธรรมดา
+
+```python
+spark.sql("CREATE VIEW lab.db.big_ids AS SELECT id, name FROM lab.db.v3 WHERE id >= 2")
+spark.sql("SELECT id FROM lab.db.big_ids")        # 2, 3
+```
+
+ในตาราง `iceberg_tables` ของ JDBC Catalog View มีแถวของตัวเองโดยช่อง `iceberg_type` เป็น `VIEW` (ตารางเป็น `TABLE`) และ View มี `metadata.json` เหมือนกัน เมื่อเปิดอ่านพบว่ามี Key เช่น `versions`, `schemas` และ `current-version-id` ซึ่งเก็บ SQL ไว้ในรูป `representations` ชนิด `sql` ไฟล์ Metadata ของ View ในแบบฝึกถูกบีบอัดด้วย Gzip (แบบฝึกตรวจจาก Byte สองตัวแรก) ส่วนตารางที่เราเปิดอ่านด้วย `json` ตรง ๆ ตลอดบทที่ผ่านมาไม่ได้ถูกบีบอัด ฝั่ง PyIceberg 0.12.0 เรียก `list_views` กับ SQL Catalog แล้วได้ `NotImplementedError` ดังนั้นการใช้ View ของเราในบทนี้ทำผ่าน Spark เท่านั้น
+
+</Step>
+
+<Step>
+
+## สถิติที่เขียนเป็นไฟล์ Puffin
+
+ใน[บท 2](/iceberg/table-anatomy/) เราเห็นสถิติ Min/Max ใน Manifest ซึ่งมีมาทุกตาราง ยังมีสถิติอีกแบบที่เก็บแยกต่างหาก คือ Sketch ของจำนวนค่าไม่ซ้ำ (NDV) เก็บในไฟล์ **Puffin** ที่ Engine ใช้ประมาณลำดับการ Join เราสั่งให้ Spark คำนวณ
+
+```python
+spark.sql("CALL lab.system.compute_table_stats(table => 'db.v3')")
+```
+
+ผลคือมีไฟล์ใหม่ลงท้ายด้วย `.stats` ในโฟลเดอร์ Metadata ของตาราง และ `metadata.json` มีส่วน `statistics` ที่ชี้ไฟล์นั้นพร้อม `snapshot-id` ของ Snapshot ที่คำนวณให้ ข้างในมี Blob ชนิด `apache-datasketches-theta-v1` สองตัว (ตารางมีสอง Column) และ Byte สี่ตัวแรกของไฟล์เป็น `PFA1` ซึ่งเป็นเลขวิเศษ (Magic) ของรูปแบบ Puffin สถิติเหล่านี้เป็นข้อมูลเสริม ลบทิ้งแล้วตารางยังอ่านได้เหมือนเดิม (ส่วนนี้ผู้เขียนอ่านจาก Spec ไม่ได้ทดลอง)
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="UPDATE Row ที่มี id = 2 ในตาราง Iceberg เวอร์ชัน 3 แล้วอ่านคอลัมน์ Row Lineage ค่าใดเปลี่ยน"
+  options={['_row_id เปลี่ยนเป็นเลขใหม่ เพราะเป็น Row ใหม่', '_row_id เหมือนเดิม แต่ _last_updated_sequence_number เปลี่ยนเป็นลำดับของ Commit ที่แก้', 'ไม่มีค่าไหนเปลี่ยน']}
+  answer={1}
+  why="ก่อน UPDATE เราได้ (id 2, _row_id 1, ลำดับ 1) และหลัง UPDATE ได้ (1, 2) ส่วน Row อื่นเหมือนเดิม Row Lineage ทำให้ติดตามได้ว่า Row นั้นเป็นตัวเดิมที่ถูกแก้ ไม่ได้เป็น Row ใหม่ที่เกิดจากการลบแล้วเพิ่ม"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| ตารางที่ไม่ระบุเวอร์ชันเป็น v2; Key ใน `metadata.json` ของแต่ละเวอร์ชัน; Snapshot ของ v3 มี `first-row-id` และ `added-rows` | รัน: `exercises/13_spec_versions_views_stats.py` |
+| v1 กับ Merge-on-read: `Deletes are supported in V2 and above` | รัน: `exercises/13_spec_versions_views_stats.py` |
+| อัปเกรด v1 ไป v2 ไป v3 ได้ และลดไม่ได้ (`Cannot downgrade v3 table to v2`) | รัน: `exercises/13_spec_versions_views_stats.py` |
+| `_row_id` และ `_last_updated_sequence_number` ก่อนและหลัง `UPDATE` | รัน: `exercises/13_spec_versions_views_stats.py` |
+| View เก็บใน Catalog (`iceberg_type = VIEW`), มี `metadata.json` และถูก Gzip; PyIceberg `list_views` ไม่รองรับกับ SQL Catalog | รัน: `exercises/13_spec_versions_views_stats.py` |
+| `compute_table_stats` เขียนไฟล์ `.stats` (Puffin ขึ้นต้นด้วย `PFA1`) และ `metadata.json` ชี้ไฟล์นั้นพร้อม Blob ชนิด `apache-datasketches-theta-v1` | รัน: `exercises/13_spec_versions_views_stats.py` |
+| ความสามารถอื่นของแต่ละเวอร์ชัน และ Puffin Spec | Source: `format/spec.md`, `format/puffin-spec.md`, `format/view-spec.md` (อ้างถึง ไม่ได้ทดลอง) |
+| การใช้ Row Lineage ในระบบปลายทาง; สถิติเป็นข้อมูลเสริม | ผู้เขียน (ไม่ได้ทดลอง) |
+
+</Step>

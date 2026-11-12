@@ -1,0 +1,155 @@
+---
+title: Catalog
+summary: Catalog คือที่เก็บตัวชี้ไปหา metadata.json ดูว่า Hadoop Catalog กับ JDBC Catalog เก็บตัวชี้ต่างกันอย่างไร ตั้งค่า Spark และ PyIceberg อย่างไร Cache ของ Spark ทำให้เห็นข้อมูลช้ากว่าอีกฝั่งได้อย่างไร และ Rename, Drop, Purge ทำอะไรกับไฟล์
+order: 9
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [time-travel]
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## Catalog ทำหน้าที่เดียวคือจำว่าฉบับปัจจุบันอยู่ที่ไหน
+
+ใน[บท 1](/iceberg/what-is-iceberg/#catalog-เก็บแค่-pointer) เราเห็นแล้วว่า Catalog เก็บแค่ตำแหน่งของ `metadata.json` ปัจจุบัน และ Commit ทุกครั้งจบด้วยการเปลี่ยนตัวชี้นี้แบบมีเงื่อนไข ตัว Catalog จึงเป็นสิ่งเดียวในระบบที่ต้อง "เปลี่ยนค่าแบบ Atomic" ได้ ส่วนที่เหลือล้วนเป็นไฟล์ที่เขียนครั้งเดียวแล้วจบ สิ่งที่ต่างกันในแต่ละ Catalog คือเก็บตัวชี้ไว้ที่ไหน และรับประกัน Atomic ด้วยวิธีใด บทนี้เราจะดูของที่รันได้บนคอมพิวเตอร์ของเรา คือ Hadoop Catalog และ JDBC Catalog (รัน: `exercises/09_catalogs.py`)
+
+</Step>
+
+<Step>
+
+## Hadoop Catalog: โฟลเดอร์เองคือ Catalog
+
+Hadoop Catalog ไม่มีฐานข้อมูล ตัวชี้เป็นไฟล์ในโฟลเดอร์ของตารางนั่นเอง เราตั้ง Catalog ที่สอง ชื่อ `hlab` ชนิด `hadoop` ใน Spark Session เดียวกัน แล้วสร้างตารางและ `INSERT` สองครั้ง
+
+```text
+metadata/v1.metadata.json
+metadata/v2.metadata.json
+metadata/v3.metadata.json
+metadata/version-hint.text         <- ในไฟล์เขียนว่า 3
+```
+
+ไฟล์ Metadata ตั้งชื่อตามเลขเวอร์ชัน (`v1`, `v2`, ...) ต่างจาก JDBC Catalog ที่ตั้งชื่อด้วยเลขกับ UUID และ `version-hint.text` คือตัวชี้ที่บอกว่าเวอร์ชันล่าสุดคือ 3 ข้อดีคือไม่ต้องมีฐานข้อมูล แต่การ Commit แบบ Atomic ต้องพึ่งความสามารถของระบบไฟล์ (เช่นการ Rename ที่ Atomic) ซึ่งบน Object Storage บางชนิดไม่มี ข้อนี้เป็นข้อควรระวังที่ผู้เขียนอ้างจากเอกสาร Iceberg ไม่ได้ทดลองบน Object Storage
+
+PyIceberg ไม่มี Catalog ชนิด Hadoop แต่เราอ่านตารางนี้ได้โดยชี้ไปที่ไฟล์ Metadata ตรง ๆ ด้วย `StaticTable.from_metadata("file://.../v3.metadata.json")` แบบฝึกอ่านได้ Row ทั้งสองแถว นี่คือวิธีอ่านตารางแบบ Read-only โดยไม่ต้องมี Catalog
+
+</Step>
+
+<Step>
+
+## JDBC Catalog: ตัวชี้เป็นแถวในฐานข้อมูล
+
+JDBC Catalog เก็บตัวชี้เป็นแถวในตาราง `iceberg_tables` ซึ่งเราเห็นไปแล้วใน[บท 1](/iceberg/what-is-iceberg/#catalog-เก็บแค่-pointer) ฐานข้อมูลรับประกัน Atomic ให้ ด้วยคำสั่ง `UPDATE ... WHERE metadata_location = ฉบับเดิม` ข้อดีอีกอย่างคือหลายโปรแกรมใช้ Catalog เดียวกันได้ง่าย อย่างที่ Spark กับ PyIceberg ทำกันมาตลอดบทที่ผ่านมา
+
+ถ้ามีตารางที่อยู่แล้ว เราเพิ่มเข้า Catalog อีกตัวได้โดยไม่คัดลอกไฟล์ด้วย Procedure `register_table` ที่ชี้ไปที่ไฟล์ Metadata
+
+```python
+spark.sql(f"CALL lab.system.register_table(table => 'other.copy', metadata_file => '{latest}')")
+```
+
+แบบฝึกลงทะเบียนตาราง `db.t` เป็น `other.copy` แล้ว `SELECT count(*)` ได้ 2 Row เท่าต้นฉบับ ทั้งสองชื่อชี้ไฟล์ชุดเดียวกัน ถ้าทั้งสองชื่อเขียนต่อทั้งคู่ ตัวชี้จะแตกกัน (ต่างคนต่างเปลี่ยนตัวชี้ของตัวเอง) เอกสารของ Iceberg เตือนเรื่องนี้ไว้ แบบฝึกของเราไม่ได้ลองเขียนผ่านสองชื่อ จึงใช้ `register_table` เพื่อย้ายหรืออ่านเท่านั้น
+
+</Step>
+
+<Step>
+
+## ตั้งค่า Catalog ใน Spark และ PyIceberg
+
+ฝั่ง Spark ตั้งผ่าน Config ของ Session ชื่อหลัง `spark.sql.catalog.` คือชื่อ Catalog ที่เราเรียกใน SQL
+
+```text
+spark.sql.catalog.lab               = org.apache.iceberg.spark.SparkCatalog
+spark.sql.catalog.lab.catalog-impl  = org.apache.iceberg.jdbc.JdbcCatalog
+spark.sql.catalog.lab.uri           = jdbc:sqlite:.../catalog.db
+spark.sql.catalog.lab.warehouse     = .../wh
+```
+
+ถ้าเป็น Hadoop Catalog ใช้ `type = hadoop` แทน `catalog-impl` และห้ามตั้งทั้งสองอย่างพร้อมกัน แบบฝึกชนข้อนี้เข้าโดยบังเอิญ Spark แจ้งว่า `Cannot create catalog lab, both type and catalog-impl are set`
+
+ฝั่ง PyIceberg ตั้งได้ทั้งในไฟล์ `.pyiceberg.yaml` หรือผ่าน Environment Variable ที่ขึ้นต้น `PYICEBERG_CATALOG__<ชื่อ>__`
+
+```text
+PYICEBERG_CATALOG__LAB__TYPE      = sql
+PYICEBERG_CATALOG__LAB__URI       = sqlite:///.../catalog.db
+PYICEBERG_CATALOG__LAB__WAREHOUSE = file://.../wh
+```
+
+แล้ว `load_catalog("lab")` โดยไม่ต้องส่งอาร์กิวเมนต์อื่นก็ได้ Catalog ที่ถูกต้อง ข้อควรระวังที่เจอจริง คือ PyIceberg อ่านตัวแปรเหล่านี้ครั้งเดียวตอน Import ถ้าตั้งหลัง Import แล้วจะไม่มีผล (แบบฝึกเจอ `URI missing` ก่อนย้ายการตั้งค่าไปไว้บนสุดของไฟล์)
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เปิด Spark Session กับตารางค้างไว้ แล้ว PyIceberg Commit แถวใหม่เข้าตารางเดียวกัน ถ้าปิด Cache ของ Catalog ใน Spark (ตั้งค่า `cache-enabled` เป็น `false`) การนับ Row ใน Session เดิมจะเห็นแถวใหม่หรือไม่"
+  options={['ไม่เห็นจนกว่าจะ REFRESH TABLE เหมือนค่าเริ่มต้น', 'เห็นทันที เพราะ Spark โหลดตารางจาก Catalog ใหม่ทุกครั้ง', 'ขึ้น Error']}
+  answer={1}
+  why="เราปิด Cache ของ Catalog แล้วให้ PyIceberg Append Row ที่ 3 ปรากฏว่า Spark นับได้ 3 Row ทันที ส่วนใน[บท 1](/iceberg/what-is-iceberg/) ที่ใช้ค่าเริ่มต้น (เปิด Cache) Spark ยังนับได้ 4 จนกว่าจะ REFRESH TABLE การปิด Cache แลกกับการที่ Spark ต้องอ่าน Catalog บ่อยขึ้น ซึ่งเรายังไม่ได้วัดต้นทุนตรงนี้"
+/>
+
+</Step>
+
+<Step>
+
+## Rename, Drop และ Purge ทำอะไรกับไฟล์
+
+คำสั่งเกี่ยวกับชื่อตารางส่วนใหญ่แก้แค่แถวใน Catalog
+
+```python
+spark.sql("ALTER TABLE lab.db.t RENAME TO db.t2")     # ปลายทางไม่ต้องใส่ชื่อ Catalog
+spark.sql("DROP TABLE lab.db.t2")                      # ไม่มี PURGE
+spark.sql("DROP TABLE lab.db.p PURGE")
+```
+
+หลัง `RENAME` ไฟล์ยังอยู่ที่โฟลเดอร์เดิม (`wh/db/t/...`) ไม่มีโฟลเดอร์ `wh/db/t2` เกิดขึ้น แต่ตารางอ่านผ่านชื่อ `t2` ได้ 3 Row เหมือนเดิม และหลัง `DROP TABLE` เฉย ๆ แถวใน Catalog หายไป แต่ไฟล์ทั้ง 9 ไฟล์ยังอยู่บนดิสก์ (และตาราง `other.copy` ที่ลงทะเบียนไว้ก็ยังอ่านได้ 2 Row เพราะยังชี้ไฟล์ชุดนั้น) ส่วน `DROP TABLE ... PURGE` ลบไฟล์ของตารางไปด้วย แบบฝึกตรวจแล้วโฟลเดอร์ของตาราง `p` ไม่เหลือไฟล์สักไฟล์
+
+<Callout type="warn" title="DROP TABLE เฉย ๆ ไม่คืนพื้นที่">
+ถ้าตั้งใจลบตารางทิ้งจริง ๆ ต้องใส่ `PURGE` ไม่งั้นไฟล์ค้างอยู่ใน Storage โดยไม่มี Catalog ไหนรู้จัก (ในแบบฝึกของเรา Catalog อื่นยังลงทะเบียนชี้ไฟล์เดิม ดังนั้นการ PURGE อาจทำให้ตารางอื่นอ่านไม่ได้ เราไม่ได้ทดลองกรณีนั้น)
+</Callout>
+
+</Step>
+
+<Step>
+
+## Catalog ตัวอื่นที่เราไม่ได้รัน
+
+Iceberg ยังมี Catalog อีกหลายชนิดที่เรามองเห็นใน Source ของ 1.12.0 แต่ไม่ได้รันในเส้นทางนี้ เพราะคอมพิวเตอร์ของเราไม่มีบริการเหล่านั้น ได้แก่ Hive Metastore (`HiveCatalog` ในโมดูล `hive-metastore/`), AWS Glue (`GlueCatalog` ใน `aws/`), Nessie (`NessieCatalog`) และ **REST Catalog** ที่เป็น Spec ของ HTTP API (ไฟล์ `open-api/rest-catalog-open-api.yaml`) ซึ่งกำลังเป็นทางที่หลายผู้ให้บริการเลือกใช้ เพราะ Client ทุกภาษาคุยกับ Server เดียวกันผ่าน HTTP โดยไม่ต้องรู้ว่าข้างหลังเก็บตัวชี้ไว้ที่ไหน (ประโยคหลังเป็นความเห็นของผู้เขียน) ใน Knowledge Graph ของ Iceberg มี Layer ชื่อ REST Catalog ที่เปิดดูโครงสร้างฝั่ง Client ได้ แต่เนื้อหาตรงนี้ **ไม่ได้รัน**
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ALTER TABLE ... RENAME TO ในตาราง Iceberg ที่ใช้ JDBC Catalog ย้ายไฟล์ข้อมูลไปโฟลเดอร์ใหม่ตามชื่อใหม่หรือไม่"
+  options={['ย้าย เพราะโฟลเดอร์ต้องตรงกับชื่อตาราง', 'ไม่ย้าย แก้แค่แถวในตาราง iceberg_tables ไฟล์ยังอยู่ที่ Location เดิมซึ่งจดอยู่ใน metadata.json', 'ย้ายเฉพาะ metadata.json']}
+  answer={1}
+  why="เราพบว่าโฟลเดอร์ของชื่อใหม่ไม่ถูกสร้างขึ้น โฟลเดอร์เดิมยังอยู่ และตารางอ่านผ่านชื่อใหม่ได้ 3 Row เพราะ Location ของตารางอยู่ใน metadata.json จึงไม่ได้ผูกกับชื่อ"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Hadoop Catalog: `vN.metadata.json` กับ `version-hint.text` (เลข 3) และ `StaticTable` เปิดตารางนั้นใน PyIceberg ได้ | รัน: `exercises/09_catalogs.py` |
+| `register_table` ลงทะเบียนตารางเดิมเป็นชื่อใหม่ใน Catalog เดียวกัน อ่านได้ 2 Row | รัน: `exercises/09_catalogs.py` |
+| `cache-enabled=false` ทำให้ Spark เห็น Commit ของ PyIceberg ทันที | รัน: `exercises/09_catalogs.py` |
+| `PYICEBERG_CATALOG__LAB__*` ตั้ง Catalog ได้และต้องตั้งก่อน Import | รัน: `exercises/09_catalogs.py` |
+| `RENAME` ไม่ย้ายไฟล์; `DROP TABLE` เฉย ๆ ทิ้งไฟล์ 9 ไฟล์; `DROP TABLE PURGE` ลบหมด | รัน: `exercises/09_catalogs.py` |
+| `type` กับ `catalog-impl` ตั้งพร้อมกันไม่ได้ | รัน: `exercises/09_catalogs.py` (ข้อผิดพลาดที่เจอจริง) |
+| Hadoop Catalog ต้องพึ่งการ Rename แบบ Atomic ของระบบไฟล์; ตารางสองชื่อที่ชี้ไฟล์เดียวกันเขียนต่อไม่ปลอดภัย | Docs/ผู้เขียน (ไม่ได้รัน) |
+| มี `HiveCatalog`, `GlueCatalog`, `NessieCatalog` และ Spec REST ใน Source | Source: โครงสร้างโฟลเดอร์ Iceberg 1.12.0 (ไม่ได้รัน) |
+| REST Catalog คือทางที่หลายผู้ให้บริการเลือก | ผู้เขียน (ความเห็น) |
+
+</Step>

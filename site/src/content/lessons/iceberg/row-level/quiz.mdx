@@ -1,0 +1,62 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจบทนี้แค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="ตารางค่าเริ่มต้น (Copy-on-write) มี 1 ไฟล์ 10 Row ลบ 1 Row ด้วย DELETE Snapshot ใหม่เปลี่ยนไฟล์อย่างไร"
+  options={['แก้ไฟล์เดิมตรง ๆ ให้เหลือ 9 Row', 'เอาไฟล์เดิมออกจากตาราง แล้วเพิ่มไฟล์ใหม่ที่มี 9 Row', 'เพิ่ม Delete File บอกว่าข้าม 1 Row']}
+  answer={1}
+  why="ในแบบฝึก Operation ที่ได้เป็น Overwrite โดยเพิ่มไฟล์ข้อมูล 1 ไฟล์และเอาออก 1 ไฟล์ เพราะไฟล์ของ Iceberg ไม่ถูกแก้หลังเขียน ส่วนตัวเลือกสุดท้ายคือ Merge-on-read ซึ่งเราต้องตั้งค่าเองถึงจะใช้"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ในตาราง Merge-on-read ข้อมูลของ Row ที่ถูกลบหายไปจากไฟล์ข้อมูลหรือไม่"
+  options={['หายไปทันทีเพราะ Iceberg เขียนไฟล์ใหม่', 'ยังอยู่ในไฟล์ข้อมูลเดิม Delete File เพียงบอกให้ Reader ข้ามตำแหน่งนั้น', 'ย้ายไปอยู่ใน Delete File']}
+  answer={1}
+  why="เราเห็นว่าไฟล์ข้อมูลเดิมยังนับ 10 Row ใน Summary และตาราง position_deletes เก็บแค่ชื่อไฟล์กับตำแหน่ง (Pos = 2) Row จริงจะหายไปจากดิสก์ก็ต่อเมื่อมีการจัดไฟล์ใหม่ในงานดูแลตาราง"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เทียบ Copy-on-write กับ Merge-on-read: งานที่ลบ Row เล็กน้อยกระจายในไฟล์ใหญ่หลายไฟล์ทุกนาที และมี Query อ่านเป็นครั้งคราว เหมาะกับโหมดไหนมากกว่า"
+  options={['Copy-on-write เพราะการอ่านเร็วที่สุด', 'Merge-on-read เพราะการเขียนถูก ไม่ต้องเขียนไฟล์ใหญ่ใหม่ทุกครั้ง และ Query ที่อ่านไม่บ่อยรับต้นทุนการหักโน้ตได้', 'ไม่มีความต่างกัน']}
+  answer={1}
+  why="Copy-on-write จ่ายต้นทุนตอนเขียน เพราะต้องเขียนไฟล์ใหม่ทั้งไฟล์ ส่วน Merge-on-read ไปจ่ายตอนอ่าน เพราะต้องหักโน้ตทุกครั้งที่อ่าน งานเขียนเล็ก ๆ ที่เข้ามาถี่ ๆ จึงเหมาะกับ Merge-on-read แต่ถ้าถามว่าในระบบจริงอันไหนคุ้มกว่า ต้องวัดกับข้อมูลของคุณเอง เพราะแบบฝึกของเราเล็กเกินกว่าจะวัดเวลาได้"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="PyIceberg 0.12.0 Upsert 2 Row (หนึ่ง Row ตรงกับของเดิม อีก Row เป็นใหม่) สิ่งที่เกิดกับ Snapshot ของตารางคือ"
+  options={['เกิด Snapshot เดียวที่ทำทุกอย่าง', 'เกิด 3 Snapshot (Overwrite แล้ว Append สองครั้ง) ตารางสุดท้ายถูกต้อง แต่ Reader อาจเห็นสถานะกลางระหว่างทาง', 'ไม่เกิด Snapshot เพราะใช้ Delete File']}
+  answer={1}
+  why="ในแบบฝึกเราอ่าน Operation ของ 3 Snapshot ล่าสุดได้ Append, Append, Overwrite (เรียงจากใหม่ไปเก่า) และ Result เป็น UpsertResult(rows_updated=1, rows_inserted=1) ผลลัพธ์สุดท้ายจึงมีหนึ่ง Row ต่อ id ไม่ซ้ำกัน"
+/>
+
+</Step>

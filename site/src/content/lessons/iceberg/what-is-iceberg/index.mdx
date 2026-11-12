@@ -1,0 +1,215 @@
+---
+title: Iceberg คืออะไร
+summary: เริ่มจากตารางที่เป็นแค่โฟลเดอร์ของไฟล์ แล้วดูว่า Iceberg เพิ่มอะไรเข้ามา จากนั้นสร้างตารางแรกด้วย Spark เปิดดูไฟล์ที่เกิดขึ้น และให้ PyIceberg อ่านตารางเดียวกันผ่าน Catalog
+order: 1
+phase: A
+level: 1
+stage: sprout
+format: steps
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## ตารางที่เป็นแค่โฟลเดอร์ของไฟล์
+
+ลองนึกถึงตาราง `orders` ที่เก็บเป็นไฟล์ Parquet หลายไฟล์อยู่ในโฟลเดอร์เดียวกัน ใครอยากอ่านตารางนี้ก็เปิดโฟลเดอร์แล้วอ่านทุกไฟล์ที่เจอ วิธีนี้ใช้กันมานานและใช้ได้ดีตราบเท่าที่มีคนเขียนอยู่คนเดียวและไม่มีใครอ่านระหว่างที่กำลังเขียน
+
+ปัญหาเริ่มตอนที่ตารางโตขึ้นและมีหลายคนมาใช้พร้อมกัน เราลองนึกภาพนาย A กำลังเขียนไฟล์ใหม่ 10 ไฟล์ลงโฟลเดอร์ แต่เขียนไปได้แค่ 6 ไฟล์ Job ก็ล้ม ส่วนนาย B ที่เปิดอ่านตารางพอดีก็จะเห็นข้อมูลครึ่งเดียว เพราะโฟลเดอร์ไม่มีทางบอกว่าไฟล์ไหน "เสร็จแล้ว" และไฟล์ไหน "ยังเขียนไม่จบ" นอกจากนี้การเปลี่ยนชื่อ Column หรือการเปลี่ยนวิธีแบ่ง Partition ก็แปลว่าต้องเขียนข้อมูลทั้งตารางใหม่ และการจะรู้ว่ามีไฟล์อะไรบ้างก็ต้องไล่ดูโฟลเดอร์ทั้งหมดทุกครั้ง
+
+ปัญหาทั้งหมดนี้คือสิ่งที่ Iceberg ถูกสร้างมาเพื่อแก้ ขอบอกไว้ก่อนว่าเรื่องของฝั่ง "โฟลเดอร์ของไฟล์" ในหน้านี้ผู้เขียนอธิบายจากความเข้าใจของตัวเอง ไม่ได้รันให้ดูนะ ส่วนที่เหลือของบทเรารันจริงทั้งหมด
+
+</Step>
+
+<Step>
+
+## Iceberg เป็น Table Format
+
+Iceberg ไม่ได้เป็น Database และไม่ได้เป็น File Format ตัวข้อมูลยังเป็นไฟล์ Parquet เหมือนเดิม (Iceberg รองรับ ORC กับ Avro ด้วย) สิ่งที่ Iceberg เพิ่มเข้ามาคือ **ไฟล์ Metadata ที่บอกอย่างเป็นทางการว่าตารางนี้ ณ ตอนนี้ ประกอบด้วยไฟล์ข้อมูลไหนบ้าง** ซึ่งทำให้การอ่านไม่ต้องไล่ดูโฟลเดอร์อีกต่อไป ส่วนการเขียนก็กลายเป็นการสร้างไฟล์ Metadata ฉบับใหม่ที่ชี้ไปยังไฟล์ชุดใหม่
+
+เราจะใช้ภาพของ **หนังสือที่มีสารบัญ** ในบทนี้และบทถัด ๆ ไป ไฟล์ข้อมูลเปรียบเหมือนหน้ากระดาษที่พิมพ์แล้วไม่แก้อีก ไฟล์ Metadata เปรียบเหมือนสารบัญของหนังสือฉบับหนึ่งว่าเล่มนั้นมีหน้าไหนบ้าง การเปลี่ยนแปลงตารางทุกครั้งคือการพิมพ์สารบัญฉบับใหม่ แล้ว **Catalog** ก็คือป้ายบนชั้นหนังสือที่บอกว่าตอนนี้ต้องอ่านสารบัญฉบับไหน ถ้าเปลี่ยนป้ายสำเร็จ ทุกคนก็จะเห็นหนังสือฉบับใหม่พร้อมกัน ถ้ายังไม่ได้เปลี่ยน ทุกคนก็ยังเห็นฉบับเดิมที่ครบถ้วน
+
+Iceberg เองคือข้อกำหนด (Spec) ของไฟล์เหล่านี้ พร้อมไลบรารีที่อ่านเขียนตาม Spec ในแต่ละภาษา แล้วให้ Engine อย่าง Spark เรียกใช้ ใน Source ของ Iceberg 1.12.0 เราจะเห็นโมดูลสำหรับ Spark, Flink, Kafka Connect และอื่น ๆ อยู่ข้างกัน (Source: โฟลเดอร์ `spark/`, `flink/`, `kafka-connect/`, `format/spec.md`) ส่วน PyIceberg เป็นไลบรารีอีกตัวที่เขียนด้วย Python อ่านเขียนตารางตาม Spec เดียวกันโดยไม่ต้องมี JVM
+
+<Callout type="note" title="เวอร์ชันที่ใช้ในเส้นทางนี้">
+แบบฝึกรันด้วย Spark 4.1.3 กับ Iceberg 1.12.0 (`iceberg-spark-runtime-4.1_2.13`) และ PyIceberg 0.12.0 Iceberg 1.12.0 มี Runtime สำหรับ Spark 4.0 และ 4.1 เท่านั้น ยังไม่มีสำหรับ Spark 4.2 บน Maven Central ณ วันที่ 2026-11-12 เราจึงไม่ใช้ Spark 4.2 ที่ใช้ในเส้นทาง Spark ส่วนแบบฝึกของเส้นทางนี้ก็รันใน WSL เหมือนกับเส้นทาง Spark
+</Callout>
+
+</Step>
+
+<Step>
+
+## สร้างตารางแรกด้วย Spark
+
+เราจะสร้าง Namespace กับตาราง `orders` ที่แบ่ง Partition ตามวันของ `ordered_at` แล้วใส่ข้อมูล 4 Row (รัน: `exercises/01_first_table.py`)
+
+```python
+spark.sql("CREATE NAMESPACE lab.db")
+spark.sql("""CREATE TABLE lab.db.orders (order_id bigint, customer string, amount double, ordered_at timestamp)
+             USING iceberg PARTITIONED BY (days(ordered_at))""")
+spark.sql("""INSERT INTO lab.db.orders VALUES
+             (1, 'ann',  120.0, TIMESTAMP'2026-01-01 09:00:00'),
+             (2, 'bob',   80.5, TIMESTAMP'2026-01-01 15:30:00'),
+             (3, 'ann',   42.0, TIMESTAMP'2026-01-02 10:00:00'),
+             (4, 'cara', 300.0, TIMESTAMP'2026-01-02 18:45:00')""")
+```
+
+`lab` คือชื่อ Catalog ที่เราตั้งไว้ตอนสร้าง Spark Session ซึ่ง Spark อ่านชื่อนี้จาก Config แล้วส่งคำสั่งต่อให้ Iceberg `USING iceberg` บอกว่าตารางนี้เป็นตาราง Iceberg และ `days(ordered_at)` คือ Partition Transform ที่เราจะคุยกันละเอียดใน[บท 3](/iceberg/schema-partitioning/#partition-transform-และ-hidden-partitioning)
+
+สังเกตว่าเราแค่ INSERT ไป 4 Row แต่ยังไม่ได้เปิดดูว่ามีไฟล์อะไรเกิดขึ้นบ้าง ขั้นต่อไปเราจะเปิดดู
+
+</Step>
+
+<Step>
+
+## ไฟล์ที่เกิดขึ้นบนดิสก์
+
+ตารางนี้อยู่ในโฟลเดอร์ `wh/db/orders` ซึ่งเราไล่ดูทุกไฟล์ได้
+
+```text
+data/ordered_at_day=2026-01-01/00000-1-....-0-00001.parquet
+data/ordered_at_day=2026-01-02/00000-1-....-0-00002.parquet
+metadata/00000-....metadata.json
+metadata/00001-....metadata.json
+metadata/....-m0.avro
+metadata/snap-....avro
+```
+
+โฟลเดอร์ `data/` มี Parquet 2 ไฟล์ ไฟล์ละหนึ่งวัน ส่วน `metadata/` มีไฟล์ 4 ชนิด สองไฟล์แรกที่ลงท้ายด้วย `.metadata.json` คือสารบัญสองฉบับ ฉบับ `00000` เกิดตอน `CREATE TABLE` ซึ่งตอนนั้นยังไม่มีข้อมูลเลย ส่วนฉบับ `00001` เกิดตอน `INSERT` ไฟล์ที่ลงท้ายด้วย `-m0.avro` คือ **Manifest** ซึ่งเป็นรายการของไฟล์ข้อมูล และไฟล์ที่ขึ้นต้นด้วย `snap-` คือ **Manifest List** ซึ่งเป็นรายการของ Manifest ของ Snapshot หนึ่ง สองอย่างนี้เราจะเปิดอ่านกันใน[บท 2](/iceberg/table-anatomy/)
+
+แบบฝึก Assert ไว้ว่า `INSERT` ครั้งเดียวสร้างไฟล์ข้อมูลหนึ่งไฟล์ต่อหนึ่ง Partition, `metadata.json` สองไฟล์, Manifest หนึ่งไฟล์ และ Manifest List หนึ่งไฟล์ ตามที่เห็นข้างบน ตัวเลขนี้จะเปลี่ยนถ้าเราใช้ Spark ที่มีหลาย Task เขียนพร้อมกัน เพราะแต่ละ Task จะเขียนไฟล์ของตัวเอง
+
+</Step>
+
+<Step>
+
+## Catalog เก็บแค่ Pointer
+
+แล้ว Spark รู้ได้อย่างไรว่าต้องเปิด `00001` ไม่ใช่ `00000` คำตอบอยู่ที่ Catalog ในแบบฝึกนี้เราใช้ Catalog ชนิด JDBC ที่เก็บในไฟล์ SQLite ลองเปิดตาราง `iceberg_tables` ของมัน
+
+```text
+catalog_name    lab
+table_namespace db
+table_name      orders
+metadata_location           .../metadata/00001-....metadata.json
+previous_metadata_location  .../metadata/00000-....metadata.json
+```
+
+Catalog ไม่รู้เรื่อง Schema หรือไฟล์ข้อมูลเลย มันเก็บแค่แถวเดียวต่อหนึ่งตาราง บอกว่า `metadata.json` ปัจจุบันอยู่ที่ไหน ในภาพหนังสือก็คือป้ายบนชั้น การ Commit ของ Iceberg จึงจบด้วยการแก้แถวนี้ให้ชี้ไปฉบับใหม่ ซึ่งเป็นการเปลี่ยนค่าเพียงช่องเดียว และเปลี่ยนได้แบบสำเร็จทั้งหมดหรือไม่สำเร็จเลย ขั้นตอนนี้เราไล่ดูละเอียดใน[บท 4](/iceberg/writing/#เมื่อ-writer-สองคนชนกัน)
+
+ลองเปิด `00001-....metadata.json` ดู ข้างในมี Key เหล่านี้ (รัน: ตัวเดียวกัน)
+
+```text
+current-schema-id, current-snapshot-id, default-spec-id, format-version, last-column-id,
+location, metadata-log, partition-specs, properties, refs, schemas, snapshot-log, snapshots,
+sort-orders, table-uuid, ...
+```
+
+ไฟล์นี้บอกทั้ง Schema วิธีแบ่ง Partition และประวัติของ Snapshot ทั้งหมด รวมถึงบอกด้วยว่า Snapshot ปัจจุบันคืออันไหน ส่วน `format-version` ของตารางที่ Spark สร้างให้เป็น `2` (Spec มีหลายเวอร์ชัน เดี๋ยวเราจะกลับมาคุยกันทีหลัง)
+
+Snapshot ที่เกิดจาก `INSERT` มี Summary ที่บอกว่าเกิดอะไรขึ้นบ้าง
+
+```text
+operation: append    added-data-files: 2    added-records: 4
+total-records: 4     total-data-files: 2    total-delete-files: 0
+engine-name: spark   engine-version: 4.1.3
+```
+
+</Step>
+
+<Step>
+
+## PyIceberg อ่านตารางเดียวกันได้
+
+เมื่อ Metadata เป็นไฟล์ที่เปิดอ่านได้ตาม Spec Engine อื่นก็อ่านตารางเดียวกันได้ เราลองเปิด Catalog เดียวกันจาก PyIceberg โดยไม่มี Spark เกี่ยวข้อง
+
+```python
+from pyiceberg.catalog import load_catalog
+
+cat = load_catalog("lab", type="sql", uri="sqlite:///.../catalog.db", warehouse="file://.../wh")
+tbl = cat.load_table("db.orders")
+tbl.scan().to_arrow().sort_by("order_id").to_pylist()
+```
+
+บรรทัดแรกเปิด Catalog ชนิด `sql` ของ PyIceberg ซึ่งใช้ตาราง `iceberg_tables` ชุดเดียวกับ JDBC Catalog ของ Iceberg ฝั่ง Java ชื่อ Catalog ต้องตรงกัน (`lab`) เพราะมันถูกเก็บเป็นคอลัมน์ `catalog_name` แถวเดียวกัน บรรทัดที่สองโหลดตาราง และบรรทัดที่สามสแกนทั้งตารางเป็น Arrow Table ผลที่ได้คือ 4 Row เหมือนที่ Spark เขียน และ `tbl.current_snapshot().snapshot_id` ตรงกับ `current-snapshot-id` ใน `metadata.json`
+
+Schema ที่ PyIceberg พิมพ์ออกมาคือ
+
+```text
+1: order_id: optional long
+2: customer: optional string
+3: amount: optional double
+4: ordered_at: optional timestamptz
+```
+
+มีสองอย่างที่ควรสังเกต อย่างแรก ทุก Column มีตัวเลขนำหน้า นั่นคือ **Field ID** ที่เราจะใช้ใน[บท 3](/iceberg/schema-partitioning/#field-id-คือสิ่งที่-iceberg-ใช้อ้างอิง-column) อย่างที่สอง `timestamp` ของ Spark กลายเป็น `timestamptz` ใน Iceberg ซึ่งหมายถึงเวลาที่มี Timezone (เก็บเป็น UTC) ดังนั้นถ้า PyIceberg จะ Append ข้อมูลเข้าตารางนี้ Column เวลาใน Arrow ก็ต้องมี Timezone ด้วย ถ้าไม่มี มันจะ Error ว่า Schema ไม่ตรง (แบบฝึกเจอ `Mismatch in fields` ที่ `ordered_at`)
+
+PyIceberg เขียนได้ด้วย เราลอง Append Row ที่ 5 จาก PyIceberg แล้วสังเกตว่า Spark ที่เปิดตารางนี้ค้างอยู่เห็นอะไร
+
+```python
+tbl.append(pa.table({"order_id": [5], "customer": ["dan"], "amount": [10.0],
+                     "ordered_at": [datetime(2026, 1, 3, 8, 0, tzinfo=timezone.utc)]}))
+```
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Session ของ Spark ที่เปิดตารางนี้มาก่อนแล้ว นับจำนวน Row ทั้งตาราง หลังจาก PyIceberg Append Row ที่ 5 สำเร็จ จะได้กี่ Row"
+  options={['5 เพราะ Catalog เปลี่ยนไปแล้ว Spark ต้องเห็นทันที', '4 เพราะ Spark ยังถือตารางที่เคยโหลดไว้ จนกว่าจะ Refresh หรือ Cache หมดอายุ', 'Error เพราะสอง Engine เขียนตารางเดียวกันไม่ได้']}
+  answer={1}
+  why="เราวัดได้ 4 ก่อน REFRESH TABLE และ 5 หลังจากนั้น เพราะ SparkCatalog เก็บ Table Object ที่โหลดไว้ในหน่วยความจำ (ค่าเริ่มต้นเปิด Cache ไว้) จึงยังเห็น Snapshot เก่า ซึ่งยังเป็นสถานะที่ครบถ้วนและถูกต้องของเวลานั้น ไม่ได้เป็นข้อมูลเสีย ส่วนที่ว่าสอง Engine เขียนตารางเดียวกันไม่ได้นั้นไม่จริง ตัวอย่างต่อไปแสดงให้เห็นว่าทำได้ และ Iceberg ก็ออกแบบมาให้ทำได้"
+/>
+
+</Step>
+
+<Step>
+
+## Spark เขียนต่อได้โดยไม่ทับของ PyIceberg
+
+คำถามถัดมาคือ ถ้า Session ของ Spark ยังมองเห็นของเก่าอยู่ แล้วสั่ง `INSERT` ล่ะ จะเขียนทับ Row ที่ PyIceberg เขียนไว้หรือเปล่า เราลองให้ PyIceberg Append Row ที่ 7 ก่อน แล้ว **ไม่ Refresh** ให้ Spark (ตอนนั้น Spark ยังเห็นแค่ 6 Row) จากนั้นสั่ง Spark เขียน Row ที่ 8
+
+```python
+spark.sql("INSERT INTO lab.db.orders VALUES (8, 'fay', 1.0, TIMESTAMP'2026-01-03 10:00:00')")
+```
+
+ผลคือ `INSERT` สำเร็จ และ Snapshot ที่ Spark สร้างมี Snapshot ของ PyIceberg เป็น `parent` พอเราอ่านตารางจาก PyIceberg ก็เจอ Row ครบทั้ง 8 Row ไม่มีอะไรหาย ก่อนหน้านั้นเมื่อดู `snapshots` จะเห็นว่าทุก Snapshot เป็น `append` และ `total-records` ไล่จาก 4 เป็น 5 เป็น 6
+
+```text
++---------+-----+-----+
+|operation|added|total|
++---------+-----+-----+
+|append   |4    |4    |
+|append   |1    |5    |
+|append   |1    |6    |
++---------+-----+-----+
+```
+
+สองโปรแกรมที่ไม่รู้จักกันเขียนตารางเดียวกันได้อย่างปลอดภัย เพราะขั้นตอนสุดท้ายของ Commit คือคำสั่ง `UPDATE` แถวของตารางใน Catalog **โดยมีเงื่อนไขว่าแถวนั้นต้องยังชี้ไปที่ `metadata.json` ฉบับที่ Writer อ่านมา** ถ้ามีคนอื่นเปลี่ยนไปก่อน คำสั่งนี้จะไม่แก้แถวไหนเลย Iceberg จึงรู้ว่าชนกัน แล้วอ่านฉบับล่าสุดมาเขียนต่อบนนั้น (Source: `JdbcUtil.java` ค่าคงที่ `V1_DO_COMMIT_TABLE_SQL` และ `JdbcTableOperations.doCommit`) แบบฝึกยืนยันผลของมันตามที่เห็นข้างบน ส่วนการลองใหม่จริง ๆ เราทดลองให้เห็นใน[บท 4](/iceberg/writing/#เมื่อ-writer-สองคนชนกัน)
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| ตาราง Iceberg ที่ Spark สร้างมี `format-version` เป็น 2, มีไฟล์ Parquet หนึ่งไฟล์ต่อหนึ่ง Partition และ `metadata.json` สองไฟล์หลัง `CREATE` กับ `INSERT` | รัน: `exercises/01_first_table.py` |
+| JDBC Catalog เก็บ `metadata_location` กับ `previous_metadata_location` หนึ่งแถวต่อตาราง | รัน: `exercises/01_first_table.py` |
+| PyIceberg อ่านและเขียนตารางเดียวกับ Spark ผ่าน Catalog เดียวกันได้ | รัน: `exercises/01_first_table.py` |
+| Spark `timestamp` เป็น `timestamptz` ใน Iceberg และ PyIceberg ต้องการ Arrow Timestamp ที่มี Timezone | รัน: `exercises/01_first_table.py` |
+| Session ของ Spark เห็นแค่ 4 Row ก่อน `REFRESH TABLE` และ 5 Row หลังจากนั้น | รัน: `exercises/01_first_table.py` |
+| Spark `INSERT` ตอนที่ยังไม่ Refresh แล้วสำเร็จ โดยมี Snapshot ของ PyIceberg เป็น `parent` และ Row ครบ 8 Row | รัน: `exercises/01_first_table.py` |
+| Commit ของ JDBC Catalog คือ `UPDATE` ที่มีเงื่อนไข `metadata_location` ต้องเท่ากับฉบับเดิม | Source: `JdbcUtil.java` (`V1_DO_COMMIT_TABLE_SQL`), `JdbcTableOperations.doCommit` |
+| ปัญหาของตารางที่เป็นโฟลเดอร์ของไฟล์ (อ่านระหว่างเขียน, เปลี่ยน Schema) | ผู้เขียน (ไม่ได้รัน) |
+| Iceberg 1.12.0 มี Runtime สำหรับ Spark 4.0 และ 4.1 และ Build กับ Spark 4.1.3 | Source: `gradle/libs.versions.toml`, Maven Central ตรวจเมื่อ 2026-11-12 |
+| Iceberg คือ Spec พร้อมไลบรารี และมีโมดูลของหลาย Engine | Source: โครงสร้างโฟลเดอร์ของ Iceberg 1.12.0 และ `format/spec.md` |
+
+</Step>

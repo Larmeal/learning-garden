@@ -1,0 +1,150 @@
+---
+title: อ่านข้อมูลและ Scan Planning
+summary: ดูว่า Query ข้ามไฟล์ได้อย่างไรในสามระดับ คือ Manifest ทั้งก้อน Partition และสถิติ Min/Max ของ Column แล้วลองดูตารางด้วย Metadata Table ของ Spark และ Inspect ของ PyIceberg
+order: 5
+phase: B
+level: 3
+stage: sprout
+format: steps
+requires: [writing]
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ReadPathLab from '../../../../components/labs/iceberg/ReadPathLab';
+import ScanPruningLab from '../../../../components/labs/iceberg/ScanPruningLab';
+
+<Step>
+
+## ก่อนอ่านต้องวางแผนว่าจะเปิดไฟล์ไหน
+
+ใน[บท 2](/iceberg/table-anatomy/#ชั้นที่-3-manifest) เราเห็นว่า Manifest เก็บ Min/Max ของ Column ต่อไฟล์ และใน[บท 3](/iceberg/schema-partitioning/#partition-transform-และ-hidden-partitioning) เห็นว่าค่า Partition ช่วยข้ามไฟล์ได้ บทนี้เราจะวัดให้เห็นว่าทั้งสองอย่างข้ามไฟล์ได้เท่าไร ขั้นตอนที่ Engine ตัดสินใจว่าจะเปิดไฟล์ไหนเรียกว่า **Scan Planning** และเกิดขึ้นก่อนที่จะอ่านข้อมูลสักไฟล์ (รัน: `exercises/05_reads_scan_planning.py`)
+
+ตารางที่เราใช้มี 8 ไฟล์ข้อมูล แบ่งเป็น 4 วัน วันละ 2 ไฟล์ ไฟล์ละ 5 Row โดย `order_id` ไล่เลขต่อกัน ไฟล์แรกมี 1 ถึง 5 ไฟล์ที่สองมี 6 ถึง 10 ไปเรื่อย ๆ จนถึง 40 และ Partition ตามวันของ `ordered_at` เราสร้างด้วย `INSERT` แปดครั้ง ครั้งละหนึ่งไฟล์ จึงมี Manifest 8 ไฟล์ด้วย
+
+</Step>
+
+<Step>
+
+## ตาม Query หนึ่งคำสั่งลงไปทีละชั้น
+
+ลองกดไล่ทีละขั้น แล้วดูลูกศรที่มีเลขกำกับว่า Engine เปิดไฟล์ชั้นไหนก่อน และไฟล์ไหนไม่เคยถูกเปิดเลย จากนั้นลองสลับ Filter เป็น order_id = 7 แล้วกลับมาดูขั้นที่ 3 อีกครั้ง ภาพนี้เรียงตามที่หนังสือ Apache Iceberg: The Definitive Guide วาดไว้ในบทที่ 3 หน้า 59
+
+<ReadPathLab client:visible />
+
+</Step>
+
+<Step>
+
+## ข้ามไฟล์ได้กี่ไฟล์ แล้วแต่เงื่อนไข
+
+เราให้ PyIceberg ส่ง `plan_files()` ซึ่งบอกว่าจะเปิดไฟล์ไหนบ้าง โดยลองเงื่อนไขหกแบบ
+
+```text
+no filter                        8 of 8 files
+one day (partition)              2 of 8 files
+order_id = 7 (min/max)           1 of 8 files
+order_id > 35 (min/max)          1 of 8 files
+customer = 'cu1' (no help)       8 of 8 files
+amount < 0 (nothing matches)     0 of 8 files
+```
+
+เงื่อนไขของวัน (ใช้ `ordered_at`) เหลือ 2 ไฟล์ เพราะค่า Partition ตรงกับวันนั้น ส่วน `order_id = 7` เหลือไฟล์เดียวคือไฟล์ที่มี Min 6 Max 10 และ `order_id > 35` เหลือไฟล์ที่ Max มากกว่า 35 นั่นคือสถิติ Min/Max ของ Column ทำงานได้แม้ Column นั้นไม่ใช่ตัวแบ่ง Partition ถ้าข้อมูลภายในไฟล์เรียงกันดีพอ เงื่อนไข `customer = 'cu1'` ยังต้องเปิดทั้ง 8 ไฟล์ เพราะ `customer` กระจายอยู่ทุกไฟล์ (`cu0`, `cu1`, `cu2` วนกัน) ช่วง Min/Max ของทุกไฟล์จึงครอบคลุม `cu1` ไว้หมด สุดท้ายเงื่อนไขที่ไม่มี Row ไหนตรงเลยอย่าง `amount < 0` ได้ 0 ไฟล์ เพราะ Min ของ `amount` ทุกไฟล์มากกว่า 0
+
+จากตารางนี้จะเห็นว่าการข้ามไฟล์ด้วยสถิติจะได้ผลมากน้อยแค่ไหน ขึ้นอยู่กับว่าข้อมูลเรียงอยู่ในไฟล์อย่างไร ถ้าค่าของ Column ที่ใช้กรองกระจายปนกันอยู่ทุกไฟล์ สถิติก็ช่วยอะไรไม่ได้เลย ซึ่งเป็นเหตุผลหนึ่งที่เรามีการจัดเรียงข้อมูลใหม่ในบทดูแลตาราง (ส่วนนี้เป็นความเห็นของผู้เขียนจากตัวอย่างข้างบนนะ)
+
+</Step>
+
+<Step>
+
+## ลองเปลี่ยน Filter และการจัดข้อมูล
+
+ลองเลือก Filter ทีละแบบ แล้วดูว่า Manifest และ Data File ไฟล์ไหนถูกข้าม และเพราะอะไร จากนั้นลองสลับการจัดข้อมูลเป็น "order_id สลับปนทุกไฟล์" แล้วกลับไปลอง order_id = 7 อีกครั้ง คราวนี้จะเห็นว่าผลต่างไปจากเดิม
+
+<ScanPruningLab client:visible />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ตารางเดียวกันนี้ ถ้าเรากรอง order_id BETWEEN 5 AND 6 จะต้องเปิดกี่ไฟล์จาก 8 ไฟล์"
+  options={['1 ไฟล์ เพราะค่า 5 กับ 6 อยู่ใกล้กัน', '2 ไฟล์ เพราะ 5 อยู่ในไฟล์ที่มีช่วง 1 ถึง 5 และ 6 อยู่ในไฟล์ที่มีช่วง 6 ถึง 10', '8 ไฟล์ เพราะ order_id ไม่ใช่ตัวแบ่ง Partition']}
+  answer={1}
+  why="ช่วง Min/Max ของไฟล์แรกคือ 1 ถึง 5 และของไฟล์ที่สองคือ 6 ถึง 10 ช่วง 5 ถึง 6 จึงแตะทั้งสองไฟล์ ต้องเปิดทั้งคู่ และอีก 6 ไฟล์ข้ามได้ ตัวเลือกสุดท้ายผิด เพราะ Iceberg ใช้สถิติของ Column ข้ามไฟล์ได้แม้ Column นั้นจะไม่ใช่ Partition (เราลอง order_id = 7 แล้วได้ 1 ไฟล์)"
+/>
+
+</Step>
+
+<Step>
+
+## Manifest ทั้งก้อนก็ข้ามได้
+
+ก่อนจะถึงระดับไฟล์ Engine ข้าม Manifest ได้ด้วย ใน Manifest List แต่ละแถวมี `partition_summaries` ซึ่งเก็บช่วงค่า Partition ของไฟล์ทั้งหมดใน Manifest นั้น แบบฝึกดูจาก `t.inspect.manifests()` ได้ว่า Manifest แรกมีช่วงวัน `2026-01-04` ถึง `2026-01-04` ซึ่งเป็นช่วงเดียวกันทั้งต้นและปลาย เมื่อเราถามหาวันที่ 2 มกราคม มี Manifest เพียง 2 ใน 8 ไฟล์ที่ช่วงของมันครอบคลุมวันนั้น ส่วนอีก 6 ข้ามได้โดยไม่ต้องเปิดอ่านเลย (เราคำนวณจากช่วงใน `partition_summaries` เอง ไม่ได้วัดว่า Engine เปิด Manifest กี่ไฟล์จริง)
+
+ลำดับขั้นทั้งหมดมีคลาสของตัวเองใน Source ของ Iceberg จากชื่อคลาสที่เราอ่านเจอ เริ่มจากกรอง Manifest ด้วย `ManifestEvaluator` โดยดูช่วง Partition ใน Manifest List จากนั้นเปิด Manifest ที่เหลือแล้วกรองไฟล์ด้วยค่า Partition กับ `InclusiveMetricsEvaluator` ที่ดูสถิติ Min/Max และตอนอ่านไฟล์จริง เงื่อนไขที่ไฟล์นั้นยังตัดสินไม่ได้ (`ResidualEvaluator` เป็นตัวคำนวณส่วนนี้) จะถูกกรองซ้ำกับ Row ผลลัพธ์จึงตรงกับเงื่อนไขทุก Row แบบฝึกยืนยันปลายทางนี้ไว้ด้วย `order_id = 7` ได้ Row เดียวพอดี ส่วนการไล่โค้ดของแต่ละคลาสเรายังไม่ได้ทำ
+
+</Step>
+
+<Step>
+
+## Spark ใช้กลไกเดียวกัน
+
+เมื่อสั่ง `SELECT * FROM lab.db.orders WHERE order_id = 7` Plan ของ Spark มี Node `BatchScan` ที่แสดง Filter ที่ส่งลงไปให้ Iceberg
+
+```text
+BatchScan lab.db.orders[order_id, customer, amount, ordered_at]
+  IcebergScan(table=lab.db.orders, schemaId=0, snapshotId=6689959274796224701, branch=null, filters=order_id IS NOT NULL, order_id = 7 ...
+```
+
+เห็น `snapshotId` ที่ Scan นี้ผูกอยู่ ซึ่งแปลว่า Query หนึ่งตัวอ่านจาก Snapshot เดียวตลอด ต่อให้มีคน Commit เพิ่มระหว่างที่ Query ยังรันอยู่ ผลลัพธ์ก็ไม่ปนกัน (ข้อนี้อนุมานจาก `snapshotId` ใน Plan และจากหลักที่ไฟล์ไม่เคยถูกแก้ ไม่ได้ทดลองเปิด Commit คั่นกลางงาน) ส่วนการเลือกเฉพาะ Column ก็ทำงานด้วย เมื่อสั่ง `selected_fields=("order_id",)` PyIceberg คืน Arrow Table ที่มีแค่คอลัมน์เดียว 40 Row
+
+</Step>
+
+<Step>
+
+## ดูตารางจากข้างใน
+
+เราใช้เครื่องมือเหล่านี้เองบ่อยพอ ๆ กับ `SELECT` ปกติ Spark ให้ Metadata Table ต่อท้ายชื่อตาราง ส่วน PyIceberg ให้ `table.inspect`
+
+| อยากรู้ | Spark | PyIceberg |
+|---|---|---|
+| ประวัติ Commit | `lab.db.orders.snapshots` | `t.inspect.snapshots()` |
+| ไฟล์ข้อมูลและสถิติ | `lab.db.orders.files` | `t.inspect.files()` |
+| รายการ Manifest | `lab.db.orders.manifests` | `t.inspect.manifests()` |
+| สรุปต่อ Partition | `lab.db.orders.partitions` | `t.inspect.partitions()` |
+
+แบบฝึกตรวจว่าทั้งสองฝั่งเห็นไฟล์ชุดเดียวกัน (8 ไฟล์ รวม 40 Row) และตาราง `.partitions` ตอบว่า 4 วัน วันละ 10 Row ใน 2 ไฟล์ ถ้าอยากเห็นสถิติแบบอ่านง่าย Spark มีคอลัมน์ `readable_metrics` ใน `.files`
+
+```text
+order_id  lower_bound  upper_bound
+1  5   |  6  10   |  11 15   |  16 20   |  21 25   |  26 30   |  31 35   |  36 40
+```
+
+ซึ่งตรงกับช่วงที่เราออกแบบไว้ใน Step แรก ไฟล์ข้อมูลของ Iceberg ก็เป็น Parquet ธรรมดา แบบฝึกเปิดไฟล์หนึ่งด้วย `pyarrow` ตรง ๆ ได้ 5 Row ส่วน PyIceberg ส่งผลต่อไปที่ Pandas ได้ด้วย `to_pandas()` (แบบฝึกกรอง `order_id <= 5` แล้วได้ 1 ถึง 5)
+
+<Callout type="note" title="ฝั่ง Java กับฝั่ง Python มีเครื่องมือไม่เท่ากัน">
+`readable_metrics` เป็นของ Spark ส่วน PyIceberg เปิดค่าสถิติแบบเดียวกันผ่าน `inspect.files()` แต่เป็น Bytes ที่ต้องถอดเอง ในบทนี้เราเลือกใช้แบบที่อ่านง่ายที่สุดของแต่ละฝั่ง
+</Callout>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| จำนวนไฟล์ที่วางแผนเปิดของเงื่อนไขทั้งหกแบบ (8, 2, 1, 1, 8, 0) | รัน: `exercises/05_reads_scan_planning.py` |
+| Manifest 2 จาก 8 ไฟล์ครอบคลุมวันที่ 2 (คำนวณจาก `partition_summaries`) | รัน: `exercises/05_reads_scan_planning.py` |
+| Plan ของ Spark มี `BatchScan` พร้อม Filter และ `snapshotId` | รัน: `exercises/05_reads_scan_planning.py` |
+| Metadata Table ของ Spark และ `inspect` ของ PyIceberg เห็นไฟล์ชุดเดียวกัน; `readable_metrics`; `to_pandas()`; อ่านไฟล์ด้วย `pyarrow` | รัน: `exercises/05_reads_scan_planning.py` |
+| ลำดับกรอง Manifest → ไฟล์ → Row ด้วย `ManifestEvaluator`, `InclusiveMetricsEvaluator`, `ResidualEvaluator` | Source: `api/.../expressions/`, `core/.../ManifestGroup.java` (อ่านชื่อคลาสและตำแหน่ง ยังไม่ได้ไล่โค้ดทีละบรรทัด) |
+| Query หนึ่งตัวอ่านจาก Snapshot เดียวแม้มี Commit คั่น | ผู้เขียน (ไม่ได้รัน) |
+| ประสิทธิภาพของสถิติขึ้นกับการเรียงข้อมูลในไฟล์ | ผู้เขียน (สรุปจากตัวอย่างใน Step) |
+| ลำดับการอ่านลงมาทีละชั้น (Catalog, metadata.json, Manifest List, Manifest, Data File) | หนังสือ: Apache Iceberg: The Definitive Guide บทที่ 3 หน้า 59 (Figure 3-6) |
+
+</Step>

@@ -1,0 +1,50 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 3 ข้อ เพื่อเช็กว่าเข้าใจบทนี้แค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="Stream เขียนเข้าตาราง Iceberg ผู้อ่านตารางจะเห็นข้อมูลของ Micro-batch ที่เขียนอยู่ครึ่ง ๆ กลาง ๆ หรือไม่"
+  options={['เห็น เพราะไฟล์ถูกเขียนทีละไฟล์', 'ไม่เห็น เพราะแต่ละ Micro-batch เป็นหนึ่ง Commit ผู้อ่านเห็นทั้งก้อนเมื่อ Snapshot ใหม่ปรากฏ', 'เห็นเฉพาะตอนที่ Stream หยุด']}
+  answer={1}
+  why="ไฟล์ข้อมูลที่ Micro-batch เขียนจะยังไม่มี Snapshot ไหนอ้างถึงจนกว่าจะ Commit ผู้อ่านจึงไม่เห็น เรายืนยันในแบบฝึกว่าทุกรอบที่มีข้อมูลใหม่ได้ Snapshot เพิ่มหนึ่งอัน และ Operation เป็น Append"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="อยากส่งต่อเฉพาะแถวที่เพิ่มตั้งแต่เมื่อวานจากตารางที่โตด้วยการ Append อย่างเดียว วิธีที่ตรงที่สุดคืออะไร"
+  options={['อ่านทั้งตารางแล้วเทียบกับของเมื่อวานด้วยตัวเอง', 'อ่านแบบ Incremental โดยกำหนด Snapshot ต้นทางเป็นของเมื่อวาน (ไม่รวม) และปลายทางเป็นปัจจุบัน', 'ใช้ Rollback ไปเมื่อวาน']}
+  answer={1}
+  why="เราอ่านช่วงจาก Snapshot ที่ 1 ถึง 3 ได้ id 3 และ 4 ซึ่งเป็นแถวที่เพิ่มหลัง Snapshot ที่ 1 ทั้ง Spark และ PyIceberg (incremental_append_scan) ทำได้ แต่มีข้อจำกัดว่าใช้ได้กับ Snapshot ที่เป็น Append เท่านั้น"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ตารางที่มี Snapshot แบบ Overwrite อยู่ในช่วงที่อ่านแบบ Incremental ผลลัพธ์ของช่วงนั้นเป็นอย่างไร (ตามที่แบบฝึกวัด)"
+  options={['ได้แถวที่ถูกเขียนใหม่จาก Overwrite ครบ', 'ได้ผลลัพธ์ว่าง และไม่มี Error ขึ้นเตือน', 'Error ทันที']}
+  answer={1}
+  why="เรา INSERT OVERWRITE จนได้ Snapshot แบบ Overwrite แล้วอ่านช่วงที่ครอบมันได้ผลว่าง โดยไม่มี Error เลย เพราะ Incremental Read ติดตามเฉพาะไฟล์ที่ถูกเพิ่มด้วย Append ถ้าตารางมี Overwrite หรือ Delete ให้ใช้ Changelog แทน"
+/>
+
+</Step>

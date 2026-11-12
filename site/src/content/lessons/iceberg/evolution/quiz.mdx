@@ -1,0 +1,62 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจบทนี้แค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="คำสั่ง ALTER TABLE ที่เพิ่ม เปลี่ยนชื่อ หรือเลื่อนชนิด Column ทำอะไรกับไฟล์ข้อมูล"
+  options={['เขียนไฟล์ข้อมูลทั้งหมดใหม่ให้ตรง Schema ใหม่', 'ไม่แตะไฟล์ข้อมูลเลย เขียนแค่ metadata.json ฉบับใหม่', 'แก้ Footer ของ Parquet ทุกไฟล์']}
+  answer={1}
+  why="เราเทียบรายการไฟล์ข้อมูลก่อนและหลังคำสั่งทั้งหกคำสั่ง ได้เท่ากันทุกไฟล์ และมี metadata.json เพิ่มขึ้นหนึ่งฉบับต่อหนึ่งคำสั่ง ไฟล์เก่ายังอ่านได้เพราะ Iceberg อ้างอิง Column ด้วย Field ID ไม่ได้อ้างด้วยชื่อ"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ตาราง Int เปลี่ยนเป็น Bigint ได้ แต่ Bigint เปลี่ยนกลับเป็น Int ไม่ได้ เพราะอะไร"
+  options={['เป็นข้อจำกัดของ Spark เท่านั้น', 'การเลื่อนไปชนิดที่กว้างกว่าไม่เสียข้อมูลจึงทำได้โดยไม่ต้องแปลงไฟล์ ส่วนการบีบให้แคบลงอาจทำให้ค่าเดิมล้น', 'ต้อง Drop ตารางก่อนจึงเปลี่ยนได้']}
+  answer={1}
+  why="Int ไป Long และ Float ไป Double เป็นการเลื่อนชนิดที่ Iceberg อนุญาต เพราะค่าเดิมทุกค่าอยู่ในชนิดใหม่ได้ แต่ฝั่งกลับกันอาจทำให้ค่าเกินช่วง ในแบบฝึกเราเห็น Spark ปฏิเสธด้วย NOT_SUPPORTED_CHANGE_COLUMN ส่วนที่ว่านี่เป็นกฎของ Spec หรือเป็นแค่ของ Spark เรายังไม่ได้ตรวจกับ Engine อื่นนะ"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ตาราง Partition รายเดือนมีข้อมูลเดือนมกราคม แล้วเปลี่ยนเป็นรายวัน จากนั้นเขียนข้อมูลเดือนกุมภาพันธ์ ตารางมี Partition Spec กี่แบบ และ Query ข้ามเดือนทำงานอย่างไร"
+  options={['1 แบบ เพราะ Spec เก่าถูกแทนที่ Query ต้องรอจัดไฟล์ใหม่', '2 แบบ ไฟล์แต่ละไฟล์ใช้ Spec ที่มันถูกเขียนมา และ Query เดียวอ่านและข้ามไฟล์ได้ทั้งสองแบบ', '2 แบบ แต่ต้องแยก Query เป็นสองตัว']}
+  answer={1}
+  why="metadata.json เก็บ Spec หมายเลข 0 (Month) และ 1 (Day) โดย 1 เป็นค่าเริ่มต้นของตาราง เรานับไฟล์ตาม spec_id ได้ 1 กับ 2 ไฟล์ แล้วให้ PyIceberg วางแผนด้วยเงื่อนไขหนึ่งวันในแต่ละเดือน ซึ่งได้ไฟล์เดือนละ 1 ไฟล์"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เพิ่ม Column Zip ใน Struct ชื่อ Address ของตารางที่มีข้อมูลอยู่แล้ว Row เก่า Address.zip เป็นอะไร และ Field ID ของ Zip เป็นอย่างไร"
+  options={['NULL และ Zip ได้ Field ID ใหม่ที่ยังไม่เคยใช้ (ต่อจาก Last-column-id)', 'NULL และ Zip ใช้ Field ID เดียวกับ city', 'ค่าว่างและต้องเขียนไฟล์ใหม่']}
+  answer={0}
+  why="Iceberg ให้ Field ID ตัวถัดไปเสมอและไม่เอามาใช้ซ้ำ เราเห็น Last-column-id ขยับจาก 5 เป็น 7 หลังเพิ่ม Email และ address.zip และ Row เก่าอ่าน address.zip ได้เป็น None เพราะไม่มี Field ID นั้นอยู่ในไฟล์เดิม"
+/>
+
+</Step>

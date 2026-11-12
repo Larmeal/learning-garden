@@ -1,0 +1,62 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจบทนี้แค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="ตาราง Partition ตามวันมีข้อมูลวันที่ 1, 2, 3 คุณสั่ง INSERT OVERWRITE ด้วยข้อมูลของวันที่ 2 อย่างเดียวโดยไม่แตะค่า Config ใด ๆ (Spark ค่าเริ่มต้น) ผลเป็นอย่างไร"
+  options={['เหลือเฉพาะข้อมูลวันที่ 2 ชุดใหม่ ข้อมูลวันที่ 1 และ 3 หายจาก Snapshot ปัจจุบัน', 'วันที่ 2 ถูกแทนที่ วันที่ 1 และ 3 อยู่ครบ', 'Error เพราะต้องระบุ Partition ที่จะเขียนทับเสมอ']}
+  answer={0}
+  why="เราวัดแล้วได้ Row เดียวหลังสั่ง เพราะค่าเริ่มต้นของ spark.sql.sources.partitionOverwriteMode คือ STATIC ซึ่งแทนที่ทั้งตาราง ถ้าอยากแทนที่เฉพาะ Partition ที่ข้อมูลใหม่แตะ ต้องเปลี่ยนเป็น Dynamic หรือใช้ overwritePartitions() ที่บอกเจตนาชัดกว่า"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Spark INSERT ล้มกลางทางเพราะมีการหารศูนย์ สิ่งที่ Reader ของตารางเห็นหลังจากนั้นคืออะไร"
+  options={['ข้อมูลครึ่งเดียวที่เขียนไปแล้ว', 'ตารางเหมือนเดิมทุกประการ ไม่มี Snapshot ใหม่', 'ตารางถูกล็อกจนกว่าจะมีคนล้างงานที่ล้ม']}
+  answer={1}
+  why="Reader เห็นเฉพาะ Snapshot ที่ Catalog ชี้อยู่ งานที่ล้มก่อน Commit จึงไม่ได้เปลี่ยนตัวชี้เลย เรานับ Snapshot และ Row ก่อนกับหลังได้เท่ากัน ส่วนไฟล์ข้อมูลที่อาจตกค้างอยู่บนดิสก์ก็ไม่มี Snapshot ไหนอ้างถึง เลยไม่ถูกอ่าน แต่ต้องลบทิ้งทีหลังด้วยงานดูแลตาราง"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เรียก t.overwrite(df, overwrite_filter='order_id = 5') ใน PyIceberg 0.12.0 แล้วดู Operation ของ Snapshot ที่เกิดขึ้น จะเห็นอะไร"
+  options={['Snapshot เดียว Operation เป็น overwrite', 'สอง Snapshot ตามลำดับ Delete แล้ว append', 'ไม่มี Snapshot ใหม่ เพราะแก้ไฟล์เดิมตรง ๆ']}
+  answer={1}
+  why="เราตรวจลำดับ Operation ของสอง Snapshot สุดท้ายได้ Delete แล้วตามด้วย Append ซึ่งแปลว่าระหว่างสอง Commit นั้นมี Reader ที่เห็นตารางตอนที่ลบแล้วแต่ยังไม่ได้เพิ่มได้ ถ้าต้องการแทนที่ให้จบใน Commit เดียว ควรเลือกเครื่องมือที่ทำเป็น Snapshot เดียว เช่น INSERT OVERWRITE ของ Spark และไฟล์ข้อมูลใน Iceberg ไม่เคยถูกแก้ตรง ๆ อยู่แล้ว"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="PyIceberg สองตัวถือ Snapshot เดียวกัน ตัวแรก Append สำเร็จ แล้วตัวที่สอง Append ด้วยค่าเริ่มต้น จะเกิดอะไรขึ้น"
+  options={['CommitFailedException ทันที ต้องเรียก Refresh() เอง', 'ตัวที่สองลองใหม่เองบน Snapshot ล่าสุดและสำเร็จ (ค่าเริ่มต้นลองได้ 4 รอบ)', 'ตัวที่สองเขียนทับ Snapshot ของตัวแรก']}
+  answer={1}
+  why="เราจับ Log ได้ Commit failed due to a concurrent update, Retrying (1/4) และ Row ของทั้งสองฝั่งครบ ต้องตั้ง commit.retry.num-retries เป็น 0 ถึงจะได้ CommitFailedException ตามตัวเลือกแรก ส่วนตัวเลือกสุดท้ายเป็นไปไม่ได้ เพราะการเปลี่ยน Branch มีเงื่อนไขว่า Snapshot ปัจจุบันต้องเป็นฉบับที่ Writer อ่านมา"
+/>
+
+</Step>

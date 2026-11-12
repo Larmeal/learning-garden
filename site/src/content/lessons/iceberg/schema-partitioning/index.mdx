@@ -1,0 +1,178 @@
+---
+title: Schema, Field ID และ Partition
+summary: ทุก Column ใน Iceberg มี Field ID ซึ่งทำให้เปลี่ยนชื่อ Column ได้โดยไฟล์เก่าไม่พัง ส่วน Partition ใช้ Transform จาก Column จริง ทำให้ Query กรองด้วย Column ปกติแล้วข้าม Partition ได้เอง
+order: 3
+phase: A
+level: 2
+stage: sprout
+format: steps
+requires: [table-anatomy]
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## Field ID คือสิ่งที่ Iceberg ใช้อ้างอิง Column
+
+ใน[บท 2](/iceberg/table-anatomy/#ชั้นที่-3-manifest) เราเห็นว่าสถิติของ Column ใน Manifest ใช้ตัวเลขเป็น Key ไม่ใช่ชื่อ ตัวเลขนั้นคือ **Field ID** ที่ Iceberg ให้กับทุก Column ตอนสร้างตาราง เรามาดูกันว่ามันอยู่ตรงไหนบ้าง (รัน: `exercises/03_schema_partitioning.py`)
+
+เราสร้างตาราง `events` ที่มี Column หลายแบบ รวมถึง Column ที่ซ้อนกันอยู่ข้างใน
+
+```python
+spark.sql("""CREATE TABLE lab.db.events (
+    event_id bigint, user_id bigint, country string, price decimal(10,2), ts timestamp,
+    tags array<string>, address struct<city: string, zip: string>, attrs map<string, int>)
+  USING iceberg PARTITIONED BY (days(ts))""")
+```
+
+พอเปิด `metadata.json` เราเจอ ID ของ Column ระดับบนเป็น 1 ถึง 8 ตามลำดับที่ประกาศ แต่ที่น่าสนใจคือ Column ที่ซ้อนอยู่ข้างในก็มี ID ของตัวเองด้วย
+
+```text
+all ids: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]     last-column-id = 13
+tags     (6)  element-id 9
+address  (7)  city = 10, zip = 11
+attrs    (8)  key-id 12, value-id 13
+```
+
+ตัวเลข `last-column-id` ใน `metadata.json` จดไว้ว่า ID ที่ใช้ไปแล้วสูงสุดคือเท่าไร เวลาเพิ่ม Column ใหม่ Iceberg จะให้ ID ถัดไปเสมอและไม่เคยใช้ซ้ำ ไฟล์ Parquet ที่เขียนลงตารางนี้เก็บ ID เดียวกันไว้ใน Schema ของมันด้วย (`PARQUET:field_id`) แบบฝึกเปิดไฟล์ดูแล้ว `event_id` คือ 1 และ `attrs` คือ 8 ซึ่งตรงกับ `metadata.json`
+
+</Step>
+
+<Step>
+
+## ชนิดข้อมูลที่ Spark กับ Iceberg เรียกไม่เหมือนกัน
+
+เมื่อเปิดตารางเดียวกันจาก PyIceberg เราจะเห็นชื่อชนิดแบบของ Iceberg
+
+```text
+event_id: long          price: decimal(10, 2)     ts: timestamptz
+tags: list<string>      attrs: map<string, int>   address: struct<10: city: optional string, 11: zip: optional string>
+```
+
+`bigint` ของ Spark คือ `long` ใน Iceberg และ `array` คือ `list` ส่วนที่ต้องระวังคือเวลา เพราะ `timestamp` ของ Spark กลายเป็น `timestamptz` (มี Timezone) ถ้าเราต้องการเวลาที่ไม่ผูก Timezone ให้ประกาศเป็น `timestamp_ntz` ใน Spark ซึ่งจะกลายเป็น `timestamp` ของ Iceberg แบบฝึกสร้างตาราง `ntz` ที่มี `timestamp_ntz`, `int` และ `date` แล้วได้ `timestamp`, `int`, `date` ตามนั้น
+
+</Step>
+
+<Step>
+
+## เปลี่ยนชื่อ Column แล้วไฟล์เก่าไม่พัง
+
+ลองเปลี่ยนชื่อ `price` เป็น `unit_price` แล้วอ่าน Row ที่เขียนไว้ก่อนหน้า
+
+```python
+spark.sql("ALTER TABLE lab.db.events RENAME COLUMN price TO unit_price")
+spark.sql("SELECT event_id, unit_price FROM lab.db.events WHERE event_id = 10").first()
+```
+
+ผลคือ `unit_price` ของ Event 10 ยังเป็น `10.5` ตามเดิม ทั้งที่ไฟล์ Parquet เก่าไม่ได้ถูกแตะเลย เหตุผลคือ Iceberg ไม่ได้ไปหา Column ชื่อ `unit_price` ในไฟล์ แต่ไปหา Column ที่มี Field ID เท่ากับ 4 `metadata.json` มี Schema สองฉบับ (ฉบับเก่าเรียก `price` และฉบับใหม่เรียก `unit_price`) ทั้งสองใช้ ID 4 เหมือนกัน
+
+คำถามที่ควรถามต่อคือ ถ้าเราลบ Column แล้วเพิ่ม Column ใหม่ที่ใช้ชื่อเดิมล่ะ ข้อมูลเก่ากลับมาไหม
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="หลังเปลี่ยนชื่อเป็น unit_price เราสั่ง DROP COLUMN unit_price แล้ว ADD COLUMN unit_price decimal(10,2) ที่ชื่อเดิม ตอนนี้ unit_price ของ Event 10 ที่เคยเป็น 10.5 จะเป็นอะไร"
+  options={['10.5 เพราะชื่อ Column เหมือนเดิม', 'NULL เพราะ Column ใหม่ได้ Field ID ใหม่ และไฟล์เก่าไม่มี Column ที่มี ID นั้น', 'Error เพราะ Iceberg ห้ามใช้ชื่อที่เคยมีมาก่อน']}
+  answer={1}
+  why="เราวัดได้ NULL และเห็น ID ของ unit_price ใหม่เป็น 14 (ตัวนับ ID สูงสุดขยับจาก 13 เป็น 14) ส่วน 10.5 ยังอยู่ในไฟล์ Parquet ภายใต้ ID 4 แต่ไม่มี Column ปัจจุบันตัวไหนชี้ไปที่ ID นั้นแล้ว เพราะ Iceberg ผูกข้อมูลกับ ID ไม่ได้ผูกกับชื่อ การลบแล้วสร้างชื่อเดิมขึ้นมาใหม่จึงไม่ทำให้ข้อมูลเก่ากลับมาโดยบังเอิญ ในระบบที่ผูกกับชื่อ Column อาจเกิดเรื่องนี้ได้ แต่ส่วนนั้นเรายังไม่ได้ทดลอง"
+/>
+
+</Step>
+
+<Step>
+
+## Partition Transform และ Hidden Partitioning
+
+ตาราง `events` ประกาศ `PARTITIONED BY (days(ts))` สิ่งที่ Iceberg จดไว้ใน `metadata.json` คือ
+
+```text
+partition spec: [ 1000: ts_day: day(5) ]
+```
+
+หมายความว่ามีฟิลด์ Partition ชื่อ `ts_day` ที่ได้จาก **Transform** ชื่อ `day` ของ Column ที่มี Field ID เท่ากับ 5 (`ts`) ข้อสำคัญคือ `ts_day` **ไม่ได้เป็น Column ของตาราง** เราไม่พบมันใน Schema เลย ไฟล์ข้อมูลก็ถูกวางไว้ในโฟลเดอร์แบบ `data/ts_day=2026-01-02/...` แต่ผู้ใช้ไม่ต้องรู้เรื่องนี้ แค่เขียนเงื่อนไขกับ `ts` ธรรมดาก็พอ เรียกว่า **Hidden Partitioning**
+
+ทดลองดูว่ามันข้าม Partition ได้จริงไหม เราใส่ข้อมูล 5 วัน วันละ 2 Event แล้วให้ PyIceberg วางแผนการสแกนด้วย `plan_files()` ที่บอกว่าจะเปิดไฟล์ไหนบ้าง
+
+```python
+len(list(t.scan().plan_files()))                                                       # 5
+len(list(t.scan(row_filter="ts >= '2026-01-02T00:00:00+00:00' and ts < '2026-01-03T00:00:00+00:00'").plan_files()))   # 1
+len(list(t.scan(row_filter="country = 'TH'").plan_files()))                            # 5
+```
+
+เมื่อกรองด้วย `ts` ช่วงวันที่ 2 PyIceberg เลือกไฟล์เดียว โดยที่เราไม่ต้องเอ่ยชื่อ `ts_day` เลย ส่วนการกรองด้วย `country = 'TH'` ยังต้องเปิดทั้ง 5 ไฟล์ เพราะ `country` ไม่ได้ถูกใช้แบ่ง Partition และข้อมูลในแต่ละไฟล์มีทั้ง `TH` กับ `US` ผสมกัน สถิติ Min/Max ของไฟล์จึงตัดไฟล์ไหนทิ้งไม่ได้ ค่าของ Partition ที่ Manifest จดไว้เป็นจำนวนวันนับจาก 1970-01-01 (วันที่ 2 มกราคม 2026 คือ `(2026-01-02) - (1970-01-01)` วัน ซึ่งแบบฝึก Assert ว่าตรงกัน)
+
+Spark ก็เห็นผลเดียวกัน ตาราง `.partitions` สรุปได้ว่ามี 5 Partition ๆ ละ 2 Row ไฟล์เดียว และผลการ `SELECT` ของวันที่ 2 ได้ 2 Row โดยไม่มี Column `ts_day` โผล่มาใน Result
+
+```text
++------------+------------+----------+
+|partition   |record_count|file_count|
++------------+------------+----------+
+|{2026-01-01}|2           |1         |
+|{2026-01-02}|2           |1         |
+|{2026-01-03}|2           |1         |
+|{2026-01-04}|2           |1         |
+|{2026-01-05}|2           |1         |
++------------+------------+----------+
+```
+
+เทียบกับตารางแบบ Hive ที่ต้องมี Column `dt` แยกให้ผู้ใช้กรองเอง ถ้าผู้ใช้ลืมกรอง `dt` Query ก็สแกนทุก Partition (ข้อนี้เป็นข้อสังเกตของผู้เขียน ไม่ได้รันให้ดูในบทนี้)
+
+</Step>
+
+<Step>
+
+## Transform ทั้งหมดที่มี
+
+Spec นิยาม Transform ไว้แปดแบบ คือ `identity` (ใช้ค่าเดิม), `bucket[N]` (Hash ของค่าแล้วหารเอาเศษด้วย N), `truncate[W]` (ตัดค่าเหลือความกว้าง W), `year`, `month`, `day`, `hour` และ `void` (ให้ `null` เสมอ ใช้ตอนเลิกใช้ Partition ฟิลด์หนึ่ง) เราลองสามแบบที่ต่างกันในตารางเดียว
+
+```python
+spark.sql("""CREATE TABLE lab.db.users (user_id bigint, country string, signed_up timestamp)
+             USING iceberg PARTITIONED BY (bucket(4, user_id), truncate(1, country), months(signed_up))""")
+```
+
+เราใส่ผู้ใช้ 4 คนที่ตั้งใจเลือก `user_id` ให้ตกคนละ Bucket แล้วดู Partition ของแต่ละไฟล์
+
+```text
++---+---+---+------------+
+|b  |c  |m  |record_count|        b = user_id_bucket, c = country_trunc, m = signed_up_month
++---+---+---+------------+
+|0  |T  |672|1           |        user 101, TH, 2026-01  (672 เดือนนับจาก 1970-01)
+|1  |T  |673|1           |        user 107, TH, 2026-02
+|3  |U  |673|1           |        user 103, UK, 2026-02   (truncate ตัด UK เหลือ U)
+|2  |U  |673|1           |        user 106, US, 2026-02   (truncate ตัด US เหลือ U)
++---+---+---+------------+
+```
+
+`bucket(4, user_id)` ให้ผลเป็นเลข 0 ถึง 3 ซึ่ง Spark มีฟังก์ชัน `lab.system.bucket(4, user_id)` ให้เรียกตรง ๆ ได้ และ PyIceberg ก็คำนวณได้ด้วย `BucketTransform(4)` แบบฝึกคำนวณทั้งสองฝั่งแล้วได้เลขเท่ากันทุก `user_id` (101 ได้ 0, 107 ได้ 1, 106 ได้ 2 และ 103 ได้ 3) นั่นคือสองโปรแกรมที่ไม่รู้จักกันเขียนไฟล์ลง Partition เดียวกันได้ เพราะตกลงกันตาม Spec เรื่อง Hash (Murmur3) ว่าให้ผลเหมือนกัน
+
+<Callout type="note" title="PyIceberg เขียนตารางที่มี Transform ต้องติดตั้งเพิ่ม">
+ตอนที่ PyIceberg Append เข้าตารางที่ Partition ด้วย `days(...)` ครั้งแรก มันแจ้งว่าต้องติดตั้ง `pyiceberg[pyiceberg-core]` เพราะการคำนวณ Transform ฝั่ง Python อาศัยโมดูลที่เขียนด้วย Rust แบบฝึกของเราติดตั้งไว้แล้วในไฟล์ `pyproject.toml`
+</Callout>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| ทุก Column รวมถึง Element ของ Array, Field ของ Struct, Key และ Value ของ Map มี Field ID และ `last-column-id` เป็น 13 | รัน: `exercises/03_schema_partitioning.py` |
+| Field ID ถูกเก็บใน Parquet (`PARQUET:field_id`) ตรงกับ `metadata.json` | รัน: `exercises/03_schema_partitioning.py` |
+| Spark `timestamp` เป็น `timestamptz`, `timestamp_ntz` เป็น `timestamp`, `bigint` เป็น `long` | รัน: `exercises/03_schema_partitioning.py` |
+| Rename Column ใช้ ID เดิม ข้อมูลเก่าอ่านได้ | รัน: `exercises/03_schema_partitioning.py` |
+| Drop แล้ว Add ชื่อเดิมได้ ID ใหม่ (14) และค่าเก่าไม่กลับมา | รัน: `exercises/03_schema_partitioning.py` |
+| `ts_day` ไม่ใช่ Column ของตาราง และกรองด้วย `ts` ข้าม Partition ได้ (5, 1, 5 ไฟล์) | รัน: `exercises/03_schema_partitioning.py` |
+| ค่า Partition ของ `day` เก็บเป็นจำนวนวันนับจาก 1970-01-01 | รัน: `exercises/03_schema_partitioning.py` |
+| Bucket ที่ Spark กับ PyIceberg คำนวณได้ตรงกัน | รัน: `exercises/03_schema_partitioning.py` |
+| รายการ Transform แปดแบบ | Source: `format/spec.md` (หัวข้อ Partition Transforms) |
+| ตารางแบบ Hive ที่ลืมกรอง `dt` แล้วสแกนทุก Partition | ผู้เขียน (ไม่ได้รัน) |
+
+</Step>

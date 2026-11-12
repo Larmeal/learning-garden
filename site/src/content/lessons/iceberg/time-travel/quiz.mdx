@@ -1,0 +1,62 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจบทนี้แค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="ทำไม Iceberg จึงอ่านตารางตามที่เป็นเมื่อสัปดาห์ก่อนได้ (Time Travel)"
+  options={['เพราะ Iceberg เก็บสำเนาทั้งตารางทุกคืน', 'เพราะไฟล์ไม่ถูกแก้ ทุก Commit จึงทิ้ง Snapshot ที่ชี้ไฟล์ชุดเดิมไว้ ตราบที่ไฟล์ยังไม่ถูกลบ', 'เพราะ Catalog เก็บประวัติทุก Row']}
+  answer={1}
+  why="Snapshot แต่ละอันมี Manifest List ของตัวเองที่ชี้ไปยังไฟล์ข้อมูลของเวลานั้น เราอ่านย้อนด้วย VERSION AS OF และ TIMESTAMP AS OF ได้ผลตรงกับที่เขียนไว้ทุกครั้ง แต่ถ้าไฟล์ถูกลบไปตอนดูแลตาราง ก็ย้อนไปถึงจุดนั้นไม่ได้แล้ว"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ข้อใดต่างกันระหว่าง Tag กับ Branch"
+  options={['Tag ชี้ Snapshot คงที่ไม่ขยับเมื่อมี Commit ใหม่ ส่วน Branch ขยับตาม Commit ที่เขียนลงมัน', 'Tag เก็บข้อมูลได้ แต่ Branch เก็บไม่ได้', 'ไม่ต่างกัน เป็นชื่อเรียกอย่างเดียวกัน']}
+  answer={0}
+  why="ใน metadata.json ทั้งสองอย่างเป็นชื่ออ้างอิง (Refs) ที่ชี้ไปยัง Snapshot เหมือนกัน แต่ Branch ถูกต่อยอดได้ด้วย Commit ใหม่ ส่วน Tag เป็นเครื่องหมายถาวร ในตาราง Refs เราเห็น Main เป็น BRANCH และ before_cleanup เป็น TAG"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ทีมข้อมูลอยากเขียนข้อมูลก้อนใหม่ ตรวจคุณภาพ แล้วค่อยให้ผู้อ่านเห็น ควรทำอย่างไรให้ผู้อ่านไม่เห็นข้อมูลที่ยังไม่ผ่าน"
+  options={['เขียนลงตารางหลักเลยแล้วลบถ้าไม่ผ่าน', 'เขียนลง Branch หรือเขียนแบบ Staged ด้วย WAP แล้วเผยแพร่ด้วย Fast Forward หรือ Cherrypick หลังตรวจผ่าน', 'เขียนลงตารางอื่นแล้วคัดลอกข้อมูลมาทับ']}
+  answer={1}
+  why="ทั้ง Branch และ Staged Snapshot ไม่ขยับตัวชี้ของ Branch หลัก ผู้อ่านจึงไม่เห็นข้อมูลระหว่างที่เรากำลังตรวจ เรายืนยันแล้วทั้งสองทาง คือเขียนลง Branch แล้ว fast_forward และเขียน Staged ด้วย wap.id แล้ว cherrypick_snapshot การเผยแพร่คือการย้ายตัวชี้ ไม่มีการคัดลอกข้อมูลเลย"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เรียก rollback_to_snapshot ไปที่ Snapshot เก่า แล้วต่อมาเปลี่ยนใจอยากกลับไปที่ Snapshot ที่เพิ่งถูก Rollback ทำได้ไหม"
+  options={['ไม่ได้ เพราะข้อมูลถูกลบแล้ว', 'ได้ ด้วย set_current_snapshot เพราะ Rollback ย้ายแค่ตัวชี้ Snapshot ยังอยู่', 'ได้ แต่ต้องเขียนข้อมูลใหม่ทั้งหมด']}
+  answer={1}
+  why="เรา Rollback ไป s2 แล้ว set_current_snapshot กลับ s3 ได้ Row ครบ 5 Row เหมือนเดิม เพราะ Rollback ไม่ลบ Snapshot (จำนวนในตาราง Snapshots เท่าเดิม) ตราบที่ยังไม่มีการ Expire Snapshot นั้น"
+/>
+
+</Step>

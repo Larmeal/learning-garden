@@ -1,0 +1,212 @@
+---
+title: แก้และลบ Row
+summary: ไฟล์ข้อมูลไม่เคยถูกแก้ แล้ว DELETE, UPDATE และ MERGE ทำงานอย่างไร เทียบ Copy-on-write กับ Merge-on-read ดู Delete File แบบ Position และ Deletion Vector และดูว่า PyIceberg ทำ Delete กับ Upsert ต่างจาก Spark อย่างไร
+order: 6
+phase: B
+level: 3
+stage: sprout
+format: steps
+requires: [reading]
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import DeleteModeLab from '../../../../components/labs/iceberg/DeleteModeLab';
+
+<Step>
+
+## ไฟล์ไม่เคยถูกแก้ แล้วจะลบ Row ได้อย่างไร
+
+ไฟล์ข้อมูลของ Iceberg เขียนครั้งเดียวแล้วไม่แก้อีก ([บท 2](/iceberg/table-anatomy/#ชั้นที่-1-metadatajson-กับ-snapshot)) ถ้าอย่างนั้นเวลาสั่ง `DELETE FROM orders WHERE id = 3` ซึ่งต้องทำให้ Row หนึ่งหายไป Iceberg ทำอย่างไร มีสองทางที่ต่างกันตรงที่ "จ่ายตอนเขียน" หรือ "จ่ายตอนอ่าน"
+
+ในภาพของหนังสือ ทางแรกเปรียบเหมือนพิมพ์หน้านั้นใหม่ทั้งหน้าโดยตัดบรรทัดที่ไม่ต้องการออก แล้วสลับสารบัญให้ชี้ไปหน้าใหม่ เราเรียกว่า **Copy-on-write** ทางที่สองเปรียบเหมือนแปะกระดาษโน้ตว่า "บรรทัดที่ 3 ของหน้านี้ให้ข้ามไป" โดยไม่แตะหน้าเดิม ใครอ่านก็ต้องดูโน้ตนั้นด้วย เราเรียกว่า **Merge-on-read** และกระดาษโน้ตคือ **Delete File** (รัน: `exercises/06_row_level.py`)
+
+</Step>
+
+<Step>
+
+## Copy-on-write เขียนไฟล์ใหม่ทั้งไฟล์
+
+ค่าเริ่มต้นของ `DELETE`, `UPDATE` และ `MERGE` ใน Iceberg คือ Copy-on-write (Source: `TableProperties.java` ค่า `DELETE_MODE_DEFAULT` และพี่น้อง ส่วนตารางใหม่ที่ Spark สร้างไม่ได้เก็บค่านี้ไว้ในคุณสมบัติของตาราง แบบฝึกเช็กแล้วได้ว่างเปล่า) เราสร้างตารางที่มี 10 Row ใน 1 ไฟล์ แล้วลบ `id = 3`
+
+```python
+spark.sql("DELETE FROM lab.db.cow WHERE id = 3")
+```
+
+```text
+operation = overwrite
+added-data-files: 1   deleted-data-files: 1   total-data-files: 1   total-delete-files: 0   total-records: 9
+```
+
+Snapshot ใหม่ `deleted-data-files: 1` คือเอาไฟล์เดิมที่มี 10 Row ออกจากตาราง และ `added-data-files: 1` คือเพิ่มไฟล์ใหม่ที่มี 9 Row แทน ข้อดีคือหลังจากนั้นการอ่านเร็ว ไม่มีอะไรต้องรวมเพิ่ม ข้อเสียคือถ้าลบแค่ Row เดียวจากไฟล์ใหญ่ ก็ต้องเขียนไฟล์ใหญ่ใหม่ทั้งไฟล์ ซึ่งเป็นต้นทุนของ Copy-on-write (ข้อนี้เป็นการสรุปของผู้เขียนจากตัวอย่าง ตัวอย่างของเราเล็กเกินกว่าจะวัดเวลา)
+
+ไฟล์เก่าที่มี 10 Row ยังอยู่บนดิสก์ และยังเป็นส่วนหนึ่งของ Snapshot ก่อนหน้า (ซึ่งทำให้ย้อนเวลาได้ในบทเรื่อง Time Travel) เมื่อไม่มี Snapshot ไหนอ้างถึงแล้ว งานดูแลตารางถึงลบมันออก
+
+</Step>
+
+<Step>
+
+## Merge-on-read เขียนแค่โน้ตว่าข้าม Row ไหน
+
+ถ้าตั้ง `'write.delete.mode' = 'merge-on-read'` (และเช่นเดียวกันสำหรับ `update` กับ `merge`) ตารางที่มีข้อมูลเหมือนกันจะเกิดอะไรขึ้นเมื่อลบ `id = 3`
+
+```text
+operation = delete
+added-delete-files: 1   added-position-deletes: 1
+total-data-files: 1     total-delete-files: 1       total-records: 10
+```
+
+ไม่มีไฟล์ข้อมูลใหม่ ไฟล์เดิมยังเป็นของเดิม (`total-records` ยังเป็น 10) แต่มี **Delete File** เพิ่มมาหนึ่งไฟล์ ตาราง `.files` แยกชนิดด้วยคอลัมน์ `content` ซึ่ง `0` คือไฟล์ข้อมูลและ `1` คือ Position Delete (ส่วน `2` คือ Equality Delete ซึ่งแบบฝึกนี้ไม่ได้สร้าง) แบบฝึกเจอ `[(0, 'PARQUET', 1), (1, 'PARQUET', 1)]` เมื่ออ่านตาราง Spark นับได้ 9 Row เพราะนำ Delete File มาหักออก ถ้าเปิดตาราง `.position_deletes` จะเห็นโน้ตจริง ๆ
+
+```text
+position_deletes table: [(2, '00000-8-a81a...')]      pos = 2 ของไฟล์ข้อมูลไฟล์นั้น
+```
+
+Delete File แบบ **Position Delete** จดว่า "ไฟล์ข้อมูลไหน ตำแหน่งที่เท่าไร" ซึ่ง `id = 3` เป็น Row ลำดับที่สาม จึงตำแหน่ง (นับจาก 0) เท่ากับ 2 นี่คือราคาของ Merge-on-read ทุกครั้งที่อ่านตาราง Engine ต้องอ่านโน้ตและข้าม Row ตามนั้น
+
+</Step>
+
+<Step>
+
+## เทียบสามโหมดข้างกัน
+
+ลองเลือกโหมดแล้วกดไล่ทีละขั้น เพื่อดูว่าหลัง DELETE มีไฟล์อะไรอยู่ใน Snapshot และบนดิสก์ และผู้อ่านต้องทำอะไรถึงจะได้ 9 Row จากนั้นลองสลับโหมดตอนอยู่ขั้นเดิมเพื่อเทียบกัน
+
+<DeleteModeLab client:visible />
+
+อยากเห็นไฟล์จริงทุกไฟล์ของสองโหมด ทั้งไฟล์ลบหน้าตาอย่างไร ราคาของการแก้ Row เดียว และทำไม Compaction ถึงทิ้งไฟล์ลบไว้ ไปต่อที่หน้า [Copy-on-write และ Merge-on-read แบบเจาะลึก](/iceberg/row-level/in-depth/)
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ตาราง Merge-on-read ที่ลบไป 1 Row จากไฟล์ที่มี 10 Row ค่า Total Records ใน Summary ของ Snapshot ล่าสุดคือเท่าไร"
+  options={['9 เพราะมีการลบไป 1 Row', '10 เพราะไฟล์ข้อมูลยังมี 10 Row และการลบอยู่ใน Delete File ที่ไม่ได้ถูกนับ', '1 เพราะนับแค่ Delete File']}
+  answer={1}
+  why="เราอ่านได้ Total Records เป็น 10 ทั้งที่การนับ Row ด้วย SELECT ได้ 9 เพราะตัวเลขใน Summary นับ Row ที่เขียนไว้ในไฟล์ข้อมูล และไม่ได้หัก Delete File ออก ถ้าต้องการจำนวน Row ที่ Reader เห็นจริง ให้นับด้วย Query แทนที่จะอ่านจาก Summary"
+/>
+
+</Step>
+
+<Step>
+
+## UPDATE และ MERGE ใน Merge-on-read
+
+`UPDATE` คือลบ Row เดิมแล้วเขียน Row ใหม่ เมื่อสั่งในโหมด Merge-on-read จึงได้ทั้ง Delete File และไฟล์ข้อมูลใหม่ในคราวเดียว
+
+```python
+spark.sql("UPDATE lab.db.mor2 SET v = 999 WHERE id = 5")
+```
+
+```text
+operation = overwrite
+added-data-files: 1   added-delete-files: 1   added-position-deletes: 2   total-data-files: 2   total-delete-files: 1
+```
+
+ไฟล์ข้อมูลใหม่เก็บ Row ที่ถูกแก้ ส่วนโน้ตว่าข้ามอะไรมี 2 ตำแหน่งแล้ว (ตำแหน่งของ `id = 3` ที่ลบก่อนหน้า กับ `id = 5`) แต่ยังเป็น Delete File ไฟล์เดียว เพราะ Spark รวมโน้ตของไฟล์ข้อมูลไฟล์เดียวกันไว้ด้วยกัน ตัวเลขที่ได้จาก `total-delete-files: 1` (ผู้เขียนอนุมานว่าไฟล์เก่าถูกแทนด้วยไฟล์ที่รวม ไม่ได้เปิดดูว่า Delete File เก่าถูกเอาออกจริง)
+
+`MERGE INTO` ทำทั้ง Update และ Insert ใน Commit เดียว
+
+```python
+spark.sql("""MERGE INTO lab.db.mor2 t USING (SELECT 5L AS id, 'even' AS grp, 5000L AS v UNION ALL SELECT 77L, 'odd', 770L) s
+             ON t.id = s.id WHEN MATCHED THEN UPDATE SET v = s.v WHEN NOT MATCHED THEN INSERT *""")
+```
+
+ผลคือ `id = 5` เป็น 5000 และเกิด `id = 77` ใหม่ เป็น Snapshot เดียว (`operation = overwrite`) PyIceberg อ่านตารางนี้แล้วเห็นผลตรงกับ Spark ทั้งที่มี Delete File อยู่ (ไม่มี `id = 3`, มี `id = 5` และ `id = 77`)
+
+</Step>
+
+<Step>
+
+## Format Version 3: Deletion Vector
+
+ตารางที่ประกาศ `'format-version' = '3'` เก็บโน้ตแบบใหม่ที่เรียกว่า **Deletion Vector** ซึ่งเป็นบิตแมปว่า Row ไหนของไฟล์ข้อมูลถูกลบ เก็บในไฟล์ Puffin แทน Parquet เราลองลบสอง Row
+
+```text
+operation = delete
+added-delete-files: 1   added-position-deletes: 2   added-dvs: 1
+files of the v3 table: [(0, 'PARQUET', 1), (1, 'PUFFIN', 1)]
+```
+
+Delete File เป็นไฟล์ `PUFFIN` และ Summary มี `added-dvs: 1` ไม่มีไฟล์ Parquet ของ Position Delete เลย Spark นับได้ 8 Row และ PyIceberg 0.12.0 ก็อ่านตารางนี้ได้ 8 Row เช่นกัน แปลว่าบนเวอร์ชันที่เราทดลอง Deletion Vector ใช้งานได้ทั้งสองฝั่ง ส่วน Engine อื่นหรือเวอร์ชันอื่น รวมถึงรายละเอียดภายในของไฟล์ Puffin เรายังไม่ได้ทดลอง
+
+<Callout type="note" title="ถ้าจะใช้ Format Version 3">
+Engine ทุกตัวที่แตะตารางต้องรองรับ Version 3 เราทดลองกับ Spark 4.1.3, Iceberg 1.12.0 และ PyIceberg 0.12.0 เท่านั้น ถ้ามี Reader เก่าในระบบ ควรลองก่อนอัปเกรดตาราง (ข้อเตือนนี้เป็นของผู้เขียน ไม่ได้ทดลองกับ Engine อื่น)
+</Callout>
+
+</Step>
+
+<Step>
+
+## DELETE ที่เก็บทั้งไฟล์ ไม่ต้องเขียนอะไรเลย
+
+ถ้าเงื่อนไขของ `DELETE` ตรงกับ Partition ทั้งหมด Iceberg ไม่ต้องเขียนไฟล์ใหม่หรือ Delete File เลย มันแค่เอาไฟล์นั้นออกจากรายการ
+
+```python
+# ตาราง Partition ตามวัน d
+spark.sql("DELETE FROM lab.db.byday WHERE d = DATE'2026-01-01'")
+```
+
+```text
+operation = delete      deleted-data-files: 1      total-records: 1
+```
+
+ไม่มี `added-data-files` หรือ `added-delete-files` เลย เป็นการเปลี่ยนแค่ Metadata ดังนั้นถ้าข้อมูลของคุณลบเป็นช่วงวัน (เช่นเก็บแค่ 90 วัน) การเลือก Partition ตามวันทำให้การลบถูกและเร็ว
+
+</Step>
+
+<Step>
+
+## ฝั่ง PyIceberg
+
+PyIceberg ลบและ Upsert ได้เหมือนกัน แต่ทำต่างจากที่ Spark ทำใน Merge-on-read
+
+```python
+tc.delete("id = 4")
+tc.upsert(arrow_table, join_cols=["id"])
+```
+
+`delete("id = 4")` ในตารางของเรา ได้ `operation = overwrite` และ `added-data-files: 1`, `deleted-data-files: 1` เหมือน Copy-on-write ของ Spark คือเขียนไฟล์ใหม่ที่ไม่มี Row นั้น (เราทดลองกับตารางที่ Row นั้นอยู่ในไฟล์ที่มี Row อื่นอยู่ด้วย) ส่วน `upsert` ที่ส่ง 2 Row (หนึ่ง Row ตรงกับ `id = 1` เดิม อีก Row เป็น `id = 100` ใหม่) ตอบกลับ
+
+```text
+UpsertResult(rows_updated=1, rows_inserted=1)
+```
+
+แต่เมื่อดูใน `.snapshots` เราเห็นว่ามัน Commit **สามครั้ง** (เรียงจากใหม่ไปเก่า) `append`, `append`, `overwrite` ผู้เขียนอ่านผลแล้วเข้าใจว่ามันเขียนไฟล์ใหม่มาแทนไฟล์ที่มี Row ที่ถูกแก้ แล้วเพิ่ม Row ที่แก้แล้วกับ Row ใหม่เข้าไปอีกทีหนึ่ง ตารางจบด้วยข้อมูลที่ถูกต้อง (หนึ่ง Row ต่อ `id` ไม่ซ้ำ รวม 9 Row) แต่ผู้อ่านที่เปิดตารางระหว่างทางอาจเห็นสถานะกลาง ๆ ได้ ซึ่งเป็นจุดที่ควรรู้ก่อนใช้ `upsert` ของ PyIceberg กับตารางที่มีคนอ่านพร้อมกัน
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ตารางที่ต้องลบข้อมูลย้อนหลังเกิน 90 วันทุกคืน ทางไหนทำให้ DELETE ถูกและเร็วที่สุด"
+  options={['Partition ตามวันแล้ว DELETE ด้วยเงื่อนไขวัน ซึ่งเอาไฟล์ทั้ง Partition ออกจาก Metadata โดยไม่เขียนไฟล์ใหม่', 'ตั้ง Merge-on-read แล้ว DELETE ด้วยเงื่อนไขวัน เพราะ Merge-on-read ไม่เขียนไฟล์ใหม่', 'ไม่ Partition เลยแล้ว DELETE ด้วยเงื่อนไขวัน']}
+  answer={0}
+  why="เราลบทั้ง Partition แล้วได้ Operation เป็น Delete มีการเอาไฟล์ข้อมูลออก แต่ไม่มีการเพิ่มไฟล์ข้อมูลหรือ Delete File เลย เปลี่ยนแค่ Metadata ส่วนตารางที่ไม่ได้ Partition ต้องเปิดไฟล์ดูว่า Row ไหนเก่า แล้วเขียนไฟล์ใหม่ (Copy-on-write) หรือเขียน Delete File (Merge-on-read) ซึ่งแพงกว่ามาก"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Copy-on-write: DELETE หนึ่ง Row ได้ `overwrite` เพิ่ม 1 ไฟล์เอาออก 1 ไฟล์ | รัน: `exercises/06_row_level.py` |
+| ตารางใหม่ไม่เก็บ `write.*.mode` และค่าเริ่มต้นเป็น Copy-on-write | รัน: `exercises/06_row_level.py` และ Source: `TableProperties.java` |
+| Merge-on-read v2: ได้ `delete` พร้อม Position Delete File 1 ไฟล์, `total-records` ยัง 10, `files` มี `content` 0 กับ 1, `position_deletes` เห็น `pos` = 2 | รัน: `exercises/06_row_level.py` |
+| UPDATE และ MERGE ใน Merge-on-read ได้ไฟล์ข้อมูลใหม่กับ Delete File; PyIceberg อ่านผลได้ | รัน: `exercises/06_row_level.py` |
+| Format Version 3: Deletion Vector ในไฟล์ Puffin (`added-dvs`), Spark และ PyIceberg 0.12.0 อ่านได้ 8 Row | รัน: `exercises/06_row_level.py` |
+| DELETE ทั้ง Partition ได้ `operation = delete` ไม่เขียนไฟล์ใหม่ | รัน: `exercises/06_row_level.py` |
+| PyIceberg `delete` ได้ `overwrite` แบบ Copy-on-write; `upsert` ได้ `UpsertResult(1, 1)` และ Commit 3 ครั้ง | รัน: `exercises/06_row_level.py` |
+| ต้นทุนของ Copy-on-write เมื่อลบน้อย Row จากไฟล์ใหญ่; ผู้อ่านเห็นสถานะกลางของ `upsert` | ผู้เขียน (ไม่ได้วัด) |
+| Equality Delete (`content = 2`) | Source: `format/spec.md` (ไม่ได้รัน) |
+| Copy-on-write ได้ผลอ่านเร็วแต่เขียนช้ากว่า และ Merge-on-read ตรงข้าม | หนังสือ: Apache Iceberg: The Definitive Guide บทที่ 4 หน้า 86 (หัวข้อ Copy-on-Write Versus Merge-on-Read) |
+
+</Step>

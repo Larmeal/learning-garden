@@ -1,0 +1,130 @@
+---
+title: Streaming และการอ่านเฉพาะส่วนที่เปลี่ยน
+summary: ใช้ Structured Streaming เขียนเข้า Iceberg และอ่านจาก Iceberg เป็น Stream ดูว่าแต่ละ Micro-batch เป็นหนึ่ง Snapshot อย่างไร ทำไมเริ่ม Stream ซ้ำแล้วไม่ประมวลผลซ้ำ และอ่านเฉพาะแถวที่ถูกเพิ่มระหว่างสอง Snapshot ด้วย Spark และ PyIceberg
+order: 12
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [migration]
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## Stream คือการ Commit ทีละก้อน
+
+Structured Streaming ของ Spark แบ่งข้อมูลที่ไหลเข้ามาเป็นก้อน ๆ เรียกว่า Micro-batch และเมื่อปลายทางเป็น Iceberg ทุก Micro-batch จะจบด้วยหนึ่ง Commit ซึ่งหมายความว่าทุกก้อนเป็นหนึ่ง Snapshot ผู้อ่านจึงเห็นข้อมูลทีละก้อนที่สมบูรณ์ ไม่เห็นก้อนที่เขียนไม่ครบ (รัน: `exercises/12_streaming_incremental.py`)
+
+เราสร้างโฟลเดอร์ `inbox` ที่รับไฟล์ JSON แล้วให้ Stream อ่านโฟลเดอร์นั้นเขียนลงตาราง `sink` โดยใช้ `availableNow` ซึ่งสั่งให้ประมวลผลของที่มีอยู่ตอนนี้ให้หมดแล้วหยุด (เหมาะกับแบบฝึกที่ต้องจบ)
+
+```python
+q = (spark.readStream.schema("id bigint, v string").json(inbox)
+     .writeStream.format("iceberg").outputMode("append")
+     .trigger(availableNow=True).option("checkpointLocation", ckpt).toTable("lab.db.sink"))
+q.awaitTermination()
+```
+
+เราวางไฟล์ `a.json` ที่มี 2 Row ก่อนแล้วรัน ได้ตาราง 2 Row กับ Snapshot หนึ่งอัน `operation` เป็น `append` และ Summary ของ Snapshot จดไว้ว่าใครเขียน
+
+```text
+spark.sql.streaming.queryId
+spark.sql.streaming.epochId
+```
+
+รหัส Query และเลขของ Micro-batch ถูกจดไว้ใน Snapshot เอง นี่คือเบาะแสที่ Iceberg ใช้เพื่อไม่ให้เขียนซ้ำ ถ้า Micro-batch เดียวกันถูกลองเขียนอีกรอบ (เราอ่านว่ามันถูกใช้แบบนั้น แต่ไม่ได้ทดลองกรณีที่ Micro-batch ล้มกลางทางแล้วถูกรันซ้ำ)
+
+</Step>
+
+<Step>
+
+## เริ่ม Stream ใหม่ ไม่ประมวลผลซ้ำ
+
+เรารัน Stream เดิมอีกครั้งโดยยังไม่มีไฟล์ใหม่ Snapshot ไม่เพิ่ม (ยังมี 1 อัน) เพราะ Checkpoint จำไว้แล้วว่าอ่านถึงไหน จากนั้นวาง `b.json` ที่มี 1 Row แล้วรันอีกครั้ง ตารางมี 3 Row พอดี (ถ้าอ่านซ้ำจะได้ 5 Row จาก 2 + 2 + 1) และมี 2 Snapshot ซึ่งแปลว่าแต่ละไฟล์ถูกประมวลผลครั้งเดียว ผลนี้มาจาก Checkpoint ของ Spark ร่วมกับการที่ Iceberg Commit ทีละ Micro-batch
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Stream เขียนเข้า Iceberg ด้วยตัวเลือก availableNow รัน 2 รอบ รอบที่สองไม่มีไฟล์ใหม่ในโฟลเดอร์ต้นทาง เกิดอะไรกับตาราง"
+  options={['เขียนไฟล์เดิมซ้ำ ทำให้ Row ซ้ำ', 'ไม่มี Commit ใหม่ เพราะ Checkpoint จำไว้ว่าประมวลผลถึงไหนแล้ว ตารางยังมี Snapshot เท่าเดิม', 'Error เพราะไม่มีข้อมูล']}
+  answer={1}
+  why="เรานับ Snapshot หลังรอบที่สองได้ 1 อันเท่าเดิม และหลังวางไฟล์ใหม่แล้วรันอีกรอบได้ 3 Row รวม ไม่ใช่ 5 Row ที่ไม่ซ้ำเป็นผลของ Checkpoint ซึ่งเก็บตำแหน่งการอ่านของต้นทางไว้"
+/>
+
+</Step>
+
+<Step>
+
+## ตาราง Iceberg เป็นต้นทางของ Stream ได้
+
+ตารางที่เขียนด้วย Iceberg อ่านเป็น Stream ต่อได้ด้วย `readStream.format("iceberg")` เราคัดลอกจาก `sink` ไปตาราง `copy` ผ่าน Stream
+
+```python
+spark.readStream.format("iceberg").load("lab.db.sink").writeStream.format("iceberg") ...
+```
+
+รอบแรก `copy` ได้ 3 Row เหมือน `sink` จากนั้น `INSERT` Row ที่ 4 เข้า `sink` แล้วรันรอบสอง `copy` มี `[1, 2, 3, 4]` ครบ เพราะ Stream อ่านเฉพาะ Snapshot ใหม่ที่เกิดหลังรอบที่แล้ว ไม่ได้อ่านทั้งตารางซ้ำ ข้อควรจำคือการอ่านเป็น Stream ตามเส้น Append ของ Snapshot ถ้ามี Snapshot ที่เป็น `overwrite` หรือ `delete` ระหว่างทาง ต้องดูตัวเลือกของ Iceberg ว่าจะข้ามหรือไม่ ซึ่งเรายังไม่ได้ทดลอง
+
+</Step>
+
+<Step>
+
+## อ่านเฉพาะแถวที่เพิ่มระหว่างสอง Snapshot
+
+ถ้าไม่ต้องการ Stream แต่อยากรู้ว่ามีอะไรเพิ่มเข้ามาตั้งแต่ครั้งก่อน เรากำหนดช่วง Snapshot ตอนอ่านได้ ตาราง `sink` ตอนนี้มี Snapshot สามอัน `s[0]` (แถว 1, 2), `s[1]` (แถว 3) และ `s[2]` (แถว 4)
+
+```python
+spark.read.format("iceberg").option("start-snapshot-id", s[0]).option("end-snapshot-id", s[2]).load("lab.db.sink")
+# id = 3, 4
+spark.read.format("iceberg").option("start-snapshot-id", s[1]).load("lab.db.sink")
+# id = 4  (ไม่ใส่ end: จนถึง Snapshot ปัจจุบัน)
+```
+
+Snapshot ต้นทาง **ไม่รวม** (เราถามว่าเกิดอะไรขึ้นหลังจากนั้น) ส่วน Snapshot ปลายทางรวม ฝั่ง PyIceberg ก็ทำได้ด้วย `incremental_append_scan` และได้ผลเดียวกัน
+
+```python
+t.incremental_append_scan(from_snapshot_id_exclusive=s[0], to_snapshot_id_inclusive=s[2])   # id = 3, 4
+```
+
+ชื่อของมันบอกข้อจำกัดไว้แล้วว่าอ่านได้เฉพาะ Append ในแบบฝึก เราลอง `INSERT OVERWRITE` จนเกิด Snapshot ที่ `operation` เป็น `overwrite` พอเราอ่านช่วงที่ครอบ Snapshot นั้น ผลที่ได้คือ **ว่าง** โดยไม่ขึ้น Error และไม่คืนแถวที่ถูกเขียนใหม่ให้ด้วย การอ่านแบบนี้จึงเหมาะกับตารางที่โตด้วยการเพิ่มอย่างเดียว ถ้าอยากเห็นการลบหรือการแก้ ให้ใช้ Changelog View ที่เราเห็นใน[บท 8](/iceberg/time-travel/#changelog-ดูว่าอะไรเปลี่ยนไป)
+
+<Callout type="warn" title="อย่าเข้าใจผิดว่าได้ครบ">
+ผลลัพธ์ว่างจากการอ่านช่วงที่มี Overwrite ไม่ได้แปลว่าไม่มีอะไรเปลี่ยน แต่แปลว่า Incremental Read ของ Append ไม่รายงานการเปลี่ยนแบบนั้น ถ้าคุณส่งข้อมูลต่อให้ระบบปลายทางด้วยวิธีนี้ ต้องมั่นใจว่าตารางต้นทางไม่เคยมี Overwrite หรือ Delete
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="อ่านโดยกำหนด Snapshot ต้นทางเป็นอันที่ 1 และ Snapshot ปลายทางเป็นอันที่ 3 ได้แถวของ Snapshot ไหนบ้าง"
+  options={['Snapshot ที่ 1, 2 และ 3', 'Snapshot ที่ 2 และ 3 เพราะต้นทางไม่รวม ปลายทางรวม', 'เฉพาะ Snapshot ที่ 3']}
+  answer={1}
+  why="เราอ่านได้ id 3 และ 4 ซึ่งเป็นแถวของ Snapshot ที่ 2 และ 3 ส่วนแถว 1 กับ 2 ของ Snapshot แรกไม่ถูกรวม เปรียบเหมือนถามว่านับจากฉบับที่ 1 เป็นต้นไป มีอะไรเพิ่มขึ้นมาบ้าง"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Stream เขียนเข้า Iceberg ได้ Snapshot ต่อ Micro-batch และ Summary มี `queryId` กับ `epochId` | รัน: `exercises/12_streaming_incremental.py` |
+| เริ่ม Stream ซ้ำแล้วไม่มี Commit ใหม่ และได้ 3 Row ไม่ซ้ำ | รัน: `exercises/12_streaming_incremental.py` |
+| อ่านตาราง Iceberg เป็น Stream ได้ และรอบสองอ่านเฉพาะ Snapshot ใหม่ | รัน: `exercises/12_streaming_incremental.py` |
+| `start-snapshot-id` ไม่รวม `end-snapshot-id` รวม; ไม่ใส่ปลายทางคือถึงปัจจุบัน | รัน: `exercises/12_streaming_incremental.py` |
+| ช่วงที่มี `overwrite` ได้ผลว่างและไม่ Error | รัน: `exercises/12_streaming_incremental.py` |
+| PyIceberg `incremental_append_scan` ได้ id 3, 4 | รัน: `exercises/12_streaming_incremental.py` |
+| `queryId` กับ `epochId` กันการเขียนซ้ำเมื่อ Micro-batch ถูกลองใหม่; ตัวเลือกข้าม Overwrite ของ Stream | ผู้เขียน/Docs (ไม่ได้ทดลอง) |
+
+</Step>

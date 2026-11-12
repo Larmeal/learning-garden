@@ -1,0 +1,164 @@
+---
+title: Capstone ตาราง Orders ที่มีสองผู้เขียน
+summary: รวมทุกบทเป็นงานเดียว ตาราง Orders ที่ Spark และ PyIceberg เขียนร่วมกัน ข้อมูลจากฝั่งหนึ่งผ่านการตรวจบน Branch ก่อนเผยแพร่ แก้ย้อนหลังด้วย MERGE ส่งต่อให้ระบบปลายทาง และดูแลตารางไม่ให้โต
+order: 14
+phase: D
+level: 5
+stage: sprout
+format: steps
+requires: [spec-versions]
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## โจทย์
+
+สมมติว่าเรากำลังดูแลตาราง `orders` ของบริษัทขายของออนไลน์ ซึ่งมีผู้เขียนข้อมูลเข้ามาสองฝั่ง ฝั่งแรกคือ Spark Batch ที่โหลดคำสั่งซื้อรายวัน ส่วนฝั่งที่สองคือโปรแกรม Python ที่ใช้ PyIceberg (เช่นบริการรับข้อมูลจากร้านค้าปลีก) ปัญหาคือข้อมูลล็อตหลังบางครั้งมีแถวผิด เช่นยอดติดลบ และเราไม่อยากให้ผู้อ่านเห็นแถวนั้นเลย นอกจากนี้เรายังต้องแก้ข้อมูลย้อนหลังได้ มีระบบปลายทางที่อยากรู้เฉพาะส่วนที่เปลี่ยน และต้องเก็บ Snapshot สิ้นเดือนไว้เป็นหลักฐานด้วย (รัน: `exercises/14_capstone_orders.py`)
+
+เส้นทางด้านล่างใช้เครื่องมือจากบทก่อน ๆ ทั้งหมด ตารางสร้างเป็นเวอร์ชัน 2 Partition ตามวัน และตั้ง `write.merge.mode` กับ `write.delete.mode` เป็น Merge-on-read ([บท 6](/iceberg/row-level/#merge-on-read-เขียนแค่โน้ตว่าข้าม-row-ไหน))
+
+</Step>
+
+<Step>
+
+## Spark เขียนล็อตแรก และจดจุดที่ระบบปลายทางอ่านถึง
+
+Spark `INSERT` 3 Row ลงตาราง ผลรวมยอดเป็น 242.5 จากนั้นเราจด Snapshot ID ล่าสุดไว้เป็น `bookmark` ซึ่งแทนจุดที่ระบบปลายทางอ่านถึงแล้ว ([บท 12](/iceberg/streaming/#อ่านเฉพาะแถวที่เพิ่มระหว่างสอง-snapshot))
+
+</Step>
+
+<Step>
+
+## PyIceberg เขียนล็อตที่สองลง Branch ก่อน
+
+ฝั่ง PyIceberg ไม่เขียนลงตารางหลักตรง ๆ แต่เขียนลง Branch ชื่อ `audit` ([บท 8](/iceberg/time-travel/#branch-แยกเส้นสำหรับงานที่ยังไม่แน่ใจ))
+
+```python
+spark.sql("ALTER TABLE lab.db.orders CREATE BRANCH audit")
+t.append(batch, branch="audit")        # batch มี 3 Row และ Row สุดท้ายมียอด -9.0
+```
+
+ตารางหลักยังนับได้ 3 Row เหมือนเดิม เพราะ Branch หลักไม่ขยับ ผู้อ่านจึงยังไม่เห็นล็อตใหม่ แล้วเราตรวจบน Branch ด้วย `SELECT count(*) ... VERSION AS OF 'audit' WHERE amount < 0` ได้ 1 แถว คือแถวที่ผิดตามที่ตั้งใจใส่ไว้
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ล็อตที่สองถูกเขียนลง Branch ชื่อ Audit แล้ว ผู้อ่านที่ Query ตารางตามปกติจะเห็นแถวของล็อตนั้นไหม"
+  options={['เห็น เพราะเขียนลงตารางเดียวกัน', 'ไม่เห็น เพราะ Branch หลักยังชี้ Snapshot เดิม จนกว่าจะเผยแพร่', 'เห็นเฉพาะแถวที่ผ่านตรวจ']}
+  answer={1}
+  why="เรานับตารางหลักหลังเขียนลง Branch ได้ 3 Row เท่าเดิม เพราะผู้อ่านเห็นเฉพาะ Snapshot ที่ Branch หลักชี้อยู่ ไม่เห็นสิ่งที่อยู่บน Branch อื่น"
+/>
+
+</Step>
+
+<Step>
+
+## ลบแถวเสียบน Branch แล้วเผยแพร่
+
+เมื่อเจอแถวที่ผิด เราลบมันบน Branch ก่อน
+
+```python
+spark.sql("DELETE FROM lab.db.orders.branch_audit WHERE amount < 0")
+spark.sql("CALL lab.system.fast_forward('db.orders', 'main', 'audit')")
+```
+
+หลัง Fast Forward ตารางหลักมี Row 1 ถึง 5 ไม่มี Row ที่ 6 เลย ผู้อ่านไม่เคยเห็นแถวที่ผิด จากนั้นเราลบ Branch และตั้ง Tag ชื่อ `month_end` ที่ Snapshot นี้ พร้อมเก็บไว้ 365 วัน
+
+</Step>
+
+<Step>
+
+## แก้ย้อนหลังด้วย MERGE
+
+ต่อมาร้านค้าแจ้งว่ายอดของคำสั่งซื้อที่ 2 ต้องเป็น 85.0 ไม่ใช่ 80.5 เราแก้ด้วย `MERGE INTO` ที่อัปเดตแถวที่ตรงและเพิ่มแถวที่ไม่ตรง
+
+```python
+spark.sql("""MERGE INTO lab.db.orders t USING (SELECT 2L AS order_id, 'bob' AS customer, 85.0 AS amount, TIMESTAMP'2026-01-01 15:30:00' AS ordered_at) s
+             ON t.order_id = s.order_id WHEN MATCHED THEN UPDATE SET amount = s.amount WHEN NOT MATCHED THEN INSERT *""")
+```
+
+ผลรวมยอดเป็น 562.0 (120 + 85 + 42 + 300 + 15) และตารางมี Position Delete File อย่างน้อยหนึ่งไฟล์ เพราะตั้ง Merge-on-read ไว้
+
+</Step>
+
+<Step>
+
+## ส่งต่อให้ระบบปลายทาง
+
+ระบบปลายทางอยากรู้เฉพาะส่วนที่เปลี่ยนตั้งแต่ `bookmark` เราลอง Changelog View ที่เห็นใน[บท 8](/iceberg/time-travel/#changelog-ดูว่าอะไรเปลี่ยนไป)ก่อน
+
+```text
+UnsupportedOperationException: Delete files are currently not supported in changelog scans
+```
+
+Changelog อ่านช่วง Snapshot ที่มี Delete File ไม่ได้ในเวอร์ชันที่เราทดลอง และตารางของเรามีแล้วจาก Merge-on-read ส่วน Incremental Read ของ[บท 12](/iceberg/streaming/) ก็ใช้ไม่ได้ เพราะช่วงนี้มี Snapshot ที่ไม่ใช่ Append เราจึงเลือกวิธีที่ตรงไปตรงมากว่า คือเทียบตารางที่ `bookmark` กับตารางตอนนี้ด้วย Time Travel
+
+```python
+old = spark.sql(f"SELECT order_id, amount FROM lab.db.orders VERSION AS OF {bookmark}")
+new = spark.table("lab.db.orders")
+```
+
+ผลที่เทียบได้คือ เพิ่มใหม่ Row 4 และ 5, แก้ Row 2, ไม่มีการลบ และ Row 6 ที่ผิดไม่ปรากฏเลย (ในแบบฝึก เราคำนวณจากสองชุดนี้ด้วย Python Dict) วิธีนี้อ่านทั้งสองฉบับจึงแพงกว่าอ่านเฉพาะส่วนต่าง ถ้าตารางใหญ่มากอาจต้องออกแบบใหม่ เช่นใช้ตารางแบบ Copy-on-write ซึ่งเราไม่ได้ทดลองว่า Changelog ใช้กับมันได้หรือไม่
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ระบบปลายทางต้องการเฉพาะแถวที่เปลี่ยนตั้งแต่จุดที่อ่านถึงล่าสุด แต่ตารางมี Position Delete File จาก Merge-on-read อยู่ในช่วงนั้น เครื่องมือไหนที่แบบฝึกเจอว่าใช้ไม่ได้"
+  options={['Time Travel ด้วย VERSION AS OF', 'Changelog View (create_changelog_view) ซึ่งแจ้งว่า Delete files are currently not supported in changelog scans', 'Metadata Table ชื่อ snapshots']}
+  answer={1}
+  why="เราสร้าง Changelog View แล้วอ่าน ได้ Error ว่า Delete files are currently not supported in changelog scans ส่วน Time Travel และ Metadata Table ใช้ได้ตามปกติ ในตัวอย่างนี้เราเลยใช้การเทียบสองฉบับเป็นทางออก"
+/>
+
+</Step>
+
+<Step>
+
+## ดูแลตาราง: รวมไฟล์ แล้วลบ Snapshot เก่าแต่เก็บ Tag
+
+ขั้นสุดท้าย เรารวมไฟล์ด้วย `rewrite_data_files` แบบเขียนใหม่ทั้งหมด ข้อมูล 4 ไฟล์ถูกเขียนใหม่เป็น 3 ไฟล์ (ตามจำนวน Partition ที่มีข้อมูล) แล้วสั่ง `expire_snapshots` ให้เก็บแค่ Snapshot ล่าสุด
+
+```text
+refs: main, month_end        ตารางหลักมี 5 Row ยอดรวม 562.0        month_end ยังอ่านได้ 5 Row
+```
+
+Tag `month_end` ทำให้ Snapshot นั้นรอดจากการลบ ตามที่เห็นในบทดูแลตาราง สิ่งที่แบบฝึกเจอและน่าสนใจคือหลังรวมไฟล์ **เหลือ Delete File อยู่หนึ่งไฟล์** ซึ่งชี้ไปยังไฟล์ข้อมูลที่ไม่อยู่ใน Snapshot ปัจจุบันแล้ว (เราตรวจว่าชื่อไฟล์ที่มันอ้างไม่อยู่ในรายชื่อไฟล์ข้อมูลปัจจุบัน) ตอนเขียนบทนี้ผู้เขียนเข้าใจว่า Reader ไม่ได้ใช้ไฟล์นี้และมันจะหายไปเองเมื่อมีงานดูแลรอบถัดไป แต่หลังจากนั้นเราลองแล้วพบว่าไม่จริง ไฟล์ลบแบบนี้ไม่หายไปเอง ต้องเรียก `rewrite_data_files` อีกครั้งโดยตั้ง `remove-dangling-deletes` เป็น `true` ซึ่งเราลองให้ดูใน[หน้าเจาะลึก Copy-on-write และ Merge-on-read](/iceberg/row-level/in-depth/) ถ้าคุณใช้ Merge-on-read ก็ควรตรวจเรื่องนี้ในระบบจริงของคุณด้วย
+
+สุดท้าย PyIceberg อ่านตารางที่ผ่านทั้งหมดนี้ได้ครบ 5 Row ยอดรวม 562.0 ตรงกับฝั่ง Spark
+
+</Step>
+
+<Step>
+
+## ย้อนดูทั้งเส้นทาง
+
+ตารางนี้ผ่านเกือบทุกเรื่องของเส้นทางนี้ ได้แก่ Catalog ร่วมกันสองโปรแกรม ([บท 1](/iceberg/what-is-iceberg/)), Partition ตามวัน ([บท 3](/iceberg/schema-partitioning/)), Commit จากสองฝั่ง ([บท 4](/iceberg/writing/)), Delete File ([บท 6](/iceberg/row-level/)), Branch และ Tag ([บท 8](/iceberg/time-travel/)) และงานดูแลตาราง ([บท 10](/iceberg/maintenance/)) เรื่องที่เหลือแต่ไม่ได้ใช้ในตัวอย่างนี้คือการเปลี่ยน Schema ([บท 7](/iceberg/evolution/)), การย้ายตารางเดิม ([บท 11](/iceberg/migration/)) และ Format Version ([บท 13](/iceberg/spec-versions/)) ซึ่งเป็นงานที่คุณจะเจอเมื่อตารางนี้อยู่ไปนานขึ้น
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Spark กับ PyIceberg เขียนตารางเดียว; Batch ของ PyIceberg ลง Branch `audit` ไม่ขยับตารางหลัก; ตรวจเจอ 1 แถวผิด | รัน: `exercises/14_capstone_orders.py` |
+| ลบแถวผิดบน Branch ด้วย Spark; `fast_forward` เผยแพร่; ตารางหลักมี Row 1 ถึง 5 | รัน: `exercises/14_capstone_orders.py` |
+| `MERGE INTO` แก้ยอดและผลรวมเป็น 562.0 พร้อม Position Delete File | รัน: `exercises/14_capstone_orders.py` |
+| Changelog View อ่านช่วงที่มี Delete File ไม่ได้; เทียบ Time Travel ได้ (เพิ่ม 4 และ 5, แก้ 2) | รัน: `exercises/14_capstone_orders.py` |
+| `rewrite_data_files` และ `expire_snapshots` เหลือ `main` กับ Tag `month_end`; Tag อ่านได้ 5 Row | รัน: `exercises/14_capstone_orders.py` |
+| เหลือ Delete File หนึ่งไฟล์ที่ชี้ไปยังไฟล์ข้อมูลที่ไม่ใช้แล้ว | รัน: `exercises/14_capstone_orders.py` |
+| Reader ไม่ใช้ Delete File นั้น และมันไม่หายไปเองแต่ต้องเก็บกวาดด้วย `remove-dangling-deletes` | รัน: `exercises/16_cow_mor_in_depth.py` |
+| ทางออกอื่นสำหรับระบบปลายทาง | ผู้เขียน (ไม่ได้ทดลอง) |
+
+</Step>

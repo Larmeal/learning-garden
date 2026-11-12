@@ -1,0 +1,172 @@
+---
+title: เปลี่ยน Schema และ Partition
+summary: เพิ่ม ลบ เปลี่ยนชื่อ และเลื่อนชนิดของ Column เปลี่ยนวิธีแบ่ง Partition และตั้ง Sort Order โดยไม่เขียนไฟล์ข้อมูลใหม่ แล้วดูว่าไฟล์เก่าและไฟล์ใหม่อ่านร่วมกันได้อย่างไร
+order: 7
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [row-level]
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## เปลี่ยนตารางโดยไม่แตะไฟล์ข้อมูล
+
+ตารางจริงไม่เคยนิ่งอยู่กับที่ วันนี้ต้องเพิ่ม Column พรุ่งนี้ต้องเปลี่ยนชื่อ อีกเดือนต้องเปลี่ยนจาก Partition รายเดือนเป็นรายวัน ถ้าทุกครั้งต้องเขียนข้อมูลทั้งตารางใหม่ ตารางใหญ่ ๆ ก็แทบเปลี่ยนอะไรไม่ได้ ใน Iceberg ทั้งหมดนี้เป็นการเขียน `metadata.json` ฉบับใหม่เท่านั้น เพราะเรารู้จาก[บท 3](/iceberg/schema-partitioning/#field-id-คือสิ่งที่-iceberg-ใช้อ้างอิง-column)แล้วว่าไฟล์ข้อมูลอ้างอิง Column ด้วย Field ID ไม่ใช่ด้วยชื่อ (รัน: `exercises/07_evolution.py`)
+
+เราเริ่มจากตาราง `users` ที่มี 4 Column และ 2 Row แล้วสั่งเปลี่ยนแปลงต่อเนื่องหกครั้ง
+
+```python
+spark.sql("ALTER TABLE lab.db.users ADD COLUMN email string")
+spark.sql("ALTER TABLE lab.db.users RENAME COLUMN name TO full_name")
+spark.sql("ALTER TABLE lab.db.users ALTER COLUMN id TYPE bigint")        # int -> long
+spark.sql("ALTER TABLE lab.db.users ALTER COLUMN score TYPE double")     # float -> double
+spark.sql("ALTER TABLE lab.db.users ADD COLUMN address.zip string")      # Column ที่ซ้อนอยู่ใน Struct
+spark.sql("ALTER TABLE lab.db.users ALTER COLUMN email FIRST")           # ย้ายไปไว้หน้าสุด
+```
+
+หลังจบ ไฟล์ข้อมูลในโฟลเดอร์ `data/` ยังเป็นรายการเดิมทุกไฟล์ แต่มี `metadata.json` เพิ่มขึ้นหกฉบับ หนึ่งฉบับต่อหนึ่งคำสั่ง และ `schemas` ในฉบับล่าสุดเก็บ Schema ไว้ 7 แบบ (ฉบับแรกกับอีก 6 ฉบับที่เกิดจากแต่ละคำสั่ง) ส่วน `last-column-id` ขยับจาก 5 เป็น 7 เพราะมี Column ใหม่ 2 ตัว (`email` กับ `address.zip`)
+
+</Step>
+
+<Step>
+
+## ไฟล์เก่าอ่านด้วย Schema ใหม่ได้
+
+Schema ปัจจุบันของตารางคือ `email, id, full_name, score, address` และเมื่อ `SELECT` Row เก่าสองแถวที่เขียนไว้ตั้งแต่แรก
+
+```text
+(1, 'ann', 1.5, None, 'bkk', None)
+(2, 'bob', 2.5, None, 'cnx', None)
+```
+
+`email` กับ `address.zip` เป็น `None` เพราะไฟล์เก่าไม่มี Field ID ของ Column เหล่านั้น Iceberg จึงเติม `NULL` ให้ตอนอ่าน ส่วน `id` ที่เคยเป็น `int` ถูกอ่านเป็น `bigint` และ `score` จาก `float` เป็น `double` โดยได้ค่าเดิม (1.5 และ 2.5) ซึ่งทำได้โดยไม่ต้องแปลงไฟล์เลย เพราะ `int` ไป `long` และ `float` ไป `double` เป็นการเลื่อนชนิดที่ไม่เสียข้อมูล แต่ถ้าจะเลื่อนกลับ (`bigint` ไป `int`) Spark จะปฏิเสธด้วย `NOT_SUPPORTED_CHANGE_COLUMN`
+
+และถ้าเราอยากรู้ว่า Schema เดิมหน้าตาอย่างไร ก็ถาม Snapshot แรกได้ เพราะแต่ละ Snapshot จำ Schema ที่ใช้ตอนนั้น
+
+```python
+spark.sql(f"SELECT * FROM lab.db.users VERSION AS OF {snap1}").columns
+# ['id', 'name', 'score', 'address']
+```
+
+ได้ชื่อ Column เดิมทั้งหมด (`name` ไม่ใช่ `full_name`) ตรงนี้เราเห็นภาพแล้วว่าตารางเก็บประวัติของ Schema ไว้ด้วย ซึ่งเรื่อง `VERSION AS OF` เราคุยละเอียดใน[บท 8](/iceberg/time-travel/)
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ตารางมี Row เก่าที่เขียนไว้ก่อนเพิ่ม Column Email แล้วเราเพิ่ม Column Email ภายหลัง การ SELECT Column นี้จะได้อะไรกับ Row เก่า"
+  options={['Error เพราะไฟล์เก่าไม่มี Column นี้', 'NULL เพราะ Iceberg ไม่พบ Field ID ของ Column Email ในไฟล์เก่าแล้วเติม NULL ให้ตอนอ่าน', 'Iceberg ไล่เขียนไฟล์เก่าใหม่เพื่อเติม Column']}
+  answer={1}
+  why="เราอ่าน Row เก่าได้ค่า None ของ Email และไฟล์ข้อมูลทุกไฟล์ยังเป็นรายการเดิมหลังคำสั่ง ALTER ทั้งหกคำสั่ง การเพิ่ม Column จึงถูกและเร็ว แม้ตารางจะมีหลายพันล้าน Row"
+/>
+
+</Step>
+
+<Step>
+
+## PyIceberg เปลี่ยน Schema ได้เหมือนกัน
+
+ฝั่ง PyIceberg ใช้ Context Manager ที่เก็บการเปลี่ยนแปลงไว้แล้ว Commit ทีเดียวตอนออกจากบล็อก
+
+```python
+with t.update_schema() as u:
+    u.add_column("country", StringType())
+    u.rename_column("full_name", "name")
+```
+
+ผลคือ Schema ที่ PyIceberg เห็นเป็น `email, id, name, score, address, country` และเมื่อ Spark `REFRESH TABLE` แล้ว ก็เห็น Column `country` กับ `name` เหมือนกัน และ `SELECT name WHERE id = 2` ยังได้ `bob` จากไฟล์เดิม สองโปรแกรมแก้ตารางเดียวกันได้ เพราะที่เขียนจริง ๆ ก็เป็น `metadata.json` ฉบับใหม่ตาม Spec เดียวกัน
+
+</Step>
+
+<Step>
+
+## เปลี่ยนวิธีแบ่ง Partition
+
+อีกเรื่องที่ตารางแบบ Hive เปลี่ยนไม่ได้เลย แต่ Iceberg ทำได้ คือวิธีแบ่ง Partition เราลองสร้างตาราง `events` Partition รายเดือนด้วย `months(ts)` ใส่ข้อมูลเดือนมกราคม แล้วเปลี่ยนเป็นรายวัน
+
+```python
+spark.sql("ALTER TABLE lab.db.events REPLACE PARTITION FIELD ts_month WITH days(ts)")
+spark.sql("INSERT INTO lab.db.events VALUES (3, TIMESTAMP'2026-02-03 10:00:00'), (4, TIMESTAMP'2026-02-04 10:00:00')")
+```
+
+หลังเปลี่ยน ไฟล์ของเดือนมกราคมยังอยู่ที่เดิม (`data/ts_month=2026-01/...`) และข้อมูลใหม่ถูกเขียนเป็นไฟล์รายวัน (`data/ts_day=2026-02-03/...`, `data/ts_day=2026-02-04/...`) ใน `metadata.json` มี Partition Spec สองแบบ
+
+```text
+partition specs: {0: [('ts_month', 'month')], 1: [('ts_day', 'day')]}   default-spec-id = 1
+```
+
+Spec หมายเลข 0 ยังอยู่เพื่ออธิบายไฟล์เก่า ส่วนหมายเลข 1 เป็นค่าเริ่มต้นของไฟล์ที่เขียนใหม่ เมื่อดูตาราง `.files` แยกตาม `spec_id` ได้
+
+```text
+spec_id  files  records
+0        1      2         <- ไฟล์รายเดือน (มกราคม)
+1        2      2         <- ไฟล์รายวัน (กุมภาพันธ์)
+```
+
+Query เดียวอ่านทั้งสองแบบได้ (4 Row รวมกัน) และยังข้ามไฟล์ได้ทั้งสองแบบ เราให้ PyIceberg วางแผนด้วยเงื่อนไขหนึ่งวันของเดือนมกราคม ได้ 1 ไฟล์ (ไฟล์รายเดือน เพราะอาจมีวันนั้นอยู่ข้างใน) และหนึ่งวันของกุมภาพันธ์ ก็ได้ 1 ไฟล์ (ไฟล์รายวันของวันที่ 3) เพราะ Iceberg ประเมินเงื่อนไขกับ Spec ของแต่ละไฟล์ด้วย Spec ของไฟล์นั้นเอง
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เปลี่ยน Partition ของตารางจากรายเดือนเป็นรายวันด้วย REPLACE PARTITION FIELD ไฟล์ของเดือนที่ผ่านมาแล้วเป็นอย่างไร"
+  options={['ถูกเขียนใหม่เป็นไฟล์รายวันทันที', 'ยังอยู่ที่เดิมในรูปแบบรายเดือน ไฟล์ที่เขียนต่อไปจึงเป็นรายวัน และ Query อ่านได้ทั้งสองแบบ', 'ถูกย้ายไปตารางใหม่']}
+  answer={1}
+  why="เราเช็กแล้วว่าไฟล์เดือนมกราคมยังอยู่ที่เดิม มีไฟล์รายเดือน 1 ไฟล์ (spec_id 0) และรายวัน 2 ไฟล์ (spec_id 1) ส่วนการจัดไฟล์เก่าใหม่ให้เป็นรายวัน ต้องสั่งเองในงานดูแลตาราง มันไม่เกิดขึ้นเอง"
+/>
+
+</Step>
+
+<Step>
+
+## PyIceberg แก้ Partition Spec และ Sort Order
+
+PyIceberg เพิ่มฟิลด์ Partition ได้ด้วย `update_spec`
+
+```python
+with tp.update_spec() as us:
+    us.add_field("id", BucketTransform(4), "id_b4")
+```
+
+ผลคือ Spec ของตารางเป็น `id_b4: bucket[4](1)` ส่วน **Sort Order** คือลำดับการเรียงที่ตารางประกาศว่าไฟล์ใหม่ควรเรียงตามนั้น ตั้งได้จาก Spark
+
+```python
+spark.sql("ALTER TABLE lab.db.sorted WRITE ORDERED BY ts DESC, id")
+```
+
+`metadata.json` จดเป็น `[('desc', 'identity', 2), ('asc', 'identity', 1)]` คือเรียง `ts` มากไปน้อย แล้วตามด้วย `id` และไฟล์ที่ Spark เขียนหลังจากนั้นเก็บ `sort_order_id` ที่ตรงกัน เมื่ออ่าน Row ที่ใส่ไป 3 แถวที่ `ts` ต่างกันจึงได้ `id` เรียงเป็น 2, 3, 1 ตามเวลามากไปน้อย การเรียงที่ดีทำให้สถิติ Min/Max ของไฟล์แคบลง ซึ่งช่วยข้ามไฟล์ตามที่เห็นใน[บท 5](/iceberg/reading/#ข้ามไฟล์ได้กี่ไฟล์-แล้วแต่เงื่อนไข) (ข้อสรุปนี้เป็นของผู้เขียนจากตัวอย่างในบทนั้น ยังไม่ได้วัดเทียบแบบเรียงกับไม่เรียงในแบบฝึกนี้)
+
+<Callout type="note" title="สิ่งที่แบบฝึกนี้ไม่ได้ทดลอง">
+เราไม่ได้ลองเพิ่ม Column ที่ `NOT NULL` ในตารางที่มีข้อมูล, ค่า Default ของ Column ในตาราง Version 3, การเปลี่ยนชนิดของ Decimal, หรือการเปลี่ยน Partition ผ่าน PyIceberg แล้วเขียนข้อมูลเข้าไป
+</Callout>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| ALTER ทั้งหกคำสั่งไม่แตะไฟล์ข้อมูล สร้าง `metadata.json` ใหม่หนึ่งฉบับต่อคำสั่ง และเก็บ Schema 7 แบบ | รัน: `exercises/07_evolution.py` |
+| Row เก่าอ่านด้วย Schema ใหม่ได้ (NULL สำหรับ Column ใหม่, ชนิดเลื่อน `int` เป็น `bigint`, `float` เป็น `double`) | รัน: `exercises/07_evolution.py` |
+| การเลื่อนชนิดกลับ (`bigint` ไป `int`) ถูกปฏิเสธ | รัน: `exercises/07_evolution.py` |
+| `VERSION AS OF` ใช้ Schema ของ Snapshot นั้น | รัน: `exercises/07_evolution.py` |
+| PyIceberg `update_schema` และ Spark เห็นผลร่วมกัน | รัน: `exercises/07_evolution.py` |
+| `REPLACE PARTITION FIELD` ไม่เขียนไฟล์เก่าใหม่; Spec 0 และ 1 อยู่ร่วมกัน; วางแผนแยกตาม Spec | รัน: `exercises/07_evolution.py` |
+| PyIceberg `update_spec` เพิ่มฟิลด์ `bucket[4]` ได้ | รัน: `exercises/07_evolution.py` |
+| `WRITE ORDERED BY` จดใน `sort-orders` และไฟล์ใหม่เก็บ `sort_order_id` | รัน: `exercises/07_evolution.py` |
+| การเรียงข้อมูลทำให้สถิติแคบลงและช่วยข้ามไฟล์ | ผู้เขียน (สรุปจาก[บท 5](/iceberg/reading/)) |
+
+</Step>
