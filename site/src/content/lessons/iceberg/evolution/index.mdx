@@ -1,6 +1,6 @@
 ---
 title: เปลี่ยน Schema และ Partition
-summary: เพิ่ม ลบ เปลี่ยนชื่อ และเลื่อนชนิดของ Column เปลี่ยนวิธีแบ่ง Partition และตั้ง Sort Order โดยไม่เขียนไฟล์ข้อมูลใหม่ แล้วดูว่าไฟล์เก่าและไฟล์ใหม่อ่านร่วมกันได้อย่างไร
+summary: เพิ่ม ลบ เปลี่ยนชื่อ และเลื่อนชนิดของ Column เปลี่ยนวิธีแบ่ง Partition และตั้ง Sort Order โดยไม่เขียน Data File ใหม่ แล้วดูว่าไฟล์เก่าและไฟล์ใหม่อ่านร่วมกันได้อย่างไร
 order: 7
 phase: C
 level: 3
@@ -16,9 +16,9 @@ import Question from '../../../../components/Question';
 
 <Step>
 
-## เปลี่ยนตารางโดยไม่แตะไฟล์ข้อมูล
+## เปลี่ยนตารางโดยไม่แตะ Data File
 
-ตารางจริงไม่เคยนิ่งอยู่กับที่ วันนี้ต้องเพิ่ม Column พรุ่งนี้ต้องเปลี่ยนชื่อ อีกเดือนต้องเปลี่ยนจาก Partition รายเดือนเป็นรายวัน ถ้าทุกครั้งต้องเขียนข้อมูลทั้งตารางใหม่ ตารางใหญ่ ๆ ก็แทบเปลี่ยนอะไรไม่ได้ ใน Iceberg ทั้งหมดนี้เป็นการเขียน `metadata.json` ฉบับใหม่เท่านั้น เพราะเรารู้จาก[บท 3](/iceberg/schema-partitioning/#field-id-คือสิ่งที่-iceberg-ใช้อ้างอิง-column)แล้วว่าไฟล์ข้อมูลอ้างอิง Column ด้วย Field ID ไม่ใช่ด้วยชื่อ (รัน: `exercises/07_evolution.py`)
+ตารางจริงไม่เคยนิ่งอยู่กับที่ วันนี้ต้องเพิ่ม Column พรุ่งนี้ต้องเปลี่ยนชื่อ อีกเดือนต้องเปลี่ยนจาก Partition รายเดือนเป็นรายวัน ถ้าทุกครั้งต้องเขียนข้อมูลทั้งตารางใหม่ ตารางใหญ่ ๆ ก็แทบเปลี่ยนอะไรไม่ได้ ใน Iceberg ทั้งหมดนี้เป็นการเขียน `metadata.json` ฉบับใหม่เท่านั้น เพราะเรารู้จาก[บท 3](/iceberg/schema-partitioning/#field-id-คือสิ่งที่-iceberg-ใช้อ้างอิง-column)แล้วว่า Data File อ้างอิง Column ด้วย Field ID ไม่ใช่ด้วยชื่อ (รัน: `exercises/07_evolution.py`)
 
 เราเริ่มจากตาราง `users` ที่มี 4 Column และ 2 Row แล้วสั่งเปลี่ยนแปลงต่อเนื่องหกครั้ง
 
@@ -31,7 +31,7 @@ spark.sql("ALTER TABLE lab.db.users ADD COLUMN address.zip string")      # Colum
 spark.sql("ALTER TABLE lab.db.users ALTER COLUMN email FIRST")           # ย้ายไปไว้หน้าสุด
 ```
 
-หลังจบ ไฟล์ข้อมูลในโฟลเดอร์ `data/` ยังเป็นรายการเดิมทุกไฟล์ แต่มี `metadata.json` เพิ่มขึ้นหกฉบับ หนึ่งฉบับต่อหนึ่งคำสั่ง และ `schemas` ในฉบับล่าสุดเก็บ Schema ไว้ 7 แบบ (ฉบับแรกกับอีก 6 ฉบับที่เกิดจากแต่ละคำสั่ง) ส่วน `last-column-id` ขยับจาก 5 เป็น 7 เพราะมี Column ใหม่ 2 ตัว (`email` กับ `address.zip`)
+หลังจบ Data File ในโฟลเดอร์ `data/` ยังเป็นรายการเดิมทุกไฟล์ แต่มี `metadata.json` เพิ่มขึ้นหกฉบับ หนึ่งฉบับต่อหนึ่งคำสั่ง และ `schemas` ในฉบับล่าสุดเก็บ Schema ไว้ 7 แบบ (ฉบับแรกกับอีก 6 ฉบับที่เกิดจากแต่ละคำสั่ง) ส่วน `last-column-id` ขยับจาก 5 เป็น 7 เพราะมี Column ใหม่ 2 ตัว (`email` กับ `address.zip`)
 
 </Step>
 
@@ -66,7 +66,7 @@ spark.sql(f"SELECT * FROM lab.db.users VERSION AS OF {snap1}").columns
   q="ตารางมี Row เก่าที่เขียนไว้ก่อนเพิ่ม Column Email แล้วเราเพิ่ม Column Email ภายหลัง การ SELECT Column นี้จะได้อะไรกับ Row เก่า"
   options={['Error เพราะไฟล์เก่าไม่มี Column นี้', 'NULL เพราะ Iceberg ไม่พบ Field ID ของ Column Email ในไฟล์เก่าแล้วเติม NULL ให้ตอนอ่าน', 'Iceberg ไล่เขียนไฟล์เก่าใหม่เพื่อเติม Column']}
   answer={1}
-  why="เราอ่าน Row เก่าได้ค่า None ของ Email และไฟล์ข้อมูลทุกไฟล์ยังเป็นรายการเดิมหลังคำสั่ง ALTER ทั้งหกคำสั่ง การเพิ่ม Column จึงถูกและเร็ว แม้ตารางจะมีหลายพันล้าน Row"
+  why="เราอ่าน Row เก่าได้ค่า None ของ Email และ Data File ทุกไฟล์ยังเป็นรายการเดิมหลังคำสั่ง ALTER ทั้งหกคำสั่ง การเพิ่ม Column จึงถูกและเร็ว แม้ตารางจะมีหลายพันล้าน Row"
 />
 
 </Step>
@@ -159,7 +159,7 @@ spark.sql("ALTER TABLE lab.db.sorted WRITE ORDERED BY ts DESC, id")
 
 | ข้อความ | ที่มา |
 |---|---|
-| ALTER ทั้งหกคำสั่งไม่แตะไฟล์ข้อมูล สร้าง `metadata.json` ใหม่หนึ่งฉบับต่อคำสั่ง และเก็บ Schema 7 แบบ | รัน: `exercises/07_evolution.py` |
+| ALTER ทั้งหกคำสั่งไม่แตะ Data File สร้าง `metadata.json` ใหม่หนึ่งฉบับต่อคำสั่ง และเก็บ Schema 7 แบบ | รัน: `exercises/07_evolution.py` |
 | Row เก่าอ่านด้วย Schema ใหม่ได้ (NULL สำหรับ Column ใหม่, ชนิดเลื่อน `int` เป็น `bigint`, `float` เป็น `double`) | รัน: `exercises/07_evolution.py` |
 | การเลื่อนชนิดกลับ (`bigint` ไป `int`) ถูกปฏิเสธ | รัน: `exercises/07_evolution.py` |
 | `VERSION AS OF` ใช้ Schema ของ Snapshot นั้น | รัน: `exercises/07_evolution.py` |

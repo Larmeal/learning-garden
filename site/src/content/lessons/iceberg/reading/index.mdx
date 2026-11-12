@@ -22,7 +22,7 @@ import ScanPruningLab from '../../../../components/labs/iceberg/ScanPruningLab';
 
 ใน[บท 2](/iceberg/table-anatomy/#ชั้นที่-3-manifest) เราเห็นว่า Manifest เก็บ Min/Max ของ Column ต่อไฟล์ และใน[บท 3](/iceberg/schema-partitioning/#partition-transform-และ-hidden-partitioning) เห็นว่าค่า Partition ช่วยข้ามไฟล์ได้ บทนี้เราจะวัดให้เห็นว่าทั้งสองอย่างข้ามไฟล์ได้เท่าไร ขั้นตอนที่ Engine ตัดสินใจว่าจะเปิดไฟล์ไหนเรียกว่า **Scan Planning** และเกิดขึ้นก่อนที่จะอ่านข้อมูลสักไฟล์ (รัน: `exercises/05_reads_scan_planning.py`)
 
-ตารางที่เราใช้มี 8 ไฟล์ข้อมูล แบ่งเป็น 4 วัน วันละ 2 ไฟล์ ไฟล์ละ 5 Row โดย `order_id` ไล่เลขต่อกัน ไฟล์แรกมี 1 ถึง 5 ไฟล์ที่สองมี 6 ถึง 10 ไปเรื่อย ๆ จนถึง 40 และ Partition ตามวันของ `ordered_at` เราสร้างด้วย `INSERT` แปดครั้ง ครั้งละหนึ่งไฟล์ จึงมี Manifest 8 ไฟล์ด้วย
+ตารางที่เราใช้มี 8 Data File แบ่งเป็น 4 วัน วันละ 2 ไฟล์ ไฟล์ละ 5 Row โดย `order_id` ไล่เลขต่อกัน ไฟล์แรกมี 1 ถึง 5 ไฟล์ที่สองมี 6 ถึง 10 ไปเรื่อย ๆ จนถึง 40 และ Partition ตามวันของ `ordered_at` เราสร้างด้วย `INSERT` แปดครั้ง ครั้งละหนึ่งไฟล์ จึงมี Manifest 8 ไฟล์ด้วย
 
 </Step>
 
@@ -113,7 +113,7 @@ BatchScan lab.db.orders[order_id, customer, amount, ordered_at]
 | อยากรู้ | Spark | PyIceberg |
 |---|---|---|
 | ประวัติ Commit | `lab.db.orders.snapshots` | `t.inspect.snapshots()` |
-| ไฟล์ข้อมูลและสถิติ | `lab.db.orders.files` | `t.inspect.files()` |
+| Data File และสถิติ | `lab.db.orders.files` | `t.inspect.files()` |
 | รายการ Manifest | `lab.db.orders.manifests` | `t.inspect.manifests()` |
 | สรุปต่อ Partition | `lab.db.orders.partitions` | `t.inspect.partitions()` |
 
@@ -124,7 +124,7 @@ order_id  lower_bound  upper_bound
 1  5   |  6  10   |  11 15   |  16 20   |  21 25   |  26 30   |  31 35   |  36 40
 ```
 
-ซึ่งตรงกับช่วงที่เราออกแบบไว้ใน Step แรก ไฟล์ข้อมูลของ Iceberg ก็เป็น Parquet ธรรมดา แบบฝึกเปิดไฟล์หนึ่งด้วย `pyarrow` ตรง ๆ ได้ 5 Row ส่วน PyIceberg ส่งผลต่อไปที่ Pandas ได้ด้วย `to_pandas()` (แบบฝึกกรอง `order_id <= 5` แล้วได้ 1 ถึง 5)
+ซึ่งตรงกับช่วงที่เราออกแบบไว้ใน Step แรก Data File ของ Iceberg ก็เป็น Parquet ธรรมดา แบบฝึกเปิดไฟล์หนึ่งด้วย `pyarrow` ตรง ๆ ได้ 5 Row ส่วน PyIceberg ส่งผลต่อไปที่ Pandas ได้ด้วย `to_pandas()` (แบบฝึกกรอง `order_id <= 5` แล้วได้ 1 ถึง 5)
 
 <Callout type="note" title="ฝั่ง Java กับฝั่ง Python มีเครื่องมือไม่เท่ากัน">
 `readable_metrics` เป็นของ Spark ส่วน PyIceberg เปิดค่าสถิติแบบเดียวกันผ่าน `inspect.files()` แต่เป็น Bytes ที่ต้องถอดเอง ในบทนี้เราเลือกใช้แบบที่อ่านง่ายที่สุดของแต่ละฝั่ง

@@ -132,7 +132,7 @@ new = spark.table("lab.db.orders")
 refs: main, month_end        ตารางหลักมี 5 Row ยอดรวม 562.0        month_end ยังอ่านได้ 5 Row
 ```
 
-Tag `month_end` ทำให้ Snapshot นั้นรอดจากการลบ ตามที่เห็นในบทดูแลตาราง สิ่งที่แบบฝึกเจอและน่าสนใจคือหลังรวมไฟล์ **เหลือ Delete File อยู่หนึ่งไฟล์** ซึ่งชี้ไปยังไฟล์ข้อมูลที่ไม่อยู่ใน Snapshot ปัจจุบันแล้ว (เราตรวจว่าชื่อไฟล์ที่มันอ้างไม่อยู่ในรายชื่อไฟล์ข้อมูลปัจจุบัน) ตอนเขียนบทนี้ผู้เขียนเข้าใจว่า Reader ไม่ได้ใช้ไฟล์นี้และมันจะหายไปเองเมื่อมีงานดูแลรอบถัดไป แต่หลังจากนั้นเราลองแล้วพบว่าไม่จริง ไฟล์ลบแบบนี้ไม่หายไปเอง ต้องเรียก `rewrite_data_files` อีกครั้งโดยตั้ง `remove-dangling-deletes` เป็น `true` ซึ่งเราลองให้ดูใน[หน้าเจาะลึก Copy-on-write และ Merge-on-read](/iceberg/row-level/in-depth/) ถ้าคุณใช้ Merge-on-read ก็ควรตรวจเรื่องนี้ในระบบจริงของคุณด้วย
+Tag `month_end` ทำให้ Snapshot นั้นรอดจากการลบ ตามที่เห็นในบทดูแลตาราง สิ่งที่แบบฝึกเจอและน่าสนใจคือหลังรวมไฟล์ **เหลือ Delete File อยู่หนึ่งไฟล์** ซึ่งชี้ไปยัง Data File ที่ไม่อยู่ใน Snapshot ปัจจุบันแล้ว (เราตรวจว่าชื่อไฟล์ที่มันอ้างไม่อยู่ในรายชื่อ Data File ปัจจุบัน) ตอนเขียนบทนี้ผู้เขียนเข้าใจว่า Reader ไม่ได้ใช้ไฟล์นี้และมันจะหายไปเองเมื่อมีงานดูแลรอบถัดไป แต่หลังจากนั้นเราลองแล้วพบว่าไม่จริง Delete File แบบนี้ไม่หายไปเอง ต้องเรียก `rewrite_data_files` อีกครั้งโดยตั้ง `remove-dangling-deletes` เป็น `true` ซึ่งเราลองให้ดูใน[หน้าเจาะลึก Copy-on-write และ Merge-on-read](/iceberg/row-level/in-depth/) ถ้าคุณใช้ Merge-on-read ก็ควรตรวจเรื่องนี้ในระบบจริงของคุณด้วย
 
 สุดท้าย PyIceberg อ่านตารางที่ผ่านทั้งหมดนี้ได้ครบ 5 Row ยอดรวม 562.0 ตรงกับฝั่ง Spark
 
@@ -157,7 +157,7 @@ Tag `month_end` ทำให้ Snapshot นั้นรอดจากการ
 | `MERGE INTO` แก้ยอดและผลรวมเป็น 562.0 พร้อม Position Delete File | รัน: `exercises/14_capstone_orders.py` |
 | Changelog View อ่านช่วงที่มี Delete File ไม่ได้; เทียบ Time Travel ได้ (เพิ่ม 4 และ 5, แก้ 2) | รัน: `exercises/14_capstone_orders.py` |
 | `rewrite_data_files` และ `expire_snapshots` เหลือ `main` กับ Tag `month_end`; Tag อ่านได้ 5 Row | รัน: `exercises/14_capstone_orders.py` |
-| เหลือ Delete File หนึ่งไฟล์ที่ชี้ไปยังไฟล์ข้อมูลที่ไม่ใช้แล้ว | รัน: `exercises/14_capstone_orders.py` |
+| เหลือ Delete File หนึ่งไฟล์ที่ชี้ไปยัง Data File ที่ไม่ใช้แล้ว | รัน: `exercises/14_capstone_orders.py` |
 | Reader ไม่ใช้ Delete File นั้น และมันไม่หายไปเองแต่ต้องเก็บกวาดด้วย `remove-dangling-deletes` | รัน: `exercises/16_cow_mor_in_depth.py` |
 | ทางออกอื่นสำหรับระบบปลายทาง | ผู้เขียน (ไม่ได้ทดลอง) |
 

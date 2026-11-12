@@ -36,7 +36,7 @@ spark.sql("INSERT INTO lab.db.orders VALUES (5, 'dan', 10.0), (6, 'eve', 999.0)"
 files by kind: {'data': 3, 'metadata.json': 4, 'manifest': 3, 'manifest list': 3}
 ```
 
-ก็คือไฟล์ข้อมูลสามไฟล์ (ครั้งละหนึ่งไฟล์) `metadata.json` สี่ฉบับ (หนึ่งฉบับตอน `CREATE` กับอีกสามฉบับตอน `INSERT`) Manifest สามไฟล์ และ Manifest List สามไฟล์ เดี๋ยวเราจะเปิดดูทีละชั้น
+ก็คือ Data File สามไฟล์ (ครั้งละหนึ่งไฟล์) `metadata.json` สี่ฉบับ (หนึ่งฉบับตอน `CREATE` กับอีกสามฉบับตอน `INSERT`) Manifest สามไฟล์ และ Manifest List สามไฟล์ เดี๋ยวเราจะเปิดดูทีละชั้น
 
 </Step>
 
@@ -76,7 +76,7 @@ snapshot 3: manifest list has 3 manifest(s)
  'added_files_count': 1, 'existing_files_count': 0, 'deleted_files_count': 0, 'added_rows_count': 2}
 ```
 
-`content: 0` แปลว่า Manifest นี้ลิสต์ไฟล์ข้อมูล (ถ้าเป็น `1` จะลิสต์ไฟล์ Delete ซึ่งเราจะเจอใน[บท 6](/iceberg/row-level/)) ตัวเลข `added_files_count`, `existing_files_count` และ `deleted_files_count` บอกว่า Manifest นี้เพิ่ม คงไว้ หรือเอาไฟล์ออกกี่ไฟล์ ทำให้ Engine ตัดสินใจข้าม Manifest ทั้งก้อนได้โดยไม่ต้องเปิดอ่าน และยังมี `partitions` ซึ่งเก็บช่วงค่า Partition ของไฟล์ทั้งหมดใน Manifest นั้นด้วย (ตารางนี้ไม่มี Partition แบบฝึกจึงเห็นเป็นรายการว่าง)
+`content: 0` แปลว่า Manifest นี้ลิสต์ Data File (ถ้าเป็น `1` จะลิสต์ไฟล์ Delete ซึ่งเราจะเจอใน[บท 6](/iceberg/row-level/)) ตัวเลข `added_files_count`, `existing_files_count` และ `deleted_files_count` บอกว่า Manifest นี้เพิ่ม คงไว้ หรือเอาไฟล์ออกกี่ไฟล์ ทำให้ Engine ตัดสินใจข้าม Manifest ทั้งก้อนได้โดยไม่ต้องเปิดอ่าน และยังมี `partitions` ซึ่งเก็บช่วงค่า Partition ของไฟล์ทั้งหมดใน Manifest นั้นด้วย (ตารางนี้ไม่มี Partition แบบฝึกจึงเห็นเป็นรายการว่าง)
 
 </Step>
 
@@ -106,7 +106,7 @@ snapshot 3: manifest list has 3 manifest(s)
 
 ## ชั้นที่ 3: Manifest
 
-Manifest ก็เป็นไฟล์ Avro ที่มีหนึ่งแถวต่อหนึ่งไฟล์ข้อมูล เราเปิด Manifest ของ `INSERT` ครั้งสุดท้าย แล้วดูแถวเดียวที่มี
+Manifest ก็เป็นไฟล์ Avro ที่มีหนึ่งแถวต่อหนึ่ง Data File เราเปิด Manifest ของ `INSERT` ครั้งสุดท้าย แล้วดูแถวเดียวที่มี
 
 ```text
 manifest entry: {'status': 1, 'snapshot_id': 7182852630908158332, 'sequence_number': None}
@@ -117,7 +117,7 @@ data_file keys: ['column_sizes', 'content', 'equality_ids', 'file_format', 'file
 
 `status: 1` แปลว่าไฟล์นี้ถูก **เพิ่ม** (ADDED) โดย Snapshot นั้น ค่าอื่นของ `status` คือ `0` (EXISTING) และ `2` (DELETED) สังเกตว่า `sequence_number` ใน Entry เป็น `None` ไม่ได้หายไปไหน Entry ไม่เก็บเลขของตัวเอง แต่ **สืบทอด** มาจากแถวของ Manifest นั้นใน Manifest List (ซึ่งมี `sequence_number: 3`) ตัวเลขนี้จึงถูกเขียนครั้งเดียวต่อ Commit
 
-ส่วน `data_file` ก็คือคำอธิบายของไฟล์ข้อมูลหนึ่งไฟล์ ซึ่งแบบฝึกยืนยันว่า `file_format` เป็น `PARQUET`, `record_count` เป็น 2, `file_size_in_bytes` ตรงกับขนาดจริงของไฟล์บนดิสก์ และ `content` เป็น `0` (ไฟล์ข้อมูล) สิ่งที่น่าสนใจที่สุดคือสถิติของแต่ละ Column ได้แก่ `value_counts`, `null_value_counts`, `lower_bounds` และ `upper_bounds` ซึ่งใช้ **Field ID** เป็น Key ไม่ใช่ชื่อ Column ค่าของ Bounds ถูกเก็บเป็น Bytes เราถอดออกมาได้แบบนี้
+ส่วน `data_file` ก็คือคำอธิบายของ Data File หนึ่งไฟล์ ซึ่งแบบฝึกยืนยันว่า `file_format` เป็น `PARQUET`, `record_count` เป็น 2, `file_size_in_bytes` ตรงกับขนาดจริงของไฟล์บนดิสก์ และ `content` เป็น `0` (Data File) สิ่งที่น่าสนใจที่สุดคือสถิติของแต่ละ Column ได้แก่ `value_counts`, `null_value_counts`, `lower_bounds` และ `upper_bounds` ซึ่งใช้ **Field ID** เป็น Key ไม่ใช่ชื่อ Column ค่าของ Bounds ถูกเก็บเป็น Bytes เราถอดออกมาได้แบบนี้
 
 ```python
 struct.unpack("<q", lo[1])   # order_id: long เป็น 8 bytes little-endian
@@ -145,7 +145,7 @@ t.column("order_id").to_pylist()                  # [5, 6]
 min(t["amount"].to_pylist()), max(t["amount"].to_pylist())   # (10.0, 999.0)
 ```
 
-ได้ค่าเท่ากับที่อยู่ใน Manifest ทุกตัว อีกจุดที่แบบฝึกตรวจคือ Schema ของไฟล์ Parquet เอง มันเก็บ Field ID ไว้ด้วย (`PARQUET:field_id`) โดย `order_id` เป็น 1, `customer` เป็น 2 และ `amount` เป็น 3 ตรงกับ Schema ใน `metadata.json` ทุกประการ ทำให้ไฟล์ข้อมูลอ่านได้ถูกต้องแม้ชื่อ Column จะเปลี่ยนไปในภายหลัง เรื่องนี้เราจะลองกันใน[บท 3](/iceberg/schema-partitioning/#field-id-คือสิ่งที่-iceberg-ใช้อ้างอิง-column)
+ได้ค่าเท่ากับที่อยู่ใน Manifest ทุกตัว อีกจุดที่แบบฝึกตรวจคือ Schema ของไฟล์ Parquet เอง มันเก็บ Field ID ไว้ด้วย (`PARQUET:field_id`) โดย `order_id` เป็น 1, `customer` เป็น 2 และ `amount` เป็น 3 ตรงกับ Schema ใน `metadata.json` ทุกประการ ทำให้ Data File อ่านได้ถูกต้องแม้ชื่อ Column จะเปลี่ยนไปในภายหลัง เรื่องนี้เราจะลองกันใน[บท 3](/iceberg/schema-partitioning/#field-id-คือสิ่งที่-iceberg-ใช้อ้างอิง-column)
 
 <Callout type="note" title="สถิติใน Manifest เป็นการเก็บค่าตอนเขียน">
 Bounds เป็นค่าที่ Writer คำนวณตอนเขียนไฟล์ และ Iceberg ถือว่าเชื่อได้เพื่อใช้ข้ามไฟล์ ตัวอย่างนี้เราตรวจเทียบกับ Parquet แล้วตรงกัน แต่ถ้า Writer บางตัวไม่เก็บสถิติของบาง Column (ตั้ง Metrics Mode ได้) ค่าเหล่านั้นก็จะไม่มี และ Engine จะข้ามไฟล์ด้วย Column นั้นไม่ได้ ส่วนนี้ยังไม่ได้ทดลอง
@@ -175,7 +175,7 @@ spark.sql("SELECT length, partition_spec_id, content, added_data_files_count AS 
 +-------------------+-------------------+---------+     +------+-----------------+-------+-----+--------+
 ```
 
-แบบฝึกยืนยันว่า `snapshot_id` ที่ Spark ให้ ตรงกับที่เราอ่านจาก `metadata.json` เอง ตาราง `.files` ก็คืนรายชื่อไฟล์ข้อมูลเซตเดียวกับที่เราไล่ได้จาก Manifest ทั้งสามไฟล์ (3 ไฟล์ ไฟล์ละ 2 Row) ถ้าสงสัยว่าตารางมีอะไรอยู่ข้างใน ตารางพวกนี้คือจุดเริ่มต้นที่เร็วที่สุด และ PyIceberg ก็มีของที่คล้ายกันผ่าน `table.inspect` ซึ่งเราจะใช้ในบทถัด ๆ ไป
+แบบฝึกยืนยันว่า `snapshot_id` ที่ Spark ให้ ตรงกับที่เราอ่านจาก `metadata.json` เอง ตาราง `.files` ก็คืนรายชื่อ Data File เซตเดียวกับที่เราไล่ได้จาก Manifest ทั้งสามไฟล์ (3 ไฟล์ ไฟล์ละ 2 Row) ถ้าสงสัยว่าตารางมีอะไรอยู่ข้างใน ตารางพวกนี้คือจุดเริ่มต้นที่เร็วที่สุด และ PyIceberg ก็มีของที่คล้ายกันผ่าน `table.inspect` ซึ่งเราจะใช้ในบทถัด ๆ ไป
 
 </Step>
 
@@ -195,7 +195,7 @@ spark.sql("SELECT length, partition_spec_id, content, added_data_files_count AS 
 
 | ข้อความ | ที่มา |
 |---|---|
-| `INSERT` สามครั้งสร้าง `metadata.json` 4 ฉบับ, Manifest 3 ไฟล์, Manifest List 3 ไฟล์, ไฟล์ข้อมูล 3 ไฟล์ | รัน: `exercises/02_table_anatomy.py` |
+| `INSERT` สามครั้งสร้าง `metadata.json` 4 ฉบับ, Manifest 3 ไฟล์, Manifest List 3 ไฟล์, Data File 3 ไฟล์ | รัน: `exercises/02_table_anatomy.py` |
 | `metadata.json` เก่าไม่ถูกแก้ตอน Commit ใหม่ (SHA-256 เท่าเดิม) และ `metadata-log` ไล่ฉบับเก่าครบ | รัน: `exercises/02_table_anatomy.py` |
 | Manifest List มี 1, 2, 3 แถว และ Manifest ถูกใช้ซ้ำข้าม Snapshot | รัน: `exercises/02_table_anatomy.py` |
 | `sequence_number` ของ Entry เป็น `None` และสืบทอดจาก Manifest List | รัน: `exercises/02_table_anatomy.py` |
