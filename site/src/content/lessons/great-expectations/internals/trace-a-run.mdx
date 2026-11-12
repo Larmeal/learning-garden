@@ -1,6 +1,9 @@
 ---
-title: ตามรอยฟังก์ชันของ GX ใน Checkpoint หนึ่งครั้ง
+title: Tracing a Run
 summary: บันทึกฟังก์ชันที่ถูกเรียกจริงด้วย sys.setprofile เทียบกับลำดับที่อ่านจากซอร์ส ได้ภาพลำดับที่ตรวจซ้ำได้ และเห็นจุดที่ซอร์สอย่างเดียวไม่บอก
+facts:
+  - "บันทึกด้วย sys.setprofile ใน 31_call_trace.py กับ Checkpoint.run หนึ่งครั้ง (2 Expectation บน Pandas) ด้วย GX 1.24.1"
+  - "ลำดับที่บันทึกได้ถูกเทียบกับลำดับที่อ่านจากซอร์สของ GX และเป็นผลของ Pandas เท่านั้น"
 order: 1
 stage: sprout
 format: steps
@@ -42,7 +45,7 @@ Suite ที่ใช้มีสองกฎ (`id` ไม่เป็น Null �
 ลำดับที่บทนี้ใช้มาตลอด (`Checkpoint.run` ไป `ValidationDefinition.run` ไป `Validator` ไป `ValidationGraph` ไป Engine ไป Expectation) ตรงกับที่บันทึกได้ และการรันจริงยังเผยให้เห็นอีกสี่เรื่อง
 
 1. `process_expectations_for_validation` ถูกเรียกก่อน `graph_validate` โดยทำหน้าที่จัดกลุ่ม Expectation ตามคอลัมน์ ซึ่งอธิบายได้ว่าทำไมลำดับของผลถึงไม่ตรงกับ Suite ([บทที่ 3](/great-expectations/expectations-suites/nulls-and-order/#ลำดับของผลไม่ใช่ลำดับของ-suite))
-2. `get_validation_dependencies` ถูกเรียกซ้อนกันสามระดับ (x2, x4, x3 ในบันทึก) เพราะคลาสของ Expectation แต่ละตัวจะเรียกเมธอดของคลาสแม่ต่อกันไปตามลำดับชั้น (`ExpectColumnValuesToNotBeNull` ไป `ColumnMapExpectation` ไป `BatchExpectation` ไป `Expectation` ตามกราฟสืบทอดในหน้า "[ถามคำถามกับ Knowledge Graph](/great-expectations/internals/graph-queries/#คำถามที่สาม-คลาสสืบทอดจากอะไร)") โดยตัวเลขเหล่านี้นับครั้งของทั้งสอง Expectation รวมกัน
+2. `get_validation_dependencies` ถูกเรียกซ้อนกันสามระดับ (x2, x4, x3 ในบันทึก) เพราะคลาสของ Expectation แต่ละตัวจะเรียกเมธอดของคลาสแม่ต่อกันไปตามลำดับชั้น (`ExpectColumnValuesToNotBeNull` ไป `ColumnMapExpectation` ไป `BatchExpectation` ไป `Expectation` ตามกราฟสืบทอดในหน้า "[Knowledge Graph Queries](/great-expectations/internals/graph-queries/#คำถามที่สาม-คลาสสืบทอดจากอะไร)") โดยตัวเลขเหล่านี้นับครั้งของทั้งสอง Expectation รวมกัน
 3. `resolve_metrics` ถูกเรียก 5 ครั้ง เท่ากับ 5 รอบของกราฟ Metric ใน[บทที่ 8](/great-expectations/metrics-engines/#ลองดูมันคำนวณ) (รอบที่ห้าเป็นรอบว่าง) ส่วน `resolve_metric_bundle` ของ Pandas ถูกเรียก 4 ครั้ง ซึ่งก็คือรอบที่มี Metric จริง
 4. `store_validation_results` ถูกเรียกก่อน `_run_actions` ซึ่งยืนยันสิ่งที่[บทที่ 9](/great-expectations/actions-data-docs/#ลำดับและเงื่อนไข) บอกไว้ว่าผลถูกเก็บก่อนที่ Action จะทำงาน
 

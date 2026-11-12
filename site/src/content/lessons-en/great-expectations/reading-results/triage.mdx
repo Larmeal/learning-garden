@@ -1,6 +1,10 @@
 ---
-title: Read a failed result in a systematic way
+title: Failure Triage
 summary: success=False does not have only one meaning. A sequence of questions that separates the causes, a function that was tested, and a trap when you use the same expectation in several suites
+facts:
+  - "Ran in 21_formats_empty.py on GX 1.24.1 with an empty table, an all-null column and a broken expectation."
+  - "An expectation that already belongs to one suite cannot be added to a second suite (RuntimeError), but a copy with id None can."
+  - "The order of questions that separates the causes is the author's way of sorting."
 order: 3
 stage: sprout
 format: steps
@@ -22,7 +26,7 @@ When you read the result of a suite, there are four cases to tell apart, because
 | the data has a problem | a value in the data breaks a rule (`success=False`) | find the bad rows, decide whether to stop or quarantine the data |
 | the expectation is broken | the rule cannot be used, for example a column is missing (`success=False` with `exception_info`) | fix the rule, or find out whether the data structure changed |
 | the suite is empty | there are no rules to evaluate at all (`success=True`, `evaluated_expectations=0`) | treat it as a failure and find out why the rules are gone |
-| a quiet pass on an empty table | every rule is a column map rule (`success=True`) | add a row count rule, see the page "[Passing with no data: who passes?](/en/great-expectations/reading-results/vacuous/)" |
+| a quiet pass on an empty table | every rule is a column map rule (`success=True`) | add a row count rule, see the page "[Vacuous Passes](/en/great-expectations/reading-results/vacuous/)" |
 
 The last two make `success` `True` even though nothing was really checked. So looking only at the `success` value is not enough.
 
@@ -92,7 +96,7 @@ The results from `21_formats_empty.py` part 5 (GX 1.24.1):
 | the rule refers to a column `nope` that does not exist | `broken expectation (1)` |
 | a suite with no expectations at all | `empty suite` |
 
-The code has to walk through the values of `exception_info` and filter with `isinstance(v, dict)`, because its shape comes in two forms. An expectation that broke gets a dict whose keys are the metrics that failed (seen on the page "[What kinds of bad data GX can catch](/en/great-expectations/foundations/defects/)" in [lesson 0](/en/great-expectations/foundations/)). An expectation that did not break gets a flat dict `raised_exception: False, exception_traceback: None, exception_message: None`, whose values are a boolean and `None`, not dicts.
+The code has to walk through the values of `exception_info` and filter with `isinstance(v, dict)`, because its shape comes in two forms. An expectation that broke gets a dict whose keys are the metrics that failed (seen on the page "[Defects GX Can Catch](/en/great-expectations/foundations/defects/)" in [lesson 0](/en/great-expectations/foundations/)). An expectation that did not break gets a flat dict `raised_exception: False, exception_traceback: None, exception_message: None`, whose values are a boolean and `None`, not dicts.
 
 <Callout type="note" title="Scope">
 Tested on pandas and an ephemeral context. This function is an example of grouping the outcomes. It is not a GX API.

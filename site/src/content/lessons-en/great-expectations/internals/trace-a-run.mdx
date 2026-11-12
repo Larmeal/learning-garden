@@ -1,6 +1,9 @@
 ---
-title: Tracing GX functions in one checkpoint run
+title: Tracing a Run
 summary: We record the functions that are really called with sys.setprofile and compare them with the order read from the source. We get an order that can be checked again, and we see where the source alone does not tell you.
+facts:
+  - "Recorded with sys.setprofile in 31_call_trace.py for one Checkpoint.run (2 expectations on pandas) on GX 1.24.1."
+  - "The recorded order was compared with the order read from the GX source, and it is a result for pandas only."
 order: 1
 stage: sprout
 format: steps
@@ -42,7 +45,7 @@ The suite has two rules (`id` is not null, the maximum of `age` is in a range) o
 The order that this lesson has used all along (`Checkpoint.run` to `ValidationDefinition.run` to `Validator` to `ValidationGraph` to the engine to the expectation) matches what was recorded. The run also reveals four more things:
 
 1. `process_expectations_for_validation` is called before `graph_validate`. It groups the expectations by column, which explains why the order of the results does not match the suite ([lesson 3](/en/great-expectations/expectations-suites/nulls-and-order/#the-order-of-results-is-not-the-order-of-the-suite)).
-2. `get_validation_dependencies` is called nested three levels deep (x2, x4, x3 in the recording). The class of each expectation calls the method of its parent class in turn, following the hierarchy (`ExpectColumnValuesToNotBeNull` to `ColumnMapExpectation` to `BatchExpectation` to `Expectation`, per the inheritance graph on the page "[Asking the knowledge graph questions](/en/great-expectations/internals/graph-queries/#question-three-what-does-a-class-inherit-from)"). These numbers count the calls of both expectations together.
+2. `get_validation_dependencies` is called nested three levels deep (x2, x4, x3 in the recording). The class of each expectation calls the method of its parent class in turn, following the hierarchy (`ExpectColumnValuesToNotBeNull` to `ColumnMapExpectation` to `BatchExpectation` to `Expectation`, per the inheritance graph on the page "[Knowledge Graph Queries](/en/great-expectations/internals/graph-queries/#question-three-what-does-a-class-inherit-from)"). These numbers count the calls of both expectations together.
 3. `resolve_metrics` is called 5 times, equal to the 5 rounds of the metric graph in [lesson 8](/en/great-expectations/metrics-engines/#watch-it-compute) (the fifth round is empty). The pandas `resolve_metric_bundle` is called 4 times: the rounds that have real metrics.
 4. `store_validation_results` is called before `_run_actions`. This confirms what [lesson 9](/en/great-expectations/actions-data-docs/#order-and-conditions) says: the result is stored before the actions run.
 
