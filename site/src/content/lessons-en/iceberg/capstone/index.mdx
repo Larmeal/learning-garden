@@ -1,6 +1,10 @@
 ---
-title: Capstone, an orders table with two writers
+title: Capstone
 summary: Everything combined in one job. An orders table that Spark and PyIceberg write together, data from one side checked on a branch before it is published, corrected afterwards with a MERGE, passed on to a downstream system, and kept healthy.
+facts:
+  - "Ran in exercises/14_capstone_orders.py on Spark 4.1.3, Iceberg 1.12.0 and PyIceberg 0.12.0, with every result asserted."
+  - "The delete file that is left after compaction and has to be cleaned up by hand ran in exercises/16_cow_mor_in_depth.py."
+  - "Not tried: other ways to feed a downstream system, and whether the changelog works on a copy-on-write table. Both are the author's opinion."
 order: 14
 phase: D
 level: 5
@@ -134,7 +138,7 @@ At the end we compact with `rewrite_data_files` in rewrite-all mode. 4 data file
 refs: main, month_end        the main table has 5 rows, total 562.0        month_end can still be read with 5 rows
 ```
 
-The tag `month_end` lets that snapshot survive the removal, as we saw in the maintenance lesson. What the exercise found, and is interesting, is that after compaction **one delete file is left**, which points at a data file that is no longer in the current snapshot (we checked that the file name it refers to is not in the list of current data files). When we wrote this lesson the author understood that readers do not use this file and that it would go away by itself in a later maintenance round. We tried it afterwards and that is not true: a delete file like this does not go away by itself. You have to call `rewrite_data_files` again with `remove-dangling-deletes` set to `true`, which we show on the page [Copy-on-write and merge-on-read in depth](/en/iceberg/row-level/in-depth/). If you use merge-on-read, check this in your own real system as well.
+The tag `month_end` lets that snapshot survive the removal, as we saw in the maintenance lesson. What the exercise found, and is interesting, is that after compaction **one delete file is left**, which points at a data file that is no longer in the current snapshot (we checked that the file name it refers to is not in the list of current data files). When we wrote this lesson the author understood that readers do not use this file and that it would go away by itself in a later maintenance round. We tried it afterwards and that is not true: a delete file like this does not go away by itself. You have to call `rewrite_data_files` again with `remove-dangling-deletes` set to `true`, which we show on the page [Copy-on-write and Merge-on-read in Depth](/en/iceberg/row-level/in-depth/). If you use merge-on-read, check this in your own real system as well.
 
 In the end PyIceberg reads the table that went through all of this and gets all 5 rows with a total of 562.0, matching the Spark side.
 

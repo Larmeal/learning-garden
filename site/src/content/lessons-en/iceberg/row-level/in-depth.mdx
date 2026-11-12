@@ -1,6 +1,11 @@
 ---
-title: Copy-on-write and merge-on-read in depth
+title: Copy-on-write and Merge-on-read in Depth
 summary: Compare the two modes through every real file, from the price of changing one row, what a delete file looks like and what a reader must do extra, to why delete files do not pile up in Spark and why compaction still leaves a delete file behind.
+facts:
+  - "Ran in exercises/16_cow_mor_in_depth.py on Spark 4.1.3, Iceberg 1.12.0 and PyIceberg 0.12.0, asserting every result: the 100,000-row table, delete files, compaction and a mode per statement."
+  - "The defaults of delete-file-threshold and remove-dangling-deletes are read from the Iceberg 1.12.0 source (BinPackRewriteFilePlanner.java and RewriteDataFiles.java)."
+  - "The comparison of the modes and the cost of position deletes follow the book Apache Iceberg: The Definitive Guide, chapter 4, pages 86 and 89."
+  - "Not run: equality deletes (book, chapter 2 pages 33 to 34 and chapter 4 page 89). The advice on choosing a mode is the author's opinion."
 order: 10
 stage: sprout
 format: steps
@@ -18,7 +23,7 @@ import UnderCoversLab from '../../../../components/labs/iceberg/UnderCoversLab';
 
 In [lesson 6](/en/iceberg/row-level/#compare-the-three-modes) we saw that Iceberg can delete a row in two ways. The first is copy-on-write, which writes the whole data file again. The second is merge-on-read, which writes a short note saying which row to skip. This page follows the real files of both ways to answer the questions people ask next: how big is the price difference, what must a reader do extra, and do the delete files pile up until reads get slow?
 
-We have two tables. One uses the default (copy-on-write). The other sets `write.delete.mode`, `write.update.mode` and `write.merge.mode` to `merge-on-read`. Both hold the same 5 rows in 1 file. We run `DELETE` on order 3 and then `UPDATE` on order 5, one statement at a time. After each statement we read every file from disk with `json`, `fastavro` and `pyarrow` (run: `exercises/16_cow_mor_in_depth.py`). The pictures work as on the page ["Under the covers"](/en/iceberg/table-anatomy/under-the-covers/): press "Next" step by step and click a box to see inside the file.
+We have two tables. One uses the default (copy-on-write). The other sets `write.delete.mode`, `write.update.mode` and `write.merge.mode` to `merge-on-read`. Both hold the same 5 rows in 1 file. We run `DELETE` on order 3 and then `UPDATE` on order 5, one statement at a time. After each statement we read every file from disk with `json`, `fastavro` and `pyarrow` (run: `exercises/16_cow_mor_in_depth.py`). The pictures work as on the page ["Under the Covers"](/en/iceberg/table-anatomy/under-the-covers/): press "Next" step by step and click a box to see inside the file.
 
 What is new compared with that page is a new kind of box in the right column, the **delete file** (`d1`, `d2`), and a new kind of manifest that lists delete files (`content = 1`), kept apart from the manifests of data files.
 
