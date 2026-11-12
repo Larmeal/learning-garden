@@ -4,6 +4,9 @@ Notable changes to the learning garden, newest first. Dates are when the change 
 
 ## 2026-11-13
 
+### Fixed
+- Iceberg labs: the figures no longer scroll sideways in a box of about 670px (the lab canvas may shrink to 600px, class `ib-fig`), and the names that had been coined, "สารบัญ", "รายการของ Snapshot", "รายการไฟล์", "ไฟล์ข้อมูล" and "ไฟล์ลบ" (and "table of contents", "file list" and "contents" in English), are now the real terms Metadata File, Manifest List, Manifest, Data File and Delete File in the labs and in the Thai lessons. The book analogy of lesson 1 (a book with a table of contents) is kept as an analogy.
+
 ### Changed
 - Iceberg: the feedback texts (`why`) of 80 quiz questions and the Thai strings of its eight labs were rewritten in the owner's voice with `/thaihumanize`: whole clauses with connectors, "เรา" instead of a bare "แบบฝึกวัดได้...", and no clipped noun phrases. Only the wording moved, so every number, error message and link is the same and the English pages are recorded as in step. The labs were audited again in headless Edge (40 labs on 14 pages, no overlap, no idle control, no sideways scroll).
 
