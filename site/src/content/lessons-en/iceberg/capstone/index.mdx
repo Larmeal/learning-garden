@@ -1,0 +1,166 @@
+---
+title: Capstone, an orders table with two writers
+summary: Everything combined in one job. An orders table that Spark and PyIceberg write together, data from one side checked on a branch before it is published, corrected afterwards with a MERGE, passed on to a downstream system, and kept healthy.
+order: 14
+phase: D
+level: 5
+stage: sprout
+format: steps
+requires: [spec-versions]
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## The task
+
+An online shop has one table `orders` that two writers feed. The first is a Spark batch that loads the daily orders. The second is a Python program that uses PyIceberg (for example a service that takes data from retail stores). The later batches sometimes contain wrong rows, such as a negative amount. We do not want readers to see such a row at all. We must be able to correct data afterwards, a downstream system wants to know only what changed, and the month-end snapshot must be kept as evidence (ran: `exercises/14_capstone_orders.py`).
+
+The path below uses the tools of all the earlier lessons. The table is created as version 2, partitioned by day, with `write.merge.mode` and `write.delete.mode` set to merge-on-read ([lesson 6](/en/iceberg/row-level/#merge-on-read-writes-a-note-saying-which-row-to-skip)).
+
+</Step>
+
+<Step>
+
+## Spark writes the first batch, and we note where the downstream system has read up to
+
+Spark `INSERT`s 3 rows into the table, and the total amount is 242.5. Then we note the latest snapshot id as `bookmark`, which stands for the point the downstream system has read up to ([lesson 12](/en/iceberg/streaming/#read-only-the-rows-added-between-two-snapshots)).
+
+</Step>
+
+<Step>
+
+## PyIceberg writes the second batch to a branch first
+
+The PyIceberg side does not write to the main table directly. It writes to a branch called `audit` ([lesson 8](/en/iceberg/time-travel/#a-branch-separates-work-you-are-not-sure-about)):
+
+```python
+spark.sql("ALTER TABLE lab.db.orders CREATE BRANCH audit")
+t.append(batch, branch="audit")        # batch has 3 rows and the last one has the amount -9.0
+```
+
+The main table still counts 3 rows as before, because the main branch did not move, so readers do not see the new batch yet. Then we check on the branch with `SELECT count(*) ... VERSION AS OF 'audit' WHERE amount < 0` and get 1 row, the wrong row we put there on purpose.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The second batch has been written to the branch called Audit. Does a reader who queries the table normally see the rows of that batch?"
+  options={['Yes, because it was written to the same table', 'No, because the main branch still points to the old snapshot until the batch is published', 'Only the rows that pass the check']}
+  answer={1}
+  why="The exercise counted the main table after writing to the branch and got 3 rows, as before. A reader sees only the snapshot the main branch points to, not what is on other branches."
+/>
+
+</Step>
+
+<Step>
+
+## Remove the bad row on the branch, then publish
+
+When we find the bad row, we remove it on the branch first:
+
+```python
+spark.sql("DELETE FROM lab.db.orders.branch_audit WHERE amount < 0")
+spark.sql("CALL lab.system.fast_forward('db.orders', 'main', 'audit')")
+```
+
+After the fast forward the main table has rows 1 to 5 and no row 6 at all. Readers never saw the wrong row. Then we drop the branch and put a tag called `month_end` on this snapshot, to be kept for 365 days.
+
+</Step>
+
+<Step>
+
+## A late correction is a MERGE
+
+Later the shop says the amount of order 2 must be 85.0, not 80.5. We correct it with a `MERGE INTO` that updates the matching row and adds the rows that do not match:
+
+```python
+spark.sql("""MERGE INTO lab.db.orders t USING (SELECT 2L AS order_id, 'bob' AS customer, 85.0 AS amount, TIMESTAMP'2026-01-01 15:30:00' AS ordered_at) s
+             ON t.order_id = s.order_id WHEN MATCHED THEN UPDATE SET amount = s.amount WHEN NOT MATCHED THEN INSERT *""")
+```
+
+The total amount is 562.0 (120 + 85 + 42 + 300 + 15), and the table has at least one position delete file, because we set merge-on-read.
+
+</Step>
+
+<Step>
+
+## Passing it on to the downstream system
+
+The downstream system wants only what changed since `bookmark`. We first try the changelog view that we saw in [lesson 8](/en/iceberg/time-travel/#the-changelog-shows-what-changed):
+
+```text
+UnsupportedOperationException: Delete files are currently not supported in changelog scans
+```
+
+On the version we tried, the changelog cannot read a range of snapshots that has delete files, and our table has some now from merge-on-read. The incremental read of [lesson 12](/en/iceberg/streaming/) cannot be used either, because this range has snapshots that are not appends. So we choose a more direct way, which is to compare the table at `bookmark` with the table now, using time travel:
+
+```python
+old = spark.sql(f"SELECT order_id, amount FROM lab.db.orders VERSION AS OF {bookmark}")
+new = spark.table("lab.db.orders")
+```
+
+The comparison gives: new rows 4 and 5, row 2 changed, nothing deleted, and the bad row 6 never appears (in the exercise we work it out from these two sets with Python dicts). This way reads both editions, so it costs more than reading only a difference. If the table is very large you may need a different design, for example a copy-on-write table, though we did not try whether the changelog works with one.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The downstream system needs only the rows that changed since the last point it read, but the table has position delete files from merge-on-read in that range. Which tool did the exercise find unusable?"
+  options={['Time travel with VERSION AS OF', 'The changelog view (create_changelog_view), which says Delete files are currently not supported in changelog scans', 'The metadata table called snapshots']}
+  answer={1}
+  why="The exercise built a changelog view and read it, and got the error Delete files are currently not supported in changelog scans. Time travel and metadata tables work normally, so comparing two editions was the way out in this example."
+/>
+
+</Step>
+
+<Step>
+
+## Maintenance: compact, then expire old snapshots but keep the tag
+
+At the end we compact with `rewrite_data_files` in rewrite-all mode. 4 data files are rewritten as 3 files (one per partition that has data), and then we run `expire_snapshots` to keep only the latest snapshot:
+
+```text
+refs: main, month_end        the main table has 5 rows, total 562.0        month_end can still be read with 5 rows
+```
+
+The tag `month_end` lets that snapshot survive the removal, as we saw in the maintenance lesson. What the exercise found, and is interesting, is that after compaction **one delete file is left**, which points at a data file that is no longer in the current snapshot (we checked that the file name it refers to is not in the list of current data files). When we wrote this lesson the author understood that readers do not use this file and that it would go away by itself in a later maintenance round. We tried it afterwards and that is not true: a delete file like this does not go away by itself. You have to call `rewrite_data_files` again with `remove-dangling-deletes` set to `true`, which we show on the page [Copy-on-write and merge-on-read in depth](/en/iceberg/row-level/in-depth/). If you use merge-on-read, check this in your own real system as well.
+
+In the end PyIceberg reads the table that went through all of this and gets all 5 rows with a total of 562.0, matching the Spark side.
+
+</Step>
+
+<Step>
+
+## Looking back over the whole path
+
+This table went through nearly everything in this path: a catalog shared by two programs ([lesson 1](/en/iceberg/what-is-iceberg/)), day partitioning ([lesson 3](/en/iceberg/schema-partitioning/)), commits from two sides ([lesson 4](/en/iceberg/writing/)), delete files ([lesson 6](/en/iceberg/row-level/)), branches and tags ([lesson 8](/en/iceberg/time-travel/)) and table maintenance ([lesson 10](/en/iceberg/maintenance/)). What is left and not used in this example is changing the schema ([lesson 7](/en/iceberg/evolution/)), migrating an existing table ([lesson 11](/en/iceberg/migration/)) and format versions ([lesson 13](/en/iceberg/spec-versions/)), the work you will meet as this table lives on.
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| Spark and PyIceberg write one table, the PyIceberg batch goes to the branch `audit` without moving the main table, and 1 bad row is found | ran: `exercises/14_capstone_orders.py` |
+| The bad row is deleted on the branch with Spark, `fast_forward` publishes, and the main table has rows 1 to 5 | ran: `exercises/14_capstone_orders.py` |
+| `MERGE INTO` fixes the amount and the total is 562.0, with a position delete file | ran: `exercises/14_capstone_orders.py` |
+| The changelog view cannot read a range with delete files, and comparing with time travel works (adds 4 and 5, changes 2) | ran: `exercises/14_capstone_orders.py` |
+| `rewrite_data_files` and `expire_snapshots` leave `main` and the tag `month_end`, and the tag reads 5 rows | ran: `exercises/14_capstone_orders.py` |
+| One delete file is left, pointing at a data file that is no longer used | ran: `exercises/14_capstone_orders.py` |
+| Readers do not use that delete file, and it does not go away by itself but must be cleaned up with `remove-dangling-deletes` | ran: `exercises/16_cow_mor_in_depth.py` |
+| Other ways for the downstream system | author (not tried) |
+
+</Step>

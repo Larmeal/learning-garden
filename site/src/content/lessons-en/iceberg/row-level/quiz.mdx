@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Answer 4 questions to see how much of this lesson you understood.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="A table with the default (copy-on-write) has 1 file of 10 rows. You delete 1 row with DELETE. How does the new snapshot change the files?"
+  options={['It edits the original file in place to leave 9 rows', 'It removes the original file from the table and adds a new file with 9 rows', 'It adds a delete file saying skip 1 row']}
+  answer={1}
+  why="The exercise got operation overwrite with 1 file added and 1 removed. Iceberg files are not edited after they are written. The last option is merge-on-read, which you have to switch on yourself."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="In a merge-on-read table, does the data of a deleted row disappear from the data file?"
+  options={['It disappears at once, because Iceberg writes a new file', 'It is still in the original data file, and the delete file only tells readers to skip that position', 'It moves into the delete file']}
+  answer={1}
+  why="The exercise saw that the original data file still counts 10 rows in the summary, and the position_deletes table holds only the file name and a position (pos = 2). The row really leaves the disk only when files are rewritten in table maintenance."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Compare copy-on-write and merge-on-read: small deletes scattered through several large files every minute, with queries reading only now and then. Which mode suits it better?"
+  options={['Copy-on-write, because reading is the fastest', 'Merge-on-read, because writing is cheap (no large file rewritten each time) and queries that read rarely can bear the cost of applying the notes', 'There is no difference']}
+  answer={1}
+  why="Copy-on-write pays at write time (a whole new file is written). Merge-on-read pays at read time (the notes are applied on every read). Small frequent writes therefore suit merge-on-read. Which one is better in a real system has to be measured on your data. Our exercise is too small to time."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="PyIceberg 0.12.0 upserts 2 rows (one matching an existing row and one new). What happens to the table's snapshots?"
+  options={['One snapshot that does everything', 'Three snapshots (overwrite, then append twice). The final table is correct, but a reader may see an in-between state', 'No snapshot, because it uses a delete file']}
+  answer={1}
+  why="The exercise read the operations of the last 3 snapshots as append, append, overwrite (newest first) and the result was UpsertResult(rows_updated=1, rows_inserted=1). The final result has one row per id with no duplicates."
+/>
+
+</Step>

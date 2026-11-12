@@ -1,0 +1,154 @@
+---
+title: Spec versions, views and statistics
+summary: Iceberg has format versions 1, 2 and 3. See what each adds, why you can only upgrade, what the row lineage of version 3 looks like, how a view is kept in the catalog, and the Puffin statistics that compute_table_stats writes.
+order: 13
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [streaming]
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## The format version is a contract between a table and an engine
+
+Every table records a number `format-version` in its `metadata.json`. It says which edition of the spec the table follows. An engine that is too old cannot read a table of a newer version (ran: `exercises/13_spec_versions_views_stats.py`). We create three empty tables with versions 1, 2 and 3, put the same data in them and compare their `metadata.json`. What we see:
+
+```text
+a table created without a version: 2
+v1 has partition-spec and schema (the older form)   and v2 has last-sequence-number
+v3 has next-row-id on top of v2   and a v3 snapshot has first-row-id and added-rows
+```
+
+Spark 4.1 with Iceberg 1.12.0 creates new tables as version 2 if you do not say otherwise. From what we saw in the experiment, version 2 begins to have sequence numbers (`last-sequence-number`), which are the foundation of delete files. Version 3 adds row lineage, which we look at below (deletion vectors also belong to version 3, see [lesson 6](/en/iceberg/row-level/#format-version-3-deletion-vectors)). For the other abilities of each version that we did not try, see `format/spec.md` of Iceberg.
+
+</Step>
+
+<Step>
+
+## Version 1 has no delete files
+
+On a v1 table we set `write.delete.mode` to `merge-on-read` and try a `DELETE`:
+
+```text
+IllegalArgumentException: Deletes are supported in V2 and above
+```
+
+Spark refuses outright (the exercise recorded the error as we met it), because delete files belong to version 2 and above. Whoever still has a v1 table and wants merge-on-read must upgrade first.
+
+</Step>
+
+<Step>
+
+## You can upgrade, but not downgrade
+
+The version of a table can be raised by setting a table property:
+
+```python
+spark.sql("ALTER TABLE lab.db.v1 SET TBLPROPERTIES ('format-version' = '2')")   # succeeds
+spark.sql("ALTER TABLE lab.db.v1 SET TBLPROPERTIES ('format-version' = '3')")   # succeeds
+spark.sql("ALTER TABLE lab.db.v1 SET TBLPROPERTIES ('format-version' = '2')")   # Cannot downgrade v3 table to v2
+```
+
+The exercise confirms all three lines. An upgrade writes only a new `metadata.json`. Going back is not possible. So before upgrading a table that several engines read, check that every engine supports the target version (that advice is the author's).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A version 3 table has been in use for a while and has trouble with one engine. The team sets the table to version 2 with SET TBLPROPERTIES to step back. What is the result?"
+  options={['It succeeds and the table goes back to version 2', 'It is rejected with the message Cannot downgrade v3 table to v2, because you can only upgrade', 'It succeeds but the data is lost']}
+  answer={1}
+  why="The exercise upgraded a table from v1 to v2 to v3, but asking to go back to v2 gave Cannot downgrade v3 table to v2. So think carefully before upgrading. The way back that remains is to create a new table with the older version and copy the data."
+/>
+
+</Step>
+
+<Step>
+
+## Row lineage in version 3
+
+A version 3 table has two special columns that are not in our schema: `_row_id` and `_last_updated_sequence_number`. We `SELECT` them:
+
+```python
+spark.sql("SELECT id, _row_id, _last_updated_sequence_number FROM lab.db.v3 ORDER BY id")
+# (1, 0, 1), (2, 1, 1), (3, 2, 1)
+```
+
+Each row has an identity `_row_id` that Iceberg hands out at write time, and `_last_updated_sequence_number` says which commit last wrote the row's value. When we run `UPDATE ... SET name = 'B' WHERE id = 2`:
+
+```text
+id 1: (0, 1)    id 2: (1, 2)    id 3: (2, 1)
+```
+
+The row with `id = 2` keeps its `_row_id` of 1, but its `_last_updated_sequence_number` becomes 2, and the other rows do not change. This means a downstream system that tracks changes can tell "this row is the same one, changed" and "it was changed at this commit", instead of seeing a delete of the old row and an add of a new one (how to use this in a downstream system is the author's understanding from the two columns, and we did not build such a system).
+
+</Step>
+
+<Step>
+
+## A view lives in the catalog beside tables
+
+Iceberg can also keep a **view** (a named SQL query) in the catalog, when the catalog supports it. We create one with ordinary SQL:
+
+```python
+spark.sql("CREATE VIEW lab.db.big_ids AS SELECT id, name FROM lab.db.v3 WHERE id >= 2")
+spark.sql("SELECT id FROM lab.db.big_ids")        # 2, 3
+```
+
+In the `iceberg_tables` table of the JDBC catalog, a view has a row of its own, with the column `iceberg_type` set to `VIEW` (a table is `TABLE`), and a view has a `metadata.json` too. When opened it has keys such as `versions`, `schemas` and `current-version-id`, which hold the SQL as `representations` of type `sql`. The view's metadata file in the exercise was compressed with gzip (the exercise checked this from the first two bytes), while the table files we opened with plain `json` in the lessons before were not compressed. On the PyIceberg side, calling `list_views` on the SQL catalog in 0.12.0 gives `NotImplementedError`, so in this lesson we use views through Spark only.
+
+</Step>
+
+<Step>
+
+## Statistics written as Puffin files
+
+In [lesson 2](/en/iceberg/table-anatomy/) we saw min/max statistics in the manifests, which every table has. There is another kind of statistic, kept separately: a sketch of the number of distinct values (NDV), stored in a **Puffin** file, that an engine uses to estimate the order of a join. We tell Spark to compute it:
+
+```python
+spark.sql("CALL lab.system.compute_table_stats(table => 'db.v3')")
+```
+
+The result is a new file ending in `.stats` in the table's metadata folder, and `metadata.json` has a `statistics` section pointing at that file together with the `snapshot-id` it was computed for. Inside are two blobs of type `apache-datasketches-theta-v1` (the table has two columns), and the first four bytes of the file are `PFA1`, the magic bytes of the Puffin format. These statistics are extra information, and the table can still be read the same if they are removed (the author read this in the spec and did not try it).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You UPDATE the row with id = 2 in an Iceberg version 3 table and then read the row lineage columns. Which value changes?"
+  options={['_row_id changes to a new number, because it is a new row', '_row_id stays the same, but _last_updated_sequence_number changes to the sequence number of the commit that changed it', 'No value changes']}
+  answer={1}
+  why="Before the UPDATE the exercise had (id 2, _row_id 1, sequence 1), and after the UPDATE (1, 2). The other rows stayed the same. Row lineage lets you tell that a row is the same one that was changed, not a new row created by a delete and an add."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A table with no version given is v2, the keys in `metadata.json` of each version, and a v3 snapshot has `first-row-id` and `added-rows` | ran: `exercises/13_spec_versions_views_stats.py` |
+| v1 with merge-on-read: `Deletes are supported in V2 and above` | ran: `exercises/13_spec_versions_views_stats.py` |
+| Upgrading v1 to v2 to v3 works, and downgrading is refused (`Cannot downgrade v3 table to v2`) | ran: `exercises/13_spec_versions_views_stats.py` |
+| `_row_id` and `_last_updated_sequence_number` before and after `UPDATE` | ran: `exercises/13_spec_versions_views_stats.py` |
+| A view is kept in the catalog (`iceberg_type = VIEW`), has a `metadata.json` that is gzipped, and PyIceberg `list_views` is not implemented | ran: `exercises/13_spec_versions_views_stats.py` |
+| `compute_table_stats` writes a `.stats` file (Puffin, starting with `PFA1`) and `metadata.json` points at it with blobs of type `apache-datasketches-theta-v1` | ran: `exercises/13_spec_versions_views_stats.py` |
+| Other abilities of each version, and the Puffin spec | source: `format/spec.md`, `format/puffin-spec.md`, `format/view-spec.md` (referred to, not tried) |
+| Using row lineage in a downstream system, and that the statistics are optional | author (not tried) |
+
+</Step>

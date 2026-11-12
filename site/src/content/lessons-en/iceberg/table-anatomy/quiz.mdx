@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Answer 4 questions to see how much of this lesson you understood.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="When a new commit happens, what becomes of the previous metadata.json file?"
+  options={['It is edited to add the new snapshot', 'It is not edited. A new file is created, and the new one records the old file name in its metadata-log', 'It is deleted at once because it is no longer used']}
+  answer={1}
+  why="The exercise computed the SHA-256 of every metadata.json before and after a commit and got the same value for every file. Files in Iceberg are not edited after they are written. A change creates a new file and the catalog is pointed at it. The old files stay until someone deletes them (removing old files is part of table maintenance)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A table has 3 snapshots from three INSERTs. How many rows does the manifest list of snapshot 3 have, and which commits made the manifests those rows point to?"
+  options={['1 row, pointing only to the manifest of commit 3', '3 rows, pointing to the manifests of commits 1, 2 and 3', '3 rows, but every one is a new manifest copied from the old ones']}
+  answer={1}
+  why="An append does not touch the existing manifests. A new snapshot takes the manifest list of the previous snapshot in full and adds one new row. The exercise confirmed 1, 2 and 3 rows in the manifest lists of snapshots 1, 2 and 3, and only 3 manifests on disk in total."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A data file holds order_id from 5 to 6, and a query asks for order_id = 2. Why can the engine skip the file without opening it?"
+  options={['Because of the bounds of order_id in the manifest (lower 5, upper 6): 2 is outside the range', 'Because the file name says the range of order_id', 'Because record_count equals 2']}
+  answer={0}
+  why="The manifest keeps the lower_bounds and upper_bounds of every column for each file. If the value you search for is outside the range, the file cannot hold a matching row, so the engine skips it. The exercise decoded the bytes to 5 and 6 and compared them with the real Parquet file, and they match. The file name is only a UUID and a counter and says nothing about the data."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="What is the key of the per-column statistics (value_counts, lower_bounds and so on) in a manifest?"
+  options={['The column name, such as order_id', 'The field id of the column, such as 1', 'The position of the column in the Parquet file']}
+  answer={1}
+  why="The keys of the statistics maps in the exercise were the numbers 1, 2, 3, which are the field ids in the schema. Using ids instead of names means you can rename a column and the statistics and old files still work, which we try for real in [lesson 3](/en/iceberg/schema-partitioning/#renaming-a-column-leaves-old-files-readable)."
+/>
+
+</Step>

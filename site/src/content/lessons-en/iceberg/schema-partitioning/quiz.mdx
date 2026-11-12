@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Answer 4 questions to see how much of this lesson you understood.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="Why does renaming a column in Iceberg need no rewrite of data files, and why can old files still be read?"
+  options={['Iceberg goes through every Parquet file in the background and renames the column', 'Iceberg refers to a column by its field id, which does not change on rename, and the Parquet files store the id inside', 'Iceberg keeps the old column name in the catalog and translates the name when reading']}
+  answer={1}
+  why="The exercise renamed price to unit_price and still read 10.5 for event 10, with the old files untouched. Both schemas use field id 4, and the Parquet file stores this id in its own schema. No file is edited, and the catalog only holds the location of metadata.json."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A table is declared PARTITIONED BY (days(ts)). How should a user write a query for day 2 so that other days' partitions are skipped?"
+  options={['WHERE ts >= day 2 AND ts < day 3, a normal filter on the column ts', 'WHERE ts_day = day 2, because you must filter on the partition name', 'Create a date column yourself when writing the data and filter on that']}
+  answer={0}
+  why="This is hidden partitioning. ts_day is not a column of the table. The user filters on ts and Iceberg turns the condition into a partition filter. The exercise asked PyIceberg to plan with a condition on ts and it picked 1 file out of 5. The second option would fail because there is no column called ts_day, and the third is the Hive-style way, which is no longer needed."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The table events is partitioned by days(ts), and every file holds both TH and US countries. How many of the 5 files must a query WHERE country = 'TH' open?"
+  options={['1 file, because Iceberg knows where TH is', 'All 5 files, because Country is not used to split partitions and the min/max of each file covers TH, so no file can be ruled out', '0 files, because you must filter on the partition first']}
+  answer={1}
+  why="The exercise measured 5 files. There are two ways to skip files: the partition value and the min/max statistics in the manifest. Our data mixes TH and US in every file, so the min/max range of country covers TH in every file. If the TH data were together in a few files, the statistics could skip more (this last remark is the author's and was not tried)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Spark computes bucket(4, user_id) as 3 for user_id 103. If PyIceberg writes a row for user 103 into the same table, which bucket does it put it in?"
+  options={['Bucket 3 as well, because the spec fixes the hash (Murmur3) and the modulo, so every engine gets the same result', 'It is not certain, because each library picks its own hash', 'Always bucket 0, because PyIceberg does not support buckets']}
+  answer={0}
+  why="The exercise computed the bucket with Spark's function and with PyIceberg's BucketTransform for user_ids 101, 103, 106 and 107 and got 0, 3, 2 and 1 on both sides. If engines computed buckets differently, one user's data would be scattered across several partitions and a query on user_id would skip files wrongly."
+/>
+
+</Step>

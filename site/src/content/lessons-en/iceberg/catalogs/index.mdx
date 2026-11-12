@@ -1,0 +1,157 @@
+---
+title: Catalogs
+summary: A catalog stores the pointer to metadata.json. See how the Hadoop catalog and the JDBC catalog keep it differently, how to configure Spark and PyIceberg, how Spark's cache can make you see data later than another engine, and what rename, drop and purge do to files.
+order: 9
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [time-travel]
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## A catalog has one job: remember where the current edition is
+
+In [lesson 1](/en/iceberg/what-is-iceberg/#the-catalog-only-keeps-a-pointer) we saw that a catalog stores only the location of the current `metadata.json`, and that every commit ends by changing this pointer on condition. So the catalog is the one thing in the system that must be able to change a value atomically. Everything else is a file written once. What differs is where each catalog keeps its pointer and how it guarantees atomicity. In this lesson we look at the two that we can run on our machine, the Hadoop catalog and the JDBC catalog (ran: `exercises/09_catalogs.py`).
+
+</Step>
+
+<Step>
+
+## Hadoop catalog: the folder itself is the catalog
+
+The Hadoop catalog has no database. The pointer is a file in the table's folder. We set up a second catalog called `hlab` of type `hadoop` in the same Spark session, then create a table and `INSERT` twice:
+
+```text
+metadata/v1.metadata.json
+metadata/v2.metadata.json
+metadata/v3.metadata.json
+metadata/version-hint.text         <- the file says 3
+```
+
+The metadata files are named by version number (`v1`, `v2`, ...), unlike the JDBC catalog, which names them with a number and a UUID. `version-hint.text` is the pointer that says the latest version is 3. The benefit is no database. But an atomic commit depends on what the file system can do (such as an atomic rename), which some object stores do not have. That is a caution the author takes from the Iceberg documentation and did not try on object storage.
+
+PyIceberg has no Hadoop-type catalog, but we can read this table by pointing straight at the metadata file with `StaticTable.from_metadata("file://.../v3.metadata.json")`. The exercise reads both rows. This is a way to read a table, read-only, without a catalog.
+
+</Step>
+
+<Step>
+
+## JDBC catalog: the pointer is a row in a database
+
+The JDBC catalog keeps the pointer as a row in the table `iceberg_tables`, which we saw in [lesson 1](/en/iceberg/what-is-iceberg/#the-catalog-only-keeps-a-pointer). The database provides the atomicity with the statement `UPDATE ... WHERE metadata_location = old edition`. Another benefit is that several programs can share one catalog easily, as Spark and PyIceberg have done throughout these lessons.
+
+If a table already exists, we can add it to another catalog without copying files, using the procedure `register_table` that points to the metadata file:
+
+```python
+spark.sql(f"CALL lab.system.register_table(table => 'other.copy', metadata_file => '{latest}')")
+```
+
+The exercise registers the table `db.t` as `other.copy`, and `SELECT count(*)` returns 2 rows, the same as the original. Both names point to the same files. If both names keep writing, the pointers diverge (each changes its own pointer), and the Iceberg documentation warns about it. Our exercise did not write through two names, so use `register_table` to move or to read.
+
+</Step>
+
+<Step>
+
+## Configuring the catalog in Spark and in PyIceberg
+
+On the Spark side you set it through the session config. The name after `spark.sql.catalog.` is the catalog name you use in SQL:
+
+```text
+spark.sql.catalog.lab               = org.apache.iceberg.spark.SparkCatalog
+spark.sql.catalog.lab.catalog-impl  = org.apache.iceberg.jdbc.JdbcCatalog
+spark.sql.catalog.lab.uri           = jdbc:sqlite:.../catalog.db
+spark.sql.catalog.lab.warehouse     = .../wh
+```
+
+For a Hadoop catalog use `type = hadoop` instead of `catalog-impl`, and never set both together. The exercise ran into this by accident, and Spark said `Cannot create catalog lab, both type and catalog-impl are set`.
+
+On the PyIceberg side, set it in a `.pyiceberg.yaml` file or through environment variables that start with `PYICEBERG_CATALOG__<name>__`:
+
+```text
+PYICEBERG_CATALOG__LAB__TYPE      = sql
+PYICEBERG_CATALOG__LAB__URI       = sqlite:///.../catalog.db
+PYICEBERG_CATALOG__LAB__WAREHOUSE = file://.../wh
+```
+
+Then `load_catalog("lab")` with no other argument gives the right catalog. A catch we really hit: PyIceberg reads these variables once, at import. If you set them after the import, they have no effect (the exercise hit `URI missing` before the settings were moved to the top of the file).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A Spark session has the table open, and PyIceberg commits a new row to the same table. If you switch off the catalog cache in Spark (set cache-enabled to false), does a row count in the existing session see the new row?"
+  options={['No, not until REFRESH TABLE, the same as the default', 'Yes, at once, because Spark loads the table from the catalog every time', 'It raises an error']}
+  answer={1}
+  why="The exercise switched off the catalog cache, PyIceberg appended row 3, and Spark counted 3 rows at once. In [lesson 1](/en/iceberg/what-is-iceberg/), which used the default (cache on), Spark still counted 4 until REFRESH TABLE. Switching the cache off trades that for Spark reading the catalog more often. We did not measure that cost."
+/>
+
+</Step>
+
+<Step>
+
+## What rename, drop and purge do to files
+
+Most commands about a table's name only change the row in the catalog:
+
+```python
+spark.sql("ALTER TABLE lab.db.t RENAME TO db.t2")     # the target takes no catalog name
+spark.sql("DROP TABLE lab.db.t2")                      # no PURGE
+spark.sql("DROP TABLE lab.db.p PURGE")
+```
+
+After `RENAME` the files are still in the old folder (`wh/db/t/...`) and no folder `wh/db/t2` appears, but the table can be read under the name `t2` with the same 3 rows. After a plain `DROP TABLE` the catalog row is gone but all 9 files are still on disk (and the table `other.copy` we registered still reads 2 rows, because it points at the same set of files). `DROP TABLE ... PURGE` also deletes the table's files. The exercise checked that the folder of table `p` has no file left.
+
+<Callout type="warn" title="A plain DROP TABLE does not give back space">
+If you really mean to delete a table, add `PURGE`. Otherwise the files stay in storage with no catalog that knows them (in our exercise another catalog still had a registration pointing at the old files, so a PURGE might make that other table unreadable, and we did not try that case).
+</Callout>
+
+</Step>
+
+<Step>
+
+## Other catalogs we did not run
+
+Iceberg has several more kinds of catalog that we can see in the 1.12.0 source and that we do not run in this path, because our machine has none of those services: Hive Metastore (`HiveCatalog` in the module `hive-metastore/`), AWS Glue (`GlueCatalog` in `aws/`), Nessie (`NessieCatalog`), and the **REST catalog**, a spec for an HTTP API (the file `open-api/rest-catalog-open-api.yaml`), which many providers are choosing because every language's client talks to one server over HTTP without needing to know where the pointer is kept behind it (that last sentence is the author's opinion). The knowledge graph of Iceberg has a layer called REST Catalog where you can look at the client-side structure, but what is here was **not run**.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Does ALTER TABLE ... RENAME TO on an Iceberg table with a JDBC catalog move the data files to a new folder named after the new name?"
+  options={['Yes, because the folder must match the table name', 'No. It only changes the row in the iceberg_tables table, and the files stay at the location recorded in metadata.json', 'It moves only metadata.json']}
+  answer={1}
+  why="The exercise found that the folder for the new name was not created, the old folder was still there, and the table could be read under the new name with 3 rows. The table's location is in metadata.json, so it is not tied to the name."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| Hadoop catalog: `vN.metadata.json` and `version-hint.text` (the number 3), and `StaticTable` opens that table in PyIceberg | ran: `exercises/09_catalogs.py` |
+| `register_table` registers an existing table under a new name in the same catalog and reads 2 rows | ran: `exercises/09_catalogs.py` |
+| `cache-enabled=false` lets Spark see PyIceberg's commit at once | ran: `exercises/09_catalogs.py` |
+| `PYICEBERG_CATALOG__LAB__*` configures a catalog and must be set before the import | ran: `exercises/09_catalogs.py` |
+| `RENAME` does not move files, a plain `DROP TABLE` leaves 9 files, and `DROP TABLE PURGE` removes them all | ran: `exercises/09_catalogs.py` |
+| `type` and `catalog-impl` cannot be set together | ran: `exercises/09_catalogs.py` (an error met for real) |
+| A Hadoop catalog depends on an atomic rename of the file system, and a table with two names pointing at the same files is unsafe to keep writing | docs/author (not run) |
+| `HiveCatalog`, `GlueCatalog`, `NessieCatalog` and the REST spec exist in the source | source: folder structure of Iceberg 1.12.0 (not run) |
+| REST catalog is the way many providers choose | author (opinion) |
+
+</Step>

@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Answer 4 questions to see how much of this lesson you understood.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="What does an ALTER TABLE that adds, renames or widens a column do to the data files?"
+  options={['It rewrites all data files to match the new schema', 'It does not touch the data files at all and only writes a new metadata.json', 'It edits the footer of every Parquet file']}
+  answer={1}
+  why="The exercise compared the list of data files before and after all six commands and found them identical, with one new metadata.json per command. Old files stay readable because Iceberg refers to columns by field id, not by name."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="int can be changed to bigint, but bigint cannot be changed back to int. Why?"
+  options={['It is only a limitation of Spark', 'Widening to a larger type loses no data so it needs no file conversion, while narrowing could overflow existing values', 'You have to drop the table before changing']}
+  answer={1}
+  why="int to long and float to double are widenings Iceberg allows because every old value fits the new type. The reverse could push values out of range. The exercise saw Spark refuse with NOT_SUPPORTED_CHANGE_COLUMN. Whether that is a rule of the spec or only of Spark we have not checked on another engine."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A monthly-partitioned table has January data, and then it is changed to daily and February data is written. How many partition specs does the table have, and how does a query across the months work?"
+  options={['1 spec, because the old one is replaced and queries must wait for a reorganisation', '2 specs. Each file uses the spec it was written under, and one query reads and skips files on both layouts', '2 specs, but you must split the query into two']}
+  answer={1}
+  why="metadata.json holds spec 0 (month) and spec 1 (day), with 1 as the default. The exercise counted files by spec_id and got 1 and 2, and asked PyIceberg to plan with a one-day condition in each month and got one file per month."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You add a column zip inside a struct called address in a table that already has data. What is address.zip for the old rows, and what field id does zip get?"
+  options={['NULL, and zip gets a new field id never used before (continuing from the last column id)', 'NULL, and zip uses the same field id as city', 'Empty, and the files must be rewritten']}
+  answer={0}
+  why="Iceberg always gives the next field id and never reuses one. The exercise saw the last column id move from 5 to 7 after adding email and address.zip. The old rows read address.zip as None because that field id is not in the original files."
+/>
+
+</Step>

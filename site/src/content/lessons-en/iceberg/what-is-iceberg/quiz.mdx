@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Answer 4 questions to see how much of this lesson you understood.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="What does Iceberg add to a table stored as Parquet files?"
+  options={['A new data file format that compresses better than Parquet', 'Metadata files that say which data files the table consists of right now, plus a catalog that points to the current metadata file', 'A server that takes queries and reads the files for you']}
+  answer={1}
+  why="Iceberg is a table format. The data is still Parquet (or ORC, Avro). What it adds is metadata that says officially which files the table has, and a catalog that says which metadata to read. The first option is the job of a file format, and the third is the job of an engine such as Spark."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="What does a table's row in a JDBC catalog hold?"
+  options={['The schema and the list of all data files of the table', 'The location of the current metadata.json (and of the previous one)', 'The data of every row that was just written']}
+  answer={1}
+  why="The exercise opened the table iceberg_tables and found only the columns metadata_location and previous_metadata_location. The schema and the file list are in metadata.json and the manifests, which are files on disk. The catalog is very small, and a commit is the change of one value."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="PyIceberg appends a row to a table that a Spark session holds open, and then Spark runs INSERT without refreshing. What happens?"
+  options={["Spark's INSERT overwrites PyIceberg's row, which is lost", 'The INSERT succeeds on top of the latest snapshot, which includes the PyIceberg row, and every row is there', 'The INSERT always fails because Spark still holds the old table version']}
+  answer={1}
+  why="The exercise confirmed that Spark's snapshot has PyIceberg's snapshot as its parent and that all 8 rows are present. A commit is a conditional change of the catalog row (it must still point to the edition the writer read). If it does not, Iceberg reads the latest edition and retries. It does not overwrite, and it does not fail."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Spark creates a table with a column of type timestamp, and PyIceberg appends data whose Arrow time column has no timezone. What happens?"
+  options={['The write succeeds and PyIceberg adds UTC itself', 'An error says the schema does not match, because Iceberg stores the Spark timestamp as timestamptz', 'The write succeeds but the times are shifted by 7 hours']}
+  answer={1}
+  why="In the exercise, ordered_at, created with timestamp in Spark, became timestamptz in Iceberg. PyIceberg compared it with the Arrow timestamp without a timezone and reported Mismatch in fields at ordered_at. You have to use an Arrow timestamp with the timezone set to UTC. If you want a time column with no timezone, declare it as timestamp_ntz in Spark."
+/>
+
+</Step>

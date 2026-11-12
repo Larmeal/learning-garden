@@ -1,0 +1,197 @@
+---
+title: Copy-on-write and merge-on-read in depth
+summary: Compare the two modes through every real file, from the price of changing one row, what a delete file looks like and what a reader must do extra, to why delete files do not pile up in Spark and why compaction still leaves a delete file behind.
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import UnderCoversLab from '../../../../components/labs/iceberg/UnderCoversLab';
+
+<Step>
+
+## How the two modes differ, and what we will look at
+
+In [lesson 6](/en/iceberg/row-level/#compare-the-three-modes) we saw that Iceberg can delete a row in two ways. The first is copy-on-write, which writes the whole data file again. The second is merge-on-read, which writes a short note saying which row to skip. This page follows the real files of both ways to answer the questions people ask next: how big is the price difference, what must a reader do extra, and do the delete files pile up until reads get slow?
+
+We have two tables. One uses the default (copy-on-write). The other sets `write.delete.mode`, `write.update.mode` and `write.merge.mode` to `merge-on-read`. Both hold the same 5 rows in 1 file. We run `DELETE` on order 3 and then `UPDATE` on order 5, one statement at a time. After each statement we read every file from disk with `json`, `fastavro` and `pyarrow` (run: `exercises/16_cow_mor_in_depth.py`). The pictures work as on the page ["Under the covers"](/en/iceberg/table-anatomy/under-the-covers/): press "Next" step by step and click a box to see inside the file.
+
+What is new compared with that page is a new kind of box in the right column, the **delete file** (`d1`, `d2`), and a new kind of manifest that lists delete files (`content = 1`), kept apart from the manifests of data files.
+
+</Step>
+
+<Step>
+
+## The price of changing one row
+
+Before we look at the files one by one, let us measure the price. We build a table of 100,000 rows in 5 files (20,000 rows each) in both modes, then change one row and delete one row. The numbers below are read from the snapshot summaries (run: `exercises/16_cow_mor_in_depth.py`).
+
+| Statement | Mode | Rows written | Files written | Bytes written (about) |
+|---|---|---|---|---|
+| `UPDATE` 1 row | Copy-on-write | 20,000 | 1 data file (the old one removed) | 37 KB |
+| `UPDATE` 1 row | Merge-on-read | 1 | 1 data file (1 row) and 1 delete file (1 position) | 2.5 KB |
+| `DELETE` 1 row | Copy-on-write | 19,999 | 1 data file (the old one removed) | 62 KB |
+| `DELETE` 1 row | Merge-on-read | 0 | 1 delete file (1 position) | 1.5 KB |
+
+Copy-on-write writes a whole new data file whether it changes one row or the whole file. The column to look at is rows written, because the byte sizes of such small examples include the overhead of a Parquet file. Merge-on-read writes only what changed, but it has a price on the other side that this table does not show: the reader has to filter with the delete file every time it reads. We come back to that in the next sections.
+
+Both modes give the same result. The table has 99,999 rows and the changed row has an `amount` of -1.0 in both. For the user everything is the same; the files behind it differ.
+
+</Step>
+
+<Step>
+
+## Copy-on-write deletes 1 row from a file of 5
+
+<UnderCoversLab client:visible op="cowDelete" lang="en" />
+
+Click manifest `m3` in step 3. You see the status `DELETED` for `a1`, while `m2` says `a2` was `ADDED`. Manifest list `s2` has no `m1` any more, because the only file `m1` listed was `a1`, which was replaced. A reader who opens the table now sees the single file `a2` and can read it as it is, with nothing to filter. That is the advantage of copy-on-write that the book sums up in its comparison table: "fastest reads, slowest updates and deletes" (book: Apache Iceberg: The Definitive Guide, chapter 4, page 86).
+
+</Step>
+
+<Step>
+
+## Merge-on-read deletes with a delete file that notes positions
+
+<UnderCoversLab client:visible op="morDelete" lang="en" />
+
+Step 1 of this picture is something the table above cannot show. Spark must know the position of order 3 in `a1`, so it has to read `a1` first, and then it writes a delete file `d1` with one row. Click `d1` in step 2. You see a table with two columns, `file_path` and `pos`: the name of the data file `a1` and position 2, which is the position of order 3 (counting from 0). This kind of delete file is a **position delete**. The write-side cost is reading the file to find the position, in exchange for a low read-side cost, because the reader already knows which position to skip (book: chapter 4, page 89).
+
+Click manifest `m2` too. Its `content` is 1, which means it is a manifest of delete files, separate from the manifest of data files `m1`, which is reused unchanged. Snapshot `s2` has `operation` set to `delete` and no new data file at all. Another thing to notice: the Total Records number in the summary of this snapshot still counts 5, although a reader sees 4 rows, which [lesson 6](/en/iceberg/row-level/#merge-on-read-writes-a-note-saying-which-row-to-skip) already mentioned.
+
+</Step>
+
+<Step>
+
+## UPDATE in merge-on-read is a delete file plus a small data file
+
+<UnderCoversLab client:visible op="morUpdate" lang="en" />
+
+An `UPDATE` in merge-on-read does two things in one commit. It writes the new row as a small data file (`a2` has 1 row) and it writes a delete file that says to skip the old row.
+
+Something interesting happens here. Look at step 3. `a1` already has a delete file `d1` (position 2), but Spark does not put another delete file next to it. It writes `d2` with **two positions**, 2 and 4, and writes manifest `m5` which says `d1` is `DELETED`. Click `d2` to see those two rows. The result is that `a1` always has a single delete file.
+
+We checked this with an experiment on the table of 100,000 rows. When we delete rows in the same file again and again, the number of delete files that a reader needs for each data file does not grow.
+
+| After the statement | Delete files in the table | Deleted positions in the table | Delete files needed per data file (one number per file) |
+|---|---|---|---|
+| `UPDATE` 1 row and `DELETE` 1 row (different files) | 2 | 2 | 0, 0, 0, 0, 1, 1 |
+| `DELETE` one more row in file 2 | 3 | 3 | 0, 0, 0, 1, 1, 1 |
+| `DELETE` one more row in file 2 | 3 | 4 | 0, 0, 0, 1, 1, 1 |
+| `DELETE` one more row in file 2 | 3 | 5 | 0, 0, 0, 1, 1, 1 |
+
+The deleted positions grow to 5, but the delete files of the whole table stop at 3, and no data file needs more than one delete file (the last column is read with PyIceberg `plan_files()`, which shows the `delete_files` of each data file). This is the behaviour of Spark 4.1.3 with Iceberg 1.12.0, which is what we ran. We did not try other engines, such as Flink, which may write several delete files for one data file (not run).
+
+</Step>
+
+<Step>
+
+## SELECT must filter the data files with the delete files
+
+<UnderCoversLab client:visible op="morSelect" lang="en" />
+
+Step 4 shows the extra work of the reader. Manifest `m5` holds only a delete file that was deleted, so it can be skipped. The others say there are data files `a2` and `a1`, and a delete file `d2` that applies to `a1`. In step 5, `a1` has 5 rows but `d2` says to skip positions 2 and 4, so the reader gets 3 rows from `a1` plus 1 row from `a2`, 4 rows, the same as `SELECT count(*)`. PyIceberg sees the same when it plans a read: `a2` needs no delete file and `a1` needs `d2` (run: `plan_files()` in the exercise).
+
+So the read-side price of merge-on-read is opening extra delete files and filtering data file by data file. If many delete files pile up, the price grows, which is the reason for compaction.
+
+</Step>
+
+<Step>
+
+## Compaction writes filtered data files, but the delete file stays
+
+<UnderCoversLab client:visible op="morCompact" lang="en" />
+
+We run `rewrite_data_files` with the option `delete-file-threshold` set to 1, which means a data file with 1 or more delete files must be rewritten (the default of this option is the largest Integer, as read from the code, which means it is almost never reached). The result is `a3` with 4 filtered rows, and a new reader opens one file and filters nothing.
+
+But look closely at step 6. `d2` is still in the snapshot and the summary says `total-delete-files` is 1, although no data file in the table needs it, because `a1`, which it points to, was replaced by `a3`. A delete file like this is called dangling, and the result that the procedure returns says clearly that `removed_delete_files_count` is 0. The large table of ours did the same: it wrote 6 new data files and still kept 1 delete file ([lesson 14](/en/iceberg/capstone/) met this in the big exercise).
+
+<UnderCoversLab client:visible op="morClean" lang="en" />
+
+The way to clean up is to call `rewrite_data_files` again with the option `remove-dangling-deletes` set to `true` (this option is off by default, as read from `RewriteDataFiles.java`). It needs no new data file at all: `rewritten_data_files_count` is 0 and only manifest `m9` is written, listing `d2` as `DELETED`. On the table of 100,000 rows the result is `removed_delete_files_count` 1 and `total-delete-files` 0.
+
+<Callout type="note" title="What a dangling delete means">
+
+A leftover delete file does not make the result wrong. The rows that were deleted do not come back, and a reader opens the new data files correctly. What you lose is clutter on disk and a manifest to read. Removing the file from disk still waits for expiring snapshots, like an old data file ([lesson 10](/en/iceberg/maintenance/#expire_snapshots-removes-old-snapshots-and-the-files-only-they-use)).
+
+</Callout>
+
+</Step>
+
+<Step>
+
+## One table, a different mode for each statement
+
+You can set the mode for each statement separately, which the book recommends when the workload of each statement differs (book: chapter 4, page 90). We tried a table with `write.delete.mode` set to `merge-on-read` and `write.update.mode` and `write.merge.mode` set to `copy-on-write`.
+
+```text
+DELETE -> operation = delete      added-delete-files: 1                       (merge-on-read)
+UPDATE -> operation = overwrite   added-data-files: 1   deleted-data-files: 1 (copy-on-write)
+```
+
+`DELETE` gives a delete file and `UPDATE` gives a new data file in place of the old one. One table can hold both kinds of files side by side, and a reader works according to the files it finds, without knowing the mode.
+
+</Step>
+
+<Step>
+
+## Which mode to choose
+
+The book compares them in one table (book: chapter 4, page 86), and we add next to it what our numbers confirm.
+
+| Mode | Reads | Updates and deletes | What our numbers confirm |
+|---|---|---|---|
+| Copy-on-write | Fastest | Slowest | Rewrites the whole file (20,000 rows to change 1 row) |
+| Merge-on-read (position deletes) | Fast | Fast | Writes 1 row and 1 position. A reader filters with the delete file, and regular compaction is needed |
+| Merge-on-read (equality deletes) | Slow | Fastest | Not run |
+
+An equality delete is a delete file that records the value of a column and says to skip the rows whose value matches. It does not record a position. It is easy to write, because no data file has to be opened to find a position, but a reader must compare the value with every row that might match, so reads are slow and compaction must be frequent (book: chapter 2, pages 33 to 34, and chapter 4, page 89). We have not run this, because the Spark SQL we use does not write equality deletes, and the tools that do, such as Flink, are not installed.
+
+What follows from what we saw is the author's opinion, not a fixed rule.
+
+- A table that is read much more than it is written, and changed a little at a time, suits copy-on-write, because the reader has nothing extra to do.
+- A table that is changed often, or one row at a time in a large file, suits merge-on-read, but you must schedule compaction and the cleaning of leftover delete files at the same time.
+- You can mix them. If you delete often but update rarely, set `delete` to merge-on-read and `update` to copy-on-write.
+
+<Question
+  client:visible
+  lang="en"
+  q="After rewrite_data_files with delete-file-threshold set to 1, a reader opens the new data file correctly, but the summary still shows total-delete-files as 1. Why?"
+  options={['That delete file is not used by any data file now (dangling), but the option remove-dangling-deletes is off by default, so it has not been removed from the snapshot', 'The compaction did not succeed and the data is still wrong', 'A delete file must stay forever and cannot be removed from a table']}
+  answer={0}
+  why="The exercise on the table of 100,000 rows gives this. Compaction wrote new data files and a reader opens them without any delete file (plan_files gives delete_files of 0), but removed_delete_files_count is 0 and total-delete-files is still 1. When we call it again with remove-dangling-deletes set to true, the delete file is removed from the new snapshot without writing any data file. The data was not wrong at any time."
+/>
+
+<Question
+  client:visible
+  lang="en"
+  q="A table has write.update.mode set to copy-on-write and write.delete.mode set to merge-on-read. What does one UPDATE of 1 row add to the new snapshot?"
+  options={['One new data file that replaces the old one, and no delete file, because UPDATE uses the mode set for update', 'One delete file, because the table is merge-on-read', 'Nothing, because the two modes conflict and Spark refuses the statement']}
+  answer={0}
+  why="The exercise sets the table up this way. The UPDATE gives operation overwrite, adds 1 data file, removes 1 data file and adds no delete file. A DELETE on the same table gives 1 delete file. Each statement looks at its own mode."
+/>
+
+</Step>
+
+<Step>
+
+## Where this page comes from
+
+| Claim | Source |
+|---|---|
+| The price of an UPDATE and a DELETE of 1 row in both modes (rows written, files written, bytes written) on a table of 100,000 rows | Ran: `exercises/16_cow_mor_in_depth.py` |
+| A position delete file stores a data file name and a position, and there is a separate manifest with `content = 1` | Ran: `exercises/16_cow_mor_in_depth.py` |
+| Spark folds the old positions into the new delete file, so one data file uses at most one delete file in our experiment | Ran: `exercises/16_cow_mor_in_depth.py` (Spark 4.1.3, Iceberg 1.12.0, PyIceberg `plan_files()`) |
+| A reader must filter data files with delete files (one data file needs `d2`) | Ran: `exercises/16_cow_mor_in_depth.py` |
+| Compaction with `delete-file-threshold` writes new data files but leaves the dangling delete file, and `remove-dangling-deletes` removes it without writing a data file | Ran: `exercises/16_cow_mor_in_depth.py` |
+| The default of `delete-file-threshold` is the largest Integer and that of `remove-dangling-deletes` is off | Source: `BinPackRewriteFilePlanner.java`, `RewriteDataFiles.java` |
+| The mode can be set per statement, with separate results | Ran: `exercises/16_cow_mor_in_depth.py` and book chapter 4, page 90 |
+| The comparison of COW, MOR with position deletes and MOR with equality deletes | Book: Apache Iceberg: The Definitive Guide, chapter 4, page 86 |
+| The write-side cost of position deletes is reading the file to find the position, while equality deletes are easy to write but slow to read | Book: chapter 4, page 89 and chapter 2, pages 33 to 34 (equality deletes were not run) |
+| Advice on which mode suits which table | Author |
+
+</Step>

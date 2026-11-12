@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Answer 4 questions to see how much of this lesson you understood.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="A table got 20 INSERTs of 1 row each and has 20 small data files. Which procedure merges them into a larger file?"
+  options={['expire_snapshots', 'rewrite_data_files', 'remove_orphan_files']}
+  answer={1}
+  why="rewrite_data_files is compaction. The exercise merged 20 files into 1 and got a snapshot with operation replace. expire_snapshots removes history, and remove_orphan_files removes files no snapshot refers to."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Compaction (rewrite_data_files) finished, but the size of the table's folder did not go down. Why?"
+  options={['The procedure went wrong', 'The old data files are still referred to by older snapshots, so they are not deleted yet', 'Parquet does not allow files to be deleted']}
+  answer={1}
+  why="The exercise counted 21 data files on disk (20 old and 1 new) after compaction. You have to run expire_snapshots to release the old files, after which 2 files remain (the current file and the file used by the snapshot that was tagged)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Why does remove_orphan_files refuse an older_than newer than 24 hours in the exercise?"
+  options={['To save running time', 'Because a file just written by a job that has not committed looks like an orphan, and removing it would break that job', 'Because Iceberg does not know the current time']}
+  answer={1}
+  why="A file that no snapshot refers to yet may belong to a job that is still writing. The procedure therefore removes only files older than a safe margin, and our example had to set the file's modification time back 4 days before it was found."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="By default, does expire_snapshots also delete the table's old metadata.json files?"
+  options={['It deletes every one', 'It does not. You must set write.metadata.delete-after-commit.enabled to true or handle them yourself', 'It deletes only the first one']}
+  answer={1}
+  why="The exercise counted metadata.json files before and after expire_snapshots and got 25 and 26, not fewer. The default of automatically deleting metadata files after a commit is off (read from the source)."
+/>
+
+</Step>

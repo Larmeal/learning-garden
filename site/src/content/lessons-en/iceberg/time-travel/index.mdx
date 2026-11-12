@@ -1,0 +1,205 @@
+---
+title: Time travel, branches and tags
+summary: Read a table as it was by snapshot or by time, name a snapshot with a tag, separate trial work with a branch, go back with a rollback, publish checked data with write-audit-publish, and see changes with the changelog.
+order: 8
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [evolution]
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import BranchLab from '../../../../components/labs/iceberg/BranchLab';
+
+<Step>
+
+## Every snapshot is an old edition you can still open
+
+Because Iceberg files are never edited, every commit creates a new table of contents, and the old tables of contents can still point to the old pages, as long as no one has deleted the files. This lets us read the table as it was in the past, which is called **time travel** (ran: `exercises/08_time_travel.py`).
+
+We create a table `t` and write three times, with 2, 1 and 2 rows, to get 3 snapshots (`s1`, `s2`, `s3`) and 5 rows in all.
+
+```python
+spark.sql(f"SELECT id FROM lab.db.t VERSION AS OF {s1}")                   # 1, 2
+spark.sql(f"SELECT id FROM lab.db.t FOR SYSTEM_VERSION AS OF {s2}")        # 1, 2, 3
+spark.sql("SELECT id FROM lab.db.t TIMESTAMP AS OF TIMESTAMP'2026-... 12:00:00.600'")   # a time after commit 2 and before commit 3
+```
+
+`VERSION AS OF` takes a snapshot id, and `TIMESTAMP AS OF` finds the snapshot that was current at that time (the exercise sets the session time zone to UTC so the timestamp literal is not skewed). PyIceberg can do the same with `t.scan(snapshot_id=s1)` and `t.snapshot_as_of_timestamp(time in ms)`.
+
+If you read with a DataFrame in Spark 4.1 with Iceberg 1.12.0, use `spark.read.option("versionAsOf", s2)`. The exercise tried the old option `snapshot-id` and Spark refused with `Time travel option snapshot-id is no longer supported, use Spark built-in versionAsOf instead`. If you have old code that uses that option, change it.
+
+</Step>
+
+<Step>
+
+## A tag gives a snapshot a name
+
+Snapshot ids are hard to remember, so we can name one with a **tag**, and say how long to keep it:
+
+```python
+spark.sql(f"ALTER TABLE lab.db.t CREATE TAG before_cleanup AS OF VERSION {s2} RETAIN 30 DAYS")
+spark.sql("SELECT id FROM lab.db.t VERSION AS OF 'before_cleanup'")     # 1, 2, 3
+```
+
+The `.refs` table lists the table's named references. There are two now:
+
+```text
+main            BRANCH   -> s3
+before_cleanup  TAG      -> s2
+```
+
+`main` is the current branch that we always write to, and a tag is just a name that points at a snapshot and does not move when there are new commits. The important use is that a tag keeps the snapshot from being removed during table maintenance (for as long as `RETAIN` says), which we use in the maintenance lesson.
+
+</Step>
+
+<Step>
+
+## A branch separates work you are not sure about
+
+A **branch** is another line of history that new commits can extend without moving `main`. It suits trying out a write and checking it before publishing.
+
+```python
+spark.sql("ALTER TABLE lab.db.t CREATE BRANCH audit")
+spark.sql("INSERT INTO lab.db.t.branch_audit VALUES (100, 'try')")
+```
+
+Reading `main` gives `[1, 2, 3, 4, 5]` as before, but reading the branch with `VERSION AS OF 'audit'` gives `[1, 2, 3, 4, 5, 100]`. PyIceberg can also write to a branch with `t.append(df, branch="audit")`, after which that side reads 7 rows while `main` still has 5.
+
+When the check is done and we want to publish, we move `main` forward to the tip of the branch:
+
+```python
+spark.sql("CALL lab.system.fast_forward('db.t', 'main', 'audit')")
+```
+
+After that `main` sees rows 100 and 101, and we can drop the branch with `DROP BRANCH audit`. A fast forward works when `main` is still at the point where the branch split off. If `main` got commits in the meantime, the options are more complicated, which we did not try.
+
+</Step>
+
+<Step>
+
+## Watch the labels move
+
+Step through and see which label each command moves, and whether any snapshot (a dot on the line) is deleted. Then read the two lines at the bottom for what readers see.
+
+<BranchLab client:visible lang="en" />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You write with INSERT INTO t.branch_audit to the branch named Audit. What does someone who reads the table normally (the main branch) see?"
+  options={['The new row at once, because it is in the same table', 'Nothing, because main still points to the old snapshot until a fast forward or a merge', 'Only half of it']}
+  answer={1}
+  why="The exercise read main as 5 rows, the same as before, after writing to the branch, and read 6 rows through VERSION AS OF 'audit'. A branch is another pointer in metadata.json that points to its own snapshot, so writing to a branch does not touch the main branch."
+/>
+
+</Step>
+
+<Step>
+
+## Rollback moves the pointer and deletes nothing
+
+If the latest commit has a problem, we go back to an earlier state with a procedure:
+
+```python
+spark.sql(f"CALL lab.system.rollback_to_snapshot('db.t', {s2})")     # main goes back to s2: 1, 2, 3
+spark.sql(f"CALL lab.system.set_current_snapshot('db.t', {s3})")     # and forward again
+```
+
+After the rollback the table reads `[1, 2, 3]`, but the `.snapshots` table still has all the snapshots, and `.history` says that `s3` is no longer on the line of the current `main` (`is_current_ancestor = false`). Its data is still there, so we can `set_current_snapshot` forward again. This is why a rollback is safe, and why files do not disappear until snapshots are removed (`expire_snapshots` is in the maintenance lesson).
+
+</Step>
+
+<Step>
+
+## Write-audit-publish with a staged snapshot
+
+Another way, without a branch, is to write **staged**. Set `write.wap.enabled` on the table, then tell Spark that this run has an id:
+
+```python
+spark.sql("ALTER TABLE lab.db.t SET TBLPROPERTIES ('write.wap.enabled' = 'true')")
+spark.conf.set("spark.wap.id", "batch-42")
+spark.sql("INSERT INTO lab.db.t VALUES (200, 'staged')")
+```
+
+The snapshot that results is recorded with `wap.id = batch-42` but is not the current snapshot, so readers still see `[1, 2, 3, 4, 5]`. We can check that batch of data at leisure (for example by opening it with `VERSION AS OF` and the snapshot id). When it passes, we publish with:
+
+```python
+spark.sql(f"CALL lab.system.cherrypick_snapshot('db.t', {staged})")
+```
+
+After the cherrypick, readers see row 200 at once. Notice that all three steps, write, audit and publish, happen by moving pointers only. No data is copied.
+
+</Step>
+
+<Step>
+
+## The changelog shows what changed
+
+When we want to know which rows came in and went out between two snapshots, the procedure `create_changelog_view` builds a view:
+
+```python
+spark.sql("INSERT INTO lab.db.t VALUES (300, 'new')")
+spark.sql("DELETE FROM lab.db.t WHERE id = 1")
+spark.sql(f"CALL lab.system.create_changelog_view(table => 'db.t', options => map('start-snapshot-id', '{start}'), changelog_view => 'changes')")
+spark.sql("SELECT id, _change_type, _change_ordinal FROM changes ORDER BY _change_ordinal, id")
+```
+
+```text
++---+------------+---------------+
+|id |_change_type|_change_ordinal|
++---+------------+---------------+
+|300|INSERT      |0              |
+|1  |DELETE      |1              |
++---+------------+---------------+
+```
+
+Each commit gets its own sequence number (`_change_ordinal`). Rows that were added are `INSERT` and rows that were removed are `DELETE`, which can feed a downstream system that wants only the changes (this example did not try an `UPDATE`, which needs identifier columns to be set).
+
+There is a limit we hit while writing [lesson 14](/en/iceberg/capstone/): the changelog view cannot read a range of snapshots that has delete files from merge-on-read. Spark says `Delete files are currently not supported in changelog scans`, so a table set to merge-on-read cannot use the changelog over a range that has deletes or updates.
+
+<Callout type="warn" title="Time travel lasts only as long as the snapshot is kept">
+An old snapshot can be read only if its files are still there. Table maintenance that removes old snapshots (called `expire_snapshots`) makes it impossible to go back to that point. Tags and branches are how you ask the system to keep important snapshots.
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="After rollback_to_snapshot to an old snapshot, what does the snapshots table look like?"
+  options={['The snapshots after that point are removed from the table', 'The number of snapshots is the same, but the pointer of the main branch moves to the old snapshot', 'The table is empty']}
+  answer={1}
+  why="The exercise counted snapshots before and after the rollback and got the same number, and the history table said the rolled-back snapshot is no longer on the current line. Going forward again with set_current_snapshot works because the data is still there."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| `VERSION AS OF`, `FOR SYSTEM_VERSION AS OF` and `TIMESTAMP AS OF` in Spark, and `scan(snapshot_id=)` and `snapshot_as_of_timestamp` in PyIceberg | ran: `exercises/08_time_travel.py` |
+| The DataFrame uses `versionAsOf`, and the option `snapshot-id` is refused in Spark 4.1.3 with Iceberg 1.12.0 | ran: `exercises/08_time_travel.py` |
+| The tag `before_cleanup` and the `.refs` table | ran: `exercises/08_time_travel.py` |
+| A branch takes commits while `main` does not move, PyIceberg writes to a branch, and `fast_forward` | ran: `exercises/08_time_travel.py` |
+| `rollback_to_snapshot` deletes no snapshot, and `set_current_snapshot` goes forward | ran: `exercises/08_time_travel.py` |
+| WAP with `write.wap.enabled`, `spark.wap.id` and `cherrypick_snapshot` | ran: `exercises/08_time_travel.py` |
+| The changelog view shows `INSERT` and `DELETE` with the commit order | ran: `exercises/08_time_travel.py` |
+| The changelog view cannot read a range that has delete files | ran: `exercises/14_capstone_orders.py` |
+| A tag keeps `expire_snapshots` from removing a snapshot | ran: `exercises/10_maintenance.py` |
+| Fast forward when `main` has moved on, and the changelog of an `UPDATE` | author (not tried) |
+
+</Step>

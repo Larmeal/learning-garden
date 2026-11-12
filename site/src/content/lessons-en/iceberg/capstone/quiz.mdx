@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Answer 4 questions to see how much of this lesson you understood.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="Why should the PyIceberg writer's batch go to a branch first in this task, rather than straight into the main table?"
+  options={['Because PyIceberg cannot write to the main table', 'Because readers do not see the new batch until it has been checked and published, and a wrong row can be fixed on the branch without affecting readers', 'Because a branch is faster']}
+  answer={1}
+  why="Writing to a branch does not move the main branch. The exercise found the negative-amount row on the branch, deleted it, and then fast-forwarded, so readers never saw that row. PyIceberg can write to the main table normally."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="After a MERGE that corrects the amount of order 2 in a merge-on-read table, which statement is right?"
+  options={['The original data file was edited in place so the amount is 85.0', 'There is a position delete file that skips the old row, and a new data file that holds the row with amount 85.0', 'The table has two rows with order_id 2']}
+  answer={1}
+  why="Data files are never edited. MERGE in merge-on-read mode writes a delete file for the old row and a new file for the corrected row. The exercise checked that a file with content = 1 exists and that the total is 562.0. A reader sees one row because the deleted row is taken off."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The table is merge-on-read and its amount was corrected with a MERGE. The downstream system wants only the changes. What way out did the exercise use?"
+  options={['The changelog view, which can read ranges that have delete files', 'Comparing the table at the saved snapshot with the table now, using time travel', 'Reading the whole table and overwriting the downstream system every time']}
+  answer={1}
+  why="The changelog view said Delete files are currently not supported in changelog scans, and the incremental read works only on append snapshots. So the exercise compared the two editions with VERSION AS OF and got: added 4 and 5, changed 2, deleted none. The last option works too but does not send only the changes."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We put a tag on the month-end snapshot and then run expire_snapshots to keep only the latest snapshot. What happens to the month-end snapshot?"
+  options={['It is deleted like the other snapshots', 'It stays and can be read, because the tag points at it for the time RETAIN set', 'It becomes the current snapshot']}
+  answer={1}
+  why="After expire_snapshots the exercise had two named references, main and month_end, and could read the table at the tag with 5 rows. Without the tag, that snapshot would have been removed together with the files only it used."
+/>
+
+</Step>

@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Answer 4 questions to see how much of this lesson you understood.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="A table has 8 files of 5 rows each, and order_id runs from 1 to 40 in order. How many files does a query WHERE order_id = 7 plan to open?"
+  options={['8 files, because order_id is not a partition column', '1 file, because the min/max in the manifest says only the file with range 6 to 10 can hold 7', '0 files, because you need an index first']}
+  answer={1}
+  why="Iceberg keeps the min/max of every column per file in the manifest, even when it is not a partition. The exercise measured 1 file. The closer together the values in a file are, the more files the statistics can rule out. If the values are mixed through every file, they rule out none."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="How many files must a query WHERE customer = 'cu1' open, when customer cycles through cu0, cu1, cu2 and is spread over every file?"
+  options={['1 file', 'All of them (8 of 8), because the min/max range of every file already covers cu1', '0 files, because cu1 is not a partition']}
+  answer={1}
+  why="Min/max statistics can only say whether a value is outside the range. If every file holds cu0 to cu2, every file's range covers cu1. The exercise measured 8 of 8. To skip files well on such a column, the data must be re-sorted so that close values land in the same file."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Why is the result of a query that skips files by statistics still exactly right, not just approximately right?"
+  options={['Because min/max is more accurate than the rows actually read', 'Because skipping only removes files that surely hold no matching row, and the rest of the condition is applied again to the rows of the files that are read', 'Because Iceberg always reads every file and then throws away the ones that do not match']}
+  answer={1}
+  why="Planning only cuts out unnecessary work. A file that may hold a matching row is still opened, and its rows are filtered with the full condition. The exercise confirms it with order_id = 7, which returns exactly one row although the file that is opened has 5 rows."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You want to know how many data files a table has and how many rows each one has, without reading the data. What is the quickest way?"
+  options={['Run a SELECT that counts the rows of the whole table and divide it yourself', 'The metadata table named files (Spark: lab.db.orders.files, PyIceberg: t.inspect.files())', 'Open the folder of data files and count by hand']}
+  answer={1}
+  why="Metadata tables read from the manifests, which already hold the row count and statistics per file, so no Parquet needs to be opened. The exercise compared them, and Spark and PyIceberg see the same 8 files with 40 rows in total."
+/>
+
+</Step>

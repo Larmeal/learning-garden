@@ -1,0 +1,163 @@
+---
+title: Table maintenance
+summary: A table that is written to often collects small files and manifests. See the procedures that compact files (rewrite_data_files), merge manifests, expire old snapshots (expire_snapshots) and remove orphan files, with numbers for how each changes the files on disk.
+order: 10
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [catalogs]
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## A table nobody looks after keeps growing
+
+Every Iceberg commit adds new files and deletes nothing ([lesson 2](/en/iceberg/table-anatomy/)). If you write a little at a time, often, the table collects many small data files, many manifests and old snapshots that hold all the old files. In this lesson we create exactly that with 20 `INSERT`s of 1 row each (ran: `exercises/10_maintenance.py`), and get a table with:
+
+```text
+data files: 20    manifests: 20    snapshots: 20    metadata.json: 21    files on disk in all: 81
+```
+
+Iceberg's table maintenance fixes one side at a time. We go through the Spark procedures one by one and compare the file counts each time.
+
+</Step>
+
+<Step>
+
+## rewrite_manifests merges small manifests
+
+```python
+spark.sql("CALL lab.system.rewrite_manifests('db.t')")
+# rewritten_manifests_count = 20, added_manifests_count = 1
+```
+
+The 20 manifests are merged into one that lists all 20 data files. The data itself is not touched. The benefit is that scan planning ([lesson 5](/en/iceberg/reading/)) opens fewer manifests.
+
+</Step>
+
+<Step>
+
+## rewrite_data_files compacts small data files
+
+Many small data files make the engine open many files and spend time on per-file overhead. The procedure `rewrite_data_files` takes the small files and writes them again as a larger file (this is called compaction).
+
+```python
+spark.sql("CALL lab.system.rewrite_data_files(table => 'db.t')")
+```
+
+```text
+rewritten_data_files_count: 20    added_data_files_count: 1    rewritten_bytes_count: 12819
+```
+
+20 files become 1, and the new snapshot has `operation = replace`, meaning the data is the same but in a new set of files. The exercise checked that all 20 rows are the same. What many people do not expect is that **the files on disk do not get fewer**. After compaction there are 21 data files on disk (20 old and 1 new), because older snapshots still refer to the old files, and the snapshots grew to 22 (the full history). To make the old files go, you have to remove old snapshots, in the next step.
+
+We also tried another strategy: `strategy => 'sort'` to write the new file sorted by `id DESC`. The rows that come out are ordered 20, 19, 18 as asked. There is also `zorder(...)`, which sorts on several columns together, and we did not try it here.
+
+<Callout type="note" title="PyIceberg 0.12.0 has no compaction">
+We looked at the `table.maintenance` API of PyIceberg 0.12.0. It has only `expire_snapshots`: no compaction and no removal of orphan files. So the compaction of tables that PyIceberg writes has to be done by Spark (or another engine).
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="After rewrite_data_files leaves 1 active data file, what happens to the original 20 data files on disk?"
+  options={['They are deleted at once because they are no longer used', 'They are still on disk, because older snapshots still refer to them, until those snapshots are expired', 'They are moved to a backup folder']}
+  answer={1}
+  why="The exercise counted 21 data files on disk after compaction although the current snapshot uses one. This is because time travel must be able to read the old files. Getting the space back comes with removing old snapshots."
+/>
+
+</Step>
+
+<Step>
+
+## expire_snapshots removes old snapshots and the files only they use
+
+```python
+spark.sql("ALTER TABLE lab.db.t CREATE TAG first AS OF VERSION {snap_first} RETAIN 30 DAYS")
+spark.sql("CALL lab.system.expire_snapshots(table => 'db.t', older_than => TIMESTAMP'...', retain_last => 1)")
+```
+
+We put a tag on the first snapshot first, and then ordered every snapshot older than the given time to be removed (in the exercise, a time one hour in the future, so that every snapshot counts as old), keeping the latest 1. The result:
+
+```text
+before: data files on disk 22, snapshots 23, files on disk in all 95
+after : data files on disk  2, snapshots  2, files on disk in all 33
+deleted_data_files_count: 20   deleted_manifest_files_count: 22   deleted_manifest_lists_count: 21
+```
+
+Two snapshots remain, the current one and the tagged one (`snap_first` can still be read, with 1 row). The other snapshots are gone, and the data files that only the removed snapshots used went with them. If you try to read with a snapshot that no longer exists, Spark says `Cannot find snapshot with ID ...`. The current data is all there as before.
+
+What does not go away is the old `metadata.json` files. There were 25 before the removal and 26 after (one more, which the author guesses belongs to the commit that removes the snapshots). Iceberg removes old `metadata.json` files by itself only if `write.metadata.delete-after-commit.enabled` is set to `true`, and the default is `false`. The number of old editions listed in `metadata-log` is capped by `write.metadata.previous-versions-max`, default 100 (source: `TableProperties.java`).
+
+If you give no `older_than`, the default snapshot age is 5 days and at least 1 snapshot is kept (`MAX_SNAPSHOT_AGE_MS_DEFAULT`, `MIN_SNAPSHOTS_TO_KEEP_DEFAULT` in the Iceberg 1.12.0 source. We read these values and did not try waiting 5 days).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="After expire_snapshots with retain_last of 1, can we still read the table as of a snapshot that existed yesterday?"
+  options={['Yes, because time travel is kept forever', 'No, because that snapshot was removed (unless a tag or branch points at it), and reading it gives Cannot find snapshot', 'Yes, but you must REFRESH TABLE first']}
+  answer={1}
+  why="The exercise read with a snapshot id that no longer existed and got the error Cannot find snapshot with ID, and only the current snapshot and the tagged one remained. Setting the snapshot retention policy is therefore deciding how far back time travel can go."
+/>
+
+</Step>
+
+<Step>
+
+## remove_orphan_files removes files no snapshot refers to
+
+Orphan files come from jobs that die after writing files (we talked about this in [lesson 4](/en/iceberg/writing/#a-failed-job-leaves-nothing-in-the-table)). We simulate it by creating a file `stray-file.parquet` ourselves in the table's `data/` folder, and then running:
+
+```python
+spark.sql("CALL lab.system.remove_orphan_files(table => 'db.t', dry_run => true)")
+```
+
+There are two safety rules the exercise met for real. First, if you set `older_than` newer than 24 hours, the procedure refuses with `Cannot remove orphan files with an interval less than 24 hours`, because a file that has just been written and not yet committed looks like an orphan file. If it were removed, the job that is still writing would break. Second, a new file is not touched with the default (3 days), so we set the file's modification time to 4 days ago.
+
+After that, `dry_run` finds `stray-file.parquet` and only that, and then a real run removes it. The file is gone, the total number of files goes down by one, and the table's data is unchanged.
+
+<Callout type="warn" title="Do not run it while a long write is in progress">
+`remove_orphan_files` decides what is an orphan from the file's modification time. If a write job runs longer than `older_than`, its files could be removed before the commit. Always set `older_than` longer than your longest write job (this warning relies on the error message we met and the author's understanding. We did not try removing the files of a job that was writing).
+</Callout>
+
+</Step>
+
+<Step>
+
+## The order to do things in
+
+Putting the four together, the order the author finds sensible from the numbers above is: merge manifests and data files first, because that creates a new snapshot. Then `expire_snapshots` to release the old files, and last remove orphan files with a safe time margin. This order is the author's conclusion, not a fixed instruction from the documentation. How often to do each depends on how often the table is written, which this small exercise cannot tell.
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| `rewrite_manifests` merges 20 manifests into 1 | ran: `exercises/10_maintenance.py` |
+| `rewrite_data_files` merges 20 files into 1, `operation = replace`, and the old files stay on disk (21 files) | ran: `exercises/10_maintenance.py` |
+| `strategy => 'sort'` leaves the rows ordered as asked | ran: `exercises/10_maintenance.py` |
+| `expire_snapshots` leaves the current snapshot and the tagged one, removes 20 data files, and the removed snapshots cannot be read | ran: `exercises/10_maintenance.py` |
+| Old `metadata.json` files are not removed by `expire_snapshots` (25 to 26) | ran: `exercises/10_maintenance.py` |
+| `remove_orphan_files` refuses a window under 24 hours, leaves young files, and finds an old one with `dry_run` | ran: `exercises/10_maintenance.py` |
+| PyIceberg 0.12.0 `table.maintenance` has only `expire_snapshots` | ran: `exercises/10_maintenance.py` |
+| Defaults of `previous-versions-max` (100), `delete-after-commit` (off), snapshot age (5 days) and minimum count (1) | source: `TableProperties.java` |
+| `zorder`, the effect of compaction on query time, and the right order and frequency | author (not tried) |
+
+</Step>

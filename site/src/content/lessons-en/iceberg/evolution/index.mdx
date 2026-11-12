@@ -1,0 +1,174 @@
+---
+title: Changing schema and partitioning
+summary: Add, drop, rename and widen columns, change how the table is partitioned and set a sort order, all without rewriting data files. See how old and new files are read together.
+order: 7
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [row-level]
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## Change the table without touching data files
+
+Real tables never stay still. Today you add a column, tomorrow you rename one, next month you change from monthly to daily partitions. If every change meant rewriting the whole table, a large table could hardly change at all. In Iceberg all of it is just writing a new `metadata.json`, because we know from [lesson 3](/en/iceberg/schema-partitioning/#a-field-id-is-how-iceberg-refers-to-a-column) that data files refer to columns by field id, not by name (ran: `exercises/07_evolution.py`).
+
+We start with a table `users` of 4 columns and 2 rows and issue six changes in a row:
+
+```python
+spark.sql("ALTER TABLE lab.db.users ADD COLUMN email string")
+spark.sql("ALTER TABLE lab.db.users RENAME COLUMN name TO full_name")
+spark.sql("ALTER TABLE lab.db.users ALTER COLUMN id TYPE bigint")        # int -> long
+spark.sql("ALTER TABLE lab.db.users ALTER COLUMN score TYPE double")     # float -> double
+spark.sql("ALTER TABLE lab.db.users ADD COLUMN address.zip string")      # a column nested in a struct
+spark.sql("ALTER TABLE lab.db.users ALTER COLUMN email FIRST")           # move to the front
+```
+
+When we are done, the data files in the folder `data/` are the same list as before, but there are six more `metadata.json` files, one per command, and `schemas` in the latest one keeps 7 schemas (the first one plus 6 from the commands). `last-column-id` moved from 5 to 7 because two new columns were added (`email` and `address.zip`).
+
+</Step>
+
+<Step>
+
+## Old files can be read with the new schema
+
+The table's current schema is `email, id, full_name, score, address`, and when we `SELECT` the two old rows written at the start:
+
+```text
+(1, 'ann', 1.5, None, 'bkk', None)
+(2, 'bob', 2.5, None, 'cnx', None)
+```
+
+`email` and `address.zip` are `None` because the old files do not have the field ids of those columns, so Iceberg fills in `NULL` at read time. `id`, which used to be `int`, is read as `bigint`, and `score` from `float` as `double` with the same values (1.5 and 2.5). No file needs converting, because `int` to `long` and `float` to `double` are widenings that lose no data. Going back (`bigint` to `int`) is refused by Spark with `NOT_SUPPORTED_CHANGE_COLUMN`.
+
+And if we want to know what the old schema looked like, we ask the first snapshot, because each snapshot remembers the schema used at the time:
+
+```python
+spark.sql(f"SELECT * FROM lab.db.users VERSION AS OF {snap1}").columns
+# ['id', 'name', 'score', 'address']
+```
+
+We get the original column names (`name`, not `full_name`). So the table keeps the history of its schema as well. We talk about `VERSION AS OF` in detail in [lesson 8](/en/iceberg/time-travel/).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A table has old rows written before the column Email existed, and we add the column Email later. What does SELECT on that column return for the old rows?"
+  options={['An error, because the old files do not have the column', 'NULL, because Iceberg does not find the field id of Email in the old files and fills in NULL at read time', 'Iceberg rewrites the old files to add the column']}
+  answer={1}
+  why="The exercise read the old rows and got None for Email, and the data files were the same list after all six ALTER commands. Adding a column is therefore cheap and fast, even for a table with billions of rows."
+/>
+
+</Step>
+
+<Step>
+
+## PyIceberg changes the schema too
+
+On the PyIceberg side you use a context manager that collects the changes and commits once when the block ends:
+
+```python
+with t.update_schema() as u:
+    u.add_column("country", StringType())
+    u.rename_column("full_name", "name")
+```
+
+The schema PyIceberg sees is then `email, id, name, score, address, country`. After Spark runs `REFRESH TABLE` it sees the columns `country` and `name` as well, and `SELECT name WHERE id = 2` still returns `bob` from the original file. Two programs can change the same table because what is written is just a new `metadata.json` according to the same spec.
+
+</Step>
+
+<Step>
+
+## Changing how the table is partitioned
+
+Another thing you cannot change in the Hive world is how a table is partitioned. We create a table `events` partitioned monthly with `months(ts)`, insert January data, and then switch to daily:
+
+```python
+spark.sql("ALTER TABLE lab.db.events REPLACE PARTITION FIELD ts_month WITH days(ts)")
+spark.sql("INSERT INTO lab.db.events VALUES (3, TIMESTAMP'2026-02-03 10:00:00'), (4, TIMESTAMP'2026-02-04 10:00:00')")
+```
+
+After the change, the January file is where it was (`data/ts_month=2026-01/...`), and the new data is written as daily files (`data/ts_day=2026-02-03/...`, `data/ts_day=2026-02-04/...`). `metadata.json` now has two partition specs:
+
+```text
+partition specs: {0: [('ts_month', 'month')], 1: [('ts_day', 'day')]}   default-spec-id = 1
+```
+
+Spec 0 is still there to describe the old files, and spec 1 is the default for newly written files. The `.files` table grouped by `spec_id` shows:
+
+```text
+spec_id  files  records
+0        1      2         <- the monthly file (January)
+1        2      2         <- the daily files (February)
+```
+
+A single query reads both layouts (4 rows together) and can still skip files on both. We asked PyIceberg to plan with a one-day condition in January and got 1 file (the monthly file, because that day may be inside it), and one day in February also gave 1 file (the daily file of the 3rd), because Iceberg evaluates the condition on each file with the spec that file was written under.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You change a table's partitioning from monthly to daily with REPLACE PARTITION FIELD. What happens to the files of months that have already passed?"
+  options={['They are rewritten into daily files at once', 'They stay where they are in the monthly layout. Files written from now on are daily, and queries read both', 'They are moved to a new table']}
+  answer={1}
+  why="The exercise checked that the January file was still in the same place, with 1 monthly file (spec_id 0) and 2 daily files (spec_id 1). Reorganising the old files into daily ones has to be ordered in table maintenance. It does not happen by itself."
+/>
+
+</Step>
+
+<Step>
+
+## PyIceberg edits the partition spec, and the sort order
+
+PyIceberg can add a partition field with `update_spec`:
+
+```python
+with tp.update_spec() as us:
+    us.add_field("id", BucketTransform(4), "id_b4")
+```
+
+The table's spec becomes `id_b4: bucket[4](1)`. The **sort order** is the order the table says new files should be sorted by. It can be set from Spark:
+
+```python
+spark.sql("ALTER TABLE lab.db.sorted WRITE ORDERED BY ts DESC, id")
+```
+
+`metadata.json` records `[('desc', 'identity', 2), ('asc', 'identity', 1)]`, meaning sort by `ts` high to low and then by `id`, and the files Spark writes afterwards keep a matching `sort_order_id`. Reading the 3 rows we put in with different `ts` gives `id` in the order 2, 3, 1, newest time first. A good order narrows the min/max statistics of the files, which helps skip files as we saw in [lesson 5](/en/iceberg/reading/#how-many-files-are-skipped-depends-on-the-filter) (that is the author's conclusion from that lesson, and we did not measure sorted against unsorted in this exercise).
+
+<Callout type="note" title="What this exercise did not try">
+We did not try adding a `NOT NULL` column to a table that has data, column defaults in a version 3 table, changing a decimal's precision, or changing the partitioning through PyIceberg and then writing data.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The six ALTER commands do not touch data files, write one new `metadata.json` per command, and keep 7 schemas | ran: `exercises/07_evolution.py` |
+| Old rows read with the new schema (NULL for new columns, `int` widened to `bigint` and `float` to `double`) | ran: `exercises/07_evolution.py` |
+| Narrowing (`bigint` to `int`) is refused | ran: `exercises/07_evolution.py` |
+| `VERSION AS OF` uses the schema of that snapshot | ran: `exercises/07_evolution.py` |
+| PyIceberg `update_schema` and Spark see the result together | ran: `exercises/07_evolution.py` |
+| `REPLACE PARTITION FIELD` does not rewrite old files, specs 0 and 1 coexist, and planning goes per spec | ran: `exercises/07_evolution.py` |
+| PyIceberg `update_spec` can add a `bucket[4]` field | ran: `exercises/07_evolution.py` |
+| `WRITE ORDERED BY` is recorded in `sort-orders` and new files keep `sort_order_id` | ran: `exercises/07_evolution.py` |
+| Ordering data narrows statistics and helps skip files | author (from [lesson 5](/en/iceberg/reading/)) |
+
+</Step>

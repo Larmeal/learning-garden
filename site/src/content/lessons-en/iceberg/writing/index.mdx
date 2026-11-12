@@ -1,0 +1,194 @@
+---
+title: Writing data and committing
+summary: See which kind of snapshot INSERT, INSERT OVERWRITE and DataFrameWriterV2 in Spark, and append, overwrite and delete in PyIceberg create, what a job that dies halfway leaves behind, and how Iceberg retries when two writers collide.
+order: 4
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [schema-partitioning]
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import WritePathLab from '../../../../components/labs/iceberg/WritePathLab';
+import CommitRaceLab from '../../../../components/labs/iceberg/CommitRaceLab';
+
+<Step>
+
+## Every write is one commit
+
+In [lesson 1](/en/iceberg/what-is-iceberg/#spark-can-write-on-without-overwriting-pyiceberg) we saw that a write ends with a change of the catalog row. In this lesson we look at which kind of snapshot each write command creates, because every snapshot has an `operation` field that says so (ran: `exercises/04_writes_commit.py`).
+
+The table is `orders`, partitioned by day. The first load puts 3 rows in three days with `INSERT INTO`. The result is one snapshot with `operation` `append`, which means files were added without touching the existing ones, as we saw in [lesson 2](/en/iceberg/table-anatomy/).
+
+There are four `operation` names we will meet: `append` (add files), `overwrite` (remove some files and add new ones), `delete` (remove files only) and `replace` (swap files for files with the same data, which happens when files are reorganised in the maintenance lesson). We see the first three in this lesson.
+
+</Step>
+
+<Step>
+
+## Watch one commit step by step
+
+Step through and see which new files appear in order, and what a reader sees at each step. Notice that the table does not change at all until step 7. Then choose "Meanwhile someone else committed first" and step through again. This is the same order the book Apache Iceberg: The Definitive Guide draws (chapter 3, page 46).
+
+<WritePathLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## What INSERT OVERWRITE replaces
+
+Spark's `INSERT OVERWRITE` confuses people most, because what it replaces depends on the setting `spark.sql.sources.partitionOverwriteMode`. We try both values on a table with three days of data.
+
+```python
+# the default is STATIC
+spark.sql("INSERT OVERWRITE lab.db.orders VALUES (4, 40.0, TIMESTAMP'2026-01-02 09:00:00')")
+```
+
+The result is one row, row 4. The data of day 1 and day 3 is gone, although we only wrote day 2. The `STATIC` mode replaces **the whole table** (`operation` is `overwrite`). Then we put the three days back and switch to `dynamic`:
+
+```python
+spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
+spark.sql("INSERT OVERWRITE lab.db.orders VALUES (5, 50.0, TIMESTAMP'2026-01-02 10:00:00')")
+```
+
+This time we get rows 1, 3 and 5. The `dynamic` mode replaces only the partitions the new data touches, which is day 2. The old row of day 2 is replaced by row 5, and days 1 and 3 are intact.
+
+<Callout type="warn" title="Careful with STATIC mode">
+If you only meant to overwrite one day and forgot to switch to `dynamic`, the other days disappear from the current snapshot (you can still go back with time travel if the old snapshot has not been removed). A more direct way is to use `overwritePartitions()` or `overwrite(condition)` in the next step, which say plainly what is replaced.
+</Callout>
+
+</Step>
+
+<Step>
+
+## DataFrameWriterV2 says what it means
+
+When you write with a DataFrame, use `writeTo`, where each method has a clear meaning:
+
+```python
+df.writeTo("lab.db.orders").append()                  # operation = append
+df.writeTo("lab.db.orders").overwritePartitions()     # replaces the partitions df touches
+df.writeTo("lab.db.orders").overwrite(F.col("ordered_at") < F.lit(datetime(2026, 1, 2)))   # replaces the rows matching the condition
+df.writeTo("lab.db.fresh").using("iceberg").create()  # creates a new table
+```
+
+The exercise confirms each line. `append()` adds 1 row, `overwritePartitions()` changes only the days of the rows in `df`, and `overwrite(...)` deletes the rows that match the condition (day 1) and adds the rows in `df`. One thing we hit while writing the exercise: `overwrite(condition)` does not filter `df` for you. If a row in `df` does not match the condition, it is added anyway, and you get duplicate rows when you run it again.
+
+</Step>
+
+<Step>
+
+## A failed job leaves nothing in the table
+
+Go back to person A's problem in [lesson 1](/en/iceberg/what-is-iceberg/#a-table-that-is-only-a-folder-of-files), who wrote half the files and then the job died. Let us make an `INSERT` really fail by dividing by zero:
+
+```python
+spark.sql("INSERT INTO lab.db.orders SELECT 99, cast(1 / 0 AS double), TIMESTAMP'2026-01-04 00:00:00'")
+# ArithmeticException: [DIVIDE_BY_ZERO] Division by zero.
+```
+
+After that we count the snapshots and rows of the table and get exactly what we had before the command. There is no new snapshot and no row 99. The reason is that a reader only looks at the snapshot the catalog points to. Files that were written but that no `metadata.json` mentions are as good as not there. In the book picture, a page that was printed but is in no edition's table of contents is never found by anyone. (The exercise did not check whether data files are left on disk. If a job dies after writing files, those files stay without any snapshot referring to them. We call them orphan files, and they are the reason table maintenance has a job that removes them.)
+
+</Step>
+
+<Step>
+
+## PyIceberg writes too, but with differences
+
+PyIceberg offers `append`, `overwrite` and `delete`, which take conditions as strings:
+
+```python
+t.append(arrow_table)
+t.delete("order_id = 9")
+t.overwrite(arrow_table, overwrite_filter="order_id = 5")
+```
+
+Looking at the `operation` that Spark can read, we see `append` followed by `delete` as expected. But `overwrite` with an `overwrite_filter` in PyIceberg 0.12.0 creates **two snapshots**: first a `delete` and then an `append` (the exercise asserts `["delete", "append"]`). So a reader who reads between the two commits sees the table after the delete and before the add. Spark's `INSERT OVERWRITE` above is a single snapshot. If you need a replacement in one commit, keep this in mind when choosing a tool.
+
+The numbers for each snapshot are in `.snapshots`, in the summary: `added-records`, `deleted-records` and `total-records`.
+
+```text
++---------+-----+-------+-----+
+|operation|added|deleted|total|
++---------+-----+-------+-----+
+|append   |3    |NULL   |3    |
+|overwrite|1    |3      |1    |     <- INSERT OVERWRITE in STATIC mode
+|append   |2    |NULL   |3    |
+|overwrite|1    |1      |3    |     <- INSERT OVERWRITE in dynamic mode
+...
+|append   |1    |NULL   |4    |     <- PyIceberg append
+|delete   |NULL |1      |3    |     <- PyIceberg delete
+```
+
+</Step>
+
+<Step>
+
+## When two writers collide
+
+Now the question left open from [lesson 1](/en/iceberg/what-is-iceberg/): what happens when two programs try to commit at the same time? We simulate it by loading the table twice from PyIceberg (`a` and `b` hold the same snapshot), letting `a` append first, and then letting `b` append although its snapshot is out of date.
+
+```python
+a = cat.load_table("db.orders")
+b = cat.load_table("db.orders")
+a.append(...)     # succeeds
+b.append(...)     # ?
+```
+
+The result is that `b.append` succeeds by itself, and the PyIceberg log says:
+
+```text
+Commit failed due to a concurrent update, retrying (1/4) in 105 ms
+```
+
+PyIceberg sends the commit request with the condition that branch `main` must still point to the snapshot `b` read. The catalog refuses because `a` has changed it, so `b` reads the latest table and tries again. The second attempt succeeds and both writers' rows are there. The Java side does the same. The default is `commit.retry.num-retries` of 4 attempts, waiting from 100 ms up to 1 minute and giving up after 30 minutes in total (source: `TableProperties.java`, `SnapshotProducer.commit`).
+
+If we switch retries off with `ALTER TABLE ... SET TBLPROPERTIES ('commit.retry.num-retries' = '0')` and collide again, `b.append` raises `CommitFailedException` with `branch main has changed: expected id ..., found ...`. We call `b.refresh()` to read the latest table, write again, and it succeeds.
+
+</Step>
+
+<Step>
+
+## See the race as a picture
+
+Step through and watch the pointer in the catalog and the condition it checks. Then switch Retry between on and off and see how Writer B ends differently, and whether B's data is in the table.
+
+<CommitRaceLab client:visible lang="en" />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Two writers read the table at the same snapshot. The first commits successfully first. The second has different new rows and does not change the same rows as the first. What is the result?"
+  options={["The second commit succeeds and overwrites, and the first writer's rows are lost", 'The second retries on the latest snapshot and succeeds, and the rows of both writers are there', 'Both fail and both must start again']}
+  answer={1}
+  why="An Iceberg commit is optimistic. Everyone writes their own files first and then races to change the pointer. The one who is behind finds the pointer has changed, so it reads the latest table, adds its own new files on top, and changes the pointer again. The exercise saw the log line retrying (1/4) and both writers' rows. Overwriting is impossible because changing the pointer has the condition that it must still be the old edition. The risky cases are statements that must check a condition against data the first writer just wrote, such as some overwrites (we did not try that)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| `INSERT INTO` gives `append`. `INSERT OVERWRITE` in STATIC mode replaces the whole table, and in dynamic mode only the partitions it touches | ran: `exercises/04_writes_commit.py` |
+| `writeTo(...).append()`, `overwritePartitions()`, `overwrite(condition)` and `create()` behave as described, and `overwrite(condition)` does not filter the DataFrame | ran: `exercises/04_writes_commit.py` |
+| A failed `INSERT` creates no snapshot and changes no row | ran: `exercises/04_writes_commit.py` |
+| PyIceberg 0.12.0 `overwrite` with `overwrite_filter` is two snapshots, `delete` then `append` | ran: `exercises/04_writes_commit.py` |
+| PyIceberg retries by itself on a collision (log `retrying (1/4)`), and with retries off you get `CommitFailedException` | ran: `exercises/04_writes_commit.py` |
+| Defaults of `commit.retry.*` and the retry in `SnapshotProducer.commit` | source: `TableProperties.java`, `SnapshotProducer.java` |
+| Orphan files left when a job dies after writing files | author (not run) |
+| Some overwrites check for conflicts with data just written (isolation level) | author (not run) |
+| The seven steps of a write (plan, ask the catalog, data file, manifest, manifest list, metadata.json, change the pointer) | book: Apache Iceberg: The Definitive Guide chapter 3, page 46 (figure 3-2), and exercises 01 and 02 for the kinds of files |
+
+</Step>

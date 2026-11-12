@@ -1,0 +1,132 @@
+---
+title: Streaming and reading only what changed
+summary: Use Structured Streaming to write into Iceberg and to read from it as a stream. See how each micro-batch is one snapshot, why restarting a stream does not repeat work, and how to read only the rows added between two snapshots with Spark and PyIceberg.
+order: 12
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [migration]
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## A stream is committing one chunk at a time
+
+Spark's Structured Streaming splits incoming data into chunks called micro-batches. When the destination is Iceberg, each micro-batch ends with one commit, which means every chunk is one snapshot. A reader therefore sees the data one complete chunk at a time and never sees a chunk that was written only partly (ran: `exercises/12_streaming_incremental.py`).
+
+We create a folder `inbox` that receives JSON files, and let a stream read that folder and write into a table `sink`, using `availableNow`, which says to process what is there now and then stop (convenient for an exercise that must finish).
+
+```python
+q = (spark.readStream.schema("id bigint, v string").json(inbox)
+     .writeStream.format("iceberg").outputMode("append")
+     .trigger(availableNow=True).option("checkpointLocation", ckpt).toTable("lab.db.sink"))
+q.awaitTermination()
+```
+
+We put the file `a.json` with 2 rows there first and run it. We get a table of 2 rows with one snapshot, with `operation` `append`, and the summary of the snapshot records who wrote it:
+
+```text
+spark.sql.streaming.queryId
+spark.sql.streaming.epochId
+```
+
+The query id and the number of the micro-batch are recorded in the snapshot itself. This is the clue Iceberg uses to avoid writing twice if the same micro-batch is tried again (we read that it is used this way, and did not try the case where a micro-batch fails halfway and is run again).
+
+</Step>
+
+<Step>
+
+## Restart the stream, and nothing is processed twice
+
+We run the same stream again without a new file, and no snapshot is added (there is still 1), because the checkpoint remembers how far it read. Then we put `b.json` with 1 row there and run again. The table has exactly 3 rows (reading again would give 5 from 2 + 2 + 1) and 2 snapshots, which means each file was processed once. This comes from Spark's checkpoint together with Iceberg committing one micro-batch at a time.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A stream writes into an Iceberg table with the availableNow option, and runs twice. In the second run the source folder has no new file. What happens to the table?"
+  options={['It writes the old files again and the rows are duplicated', 'No new commit, because the checkpoint remembers how far it processed, and the table still has the same number of snapshots', 'An error because there is no data']}
+  answer={1}
+  why="The exercise counted snapshots after the second run and got 1, as before, and after putting in a new file and running again got 3 rows in all, not 5. Not repeating comes from the checkpoint that stores the reading position of the source."
+/>
+
+</Step>
+
+<Step>
+
+## An Iceberg table can be the source of a stream
+
+A table written with Iceberg can be read on as a stream with `readStream.format("iceberg")`. We copy from `sink` to a table `copy` through a stream:
+
+```python
+spark.readStream.format("iceberg").load("lab.db.sink").writeStream.format("iceberg") ...
+```
+
+The first run gives `copy` 3 rows like `sink`. Then we `INSERT` row 4 into `sink` and run a second time, and `copy` has `[1, 2, 3, 4]` in full, because the stream reads only the new snapshots since the last run and does not read the whole table again. Remember that reading as a stream follows the line of appends of the snapshots. If there is a snapshot of `overwrite` or `delete` in between, look at Iceberg's options for whether to skip it, which we did not try.
+
+</Step>
+
+<Step>
+
+## Read only the rows added between two snapshots
+
+If you do not want a stream, but want to know what has been added since last time, you can set a range of snapshots when you read. The table `sink` now has three snapshots: `s[0]` (rows 1, 2), `s[1]` (row 3) and `s[2]` (row 4).
+
+```python
+spark.read.format("iceberg").option("start-snapshot-id", s[0]).option("end-snapshot-id", s[2]).load("lab.db.sink")
+# id = 3, 4
+spark.read.format("iceberg").option("start-snapshot-id", s[1]).load("lab.db.sink")
+# id = 4  (no end: up to the current snapshot)
+```
+
+The start snapshot is **not included** (we ask what happened after it) and the end snapshot is. PyIceberg does this too with `incremental_append_scan` and gets the same result:
+
+```python
+t.incremental_append_scan(from_snapshot_id_exclusive=s[0], to_snapshot_id_inclusive=s[2])   # id = 3, 4
+```
+
+The name already states the limit: "append". In the exercise we ran `INSERT OVERWRITE`, which made a snapshot whose `operation` is `overwrite`. When we read a range that covers that snapshot, the result is **empty**, not the rows that were written again, and there is no error. This kind of read therefore suits tables that grow only by adding. If you need to see deletes or updates, use the changelog view from [lesson 8](/en/iceberg/time-travel/#the-changelog-shows-what-changed).
+
+<Callout type="warn" title="Do not assume you got everything">
+An empty result from reading a range that holds an overwrite does not mean nothing changed. It means an incremental read of appends does not report that kind of change. If you pass data on to a downstream system this way, make sure the source table never has an overwrite or a delete.
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You read with the start snapshot set to snapshot 1 and the end snapshot set to snapshot 3. Whose rows do you get?"
+  options={['Snapshots 1, 2 and 3', 'Snapshots 2 and 3, because the start is not included and the end is', 'Only snapshot 3']}
+  answer={1}
+  why="The exercise got ids 3 and 4, which are the rows of snapshots 2 and 3, and rows 1 and 2 of the first snapshot were not included. It is like asking: counting from edition 1 onwards, what has been added?"
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A stream writing into Iceberg gets one snapshot per micro-batch, and the summary has `queryId` and `epochId` | ran: `exercises/12_streaming_incremental.py` |
+| Restarting a stream gives no new commit and 3 rows with no duplicates | ran: `exercises/12_streaming_incremental.py` |
+| An Iceberg table can be read as a stream, and the second run reads only the new snapshots | ran: `exercises/12_streaming_incremental.py` |
+| `start-snapshot-id` is exclusive and `end-snapshot-id` is inclusive, and no end means up to now | ran: `exercises/12_streaming_incremental.py` |
+| A range that holds an `overwrite` gives an empty result with no error | ran: `exercises/12_streaming_incremental.py` |
+| PyIceberg `incremental_append_scan` gives ids 3, 4 | ran: `exercises/12_streaming_incremental.py` |
+| `queryId` and `epochId` prevent writing twice when a micro-batch is retried, and the options for skipping overwrites in a stream | author/docs (not tried) |
+
+</Step>

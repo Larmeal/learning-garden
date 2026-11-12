@@ -1,0 +1,216 @@
+---
+title: What Iceberg is
+summary: Start from a table that is only a folder of files and see what Iceberg adds. Then create a first table with Spark, open the files it produces, and let PyIceberg read the same table through the catalog.
+order: 1
+phase: A
+level: 1
+stage: sprout
+format: steps
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## A table that is only a folder of files
+
+Picture a table `orders` stored as several Parquet files in one folder. To read the table you open the folder and read every file you find. This has worked for a long time, and it works well as long as one person writes and nobody reads while the write is going on.
+
+The trouble starts when the table grows and many people use it at once. Say person A is writing 10 new files into the folder and the job dies after 6. Person B, who opens the table at that moment, sees half of the data, because a folder cannot say which files are "done" and which are "still being written". Renaming a column or changing how the table is partitioned means rewriting the whole table, and finding out which files exist means listing the whole folder every time.
+
+Iceberg was built to solve these problems. The statements about the "folder of files" side on this page are the author's explanation and were not run. Everything else in the lesson was run.
+
+</Step>
+
+<Step>
+
+## Iceberg is a table format
+
+Iceberg is not a database and not a file format. The data is still Parquet files (Iceberg also supports ORC and Avro). What Iceberg adds is **metadata files that state, officially, which data files the table consists of right now**. A reader no longer lists the folder, and a write becomes the creation of a new metadata file that points to a new set of files.
+
+We will use the picture of a **book with a table of contents** here and in the next lessons. Data files are printed pages that are never edited. A metadata file is the table of contents of one edition. Every change to the table prints a new table of contents, and the **catalog** is the label on the shelf that says which edition to read now. If the label is changed, everyone sees the new edition at once. If it is not changed yet, everyone still sees the complete old edition.
+
+Iceberg itself is the specification (the spec) for these files, plus libraries in each language that read and write according to the spec and that engines like Spark call. In the Iceberg 1.12.0 source you can see modules for Spark, Flink, Kafka Connect and others side by side (source: the folders `spark/`, `flink/`, `kafka-connect/` and `format/spec.md`). PyIceberg is another library, written in Python, that reads and writes tables according to the same spec without a JVM.
+
+<Callout type="note" title="Versions used in this path">
+The exercises run on Spark 4.1.3 with Iceberg 1.12.0 (`iceberg-spark-runtime-4.1_2.13`) and PyIceberg 0.12.0. Iceberg 1.12.0 only has runtimes for Spark 4.0 and 4.1, and on 2026-11-12 there was none for Spark 4.2 on Maven Central, so we do not use the Spark 4.2 of the Spark path. The exercises run in WSL, the same as the Spark ones.
+</Callout>
+
+</Step>
+
+<Step>
+
+## A first table with Spark
+
+We create a namespace and a table `orders` partitioned by the day of `ordered_at`, then insert 4 rows (ran: `exercises/01_first_table.py`).
+
+```python
+spark.sql("CREATE NAMESPACE lab.db")
+spark.sql("""CREATE TABLE lab.db.orders (order_id bigint, customer string, amount double, ordered_at timestamp)
+             USING iceberg PARTITIONED BY (days(ordered_at))""")
+spark.sql("""INSERT INTO lab.db.orders VALUES
+             (1, 'ann',  120.0, TIMESTAMP'2026-01-01 09:00:00'),
+             (2, 'bob',   80.5, TIMESTAMP'2026-01-01 15:30:00'),
+             (3, 'ann',   42.0, TIMESTAMP'2026-01-02 10:00:00'),
+             (4, 'cara', 300.0, TIMESTAMP'2026-01-02 18:45:00')""")
+```
+
+`lab` is the catalog name set when the Spark session was built. Spark reads the name from its config and hands the command to Iceberg. `USING iceberg` says this is an Iceberg table, and `days(ordered_at)` is a partition transform that [lesson 3](/en/iceberg/schema-partitioning/#partition-transforms-and-hidden-partitioning) covers in detail.
+
+We only inserted 4 rows. We have not yet looked at which files appeared. That is next.
+
+</Step>
+
+<Step>
+
+## The files on disk
+
+The table lives in the folder `wh/db/orders`, and we can list every file.
+
+```text
+data/ordered_at_day=2026-01-01/00000-1-....-0-00001.parquet
+data/ordered_at_day=2026-01-02/00000-1-....-0-00002.parquet
+metadata/00000-....metadata.json
+metadata/00001-....metadata.json
+metadata/....-m0.avro
+metadata/snap-....avro
+```
+
+The folder `data/` holds 2 Parquet files, one per day. The folder `metadata/` holds 4 kinds of file. The two ending in `.metadata.json` are two tables of contents. Edition `00000` was made by `CREATE TABLE`, when there was no data yet, and edition `00001` was made by the `INSERT`. The file ending in `-m0.avro` is a **manifest**, a list of data files, and the file starting with `snap-` is a **manifest list**, the list of manifests of one snapshot. We open both in [lesson 2](/en/iceberg/table-anatomy/).
+
+The exercise asserts that one `INSERT` creates one data file per partition, two `metadata.json` files, one manifest and one manifest list, as above. These numbers change if Spark writes with several tasks at once, because each task writes its own file.
+
+</Step>
+
+<Step>
+
+## The catalog only keeps a pointer
+
+How does Spark know to open `00001` and not `00000`? The answer is in the catalog. In this exercise we use a JDBC catalog stored in a SQLite file. Open its table `iceberg_tables`:
+
+```text
+catalog_name    lab
+table_namespace db
+table_name      orders
+metadata_location           .../metadata/00001-....metadata.json
+previous_metadata_location  .../metadata/00000-....metadata.json
+```
+
+The catalog knows nothing about the schema or the data files. It keeps one row per table that says where the current `metadata.json` is. In the book picture, this is the label on the shelf. A commit in Iceberg therefore ends by changing this row to point to the new edition. It is a change of a single value, and it either succeeds completely or not at all. We follow this step closely in [lesson 4](/en/iceberg/writing/#when-two-writers-collide).
+
+Open `00001-....metadata.json` and you find these keys (ran: the same exercise):
+
+```text
+current-schema-id, current-snapshot-id, default-spec-id, format-version, last-column-id,
+location, metadata-log, partition-specs, properties, refs, schemas, snapshot-log, snapshots,
+sort-orders, table-uuid, ...
+```
+
+The file holds the schema, the partitioning, the whole snapshot history and which snapshot is current. The `format-version` of a table created by Spark is `2` (the spec has several versions, and we come back to that later).
+
+The snapshot made by the `INSERT` has a summary that says what happened:
+
+```text
+operation: append    added-data-files: 2    added-records: 4
+total-records: 4     total-data-files: 2    total-delete-files: 0
+engine-name: spark   engine-version: 4.1.3
+```
+
+</Step>
+
+<Step>
+
+## PyIceberg reads the same table
+
+Because the metadata are files that can be opened according to a spec, other engines can read the same table. We open the same catalog from PyIceberg, with no Spark involved.
+
+```python
+from pyiceberg.catalog import load_catalog
+
+cat = load_catalog("lab", type="sql", uri="sqlite:///.../catalog.db", warehouse="file://.../wh")
+tbl = cat.load_table("db.orders")
+tbl.scan().to_arrow().sort_by("order_id").to_pylist()
+```
+
+The first line opens a catalog of type `sql`, which uses the same `iceberg_tables` as Iceberg's Java JDBC catalog. The catalog name (`lab`) must match, because it is stored as the column `catalog_name` in the same row. The second line loads the table, and the third scans the whole table into an Arrow table. The result is the 4 rows that Spark wrote, and `tbl.current_snapshot().snapshot_id` equals `current-snapshot-id` in `metadata.json`.
+
+The schema PyIceberg prints is:
+
+```text
+1: order_id: optional long
+2: customer: optional string
+3: amount: optional double
+4: ordered_at: optional timestamptz
+```
+
+Two things stand out. First, every column has a number in front of it. That is its **field id**, which [lesson 3](/en/iceberg/schema-partitioning/#a-field-id-is-how-iceberg-refers-to-a-column) uses. Second, the Spark `timestamp` became `timestamptz` in Iceberg, a time with a timezone (stored as UTC). So if PyIceberg appends to this table, the time column in Arrow must have a timezone too. Without it, PyIceberg fails with a schema mismatch (the exercise hit `Mismatch in fields` on `ordered_at`).
+
+PyIceberg can write as well. We append row 5 from PyIceberg and then look at what a Spark session that already has the table open sees.
+
+```python
+tbl.append(pa.table({"order_id": [5], "customer": ["dan"], "amount": [10.0],
+                     "ordered_at": [datetime(2026, 1, 3, 8, 0, tzinfo=timezone.utc)]}))
+```
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A Spark session that opened the table earlier counts the rows right after PyIceberg appended row 5 successfully. How many rows does it count?"
+  options={['5, because the catalog has changed and Spark must see it at once', '4, because Spark still holds the table it loaded, until it refreshes or the cache expires', 'An error, because two engines cannot write the same table']}
+  answer={1}
+  why="The exercise measured 4 before REFRESH TABLE and 5 after. SparkCatalog keeps the table object it loaded in memory (the cache is on by default), so it still sees the old snapshot, which is a complete and correct state for that time, not corrupted data. The claim that two engines cannot write the same table is false: the next example shows they can, and Iceberg is designed for it."
+/>
+
+</Step>
+
+<Step>
+
+## Spark can write on without overwriting PyIceberg
+
+The next question: if the Spark session still sees the old state and we run an `INSERT`, does it overwrite the row PyIceberg wrote? We let PyIceberg append row 7 first, **do not refresh** Spark (which still sees only 6 rows), and then tell Spark to write row 8.
+
+```python
+spark.sql("INSERT INTO lab.db.orders VALUES (8, 'fay', 1.0, TIMESTAMP'2026-01-03 10:00:00')")
+```
+
+The `INSERT` succeeds, and the snapshot Spark creates has PyIceberg's snapshot as its `parent`. Reading the table from PyIceberg then finds all 8 rows. Nothing is lost. Before that, `snapshots` showed that every snapshot is an `append` and `total-records` climbs from 4 to 5 to 6.
+
+```text
++---------+-----+-----+
+|operation|added|total|
++---------+-----+-----+
+|append   |4    |4    |
+|append   |1    |5    |
+|append   |1    |6    |
++---------+-----+-----+
+```
+
+Two programs that do not know each other can write the same table safely because the last step of a commit is an `UPDATE` of the table's row in the catalog **on the condition that the row still points to the `metadata.json` the writer read**. If someone else changed it first, the statement changes no row, Iceberg knows there was a collision, and it reads the latest edition and writes on top of it (source: `JdbcUtil.java`, the constant `V1_DO_COMMIT_TABLE_SQL`, and `JdbcTableOperations.doCommit`). The exercise confirms the result shown above, and [lesson 4](/en/iceberg/writing/#when-two-writers-collide) shows the retry itself.
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A table created by Spark has `format-version` 2, one Parquet file per partition and two `metadata.json` after CREATE and INSERT | ran: `exercises/01_first_table.py` |
+| The JDBC catalog keeps `metadata_location` and `previous_metadata_location`, one row per table | ran: `exercises/01_first_table.py` |
+| PyIceberg reads and writes the same table as Spark through the same catalog | ran: `exercises/01_first_table.py` |
+| Spark `timestamp` is `timestamptz` in Iceberg, and PyIceberg needs an Arrow timestamp with a timezone | ran: `exercises/01_first_table.py` |
+| A Spark session sees 4 rows before `REFRESH TABLE` and 5 after | ran: `exercises/01_first_table.py` |
+| Spark `INSERT` without a refresh succeeds with PyIceberg's snapshot as `parent`, and all 8 rows are there | ran: `exercises/01_first_table.py` |
+| The JDBC catalog commit is an `UPDATE` conditional on `metadata_location` equalling the old edition | source: `JdbcUtil.java` (`V1_DO_COMMIT_TABLE_SQL`), `JdbcTableOperations.doCommit` |
+| Problems of a table that is a folder of files (reading while writing, schema change) | author (not run) |
+| Iceberg 1.12.0 has runtimes for Spark 4.0 and 4.1 and is built against Spark 4.1.3 | source: `gradle/libs.versions.toml`, Maven Central checked 2026-11-12 |
+| Iceberg is a spec with libraries, and has modules for several engines | source: folder layout of Iceberg 1.12.0 and `format/spec.md` |
+
+</Step>

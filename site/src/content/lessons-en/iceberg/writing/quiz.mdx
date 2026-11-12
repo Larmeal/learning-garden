@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Answer 4 questions to see how much of this lesson you understood.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="A table partitioned by day holds days 1, 2 and 3. You run INSERT OVERWRITE with data for day 2 only, without touching any config (Spark defaults). What is the result?"
+  options={['Only the new day 2 data is left. Days 1 and 3 are gone from the current snapshot', 'Day 2 is replaced, and days 1 and 3 are intact', 'An error, because you must always name the partition to overwrite']}
+  answer={0}
+  why="The exercise measured one row after the command. The default of spark.sql.sources.partitionOverwriteMode is STATIC, which replaces the whole table. You have to switch to dynamic to replace only the partitions the new data touches, or use overwritePartitions(), which says what it means more clearly."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A Spark INSERT fails halfway because of a division by zero. What does a reader of the table see afterwards?"
+  options={['The half of the data that had been written', 'The table exactly as before, with no new snapshot', 'The table is locked until someone cleans up the failed job']}
+  answer={1}
+  why="A reader only sees the snapshot the catalog points to. A job that fails before the commit never changed the pointer. The exercise counted snapshots and rows before and after and got the same numbers. Data files that may be left on disk are referred to by no snapshot, so they are not read, but they have to be removed later by table maintenance."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You call t.overwrite(df, overwrite_filter='order_id = 5') in PyIceberg 0.12.0 and look at the operation of the snapshots that appear. What do you see?"
+  options={['One snapshot with operation overwrite', 'Two snapshots in order: delete, then append', 'No new snapshot, because the file is edited in place']}
+  answer={1}
+  why="The exercise checked the operations of the last two snapshots and got delete and then append. That means a reader could see the table after the delete and before the add, in the gap between the two commits. If you need the replacement in a single commit, choose a tool that makes one snapshot, such as Spark's INSERT OVERWRITE. Data files are never edited in place in Iceberg."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Two PyIceberg writers hold the same snapshot. The first appends successfully, and then the second appends with the default settings. What happens?"
+  options={['CommitFailedException at once, and you must call refresh() yourself', 'The second retries by itself on the latest snapshot and succeeds (4 attempts by default)', 'The second overwrites the first one’s snapshot']}
+  answer={1}
+  why="The exercise caught the log line Commit failed due to a concurrent update, retrying (1/4) and found the rows of both writers. Only after commit.retry.num-retries is set to 0 do you get CommitFailedException as in the first option. The last option is impossible because changing the branch has the condition that the current snapshot must be the edition the writer read."
+/>
+
+</Step>

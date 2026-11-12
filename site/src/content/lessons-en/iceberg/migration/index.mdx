@@ -1,0 +1,141 @@
+---
+title: Bringing an existing table into Iceberg
+summary: You already have Parquet files or a Hive table. See add_files, which registers existing files without copying, snapshot, which lets you try without touching the original, migrate, which replaces the original table, and PyIceberg's add_files.
+order: 11
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [maintenance]
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## Existing data does not need to be written again
+
+Most of the time we do not start from an empty table. There is usually a folder of Parquet files or a Hive-style table in use already. Iceberg has three ways to bring existing data in: `add_files` (put files into an existing Iceberg table), `snapshot` (create an Iceberg table next to the original, to try things out) and `migrate` (replace the original table with an Iceberg one). What all three have in common is that they do not read and write the data again. They only create metadata that points at the existing files (ran: `exercises/11_migration.py`).
+
+</Step>
+
+<Step>
+
+## add_files registers existing files without copying
+
+We build a Hive-style Parquet folder ourselves, with two days (`d=2026-01-01` with 2 rows and `d=2026-01-02` with 1 row), and create an empty Iceberg table partitioned by `d`. Then we call:
+
+```python
+spark.sql(f"CALL lab.system.add_files(table => 'db.legacy', source_table => '`parquet`.`{src}`')")
+# added_files_count = 2
+```
+
+The table counts 3 rows at once, and the table's `data/` folder is **empty**, because no file was copied. The `.files` table shows that the table points straight at the original files:
+
+```text
+file:<root>/legacy/d=2026-01-01/part-0.parquet
+file:<root>/legacy/d=2026-01-02/part-0.parquet
+```
+
+The snapshot that results is an ordinary `append`. Iceberg reads the statistics of each file from the Parquet footer into a manifest, without reading all the data. The caution is that those files are now **shared** between the original folder and the table. If another program deletes or overwrites files in the original folder, the Iceberg table is affected too.
+
+Where do newly written rows go? In the exercise an `INSERT` of one more row produced a new file in the table's own `data/` folder (1 file). Then we compacted with `rewrite_data_files` in rewrite-all mode. Afterwards every file the table points at is inside the table's folder, while the 2 original files are still where they were and were not deleted (cleaning them up is our job).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="After calling add_files on an existing Parquet folder, what is in the data folder of the Iceberg table?"
+  options={['A copy of every Parquet file', 'No data files at all, because the table points at the original files where they are', 'Files converted to the Iceberg format']}
+  answer={1}
+  why="The exercise checked that the table's data folder was empty and that the paths in the files table point to part-0.parquet in the original folder. Iceberg data files are plain Parquet already, so nothing needs converting. Be careful that the files are shared with the original."
+/>
+
+</Step>
+
+<Step>
+
+## Snapshot lets you try first, and migrate replaces the original
+
+These two commands work on tables in Spark's normal catalog (a `USING parquet` table made with `CREATE TABLE`). You must set Iceberg to wrap Spark's original catalog with `SparkSessionCatalog`. In the exercise we set:
+
+```text
+spark.sql.catalog.spark_catalog           = org.apache.iceberg.spark.SparkSessionCatalog
+spark.sql.catalog.spark_catalog.type      = hadoop
+spark.sql.catalog.spark_catalog.warehouse = file:<root>/sc_wh
+spark.sql.warehouse.dir                   = <root>/sc_wh/default
+```
+
+We create the table `default.old` (Parquet, partitioned by `d`, 3 rows) and call:
+
+```python
+spark.sql("CALL spark_catalog.system.snapshot(source_table => 'default.old', table => 'default.old_ice')")
+# imported_files_count = 2
+```
+
+The table `old_ice` counts 3 rows and the files of the original table did not change at all (the exercise compares the file listing before and after). When we `INSERT` one more row into `old_ice`, the original table still counts 3, because the new row lives in `old_ice`'s own folder. So `snapshot` is a safe way to test reading and writing on real data.
+
+`migrate` replaces the original table:
+
+```python
+spark.sql("CALL spark_catalog.system.migrate('default.old')")
+# migrated_files_count = 2
+```
+
+After that `default.old` has the provider `iceberg` and still counts 3 rows. The exercise also saw a table named `old_backup_` appear, which is the definition of the original table that Iceberg keeps as a backup (the name matches what the documentation says, but we did not try restoring a table from it).
+
+<Callout type="warn" title="Set the warehouse to match the existing location">
+When we first tried `migrate` it failed with `Cannot set a custom location for a path-based table`, because the location of the existing table and the catalog's warehouse did not match (they differed only in the `file:` prefix). We fixed it by setting `spark.sql.warehouse.dir` and the catalog's warehouse to the same place, with `file:` written out. If your real tables are somewhere else, try `snapshot` first.
+</Callout>
+
+</Step>
+
+<Step>
+
+## PyIceberg can add files too
+
+On the PyIceberg side the table must have a schema that matches the files first, and then you call `add_files`:
+
+```python
+t = cat.create_table("py.t", schema=schema)
+t.add_files(["file://.../legacy/d=2026-01-01/part-0.parquet", "file://.../legacy/d=2026-01-02/part-0.parquet"])
+```
+
+The exercise counted 3 rows from the same set of files. This table has no partitions set, so we can only read the columns that are in the Parquet (`id`, `amount`). When files are kept in a Hive partition whose value is in the folder name, you have to deal with the partitioning yourself, which we did not try with PyIceberg.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You want to find out whether your existing Hive data works on Iceberg without any risk of damaging the original table. What should you use?"
+  options={['migrate, because it is the fastest', 'snapshot, because it creates an Iceberg table beside the original without touching it, and new rows go to a different folder', 'add_files straight into the original table']}
+  answer={1}
+  why="The exercise compared the file listing of the source table before and after calling snapshot and found it identical, and an INSERT into the new table did not add a row to the original. migrate replaces the original table, so use it after testing."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| `add_files` adds 2 Parquet files, the table counts 3 rows, the `data/` folder is empty and the paths point at the original files | ran: `exercises/11_migration.py` |
+| After writing on and `rewrite_data_files`, all files are in the table folder and the original files are not deleted | ran: `exercises/11_migration.py` |
+| `snapshot` imports 2 files, leaves the original untouched, and new writes do not reach the original | ran: `exercises/11_migration.py` |
+| `migrate` changes the provider to Iceberg, counts 3 rows and creates the table `old_backup_` | ran: `exercises/11_migration.py` |
+| The error `Cannot set a custom location for a path-based table` when the warehouse does not match | ran: `exercises/11_migration.py` (an error met for real) |
+| PyIceberg `add_files` reads 3 rows | ran: `exercises/11_migration.py` |
+| Restoring a table from `_backup_`, and Hive partitions with PyIceberg's `add_files` | author (not tried) |
+
+</Step>

@@ -1,0 +1,203 @@
+---
+title: Under the covers, CREATE, INSERT, MERGE, SELECT and compaction
+summary: Follow one table through seven statements. See step by step which files are written, which are reused and which are skipped, and click into every real file Spark wrote.
+order: 10
+stage: sprout
+format: steps
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import UnderCoversLab from '../../../../components/labs/iceberg/UnderCoversLab';
+
+<Step>
+
+## One table, seven statements, every file real
+
+In [lesson 2](/en/iceberg/table-anatomy/) we followed the arrows after the `INSERT`s had finished. This page goes back to the moment those files were born. We use the same `orders` table and run one statement at a time: `CREATE TABLE`, two `INSERT`s, `MERGE INTO`, a `SELECT` with a condition, time travel and compaction. After each statement we read every file from disk with `json` and `fastavro`, without asking Spark (run: `exercises/15_under_the_covers.py`).
+
+Each picture has five columns, which are the three layers of a table in the book. The catalog is on the left, the metadata layer (`metadata.json`, manifest list and manifest) is in the middle, and the data layer with the Parquet files is on the right. To keep the picture readable every file has a short name: `v1`, `v2` are the `metadata.json` files, `s1`, `s2` are the manifest lists of the snapshots, `m1`, `m2` are manifests and `a1`, `a2` are data files. The real names on disk are long UUIDs, which are no fun to read.
+
+You can use a picture in two ways. Press "Next" to walk one step at a time, and **click any box** to see what is inside that file. The table under the picture is the real content of the file you picked.
+
+Three things to keep in mind, because every statement on this page follows them.
+
+1. A file that has been written is never edited again, whether it is a data file, a manifest, a manifest list or a `metadata.json`.
+2. A commit writes all its new files first and then changes the pointer in the catalog once, at the end. Readers see everything new at the same moment, or nothing.
+3. Data that "disappears" from the table is not removed from disk. A new manifest just says the file is DELETED. The file itself is still there.
+
+</Step>
+
+<Step>
+
+## CREATE TABLE, even an empty table has one file
+
+<UnderCoversLab client:visible op="create" lang="en" />
+
+`CREATE TABLE` writes exactly one thing to disk: `v1.metadata.json`. Click the box "Contents v1" in the picture. You will see a schema in which every column has a field id (`order_id` is 1, `customer` is 2, `amount` is 3) and an empty list of snapshots. The table has no data file, no manifest and no manifest list yet.
+
+So what does the catalog remember? Click the Catalog box. It holds only the table name and the location of `v1.metadata.json`. Everything else is in files. That is why several engines can use one table, as long as they open the same catalog.
+
+</Step>
+
+<Step>
+
+## The first INSERT, four files first, then the pointer
+
+<UnderCoversLab client:visible op="insert1" lang="en" />
+
+The order of the writes matters. Files are written from the bottom up: the data file, then the manifest, then the manifest list, then `metadata.json`, and only at the end the pointer in the catalog. While steps 2 to 5 run, look at the Catalog box: it still points to `v1` all the time. A reader who opens the table in that window sees the empty table as before, and has no way to see files that are half written.
+
+Think of a library that issues a new edition. The librarian prints the new pages, makes the list of pages and makes a new table of contents, and puts them behind the desk. Only when the whole set is ready does the librarian change the label on the shelf, once. Nobody sees a book that is not finished.
+
+Click manifest `m1` and look at the statistics inside. `order_id` goes from 1 to 2 and `amount` from 80.5 to 120.0. These numbers are not only in the Parquet file. The manifest keeps a copy so that a reader can skip files without opening the data file. We use it again in the `SELECT` below.
+
+<Question
+  client:visible
+  lang="en"
+  q="Spark crashes after it has written all four files but before it changes the pointer in the catalog (after step 5, before step 6). What does a reader who opens the table at that moment see?"
+  options={['The empty table as before the INSERT, because the catalog still points to v1. The four files that were written sit there and nothing refers to them', 'The 2 rows that were just written, because the data file is already on disk', 'Nothing, the table cannot be read because the new metadata.json is not complete']}
+  answer={0}
+  why="A reader always starts at the catalog. It still points to v1, which has no snapshot, so the table looks empty. None of the four files is referred to by any snapshot, which is why the command remove_orphan_files exists to clean them up (this follows from the structure in the picture; a job that really fails halfway is in [lesson 4](/en/iceberg/writing/#a-failed-job-leaves-nothing-in-the-table))."
+/>
+
+</Step>
+
+<Step>
+
+## The second INSERT, the manifest of the first one is reused
+
+<UnderCoversLab client:visible op="insert2" lang="en" />
+
+Look at step 4 this time. Manifest list `s2` points to two files: `m2`, which was just written, and `m1`, which was written at the first INSERT. In the picture `m1` has a "reused" tag. Iceberg does not write a list of all the files of the table again. It writes only what was added and lets the new snapshot point to the old files.
+
+When you click `s2` you see the list of manifests with the numbers "added / existing / deleted" for each. `m2` added 1 file, and `m1` also added 1 file, which was the work of commit one. The "added" count of `m1` is the same as before, because the number belongs to the manifest itself, not to the snapshot you are reading.
+
+Another thing to notice: the contents file `v3` keeps both snapshots `s1` and `s2`. Anyone who asks for `s1` still sees the original 2 rows. We use that in time travel.
+
+</Step>
+
+<Step>
+
+## MERGE INTO, the old file is not edited, a manifest just says it is deleted
+
+<UnderCoversLab client:visible op="merge" lang="en" />
+
+This `MERGE` changes order 2 from 80.5 to 95.0 and adds a new order 5. It shows what Iceberg does with files that must not be edited. Look at three things in steps 2 to 4.
+
+- The new data file `a3` has 3 rows: order 1 (unchanged), order 2 (95.0) and order 5. Click it and all three rows are there. This is copy-on-write, which we talked about in [lesson 6](/en/iceberg/row-level/#copy-on-write-rewrites-the-whole-file). Spark writes a whole new file instead of changing one row in the old file.
+- Manifest `m4` has a single entry with `status = DELETED` that points to `a1`. Click it. This is how Iceberg "deletes" a file from the table. It does not delete the file. It writes a new manifest that says this snapshot does not use the file any more.
+- Manifest list `s3` has no `m1` any more, because `m1` lists only `a1`, which was replaced. `m2`, which lists `a2` (not touched), is reused as it was.
+
+The rest is the same as before: write `v4` and change the pointer. At the end snapshot `s3` has `operation` set to `overwrite`, because one commit added a file and removed a file. `s1` and `s2` can still reach `a1`.
+
+<Callout type="note" title="The mode of MERGE">
+
+This table uses the default, so we got copy-on-write. With merge-on-read the picture would be different: Spark would write a delete file instead of the whole `a3`. [Lesson 6](/en/iceberg/row-level/#compare-the-three-modes) compares the two modes side by side. The pictures on this page were run only for copy-on-write.
+
+</Callout>
+
+</Step>
+
+<Step>
+
+## SELECT with a condition, only one data file is opened
+
+<UnderCoversLab client:visible op="select" lang="en" />
+
+A read walks down along the arrows. The catalog says `v4`, the contents file says the current snapshot is `s3`, the manifest list lists three manifests, and then comes step 4, which pays off most. Spark reads the lowest and highest value of `amount` from the manifests and compares them with the condition `amount > 200`.
+
+- `m4` holds only deleted files, so there is nothing to follow.
+- `a3` has a highest `amount` of 120, below 200. No row of this file can pass the condition, so it can be skipped without opening it.
+- `a2` has a highest `amount` of 300. This file may hold the rows we want.
+
+The result: of the 2 data files in use, Spark really opens only `a2`. We confirmed this number with PyIceberg on the same catalog. `scan(row_filter="amount > 200").plan_files()` returns one file, `a2`, while a scan of the whole table returns 2 files. With a table this small you will not see a difference in time, but with a hundred thousand files the difference between opening 1 file and opening all of them is the difference between an answer at once and a wait of minutes. Everything about planning a read is in [lesson 5](/en/iceberg/reading/#follow-one-query-down-the-layers).
+
+<Question
+  client:visible
+  lang="en"
+  q="In the SELECT with the condition amount > 200, how does Spark know that no row in file a3 can pass the condition, before it has opened that file?"
+  options={['It reads the lowest and highest value of amount that the manifest stores, and sees that the highest value of a3 is 120, less than 200', 'It opens a3 first, and drops it after it finds no row that it wants', 'It asks the catalog which files have an amount above 200']}
+  answer={0}
+  why="A manifest keeps the lowest and highest value of every column for each data file (click m3 in the picture to see those of a3). The highest value of a3 is 120.0, so no row can have an amount above 200. Spark decides this from the manifest alone. The catalog only remembers the pointer to metadata.json and knows nothing about what is in the data files."
+/>
+
+</Step>
+
+<Step>
+
+## Time travel, walking down an old path that is still there
+
+<UnderCoversLab client:visible op="travel" lang="en" />
+
+The table is at `s3` now, but we ask for `s1` directly. Spark picks the snapshot we asked for and walks down the old path, `s1` → `m1` → `a1`, and gets 2 rows as right after the first INSERT, although the table has 5 rows now.
+
+Time travel works because of two things that we just saw on this page. First, `v4` still keeps the list of the old snapshots. Second, old files such as `m1` and `a1` are still on disk, because they were never edited or removed. An old snapshot is just another set of file lists. How tags, branches and rollback are used in practice is in [lesson 8](/en/iceberg/time-travel/#every-snapshot-is-an-old-edition-you-can-still-open).
+
+</Step>
+
+<Step>
+
+## Compaction, merging small files: same data, different files
+
+<UnderCoversLab client:visible op="compact" lang="en" />
+
+The table now has 2 data files in use: `a2` (2 rows) and `a3` (3 rows). When we run `rewrite_data_files`, Spark reads both, writes one file `a4` (5 rows) and commits in exactly the same way as before. Look at step 3: there are three manifests. `m5` says `a4` was added, and `m6` and `m7` say `a3` and `a2` were deleted.
+
+Snapshot `s4` has `operation` set to `replace`, not `append` or `overwrite`, because the data in the table is the same (`total-records` is still 5) and only the files that hold it changed. A reader who asks for the new snapshot opens only `a4`.
+
+Look at step 6 too. `a1` to `a3` are still on disk. They did not go anywhere, because old snapshots still point to them, and the numbers from the exercise confirm the three files are really still there. They are removed only when we expire the old snapshots, which belongs to [lesson 10](/en/iceberg/maintenance/#rewrite_data_files-compacts-small-data-files), where all the upkeep work is.
+
+</Step>
+
+<Step>
+
+## The summary in numbers, how many files each statement writes
+
+The table is counted from the same exercise we just looked at (short names as in the pictures).
+
+| Statement | New files written | Old files reused | Snapshot operation |
+|---|---|---|---|
+| `CREATE TABLE` | 1 (`v1`) | - | no snapshot |
+| first `INSERT` | 4 (`a1`, `m1`, `s1`, `v2`) | - | `append` |
+| second `INSERT` | 4 (`a2`, `m2`, `s2`, `v3`) | `m1` | `append` |
+| `MERGE INTO` | 5 (`a3`, `m3`, `m4`, `s3`, `v4`) | `m2` | `overwrite` |
+| `SELECT` | 0 | - | - |
+| time travel | 0 | - | - |
+| compaction | 6 (`a4`, `m5`, `m6`, `m7`, `s4`, `v5`) | - | `replace` |
+
+Every statement that writes does the same two things: it writes new files that nothing refers to yet, and then it changes the pointer in the catalog once. `SELECT` and time travel write nothing. They only follow the pointers down and use the lowest and highest values in the manifests to cut the files that do not need to be read.
+
+<Question
+  client:visible
+  lang="en"
+  q="After compaction the data files a1, a2 and a3 are still on disk. Why are they not deleted?"
+  options={['Because the old snapshots (s1, s2, s3) can still reach these files. They are removed only when those snapshots are expired', 'Because compaction cannot delete files, you have to delete them by hand in the file system every time', 'Because the catalog still points to these files']}
+  answer={0}
+  why="The exercise checks that a1, a2 and a3 still exist after compaction. The new snapshot s4 does not use them, but s1 to s3 still point to them, so time travel still works. Files are removed when no snapshot that is kept refers to them, which is the job of expire_snapshots in [lesson 10](/en/iceberg/maintenance/#expire_snapshots-removes-old-snapshots-and-the-files-only-they-use). The catalog does not point to data files at all, only to metadata.json."
+/>
+
+</Step>
+
+<Step>
+
+## Where this page comes from
+
+| Claim | Source |
+|---|---|
+| The files written by each statement (1, 4, 4, 5, 6 files) and the manifests involved | Ran: `exercises/15_under_the_covers.py` |
+| After `CREATE TABLE` there is one `metadata.json` and no snapshot | Ran: `exercises/15_under_the_covers.py` |
+| The manifest list of the second snapshot holds `m2` and the reused `m1` | Ran: `exercises/15_under_the_covers.py` |
+| `MERGE` in copy-on-write gives `overwrite`, adds 1 file, removes 1 file, and `a1` is recorded as DELETED in a new manifest | Ran: `exercises/15_under_the_covers.py` |
+| `amount > 200` leaves one file to open (PyIceberg `plan_files`) | Ran: `exercises/15_under_the_covers.py` |
+| Going back to the first snapshot gives 2 rows | Ran: `exercises/15_under_the_covers.py` |
+| Compaction gives `replace` and the old files stay on disk | Ran: `exercises/15_under_the_covers.py` |
+| The default mode of `MERGE` is copy-on-write | Source: `TableProperties.java`, as [lesson 6](/en/iceberg/row-level/#copy-on-write-rewrites-the-whole-file) states |
+| The order of the writes: data file, manifest, manifest list, `metadata.json`, then the pointer | Book: Apache Iceberg: The Definitive Guide, chapter 3, page 46 (figure 3-2) |
+| The three layers: catalog, metadata, data | Book: Apache Iceberg: The Definitive Guide, chapter 2, page 29 (figure 2-1) |
+| The format "one table, one statement at a time, one step at a time" | The idea comes from the Dremio article Apache Iceberg: An Architectural Look Under the Covers (used as inspiration for how to explain, no content copied) |
+| The library picture | Author |
+
+</Step>

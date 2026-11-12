@@ -1,0 +1,53 @@
+---
+title: Check your understanding
+summary: Answer 3 questions to see how much of this lesson you understood.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="A stream writes into an Iceberg table. Will a reader of the table see data of a micro-batch that is half written?"
+  options={['Yes, because files are written one at a time', 'No, because each micro-batch is one commit, and a reader sees the whole chunk when the new snapshot appears', 'Only when the stream stops']}
+  answer={1}
+  why="The data files a micro-batch writes are referred to by no snapshot until the commit, so a reader does not see them. The exercise confirmed that every run with new data adds one snapshot, with operation append."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You want to pass on only the rows added since yesterday from a table that grows by append only. What is the most direct way?"
+  options={['Read the whole table and compare it with yesterday’s yourself', 'An incremental read, with the start snapshot set to yesterday’s (not included) and the end snapshot set to now', 'Use a rollback to yesterday']}
+  answer={1}
+  why="The exercise read the range from snapshot 1 to snapshot 3 and got ids 3 and 4, the rows added after snapshot 1. Both Spark and PyIceberg (incremental_append_scan) can do it. The limit is that it works on snapshots that are appends."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A table has an overwrite snapshot inside the range read incrementally. What is the result for that range, as the exercise measured it?"
+  options={['The rows written again by the overwrite, in full', 'An empty result, with no error warning', 'An error at once']}
+  answer={1}
+  why="The exercise made an overwrite snapshot with INSERT OVERWRITE and then read the range that covers it, and got an empty result with no error. An incremental read follows only files that were added by an append. If the table has overwrites or deletes, use the changelog instead."
+/>
+
+</Step>

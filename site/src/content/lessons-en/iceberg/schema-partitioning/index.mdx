@@ -1,0 +1,179 @@
+---
+title: Schema, field ids and partitioning
+summary: Every column in Iceberg has a field id, which lets you rename a column without breaking old files. Partitions use a transform of a real column, so a query that filters on the plain column skips partitions by itself.
+order: 3
+phase: A
+level: 2
+stage: sprout
+format: steps
+requires: [table-anatomy]
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## A field id is how Iceberg refers to a column
+
+In [lesson 2](/en/iceberg/table-anatomy/#layer-3-the-manifest) we saw that the column statistics in a manifest use a number as the key, not a name. That number is the **field id** Iceberg gives to every column when the table is created. Let us see where it appears (ran: `exercises/03_schema_partitioning.py`).
+
+We create a table `events` with columns of several kinds, including columns nested inside others.
+
+```python
+spark.sql("""CREATE TABLE lab.db.events (
+    event_id bigint, user_id bigint, country string, price decimal(10,2), ts timestamp,
+    tags array<string>, address struct<city: string, zip: string>, attrs map<string, int>)
+  USING iceberg PARTITIONED BY (days(ts))""")
+```
+
+In `metadata.json` the top-level columns have ids 1 to 8 in declaration order, but the nested columns have ids of their own too:
+
+```text
+all ids: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]     last-column-id = 13
+tags     (6)  element-id 9
+address  (7)  city = 10, zip = 11
+attrs    (8)  key-id 12, value-id 13
+```
+
+`last-column-id` in `metadata.json` records the highest id used so far. When a column is added, Iceberg always hands out the next id and never reuses one. The Parquet files written to this table keep the same ids in their own schema (`PARQUET:field_id`). The exercise opened a file: `event_id` is 1 and `attrs` is 8, matching `metadata.json`.
+
+</Step>
+
+<Step>
+
+## Types that Spark and Iceberg name differently
+
+Opening the same table from PyIceberg shows the type names the Iceberg way:
+
+```text
+event_id: long          price: decimal(10, 2)     ts: timestamptz
+tags: list<string>      attrs: map<string, int>   address: struct<10: city: optional string, 11: zip: optional string>
+```
+
+Spark's `bigint` is `long` in Iceberg and `array` is `list`. The one to watch is time: Spark's `timestamp` becomes `timestamptz` (with a timezone). If you want a time that is not tied to a timezone, declare `timestamp_ntz` in Spark and it becomes Iceberg's `timestamp`. The exercise created a table `ntz` with `timestamp_ntz`, `int` and `date` and got `timestamp`, `int` and `date`.
+
+</Step>
+
+<Step>
+
+## Renaming a column leaves old files readable
+
+Let us rename `price` to `unit_price` and then read a row written before.
+
+```python
+spark.sql("ALTER TABLE lab.db.events RENAME COLUMN price TO unit_price")
+spark.sql("SELECT event_id, unit_price FROM lab.db.events WHERE event_id = 10").first()
+```
+
+The `unit_price` of event 10 is still `10.5`, although the old Parquet files were not touched. The reason is that Iceberg does not look for a column named `unit_price` in the file. It looks for the column whose field id is 4. `metadata.json` now has two schemas (the old one calls it `price` and the new one `unit_price`), and both use id 4.
+
+The next question is: if we drop the column and add a new one with the old name, does the old data come back?
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="After renaming to unit_price we run DROP COLUMN unit_price and then ADD COLUMN unit_price decimal(10,2) with the old name. What is unit_price now for event 10, which used to be 10.5?"
+  options={['10.5, because the column name is the same as before', 'NULL, because the new column gets a new field id and the old file has no column with that id', 'An error, because Iceberg does not allow a name that existed before']}
+  answer={1}
+  why="The exercise measured NULL and saw that the new unit_price has id 14 (the highest-id counter moved from 13 to 14). The 10.5 is still in the Parquet file under id 4, but no current column points to that id any more, because Iceberg ties data to ids, not names. So dropping a column and creating one with the same name does not bring old data back by accident. In a system that ties data to column names it could, but we did not try that."
+/>
+
+</Step>
+
+<Step>
+
+## Partition transforms and hidden partitioning
+
+The table `events` was declared with `PARTITIONED BY (days(ts))`. What Iceberg records in `metadata.json` is:
+
+```text
+partition spec: [ 1000: ts_day: day(5) ]
+```
+
+It means there is a partition field named `ts_day` that comes from the **transform** `day` of the column with field id 5 (`ts`). The important point is that `ts_day` is **not a column of the table**. You will not find it in the schema. The data files do sit in folders such as `data/ts_day=2026-01-02/...`, but the user does not need to know. A plain condition on `ts` is enough. This is called **hidden partitioning**.
+
+Let us check that it really skips partitions. We load 5 days of data, 2 events a day, and ask PyIceberg to plan the scan with `plan_files()`, which says which files it would open.
+
+```python
+len(list(t.scan().plan_files()))                                                       # 5
+len(list(t.scan(row_filter="ts >= '2026-01-02T00:00:00+00:00' and ts < '2026-01-03T00:00:00+00:00'").plan_files()))   # 1
+len(list(t.scan(row_filter="country = 'TH'").plan_files()))                            # 5
+```
+
+With a filter on `ts` for day 2, PyIceberg picks one file, and we never had to name `ts_day`. The filter `country = 'TH'` still has to open all 5 files, because `country` is not used to split partitions and every file holds both `TH` and `US`, so the min/max statistics of the file cannot rule any file out. The partition value in the manifest is a number of days counted from 1970-01-01 (2 January 2026 is `(2026-01-02) - (1970-01-01)` days, which the exercise asserts).
+
+Spark sees the same. The `.partitions` table summarises 5 partitions with 2 rows in 1 file each, and the `SELECT` for day 2 returns 2 rows with no `ts_day` column in the result.
+
+```text
++------------+------------+----------+
+|partition   |record_count|file_count|
++------------+------------+----------+
+|{2026-01-01}|2           |1         |
+|{2026-01-02}|2           |1         |
+|{2026-01-03}|2           |1         |
+|{2026-01-04}|2           |1         |
+|{2026-01-05}|2           |1         |
++------------+------------+----------+
+```
+
+Compare this with a Hive-style table that needs a separate `dt` column the user must filter on. If the user forgets to filter on `dt`, the query scans every partition (that remark is the author's and was not run in this lesson).
+
+</Step>
+
+<Step>
+
+## All the transforms
+
+The spec defines eight transforms: `identity` (the value as it is), `bucket[N]` (a hash of the value, modulo N), `truncate[W]` (the value cut to width W), `year`, `month`, `day`, `hour`, and `void` (always `null`, used when a partition field is retired). We try three of them in one table.
+
+```python
+spark.sql("""CREATE TABLE lab.db.users (user_id bigint, country string, signed_up timestamp)
+             USING iceberg PARTITIONED BY (bucket(4, user_id), truncate(1, country), months(signed_up))""")
+```
+
+We insert 4 users, choosing the `user_id` values so that they fall in different buckets, and then look at the partition of each file.
+
+```text
++---+---+---+------------+
+|b  |c  |m  |record_count|        b = user_id_bucket, c = country_trunc, m = signed_up_month
++---+---+---+------------+
+|0  |T  |672|1           |        user 101, TH, 2026-01  (672 months counted from 1970-01)
+|1  |T  |673|1           |        user 107, TH, 2026-02
+|3  |U  |673|1           |        user 103, UK, 2026-02   (truncate cuts UK to U)
+|2  |U  |673|1           |        user 106, US, 2026-02   (truncate cuts US to U)
++---+---+---+------------+
+```
+
+`bucket(4, user_id)` gives a number from 0 to 3. Spark has a function `lab.system.bucket(4, user_id)` that you can call directly, and PyIceberg can compute it with `BucketTransform(4)`. The exercise computed it on both sides and got the same number for every `user_id` (101 gives 0, 107 gives 1, 106 gives 2 and 103 gives 3). So two programs that do not know each other can write files into the same partition, because they agree on the hash (Murmur3) as the spec defines it.
+
+<Callout type="note" title="PyIceberg needs an extra install to write a table with transforms">
+The first time PyIceberg appended to a table partitioned with `days(...)`, it said you must install `pyiceberg[pyiceberg-core]`, because the transform is computed by a module written in Rust. The exercise project already installs it in `pyproject.toml`.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| Every column, including an array element, struct fields and map key and value, has a field id, and `last-column-id` is 13 | ran: `exercises/03_schema_partitioning.py` |
+| Field ids are stored in Parquet (`PARQUET:field_id`) and match `metadata.json` | ran: `exercises/03_schema_partitioning.py` |
+| Spark `timestamp` is `timestamptz`, `timestamp_ntz` is `timestamp`, and `bigint` is `long` | ran: `exercises/03_schema_partitioning.py` |
+| Renaming a column keeps its id and old data is readable | ran: `exercises/03_schema_partitioning.py` |
+| Drop and then add with the same name gets a new id (14) and the old values do not return | ran: `exercises/03_schema_partitioning.py` |
+| `ts_day` is not a column of the table, and filtering on `ts` skips partitions (5, 1, 5 files) | ran: `exercises/03_schema_partitioning.py` |
+| The `day` partition value is days since 1970-01-01 | ran: `exercises/03_schema_partitioning.py` |
+| The bucket numbers from Spark and PyIceberg agree | ran: `exercises/03_schema_partitioning.py` |
+| The list of eight transforms | source: `format/spec.md` (Partition Transforms) |
+| A Hive-style table scans every partition when `dt` is not filtered | author (not run) |
+
+</Step>

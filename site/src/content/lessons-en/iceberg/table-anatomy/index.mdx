@@ -1,0 +1,215 @@
+---
+title: Inside a table
+summary: Walk from metadata.json down to Parquet by hand through the snapshot, the manifest list and the manifest, to see what each layer of files holds, why a commit writes so few files, and where column statistics are kept.
+order: 2
+phase: A
+level: 2
+stage: sprout
+format: steps
+requires: [what-is-iceberg]
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import TreeLab from '../../../../components/labs/iceberg/TreeLab';
+
+<Step>
+
+## From the label on the shelf to the page
+
+In [lesson 1](/en/iceberg/what-is-iceberg/#the-catalog-only-keeps-a-pointer) we saw that the catalog points to `metadata.json`, and that `metadata.json` points on to the other files. In this lesson we follow every arrow by hand without using any Iceberg library. We use `json` to read JSON, `fastavro` to read Avro and `pyarrow` to read Parquet, so what we see is what is really written on disk (ran: `exercises/02_table_anatomy.py`).
+
+The table is `orders`, with no partitions, 3 columns, and three `INSERT`s of 2 rows each.
+
+```python
+spark.sql("CREATE TABLE lab.db.orders (order_id bigint, customer string, amount double) USING iceberg")
+spark.sql("INSERT INTO lab.db.orders VALUES (1, 'ann', 120.0), (2, 'bob', 80.5)")
+spark.sql("INSERT INTO lab.db.orders VALUES (3, 'ann', 42.0), (4, 'cara', 300.0)")
+spark.sql("INSERT INTO lab.db.orders VALUES (5, 'dan', 10.0), (6, 'eve', 999.0)")
+```
+
+When it is done we have these files, by kind:
+
+```text
+files by kind: {'data': 3, 'metadata.json': 4, 'manifest': 3, 'manifest list': 3}
+```
+
+Three data files (one per insert), four `metadata.json` (one for `CREATE` and three for the `INSERT`s), three manifests and three manifest lists. We open them layer by layer.
+
+</Step>
+
+<Step>
+
+## Layer 1: metadata.json and the snapshot
+
+Open the newest `metadata.json`. It has three `snapshots` and a `current-snapshot-id` that points to the last. Each snapshot describes the state of the table at one moment and links to its own manifest list.
+
+```text
+current snapshot: {'snapshot-id': 7182852630908158332, 'parent-snapshot-id': 9155986098875928415, 'sequence-number': 3}
+                  -> snap-7182852630908158332-1-d1c62e09-....avro
+```
+
+`parent-snapshot-id` chains the snapshots together, and `sequence-number` is the number of the commit, which grows by one each time. The long `snapshot-id` is random, so it cannot be used to order things: use `sequence-number`. In `refs` there is the name `main`, the table's current branch, which points to this snapshot. In the book picture, branch `main` is "the edition in use", and the other snapshots are older editions we still keep.
+
+One more thing we checked did not change. Before the third `INSERT` we computed the SHA-256 of every `metadata.json` that existed, and after the commit we computed them again. All values were equal. So a new commit **never edits an old file**. It only creates new files. The newer `metadata.json` also has a `metadata-log` that lists the old editions, so the latest edition can look back through the history without asking the catalog.
+
+</Step>
+
+<Step>
+
+## Layer 2: the manifest list
+
+Every snapshot points to one Avro file whose name starts with `snap-`. This is the **manifest list**. It has one row per manifest. We open the lists of all three snapshots and count the rows.
+
+```text
+snapshot 1: manifest list has 1 manifest(s)
+snapshot 2: manifest list has 2 manifest(s)
+snapshot 3: manifest list has 3 manifest(s)
+```
+
+Each `INSERT` adds one new manifest and reuses all the manifests of the previous snapshot. One row of the manifest list (the row of the latest snapshot) looks like this:
+
+```text
+{'manifest_length': 7126, 'content': 0, 'sequence_number': 3, 'min_sequence_number': 3,
+ 'added_files_count': 1, 'existing_files_count': 0, 'deleted_files_count': 0, 'added_rows_count': 2}
+```
+
+`content: 0` means the manifest lists data files (with `1` it lists delete files, which we meet in [lesson 6](/en/iceberg/row-level/)). The counts `added_files_count`, `existing_files_count` and `deleted_files_count` say how many files this manifest adds, keeps or removes, so an engine can skip a whole manifest without opening it. There is also `partitions`, which holds the range of partition values of all files in that manifest (this table has no partitions, and the exercise shows an empty list).
+
+</Step>
+
+<Step>
+
+## Try it: the file tree grows with each commit
+
+Press Append a few times and watch which files are new (highlighted) and which are reused. Then choose the snapshot to read: the highlighted lines are the path a reader follows from the manifest list down to the data files. Try "Merge manifests" too and see how many manifests the next snapshot points to.
+
+<TreeLab client:visible lang="en" />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="After all three INSERTs, how many manifest files (ending in -m0.avro) are in the metadata folder?"
+  options={['6 files, because the manifest list of every snapshot needs its own manifests, 1 + 2 + 3', '3 files, because a newer snapshot can point to the old manifests again and only the manifest of that commit is new', '1 file, because Iceberg merges the manifests on every commit']}
+  answer={1}
+  why="The exercise counted 3 files, and checked that the set of manifests in snapshot 1 is a subset of the set in snapshot 2, which is a subset of the set in snapshot 3. Manifests are not changed once written, so snapshots can share them. This is why a commit writes so few files: one new manifest and one new manifest list. Iceberg merges small manifests by itself once there are enough of them (commit.manifest.min-count-to-merge, default 100, read from the source, and we did not reach it), and you can also ask for a merge yourself."
+/>
+
+</Step>
+
+<Step>
+
+## Layer 3: the manifest
+
+A manifest is also an Avro file, with one row per data file. We open the manifest of the last `INSERT` and look at its single row.
+
+```text
+manifest entry: {'status': 1, 'snapshot_id': 7182852630908158332, 'sequence_number': None}
+data_file keys: ['column_sizes', 'content', 'equality_ids', 'file_format', 'file_path', 'file_size_in_bytes',
+  'key_metadata', 'lower_bounds', 'nan_value_counts', 'null_value_counts', 'partition', 'record_count',
+  'referenced_data_file', 'sort_order_id', 'split_offsets', 'upper_bounds', 'value_counts']
+```
+
+`status: 1` means the file was **added** (ADDED) by that snapshot. The other values of `status` are `0` (EXISTING) and `2` (DELETED). Notice that `sequence_number` in the entry is `None`. It did not go missing. The entry does not store its own number but **inherits** it from the row of that manifest in the manifest list (which has `sequence_number: 3`), so the number is written once per commit.
+
+`data_file` describes one data file. The exercise confirms that `file_format` is `PARQUET`, `record_count` is 2, `file_size_in_bytes` equals the real size on disk, and `content` is `0` (a data file). The most interesting part is the per-column statistics `value_counts`, `null_value_counts`, `lower_bounds` and `upper_bounds`, which use the **field id** as the key, not the column name. The bounds are stored as bytes, and we decode them like this:
+
+```python
+struct.unpack("<q", lo[1])   # order_id: long, 8 bytes little-endian
+struct.unpack("<d", lo[3])   # amount: double, 8 bytes little-endian
+lo[2].decode()               # customer: string, UTF-8
+```
+
+```text
+bounds from the manifest: {'order_id': (5, 6), 'customer': ('dan', 'eve'), 'amount': (10.0, 999.0)}
+```
+
+This file holds rows 5 and 6, so the lowest `order_id` is 5 and the highest is 6, and the same goes for `customer` and `amount`. This is the data that lets an engine **not open a file**. A query for `order_id = 2` can skip this file, whose range is 5 to 6. We use it for real in [lesson 5](/en/iceberg/reading/).
+
+</Step>
+
+<Step>
+
+## Checking against the Parquet file
+
+Are the bounds in the manifest right? We open the Parquet file directly with `pyarrow` and find the min and max ourselves.
+
+```python
+t = pq.read_table(path)
+t.column("order_id").to_pylist()                  # [5, 6]
+min(t["amount"].to_pylist()), max(t["amount"].to_pylist())   # (10.0, 999.0)
+```
+
+Every value matches the manifest. The exercise also checks the schema of the Parquet file itself. It stores the field ids too (`PARQUET:field_id`): `order_id` is 1, `customer` is 2 and `amount` is 3, exactly as in the schema in `metadata.json`. This is what keeps data files readable even if a column is renamed later, which we try in [lesson 3](/en/iceberg/schema-partitioning/#renaming-a-column-leaves-old-files-readable).
+
+<Callout type="note" title="Statistics in a manifest are collected at write time">
+The bounds are computed by the writer when it writes the file, and Iceberg trusts them for skipping files. In this example we compared them with Parquet and they match. But if a writer does not collect statistics for some column (you can set the metrics mode), those values are absent and an engine cannot skip files by that column. We did not try this.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Spark tells the same story through metadata tables
+
+We do not need to open Avro ourselves every time. Spark has special tables that read the same metadata. Add `.snapshots`, `.manifests` or `.files` after the table name.
+
+```python
+spark.sql("SELECT snapshot_id, parent_id, operation FROM lab.db.orders.snapshots ORDER BY committed_at").show()
+spark.sql("SELECT length, partition_spec_id, content, added_data_files_count AS added, existing_data_files_count AS existing "
+          "FROM lab.db.orders.manifests").show()
+```
+
+```text
++-------------------+-------------------+---------+     +------+-----------------+-------+-----+--------+
+|snapshot_id        |parent_id          |operation|     |length|partition_spec_id|content|added|existing|
++-------------------+-------------------+---------+     +------+-----------------+-------+-----+--------+
+|3547069458439888680|NULL               |append   |     |7126  |0                |0      |1    |0       |
+|9155986098875928415|3547069458439888680|append   |     |7128  |0                |0      |1    |0       |
+|7182852630908158332|9155986098875928415|append   |     |7128  |0                |0      |1    |0       |
++-------------------+-------------------+---------+     +------+-----------------+-------+-----+--------+
+```
+
+The exercise confirms that the `snapshot_id` values Spark gives equal the ones we read from `metadata.json` ourselves. The `.files` table returns the same set of data files that we can walk through the three manifests (3 files with 2 rows each). If you wonder what is inside a table, these tables are the fastest place to start, and PyIceberg has similar ones through `table.inspect`, which we use in later lessons.
+
+</Step>
+
+<Step>
+
+## Why so many layers
+
+Now that we know what each layer holds, the question to ask is why the whole file list is not simply kept in one `metadata.json`. There are three reasons the author sees in what we just looked at. They are the author's own conclusions, not statements from the spec.
+
+First, a large table can have hundreds of thousands of files. If they were all in one `metadata.json`, every commit would have to rewrite that big file. Now a commit writes one manifest, one manifest list and a small `metadata.json`. Second, manifests are reused across snapshots, so old snapshots are very cheap, with no copy of the whole file list. Third, the partition statistics in the manifest list let an engine skip a whole manifest before opening a single file, and we will see that for real when the table has partitions.
+
+The overall picture we walked is: the catalog (label on the shelf) → `metadata.json` (the table of contents of an edition) → manifest list (the list of one snapshot) → manifest (the file list with statistics) → Parquet (the pages).
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| Three `INSERT`s create 4 `metadata.json`, 3 manifests, 3 manifest lists and 3 data files | ran: `exercises/02_table_anatomy.py` |
+| An old `metadata.json` is not edited by a new commit (same SHA-256) and `metadata-log` lists the old ones | ran: `exercises/02_table_anatomy.py` |
+| The manifest lists have 1, 2, 3 rows and manifests are reused across snapshots | ran: `exercises/02_table_anatomy.py` |
+| The entry's `sequence_number` is `None` and inherited from the manifest list | ran: `exercises/02_table_anatomy.py` |
+| The bounds decode from bytes (5 to 6, `dan` to `eve`, 10.0 to 999.0) and match Parquet | ran: `exercises/02_table_anatomy.py` |
+| The Parquet file stores field ids that match `metadata.json` | ran: `exercises/02_table_anatomy.py` |
+| The metadata tables `.snapshots`, `.manifests` and `.files` match what is read from the files | ran: `exercises/02_table_anatomy.py` |
+| Metrics modes can leave some columns without statistics | author (not run) |
+| `status` has three values (0 EXISTING, 1 ADDED, 2 DELETED) and `content` 1 is a manifest of delete files | source: `format/spec.md` (manifest entry table) |
+| The entry's `sequence_number` is inherited from the manifest list when `null` and `status` is ADDED | source: `format/spec.md` |
+| `commit.manifest.min-count-to-merge` defaults to 100 and manifest merging is on by default | source: `TableProperties.java` |
+| Three reasons for the layers | author |
+| The three layers of a table: catalog, metadata (metadata.json, manifest list, manifest) and data | book: Apache Iceberg: The Definitive Guide chapter 2, page 29 (figure 2-1) |
+
+</Step>

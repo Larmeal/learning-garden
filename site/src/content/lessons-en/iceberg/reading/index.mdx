@@ -1,0 +1,151 @@
+---
+title: Reading data and scan planning
+summary: See how a query skips files on three levels, whole manifests, partitions and column min/max statistics, and how to look at a table through Spark metadata tables and PyIceberg inspect.
+order: 5
+phase: B
+level: 3
+stage: sprout
+format: steps
+requires: [writing]
+updated: 2026-11-12
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ReadPathLab from '../../../../components/labs/iceberg/ReadPathLab';
+import ScanPruningLab from '../../../../components/labs/iceberg/ScanPruningLab';
+
+<Step>
+
+## Plan which files to open before reading
+
+In [lesson 2](/en/iceberg/table-anatomy/#layer-3-the-manifest) we saw that a manifest keeps the min/max of each column per file, and in [lesson 3](/en/iceberg/schema-partitioning/#partition-transforms-and-hidden-partitioning) that partition values help skip files. In this lesson we measure how many files each one skips. The step where an engine decides which files to open is called **scan planning**, and it happens before a single data file is read (ran: `exercises/05_reads_scan_planning.py`).
+
+The table has 8 data files in 4 days, 2 files a day, 5 rows each. `order_id` runs consecutively: the first file holds 1 to 5, the second 6 to 10 and so on up to 40, and the table is partitioned by the day of `ordered_at`. We built it with eight `INSERT`s, one file each, so there are also 8 manifests.
+
+</Step>
+
+<Step>
+
+## Follow one query down the layers
+
+Step through the numbered arrows to see which layer of files the engine opens first and which files are never opened. Then switch the filter to order_id = 7 and look at step 3 again. This follows the picture the book Apache Iceberg: The Definitive Guide draws in chapter 3, page 59.
+
+<ReadPathLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## How many files are skipped depends on the filter
+
+We ask PyIceberg for `plan_files()`, which says which files it will open, with six kinds of condition:
+
+```text
+no filter                        8 of 8 files
+one day (partition)              2 of 8 files
+order_id = 7 (min/max)           1 of 8 files
+order_id > 35 (min/max)          1 of 8 files
+customer = 'cu1' (no help)       8 of 8 files
+amount < 0 (nothing matches)     0 of 8 files
+```
+
+The condition on a day (on `ordered_at`) leaves 2 files because the partition value matches that day. `order_id = 7` leaves one file, the one with min 6 and max 10, and `order_id > 35` leaves the file whose max is above 35. So the min/max statistics of a column work even when the column is not a partition column, provided the data inside the files is ordered well enough. The condition `customer = 'cu1'` still has to open all 8 files, because `customer` is spread over every file (`cu0`, `cu1`, `cu2` in turn), so every file's min/max range covers `cu1`. Finally, a condition that no row matches, such as `amount < 0`, gives 0 files, because the min of `amount` in every file is above 0.
+
+The lesson from this table is that how well statistics skip files depends on how the data is laid out in the files. If the values of the filter column are mixed into every file, statistics can do nothing. That is one reason there is a way to re-sort data in the maintenance lesson (this is the author's conclusion from the example above).
+
+</Step>
+
+<Step>
+
+## Try other filters and layouts
+
+Pick the filters one at a time and see which manifests and data files are skipped, and why. Then switch the layout to "order_id mixed into every file" and try order_id = 7 again.
+
+<ScanPruningLab client:visible lang="en" />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="On the same table, if we filter order_id BETWEEN 5 AND 6, how many of the 8 files must be opened?"
+  options={['1 file, because 5 and 6 are close to each other', '2 files, because 5 is in the file with range 1 to 5 and 6 is in the file with range 6 to 10', '8 files, because order_id is not a partition column']}
+  answer={1}
+  why="The min/max range of the first file is 1 to 5 and of the second is 6 to 10. The range 5 to 6 touches both files, so both must be opened and the other 6 can be skipped. The last option is wrong, because Iceberg skips files by column statistics even when the column is not a partition (the exercise measured 1 file for order_id = 7)."
+/>
+
+</Step>
+
+<Step>
+
+## Whole manifests can be skipped too
+
+Before the file level, an engine can skip manifests. Each row of the manifest list has `partition_summaries`, the range of partition values of all files in that manifest. From `t.inspect.manifests()` the exercise shows that the first manifest has the day range `2026-01-04` to `2026-01-04`, the same at both ends. When we ask for 2 January, only 2 of the 8 manifests have a range that covers that day, and the other 6 can be skipped without being opened (we worked this out from the ranges in `partition_summaries`, and did not measure how many manifests an engine really opens).
+
+The whole sequence has a class of its own in the Iceberg source. From the class names we found, it starts by filtering manifests with `ManifestEvaluator`, using the partition ranges in the manifest list. Then it opens the remaining manifests and filters the files with the partition values and `InclusiveMetricsEvaluator`, which looks at the min/max statistics. And when it reads a file, the condition the file could not settle by itself (`ResidualEvaluator` computes that part) is applied again to the rows, so every returned row matches the condition. The exercise confirms the end of that chain: `order_id = 7` returns exactly one row. We did not read the code of each class.
+
+</Step>
+
+<Step>
+
+## Spark uses the same mechanism
+
+When we run `SELECT * FROM lab.db.orders WHERE order_id = 7`, the Spark plan has a `BatchScan` node showing the filter that was pushed down to Iceberg:
+
+```text
+BatchScan lab.db.orders[order_id, customer, amount, ordered_at]
+  IcebergScan(table=lab.db.orders, schemaId=0, snapshotId=6689959274796224701, branch=null, filters=order_id IS NOT NULL, order_id = 7 ...
+```
+
+You can see the `snapshotId` the scan is bound to. That suggests one query reads from one snapshot throughout, so even if someone commits while the query is still running, the results do not mix (we infer this from the `snapshotId` in the plan and from the principle that files are never edited. We did not try committing in the middle of a job). Choosing only some columns works as well: with `selected_fields=("order_id",)` PyIceberg returns an Arrow table with one column and 40 rows.
+
+</Step>
+
+<Step>
+
+## Looking at the table from the inside
+
+We use these tools about as often as a normal `SELECT`. Spark gives metadata tables after the table name, and PyIceberg gives `table.inspect`:
+
+| What you want to know | Spark | PyIceberg |
+|---|---|---|
+| Commit history | `lab.db.orders.snapshots` | `t.inspect.snapshots()` |
+| Data files and statistics | `lab.db.orders.files` | `t.inspect.files()` |
+| List of manifests | `lab.db.orders.manifests` | `t.inspect.manifests()` |
+| Summary per partition | `lab.db.orders.partitions` | `t.inspect.partitions()` |
+
+The exercise checks that both sides see the same files (8 files, 40 rows in total), and the `.partitions` table says 4 days with 10 rows in 2 files each. If you want readable statistics, Spark has the column `readable_metrics` in `.files`:
+
+```text
+order_id  lower_bound  upper_bound
+1  5   |  6  10   |  11 15   |  16 20   |  21 25   |  26 30   |  31 35   |  36 40
+```
+
+which matches the ranges we designed in the first step. An Iceberg data file is plain Parquet. The exercise opened one directly with `pyarrow` and got 5 rows. PyIceberg also hands results to Pandas with `to_pandas()` (the exercise filters `order_id <= 5` and gets 1 to 5).
+
+<Callout type="note" title="The Java and Python sides do not have the same tools">
+`readable_metrics` belongs to Spark. PyIceberg exposes the same statistics through `inspect.files()`, but as bytes you must decode yourself. In this lesson we use the easiest to read on each side.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The number of files planned for the six conditions (8, 2, 1, 1, 8, 0) | ran: `exercises/05_reads_scan_planning.py` |
+| 2 of 8 manifests cover day 2 (computed from `partition_summaries`) | ran: `exercises/05_reads_scan_planning.py` |
+| The Spark plan has a `BatchScan` with the filter and a `snapshotId` | ran: `exercises/05_reads_scan_planning.py` |
+| Spark metadata tables and PyIceberg `inspect` see the same files, plus `readable_metrics`, `to_pandas()` and reading a file with `pyarrow` | ran: `exercises/05_reads_scan_planning.py` |
+| The order manifest, then file, then row with `ManifestEvaluator`, `InclusiveMetricsEvaluator` and `ResidualEvaluator` | source: `api/.../expressions/`, `core/.../ManifestGroup.java` (class names and places read, not the code line by line) |
+| One query reads from a single snapshot even with commits in between | author (not run) |
+| How well statistics work depends on how data is laid out in the files | author (concluded from the example in this lesson) |
+| The order of a read, layer by layer (catalog, metadata.json, manifest list, manifest, data file) | book: Apache Iceberg: The Definitive Guide chapter 3, page 59 (figure 3-6) |
+
+</Step>
