@@ -1,6 +1,11 @@
 ---
-title: ตรวจที่จุดไหนของ Pipeline
+title: Checkpoints in the Pipeline
 summary: Bad Data เดินทางตามสายพานและทำร้ายปลายทาง บทนี้เทียบตำแหน่งที่ตรวจ (Bronze, Silver, ก่อน Publish) Policy เมื่อไม่ผ่าน (ปล่อยผ่าน, Quarantine Row, หยุดทั้งสาย) และเครื่องมือที่ใช้
+facts:
+  - "รันจริงใน 05_checkpoints.py ด้วย DuckDB 2.0.0 และ pandas 3.1.0 บนข้อมูลจำลองแล้ว Assert ตาราง Revenue ตาม Country และเหตุผลที่ต้อง Quarantine"
+  - "สามระดับการวัดตาม DMBOK2 หัวข้อ 2.7.2 หน้า 479 ถึง 481 และ Table 31 หน้า 481 ส่วนการป้องกันก่อนแก้ตามหัวข้อ 4.1 หน้า 486"
+  - "Bronze, Silver, Intrusive และ Nonintrusive ตาม Medallion บทที่ 3 หน้า 51 ถึง 76 และ Circuit Breaker ตาม DQF บทที่ 3 หน้า 55 ถึง 67"
+  - "การจับคู่ B กับ C เป็นสองครึ่งของ Intrusive และการจับคู่ Dbt Test กับ Dimension เป็นของผู้เขียน"
 order: 5
 phase: B
 level: 3
@@ -155,7 +160,7 @@ DMBOK2 เสนอวิธีป้องกันที่ไม่ต้อ�
 
 ข้อมูล Country ห้าแบบในตัวอย่างต้นบท กันได้ที่ต้นทาง (ใช้ช่องเลือก Country แทนการให้พิมพ์เอง) ซึ่งถูกกว่าการแก้ที่รายงานทุกรอบ
 
-หนังสือเรื่อง Data Contract ของ Andrew Jones ผลักแนวคิดเดียวกันไปอีกขั้น โดยให้ทีมที่สร้างข้อมูลเป็นคนรันการตรวจ ซึ่งทำได้ใน 3 ที่ ที่แรกคือตอน Publish ที่ Library ที่ Producer เรียกตรวจแต่ละ Record เทียบกับ Contract ที่สองคือใน Infrastructure ที่ Table หรือ Topic บังคับ Schema และปฏิเสธการเขียนที่ผิด ส่วนที่สามคือหลัง Publish ที่ Rule กับ Observability Tool คอยดูสิ่งที่สองที่แรกพลาด สองที่แรกเก็บ Record เสียไว้ในระบบที่ผลิต มีแค่ที่สามที่จับได้หลังจากที่ Consumer อาจอ่านไปแล้ว Quarantine แบบ Policy B ข้างบนทำหน้าที่เดียวกับ Dead Letter Queue ที่หนังสือพูดถึง คือแยก Record เสียไว้พร้อมเหตุผล เพื่อตรวจและเล่นซ้ำหลังแก้ (หนังสือ: Contracts บทที่ 10 หน้า 163 ถึง 166) สำหรับรายละเอียดดูได้ในหน้า [Data Contract ในทางปฏิบัติ](/data-quality/agreements/contracts-in-practice/#ตรวจข้อมูลที่จุดไหน) ใต้[บท 6](/data-quality/agreements/contracts-in-practice/#ใครต้องรับสายเมื่อต้นทางเปลี่ยน)
+หนังสือเรื่อง Data Contract ของ Andrew Jones ผลักแนวคิดเดียวกันไปอีกขั้น โดยให้ทีมที่สร้างข้อมูลเป็นคนรันการตรวจ ซึ่งทำได้ใน 3 ที่ ที่แรกคือตอน Publish ที่ Library ที่ Producer เรียกตรวจแต่ละ Record เทียบกับ Contract ที่สองคือใน Infrastructure ที่ Table หรือ Topic บังคับ Schema และปฏิเสธการเขียนที่ผิด ส่วนที่สามคือหลัง Publish ที่ Rule กับ Observability Tool คอยดูสิ่งที่สองที่แรกพลาด สองที่แรกเก็บ Record เสียไว้ในระบบที่ผลิต มีแค่ที่สามที่จับได้หลังจากที่ Consumer อาจอ่านไปแล้ว Quarantine แบบ Policy B ข้างบนทำหน้าที่เดียวกับ Dead Letter Queue ที่หนังสือพูดถึง คือแยก Record เสียไว้พร้อมเหตุผล เพื่อตรวจและเล่นซ้ำหลังแก้ (หนังสือ: Contracts บทที่ 10 หน้า 163 ถึง 166) สำหรับรายละเอียดดูได้ในหน้า [Data Contracts in Practice](/data-quality/agreements/contracts-in-practice/#ตรวจข้อมูลที่จุดไหน) ใต้[บท 6](/data-quality/agreements/contracts-in-practice/#ใครต้องรับสายเมื่อต้นทางเปลี่ยน)
 
 <Callout type="try" title="ลองทำใน Repo นี้">
 ลองเปิด `05_checkpoints.py` แล้วแก้ Policy B ให้ Quarantine Row ที่ `country` ไม่อยู่ในรายการด้วย แล้วดูว่า Revenue รวมและ Revenue ของ TH เปลี่ยนอย่างไร จากนั้นลองเปลี่ยนเป็น "แปลงเป็น TH" แทนการ Quarantine แล้วเทียบสองวิธีดูว่าแต่ละวิธีซ่อนหรือเปิดเผยปัญหาต้นทางมากกว่ากัน
