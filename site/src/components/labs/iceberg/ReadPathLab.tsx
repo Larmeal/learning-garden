@@ -138,8 +138,8 @@ export default function ReadPathLab({ lang = 'th' }: { lang?: Lang }) {
           })}
 
           {/* the numbered arrow of the current step */}
-          {step === 0 && <g><path className="ib-arrow" d="M176,175 L200,64" markerEnd="url(#ibah3)" /><Num x={188} y={118} n={1} /></g>}
-          {step === 1 && <g><path className="ib-arrow" d="M176,200 L200,184" markerEnd="url(#ibah3)" /><Num x={188} y={216} n={2} /></g>}
+          {step === 0 && <g><path className="ib-arrow" d="M92,138 L92,61 L202,61" markerEnd="url(#ibah3)" /><Num x={92} y={100} n={1} /></g>}
+          {step === 1 && <g><path className="ib-arrow" d="M176,179 L202,179" markerEnd="url(#ibah3)" /><Num x={190} y={214} n={2} /></g>}
           {step === 2 && <Num x={470} y={150} n={3} />}
           {step === 3 && <Num x={MX(filter === 'day' ? 2 : 0)} y={222} n={4} />}
           {step === 4 && <Num x={MX(filter === 'day' ? 2 : 1)} y={322} n={5} />}
