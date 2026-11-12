@@ -4,7 +4,13 @@ Notable changes to the learning garden, newest first. Dates are when the change 
 
 ## 2026-11-13
 
+### Added
+- A lesson page may have a `facts` list in its frontmatter, shown as bullets under its summary ("ตรวจสอบอย่างไร" / "How it was checked"). Every non-quiz lesson page of every subject has one in both languages (Singing included, which has an English version): which exercise ran it, which source file or book page it was read from, and what was not run. Items come from each page's own sources table, the subject's `verified-findings.md` and its exercises. The subject pages got the same list, and the longer descriptions of Data Quality, Pytest, Pydantic and Singing were cut to two or three sentences.
+- A subject JSON may have a `facts` list (and `en.facts`). The subject page shows it as short bullets under the description, headed "ตรวจสอบอย่างไร" / "How it was checked". Iceberg uses it for how the lessons were checked and what was not run, so its description is two lines instead of a paragraph.
+
 ### Fixed
+- Iceberg lesson titles now say what the lesson teaches (for example "ไฟล์ในตาราง Iceberg ไล่จาก Catalog ลงไปถึง Data File" instead of "ข้างในตาราง", and "ดูไฟล์จริงที่ถูกเขียนในแต่ละคำสั่ง..." instead of "ใต้ฝากระโปรง..."), in Thai and English.
+- `ReadPathLab`: the arrow of step 1 was a diagonal line that ended at the corner of the Catalog box. It is now an elbow into the box, and step 2 has a straight arrow with its badge clear of the boxes.
 - Iceberg labs: the figures no longer scroll sideways in a box of about 670px (the lab canvas may shrink to 600px, class `ib-fig`), and the names that had been coined, "สารบัญ", "รายการของ Snapshot", "รายการไฟล์", "ไฟล์ข้อมูล" and "ไฟล์ลบ" (and "table of contents", "file list" and "contents" in English), are now the real terms Metadata File, Manifest List, Manifest, Data File and Delete File in the labs and in the Thai lessons. The book analogy of lesson 1 (a book with a table of contents) is kept as an analogy.
 
 ### Changed
