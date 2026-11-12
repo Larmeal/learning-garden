@@ -22,36 +22,36 @@ const TEXT: Record<Lang, {
 }> = {
   th: {
     title: 'ตาม SELECT หนึ่งคำสั่งลงไปทีละชั้น แล้วดูว่าเปิดไฟล์อะไรบ้าง และไฟล์ไหนไม่เคยถูกเปิดเลย',
-    filter: 'Filter ของ Query', f: { day: 'ordered_at ของวันที่ 2', id: 'order_id = 7' }, engine: 'Query Engine', layers: ['ชั้น Catalog', 'ชั้น Metadata', 'ชั้น Data'],
-    metaT: 'สารบัญ (metadata.json)', listT: 'รายการของ Snapshot (Manifest List)', listS: 'ช่วงวันของ Manifest ทั้ง 8 ไฟล์', day: 'วัน',
+    filter: 'Filter ของ Query', f: { day: 'ordered_at ของวันที่ 2', id: 'order_id = 7' }, engine: 'Query Engine', layers: ['ชั้น Catalog', 'ชั้น Metadata: Manifest List กับ Manifest m1 ถึง m8', 'ชั้น Data: Data File d1 ถึง d8'],
+    metaT: 'Metadata File (metadata.json)', listT: 'Manifest List', listS: 'ช่วงวันของ Manifest ทั้ง 8 ไฟล์', day: 'วัน',
     legend: ['เปิดอ่าน', 'ข้ามได้ ไม่เคยเปิด', 'ยังไม่ถึงขั้นนี้'],
     banner: (s, f, nm, nf) => [
-      'Engine ถาม Catalog ว่าสารบัญปัจจุบันอยู่ที่ไหน',
-      'เปิดสารบัญแล้วได้ Schema, วิธีแบ่ง Partition และ Snapshot ปัจจุบัน',
+      'Engine ถาม Catalog ว่า Metadata File ปัจจุบันอยู่ที่ไหน',
+      'เปิด Metadata File แล้วได้ Schema, วิธีแบ่ง Partition และ Snapshot ปัจจุบัน',
       f === 'day' ? 'Manifest List บอกว่าข้าม 6 จาก 8 Manifest ได้เลย' : 'ข้ามอะไรไม่ได้ จึงต้องเปิดทั้ง 8 Manifest',
-      f === 'day' ? 'เปิดเพียง 2 Manifest ที่เหลือ' : 'ดู Min/Max ของทั้ง 8 ไฟล์ แล้วเหลือไฟล์ข้อมูลไฟล์เดียว',
-      f === 'day' ? 'อ่านไฟล์ข้อมูลแค่ 2 ไฟล์' : 'อ่านไฟล์ข้อมูลแค่ 1 ไฟล์',
-      `เปิด Manifest ${nm} จาก 8 และไฟล์ข้อมูล ${nf} จาก 8`,
+      f === 'day' ? 'เปิดเพียง 2 Manifest ที่เหลือ' : 'ดู Min/Max ของทั้ง 8 ไฟล์ แล้วเหลือ Data File ไฟล์เดียว',
+      f === 'day' ? 'อ่าน Data File แค่ 2 ไฟล์' : 'อ่าน Data File แค่ 1 ไฟล์',
+      `เปิด Manifest ${nm} จาก 8 และ Data File ${nf} จาก 8`,
     ][s],
     steps: (f) => [
-      { name: 'ถาม Catalog', title: '1. Engine ถาม Catalog ว่าสารบัญปัจจุบันอยู่ที่ไหน', text: 'Catalog ตอบแค่ตำแหน่งของไฟล์ ยังไม่มีข้อมูลของตารางเลย Engine จึงต้องเปิดไฟล์นั้นต่อ' },
-      { name: 'metadata.json', title: '2. เปิดสารบัญ (metadata.json)', text: 'ในไฟล์นี้มี Schema, วิธีแบ่ง Partition และ current-snapshot-id ซึ่งบอกว่า Manifest List ของ Snapshot ปัจจุบันอยู่ที่ไหน' },
+      { name: 'ถาม Catalog', title: '1. Engine ถาม Catalog ว่า Metadata File ปัจจุบันอยู่ที่ไหน', text: 'Catalog ตอบแค่ตำแหน่งของไฟล์ ยังไม่มีข้อมูลของตารางเลย Engine จึงต้องเปิดไฟล์นั้นต่อ' },
+      { name: 'metadata.json', title: '2. เปิด Metadata File (metadata.json)', text: 'ในไฟล์นี้มี Schema, วิธีแบ่ง Partition และ current-snapshot-id ซึ่งบอกว่า Manifest List ของ Snapshot ปัจจุบันอยู่ที่ไหน' },
       f === 'day'
         ? { name: 'Manifest List', title: '3. เปิด Manifest List แล้วข้าม Manifest ที่ไม่มีวันที่ 2', text: 'แต่ละแถวมีช่วงวันของ Partition ในแต่ละ Manifest เมื่อเทียบกับ Filter แล้วจะข้ามได้ 6 จาก 8 ไฟล์ โดยไม่ต้องเปิด (คำนวณจากช่วงใน Manifest List ตามแบบฝึก 05)' }
         : { name: 'Manifest List', title: '3. เปิด Manifest List แต่ข้ามอะไรไม่ได้', text: 'Manifest List มีแค่ช่วงของ Partition และไม่มีสถิติของ order_id เราจึงต้องเปิดทั้ง 8 Manifest เพื่อดู Min/Max ของแต่ละไฟล์' },
-      { name: 'Manifest', title: '4. เปิด Manifest ที่เหลือ', text: f === 'day' ? 'ในแต่ละ Manifest มีค่า Partition และ Min/Max ของแต่ละ Column ต่อไฟล์ข้อมูล ซึ่งไฟล์ในช่วงวันที่ 2 ผ่านเงื่อนไขทั้งสองไฟล์' : 'ดู Min/Max ของ order_id ของทุกไฟล์ จะเห็นว่าไฟล์ที่ช่วง 6 ถึง 10 เท่านั้นที่อาจมี 7 ส่วนอีก 7 ไฟล์ถูกตัดทิ้ง' },
-      { name: 'Data File', title: '5. เปิดเฉพาะไฟล์ข้อมูลที่เหลือ', text: f === 'day' ? 'อ่าน Parquet 2 ไฟล์ ส่วนอีก 6 ไฟล์ไม่เคยถูกเปิดเลย' : 'อ่าน Parquet ไฟล์เดียว ส่วนอีก 7 ไฟล์ไม่เคยถูกเปิด' },
-      { name: 'ผลลัพธ์', title: 'ผลลัพธ์กลับไปที่ Engine', text: f === 'day' ? 'เปิดไฟล์ข้อมูลน้อยมากเมื่อเทียบกับทั้งตาราง แต่ก็ต้องเปิดไฟล์ Metadata ตามทางทุกชั้น' : 'Filter บน Column ที่ไม่ได้เป็น Partition ทำให้ต้องเปิด Manifest ครบ แต่สุดท้ายก็อ่านไฟล์ข้อมูลแค่ไฟล์เดียว' },
+      { name: 'Manifest', title: '4. เปิด Manifest ที่เหลือ', text: f === 'day' ? 'ในแต่ละ Manifest มีค่า Partition และ Min/Max ของแต่ละ Column ต่อ Data File ซึ่งไฟล์ในช่วงวันที่ 2 ผ่านเงื่อนไขทั้งสองไฟล์' : 'ดู Min/Max ของ order_id ของทุกไฟล์ จะเห็นว่าไฟล์ที่ช่วง 6 ถึง 10 เท่านั้นที่อาจมี 7 ส่วนอีก 7 ไฟล์ถูกตัดทิ้ง' },
+      { name: 'Data File', title: '5. เปิดเฉพาะ Data File ที่เหลือ', text: f === 'day' ? 'อ่าน Parquet 2 ไฟล์ ส่วนอีก 6 ไฟล์ไม่เคยถูกเปิดเลย' : 'อ่าน Parquet ไฟล์เดียว ส่วนอีก 7 ไฟล์ไม่เคยถูกเปิด' },
+      { name: 'ผลลัพธ์', title: 'ผลลัพธ์กลับไปที่ Engine', text: f === 'day' ? 'เปิด Data File น้อยมากเมื่อเทียบกับทั้งตาราง แต่ก็ต้องเปิดไฟล์ Metadata ตามทางทุกชั้น' : 'Filter บน Column ที่ไม่ได้เป็น Partition ทำให้ต้องเปิด Manifest ครบ แต่สุดท้ายก็อ่าน Data File แค่ไฟล์เดียว' },
     ],
-    caption: 'โครงสร้างและตัวเลขจากแบบฝึก 05 (Manifest 8 ไฟล์ ไฟล์ข้อมูล 8 ไฟล์) ลำดับเดียวกับที่หนังสือ Apache Iceberg: The Definitive Guide บทที่ 3 หน้า 59 (Figure 3-6) วาดไว้',
+    caption: 'โครงสร้างและตัวเลขจากแบบฝึก 05 (Manifest 8 ไฟล์ Data File 8 ไฟล์) ลำดับเดียวกับที่หนังสือ Apache Iceberg: The Definitive Guide บทที่ 3 หน้า 59 (Figure 3-6) วาดไว้',
   },
   en: {
     title: 'Follow one SELECT down the layers, one step at a time, and see which files are opened and which are never touched',
-    filter: 'Filter of the query', f: { day: 'ordered_at on day 2', id: 'order_id = 7' }, engine: 'Query engine', layers: ['Catalog layer', 'Metadata layer', 'Data layer'],
-    metaT: 'Table of contents (metadata.json)', listT: 'List of a snapshot (manifest list)', listS: 'day range of all 8 manifests', day: 'day',
+    filter: 'Filter of the query', f: { day: 'ordered_at on day 2', id: 'order_id = 7' }, engine: 'Query engine', layers: ['Catalog layer', 'Metadata layer: manifest list and manifests m1 to m8', 'Data layer: data files d1 to d8'],
+    metaT: 'Metadata file (metadata.json)', listT: 'Manifest list', listS: 'day range of all 8 manifests', day: 'day',
     legend: ['opened', 'skipped, never opened', 'not reached yet'],
     banner: (s, f, nm, nf) => [
-      'The engine asks the catalog where the current table of contents is',
+      'The engine asks the catalog where the current metadata file is',
       'Open it: schema, partitioning and the current snapshot',
       f === 'day' ? 'The manifest list says 6 of the 8 manifests can be skipped' : 'Nothing can be skipped: all 8 manifests must be opened',
       f === 'day' ? 'Open just the 2 manifests that are left' : 'Read min/max of all 8 files: only one data file is left',
@@ -59,8 +59,8 @@ const TEXT: Record<Lang, {
       `Opened ${nm} of 8 manifests and ${nf} of 8 data files`,
     ][s],
     steps: (f) => [
-      { name: 'ask the catalog', title: '1. The engine asks the catalog where the current table of contents is', text: 'The catalog only answers with the location of a file. There is no table data yet. The engine has to open that file next.' },
-      { name: 'metadata.json', title: '2. Open the table of contents (metadata.json)', text: 'It gives the schema, the partitioning and the current-snapshot-id, which says where the manifest list of the current snapshot is.' },
+      { name: 'ask the catalog', title: '1. The engine asks the catalog where the current metadata file is', text: 'The catalog only answers with the location of a file. There is no table data yet. The engine has to open that file next.' },
+      { name: 'metadata.json', title: '2. Open the metadata file (metadata.json)', text: 'It gives the schema, the partitioning and the current-snapshot-id, which says where the manifest list of the current snapshot is.' },
       f === 'day'
         ? { name: 'manifest list', title: '3. Open the manifest list and skip the manifests with no day 2', text: 'Each row has the range of partition days in a manifest. Compared with the filter, 6 of the 8 can be skipped without being opened (computed from the ranges in the manifest list, as in exercise 05).' }
         : { name: 'manifest list', title: '3. Open the manifest list, but nothing can be skipped', text: 'The manifest list has only partition ranges and no order_id statistics, so all 8 manifests must be opened to see the min/max of each file.' },
@@ -90,7 +90,7 @@ export default function ReadPathLab({ lang = 'th' }: { lang?: Lang }) {
   const nf = Array.from({ length: 8 }, (_, i) => manKeep(i) && fileKeep(i)).filter(Boolean).length;
 
   return (
-    <figure className="viz">
+    <figure className="viz ib-fig">
       <div className="viz-title">{T.title}</div>
       <Legend items={[{ kind: 'new', text: T.legend[0] }, { kind: 'skip', text: T.legend[1] }, { kind: 'node', text: T.legend[2] }]} />
       <div className="ib-controls">

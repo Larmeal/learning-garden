@@ -24,10 +24,10 @@ const TEXT: Record<Lang, {
     title: 'ลบ Row เดียวด้วย DELETE แล้วลองดูว่าแต่ละโหมดเปลี่ยนไฟล์อย่างไร และผู้อ่านต้องทำอะไรบ้าง',
     mode: 'โหมด', modes: { cow: 'Copy-on-write', mor: 'Merge-on-read (v2)', dv: 'Merge-on-read (v3)' },
     snap: 'Snapshot', inSnap: 'ไฟล์ที่ Snapshot นี้ใช้', onDisk: 'ยังอยู่บนดิสก์ แต่ Snapshot นี้ไม่ใช้', reader: 'ผู้อ่านเห็น', sees: 'Row ที่อ่านได้', rows: 'Row', total: 'total-records ใน Summary',
-    notYet: 'ยังไม่ได้อ่าน Snapshot 2', dataFile: 'ไฟล์ข้อมูล', noteV2: 'โน้ต: Position Delete (Parquet)', noteV3: 'โน้ต: Deletion Vector (Puffin)', removed: 'ถูกเอาออกจาก Snapshot', skip: 'ข้าม', none: 'ไม่มี',
+    notYet: 'ยังไม่ได้อ่าน Snapshot 2', dataFile: 'Data File', noteV2: 'โน้ต: Position Delete (Parquet)', noteV3: 'โน้ต: Deletion Vector (Puffin)', removed: 'ถูกเอาออกจาก Snapshot', skip: 'ข้าม', none: 'ไม่มี',
     legend: ['ไฟล์ที่ใช้อยู่', 'ไฟล์ที่เกิดใหม่', 'ไฟล์ที่เลิกใช้แล้ว'],
     steps: (m) => [
-      { name: 'ก่อนลบ', title: 'ตารางมีไฟล์เดียว 10 Row', text: 'Snapshot 1 ชี้ไปที่ไฟล์ข้อมูล F1 ที่มี id 1 ถึง 10 ผู้อ่านจึงเห็น 10 Row' },
+      { name: 'ก่อนลบ', title: 'ตารางมีไฟล์เดียว 10 Row', text: 'Snapshot 1 ชี้ไปที่ Data File F1 ที่มี id 1 ถึง 10 ผู้อ่านจึงเห็น 10 Row' },
       m === 'cow'
         ? { name: 'DELETE', title: 'Copy-on-write: เขียนไฟล์ใหม่ทั้งไฟล์', text: 'Iceberg แก้ F1 ไม่ได้ จึงอ่านทั้งไฟล์ แล้วเขียน F2 ที่ไม่มี id 3 ออกมา จากนั้นทำ Snapshot 2 ให้ชี้ F2 แทน F1 (operation overwrite, เพิ่ม 1 ไฟล์ เอาออก 1 ไฟล์) ส่วน F1 ยังอยู่บนดิสก์ เพราะ Snapshot 1 ยังใช้อยู่' }
         : m === 'mor'
@@ -35,7 +35,7 @@ const TEXT: Record<Lang, {
           : { name: 'DELETE', title: 'Format version 3: โน้ตเป็น Deletion Vector', text: 'ทำงานคล้าย Merge-on-read แต่โน้ตเป็นบิตแมปที่บอกว่า Row ไหนของ F1 ถูกลบ โดยเก็บไว้ในไฟล์ Puffin (Summary มี added-dvs 1) และจะไม่มีไฟล์ Parquet ของ Position Delete' },
       m === 'cow'
         ? { name: 'ผู้อ่าน', title: 'ผู้อ่านเปิด F2 แล้วอ่านได้เลย', text: 'ไม่มีอะไรต้องหัก ผู้อ่านจึงเห็น 9 Row และ total-records ใน Summary ก็เป็น 9 เช่นกัน' }
-        : { name: 'ผู้อ่าน', title: 'ผู้อ่านเปิด F1 แล้วหักตามโน้ต', text: 'ผู้อ่านอ่าน F1 กับโน้ตแล้วข้ามตำแหน่ง 2 จึงได้ 9 Row แต่ total-records ใน Summary ยังเป็น 10 เพราะมันนับ Row ที่เขียนในไฟล์ข้อมูล และไม่ได้หักโน้ตออก (วัดจริงในแบบฝึก 06)' },
+        : { name: 'ผู้อ่าน', title: 'ผู้อ่านเปิด F1 แล้วหักตามโน้ต', text: 'ผู้อ่านอ่าน F1 กับโน้ตแล้วข้ามตำแหน่ง 2 จึงได้ 9 Row แต่ total-records ใน Summary ยังเป็น 10 เพราะมันนับ Row ที่เขียนใน Data File และไม่ได้หักโน้ตออก (วัดจริงในแบบฝึก 06)' },
       m === 'cow'
         ? { name: 'ต้นทุน', title: 'ต้นทุนอยู่ตอนเขียน', text: 'ลบ Row เดียวแต่ต้องเขียนไฟล์ใหม่ทั้งไฟล์ ถ้าไฟล์ใหญ่ก็จะแพง แลกกับการอ่านที่ไม่มีภาระเพิ่ม (ข้อสรุปของผู้เขียนนะ ตัวอย่างนี้เล็กเกินกว่าจะวัดเวลา)' }
         : { name: 'ต้นทุน', title: 'ต้นทุนอยู่ตอนอ่าน', text: 'การเขียนถูกมากเพราะเขียนแค่โน้ต แต่ทุกครั้งที่อ่านต้องหักโน้ตด้วย ยิ่งโน้ตสะสมมากก็ยิ่งอ่านช้าลง จนกว่าจะรวมไฟล์ใหม่ (ข้อสรุปของผู้เขียนนะ ไม่ได้วัดเวลา)' },
@@ -92,7 +92,7 @@ export default function DeleteModeLab({ lang = 'th' }: { lang?: Lang }) {
   const count = step === 0 ? 10 : step === 1 && mode !== 'cow' ? '–' : 9;
 
   return (
-    <figure className="viz">
+    <figure className="viz ib-fig">
       <div className="viz-title">{T.title}</div>
       <Legend items={[{ kind: 'use', text: T.legend[0] }, { kind: 'new', text: T.legend[1] }, { kind: 'skip', text: T.legend[2] }]} />
       <div className="ib-controls">

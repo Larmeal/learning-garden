@@ -30,12 +30,12 @@ const TEXT: Record<Lang, {
     check: (f, t) => `Catalog ตรวจ: ถ้าตัวชี้ยังเป็น ${f} ให้เปลี่ยนเป็น ${t}`, ok: 'ผ่าน ✓ เปลี่ยนตัวชี้ได้', bad: (now) => `ไม่ผ่าน ✗ ตัวชี้เป็น ${now} ไปแล้ว`,
     steps: (retry) => [
       { name: 'อ่าน', title: 'ทั้งสองคนอ่านตารางที่เวอร์ชัน v3', text: 'A และ B เปิดตารางพร้อมกัน ทั้งคู่เห็นตัวชี้ใน Catalog เป็น v3 และต่างจำไว้ว่า "ฉันเริ่มจาก v3"' },
-      { name: 'เขียน', title: 'ต่างคนต่างเขียนไฟล์ของตัวเอง', text: 'A เขียนไฟล์ข้อมูลของ A และสารบัญฉบับร่างที่ต่อจาก v3 B ก็ทำแบบเดียวกัน ตอนนี้ยังไม่มีใครเปลี่ยน Catalog ผู้อ่านเลยยังเห็นแค่ v3' },
+      { name: 'เขียน', title: 'ต่างคนต่างเขียนไฟล์ของตัวเอง', text: 'A เขียน Data File ของ A และ Metadata File ฉบับร่างที่ต่อจาก v3 B ก็ทำแบบเดียวกัน ตอนนี้ยังไม่มีใครเปลี่ยน Catalog ผู้อ่านเลยยังเห็นแค่ v3' },
       { name: 'A Commit', title: 'A ขอเปลี่ยนตัวชี้ก่อน และสำเร็จ', text: 'A ส่งคำขอว่า "ถ้าตัวชี้ยังเป็น v3 ให้เปลี่ยนเป็นฉบับของฉัน" ซึ่งตัวชี้ยังเป็น v3 อยู่ Catalog จึงเปลี่ยนให้ ตัวชี้กลายเป็น v4 (ของ A) และข้อมูลของ A เข้าตาราง' },
       { name: 'B Commit', title: 'B ขอเปลี่ยนบ้าง แต่ถูกปฏิเสธ', text: 'B ส่งคำขอแบบเดียวกันว่า "ถ้าตัวชี้ยังเป็น v3" แต่ตัวชี้เป็น v4 ของ A ไปแล้ว Catalog จึงไม่เปลี่ยนอะไรเลย และเพราะแบบนี้ B ถึงเขียนทับของ A ไม่ได้' },
       retry
-        ? { name: 'B ลองใหม่', title: 'B อ่าน v4 แล้วเขียนต่อจากมัน และสำเร็จ', text: 'PyIceberg ลองใหม่เอง (Log: Commit failed due to a concurrent update, retrying 1/4) B อ่านตารางที่ v4 เขียนสารบัญใหม่ต่อจาก v4 แล้วขอเปลี่ยน "ถ้าตัวชี้ยังเป็น v4" ซึ่งครั้งนี้สำเร็จ และได้ v5 ที่มีข้อมูลของทั้งสองคน' }
-        : { name: 'B ล้มเหลว', title: 'B ได้ Error และข้อมูลของ B ยังไม่อยู่ในตาราง', text: 'เมื่อปิด Retry (commit.retry.num-retries = 0) B ได้ CommitFailedException ว่า branch main has changed: expected id ..., found ... ไฟล์ข้อมูลของ B มีอยู่บนดิสก์ แต่ยังไม่มี Snapshot ไหนอ้างถึง เราต้องเรียก refresh() แล้วเขียนใหม่เอง' },
+        ? { name: 'B ลองใหม่', title: 'B อ่าน v4 แล้วเขียนต่อจากมัน และสำเร็จ', text: 'PyIceberg ลองใหม่เอง (Log: Commit failed due to a concurrent update, retrying 1/4) B อ่านตารางที่ v4 เขียน Metadata File ใหม่ต่อจาก v4 แล้วขอเปลี่ยน "ถ้าตัวชี้ยังเป็น v4" ซึ่งครั้งนี้สำเร็จ และได้ v5 ที่มีข้อมูลของทั้งสองคน' }
+        : { name: 'B ล้มเหลว', title: 'B ได้ Error และข้อมูลของ B ยังไม่อยู่ในตาราง', text: 'เมื่อปิด Retry (commit.retry.num-retries = 0) B ได้ CommitFailedException ว่า branch main has changed: expected id ..., found ... Data File ของ B มีอยู่บนดิสก์ แต่ยังไม่มี Snapshot ไหนอ้างถึง เราต้องเรียก refresh() แล้วเขียนใหม่เอง' },
     ],
     caption: 'วัดจริงในแบบฝึก 04 ทั้งสองกรณี (ชื่อเวอร์ชันในภาพวาดขึ้นเอง) ฝั่ง Spark และ Java ก็ลองใหม่เองได้เหมือนกัน โดยค่าเริ่มต้นคือ 4 รอบ',
   },
@@ -48,11 +48,11 @@ const TEXT: Record<Lang, {
     check: (f, t) => `Catalog checks: if the pointer is still ${f}, change it to ${t}`, ok: 'passes ✓ pointer changed', bad: (now) => `fails ✗ the pointer is already ${now}`,
     steps: (retry) => [
       { name: 'read', title: 'Both read the table at version v3', text: 'A and B open the table at the same time. Both see the pointer in the catalog as v3, and both remember "I started from v3".' },
-      { name: 'write', title: 'Each writes its own files', text: 'A writes its data file and a draft table of contents that continues v3. B does the same. Nobody has changed the catalog yet, so readers still see v3.' },
+      { name: 'write', title: 'Each writes its own files', text: 'A writes its data file and a draft metadata file that continues v3. B does the same. Nobody has changed the catalog yet, so readers still see v3.' },
       { name: 'A commits', title: 'A asks to change the pointer first, and succeeds', text: 'A sends "if the pointer is still v3, change it to my version". It is still v3, so the catalog changes it. The pointer is v4 (A’s) and A’s data is in the table.' },
       { name: 'B commits', title: 'B asks too, and is refused', text: 'B sends the same kind of request, "if the pointer is still v3", but the pointer is already A’s v4. The catalog changes nothing. This is why B cannot overwrite A.' },
       retry
-        ? { name: 'B retries', title: 'B reads v4, writes on top of it, and succeeds', text: 'PyIceberg retries by itself (log: Commit failed due to a concurrent update, retrying 1/4). B reads the table at v4, writes a new table of contents on top of v4 and asks "if the pointer is still v4". This time it works, and v5 holds the data of both writers.' }
+        ? { name: 'B retries', title: 'B reads v4, writes on top of it, and succeeds', text: 'PyIceberg retries by itself (log: Commit failed due to a concurrent update, retrying 1/4). B reads the table at v4, writes a new metadata file on top of v4 and asks "if the pointer is still v4". This time it works, and v5 holds the data of both writers.' }
         : { name: 'B fails', title: 'B gets an error and B’s data is not in the table', text: 'With retries off (commit.retry.num-retries = 0) B gets CommitFailedException: branch main has changed: expected id ..., found .... B’s data file is on disk, but no snapshot refers to it. You must call refresh() and write again yourself.' },
     ],
     caption: 'Measured in exercise 04 for both cases (version names in the drawing are made up). Spark and Java retry by themselves too, 4 times by default.',
@@ -80,7 +80,7 @@ export default function CommitRaceLab({ lang = 'th' }: { lang?: Lang }) {
   );
 
   return (
-    <figure className="viz">
+    <figure className="viz ib-fig">
       <div className="viz-title">{T.title}</div>
       <div className="ib-controls">
         <span className="ib-lbl">{T.retry}</span>

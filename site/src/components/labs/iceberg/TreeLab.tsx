@@ -3,7 +3,7 @@ import type { Lang } from '../spark/stepper';
 import { Legend, Node } from './ib';
 
 // Shows:      the files of an Iceberg table growing commit by commit (metadata.json, manifest list, manifest, data file), each box
-//             named by its job in the book picture (shelf label, table of contents, list of a snapshot, list of files, page).
+//             named by its job in the book picture (shelf label, metadata file, list of a snapshot, list of files, page).
 // Because:    the reuse of manifests between snapshots is a picture of lines. Counting "1, 2, 3 rows" in a table does not show it.
 // Control:    Append adds a commit; "Merge manifests" makes the next snapshot point to one merged manifest; the snapshot buttons choose which
 //             snapshot a reader opens and its path is outlined; "Start over" empties the table.
@@ -55,31 +55,31 @@ const TEXT: Record<Lang, {
   th: {
     title: 'กด Append ทีละครั้ง แล้วลองดูว่า Commit หนึ่งครั้งเขียนไฟล์ใหม่กี่ไฟล์ และ Snapshot ไหนใช้ไฟล์เก่าซ้ำ',
     append: 'Append 1 Commit', merge: 'รวม Manifest', reset: 'เริ่มใหม่', open: 'ผู้อ่านเปิด Snapshot ที่',
-    cols: [['ป้ายบนชั้น', 'Catalog'], ['สารบัญ', 'metadata.json'], ['รายการของ Snapshot', 'Manifest List'], ['รายการไฟล์', 'Manifest'], ['หน้ากระดาษ', 'Data File']],
+    cols: [['Catalog', 'ตัวชี้'], ['Metadata File', 'metadata.json'], ['Manifest List', 'หนึ่งไฟล์ต่อ Snapshot'], ['Manifest', 'รายการ Data File'], ['Data File', 'Parquet']],
     layers: ['ชั้น Catalog', 'ชั้น Metadata', 'ชั้น Data'],
-    catalogNode: (n) => `ชี้ฉบับ ${n}`, metaTitle: (k) => `ฉบับ ${k}`, listTitle: (k) => `Snapshot ${k}`, manTitle: (k) => `Manifest ${k}`, fileTitle: (k) => `ไฟล์ข้อมูล ${k}`,
+    catalogNode: (n) => `ชี้ไปที่ v${n}`, metaTitle: (k) => `Metadata File ${k}`, listTitle: (k) => `Snapshot ${k}`, manTitle: (k) => `Manifest ${k}`, fileTitle: (k) => `Data File ${k}`,
     nManifest: (n) => `${n} Manifest`, nFile: (n) => `${n} ไฟล์`,
     newTag: 'ใหม่', reusedTag: 'ใช้ซ้ำ', legend: ['ไฟล์ที่เพิ่งเขียนใน Commit ล่าสุด', 'อยู่ในเส้นทางที่ผู้อ่านเดิน', 'ไม่เกี่ยวกับ Snapshot ที่เลือก (จาง)'],
     wrote: (k, kind, n) => kind === 'append'
-      ? `Commit ที่ ${k} เขียนไฟล์ใหม่ ${n} ไฟล์ (สารบัญ, รายการของ Snapshot, รายการไฟล์ และไฟล์ข้อมูล) ไฟล์ของ Commit ก่อนหน้าไม่ถูกแตะเลย`
-      : `Commit ที่ ${k} (รวม Manifest) เขียนไฟล์ใหม่ ${n} ไฟล์ ได้แก่สารบัญ รายการของ Snapshot และ Manifest ที่รวมแล้ว ไฟล์ข้อมูลไม่ถูกเขียนใหม่`,
-    reads: (s, m, f, r) => `ผู้อ่านที่เปิด Snapshot ${s} จะเดินผ่าน ${m} Manifest และไปถึงไฟล์ข้อมูล ${f} ไฟล์ โดย ${r} Manifest เป็นของ Commit ก่อนหน้า (ใช้ซ้ำ ไม่ได้เขียนใหม่)`,
-    empty: 'ตารางที่เพิ่งสร้างมีแค่สารบัญฉบับแรก และยังไม่มี Snapshot ลองกด Append เพื่อเขียนข้อมูลดู',
+      ? `Commit ที่ ${k} เขียนไฟล์ใหม่ ${n} ไฟล์ (Metadata File, Manifest List, Manifest และ Data File) ไฟล์ของ Commit ก่อนหน้าไม่ถูกแตะเลย`
+      : `Commit ที่ ${k} (รวม Manifest) เขียนไฟล์ใหม่ ${n} ไฟล์ ได้แก่ Metadata File Manifest List และ Manifest ที่รวมแล้ว Data File ไม่ถูกเขียนใหม่`,
+    reads: (s, m, f, r) => `ผู้อ่านที่เปิด Snapshot ${s} จะเดินผ่าน ${m} Manifest และไปถึง Data File ${f} ไฟล์ โดย ${r} Manifest เป็นของ Commit ก่อนหน้า (ใช้ซ้ำ ไม่ได้เขียนใหม่)`,
+    empty: 'ตารางที่เพิ่งสร้างมีแค่ Metadata File ฉบับแรก และยังไม่มี Snapshot ลองกด Append เพื่อเขียนข้อมูลดู',
     caption: 'ตัวเลขตรงกับแบบฝึก 02 (INSERT สามครั้งได้ Manifest 3 ไฟล์ และ Manifest List ที่มี 1, 2, 3 แถว) การรวม Manifest ตรงกับแบบฝึก 10 สามชั้นในภาพตามหนังสือ Apache Iceberg: The Definitive Guide บทที่ 2 หน้า 29 ส่วนตำแหน่งของกล่องเราวาดขึ้นเอง',
   },
   en: {
     title: 'Press Append to add a commit. See how many new files one commit writes and which snapshots reuse old files',
     append: 'Append 1 commit', merge: 'Merge manifests', reset: 'Start over', open: 'A reader opens snapshot',
-    cols: [['Shelf label', 'Catalog'], ['Table of contents', 'metadata.json'], ['List of a snapshot', 'Manifest list'], ['List of files', 'Manifest'], ['The pages', 'Data file']],
+    cols: [['Catalog', 'the pointer'], ['Metadata file', 'metadata.json'], ['Manifest list', 'one per snapshot'], ['Manifest', 'list of data files'], ['Data file', 'Parquet']],
     layers: ['Catalog layer', 'Metadata layer', 'Data layer'],
-    catalogNode: (n) => `points to ${n}`, metaTitle: (k) => `Edition ${k}`, listTitle: (k) => `Snapshot ${k}`, manTitle: (k) => `Manifest ${k}`, fileTitle: (k) => `Data file ${k}`,
+    catalogNode: (n) => `points to v${n}`, metaTitle: (k) => `Metadata file ${k}`, listTitle: (k) => `Snapshot ${k}`, manTitle: (k) => `Manifest ${k}`, fileTitle: (k) => `Data file ${k}`,
     nManifest: (n) => `${n} manifest${n === 1 ? '' : 's'}`, nFile: (n) => `${n} file${n === 1 ? '' : 's'}`,
     newTag: 'new', reusedTag: 'reused', legend: ['written by the latest commit', 'on the path a reader follows', 'not part of the chosen snapshot (faded)'],
     wrote: (k, kind, n) => kind === 'append'
-      ? `Commit ${k} wrote ${n} new files (table of contents, snapshot list, file list and data file). The files of earlier commits were not touched at all.`
-      : `Commit ${k} (merge manifests) wrote ${n} new files: the table of contents, a snapshot list and the merged manifest. No data file was written again.`,
+      ? `Commit ${k} wrote ${n} new files (metadata file, manifest list, manifest and data file). The files of earlier commits were not touched at all.`
+      : `Commit ${k} (merge manifests) wrote ${n} new files: the metadata file, a manifest list and the merged manifest. No data file was written again.`,
     reads: (s, m, f, r) => `A reader who opens snapshot ${s} walks through ${m} manifest(s) and reaches ${f} data file(s). ${r} of those manifests belong to earlier commits (reused, not written again).`,
-    empty: 'A table that was just created has only its first table of contents and no snapshot yet. Press Append to write data.',
+    empty: 'A table that was just created has only its first metadata file and no snapshot yet. Press Append to write data.',
     caption: 'The numbers follow exercise 02 (three INSERTs give 3 manifests and manifest lists of 1, 2 and 3 rows). The merge follows exercise 10. The three layers follow the book Apache Iceberg: The Definitive Guide, chapter 2, page 29. Positions are drawn to fit.',
   },
 };
@@ -113,7 +113,7 @@ export default function TreeLab({ lang = 'th' }: { lang?: Lang }) {
   const lineStyle = (on: boolean) => ({ stroke: on ? 'var(--accent)' : 'var(--line-strong)', opacity: on ? 1 : 0.3, strokeWidth: on ? 3.5 : 2 });
 
   return (
-    <figure className="viz">
+    <figure className="viz ib-fig">
       <div className="viz-title">{T.title}</div>
       <Legend items={[{ kind: 'new', text: T.legend[0] }, { kind: 'use', text: T.legend[1] }, { kind: 'node', text: T.legend[2] }]} />
       <div className="ib-controls">

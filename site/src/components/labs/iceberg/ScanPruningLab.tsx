@@ -35,8 +35,8 @@ const TEXT: Record<Lang, {
     filter: 'Filter', layout: 'ข้อมูลในไฟล์', sorted: 'เรียงตาม order_id', mixed: 'order_id สลับปนทุกไฟล์',
     names: { none: 'ไม่มี Filter', day: 'ordered_at ของวันที่ 2', id7: 'order_id = 7', idgt: 'order_id > 35', cust: "customer = 'cu1'", neg: 'amount < 0' },
     man: 'Manifest', file: 'Data File', day: 'วัน', skipM: 'ข้ามทั้ง Manifest', skipF: 'ข้ามด้วย Min/Max', open: 'เปิดอ่าน', notOpened: 'ไม่ได้เปิด',
-    legend: ['เปิดอ่าน', 'ข้ามได้ ไม่เคยเปิด', 'ยังไม่ตัดสิน'], manLeft: 'Manifest (ช่วงวัน)', fileLeft: 'ไฟล์ข้อมูล (ช่วง order_id | amount)',
-    readout: (m, f) => `เปิด Manifest ${m} จาก 8 ไฟล์ และเปิดไฟล์ข้อมูล ${f} จาก 8 ไฟล์`,
+    legend: ['เปิดอ่าน', 'ข้ามได้ ไม่เคยเปิด', 'ยังไม่ตัดสิน'], manLeft: 'Manifest (ช่วงวัน)', fileLeft: 'Data File (ช่วง order_id | amount)',
+    readout: (m, f) => `เปิด Manifest ${m} จาก 8 ไฟล์ และเปิด Data File ${f} จาก 8 ไฟล์`,
     why: {
       none: 'ไม่มีเงื่อนไขอะไรเลย จึงต้องเปิดทุกไฟล์',
       day: 'ช่วงวันใน Manifest List บอกได้เลยว่า Manifest ไหนไม่มีวันที่ 2 จึงข้ามได้โดยไม่ต้องเปิด',
@@ -86,7 +86,7 @@ export default function ScanPruningLab({ lang = 'th' }: { lang?: Lang }) {
   const RH = 48;
 
   return (
-    <figure className="viz">
+    <figure className="viz ib-fig">
       <div className="viz-title">{T.title}</div>
       <Legend items={[{ kind: 'new', text: T.legend[0] }, { kind: 'skip', text: T.legend[1] }, { kind: 'node', text: T.legend[2] }]} />
       <div className="ib-controls">

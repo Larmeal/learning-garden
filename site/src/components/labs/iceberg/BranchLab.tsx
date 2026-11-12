@@ -86,7 +86,7 @@ export default function BranchLab({ lang = 'th' }: { lang?: Lang }) {
   );
 
   return (
-    <figure className="viz">
+    <figure className="viz ib-fig">
       <div className="viz-title">{T.title}</div>
       <div className="viz-box">
         <svg viewBox="0 0 880 400" role="img" aria-label={T.title}>
