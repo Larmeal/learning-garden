@@ -12,6 +12,8 @@ const subjects = defineCollection({
     name: z.string(),
     tagline: z.string(),
     description: z.string(),
+    // optional short lines under the description (how the subject was checked, what was not run), shown as a list
+    facts: z.array(z.string()).optional(),
     category: z.string().default('อื่นๆ'),
     order: z.number().default(100),
     accent: z.string().default('#C93F0A'),
@@ -25,6 +27,7 @@ const subjects = defineCollection({
         tagline: z.string(),
         category: z.string(),
         description: z.string().optional(),
+        facts: z.array(z.string()).optional(),
         phases: z.array(z.object({ id: z.string(), title: z.string(), check: z.string() })).optional(),
       })
       .optional(),
@@ -40,6 +43,8 @@ const subjects = defineCollection({
 const lessonSchema = z.object({
   title: z.string(),
   summary: z.string(),
+  // optional short lines under the summary: how the lesson was checked (ran, source, book) and what was not run, shown as a list
+  facts: z.array(z.string()).optional(),
   order: z.number(),
   phase: z.string().optional(),
   level: z.number().min(1).max(5).optional(),

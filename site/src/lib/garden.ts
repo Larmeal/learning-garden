@@ -96,13 +96,14 @@ export interface SubjectText {
   name: string;
   tagline: string;
   description: string;
+  facts?: string[];
   category: string;
   phases: { id: string; title: string; check: string }[];
 }
 
 /** Name, tagline and phases of a subject in one language; whatever is not translated yet stays Thai. */
 export function subjectText(s: Subject, lang: Lang): SubjectText {
-  const th = { name: s.data.name, tagline: s.data.tagline, description: s.data.description, category: s.data.category, phases: s.data.phases };
+  const th = { name: s.data.name, tagline: s.data.tagline, description: s.data.description, facts: s.data.facts, category: s.data.category, phases: s.data.phases };
   const en = s.data.en;
   if (lang !== 'en' || !en) return th;
   return {
@@ -110,6 +111,7 @@ export function subjectText(s: Subject, lang: Lang): SubjectText {
     tagline: en.tagline,
     category: en.category,
     description: en.description ?? th.description,
+    facts: en.facts ?? th.facts,
     phases: s.data.phases.map((p) => ({ ...p, ...en.phases?.find((x) => x.id === p.id) })),
   };
 }

@@ -18,6 +18,7 @@ const th = {
   languageLabel: (current: string) => `ภาษา: ${current} (กดเพื่อเปลี่ยน)`,
   home: 'หน้าแรก',
   breadcrumb: 'ตำแหน่งปัจจุบัน',
+  subjectFacts: 'ตรวจสอบอย่างไร',
 
   kind: { main: 'ภาพรวม', deep: 'ลงลึก', quiz: 'บททดสอบ' },
   stage: { seed: 'เมล็ด', sprout: 'ต้นอ่อน', evergreen: 'ต้นโตเต็มที่' },
@@ -162,6 +163,7 @@ const en: Ui = {
   languageLabel: (current: string) => `Language: ${current} (press to change)`,
   home: 'Home',
   breadcrumb: 'Breadcrumb',
+  subjectFacts: 'How it was checked',
 
   kind: { main: 'Overview', deep: 'Deep dive', quiz: 'Quiz' },
   stage: { seed: 'Seed', sprout: 'Sprout', evergreen: 'Full tree' },
