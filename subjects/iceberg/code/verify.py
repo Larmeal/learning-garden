@@ -28,7 +28,8 @@ def check_versions():
     for pkg, want in PINS.items():
         got = version(pkg)
         assert got == want, f"{pkg} is {got}, the lessons were written with {want}"
-    assert os.path.exists(os.path.expanduser("~/iceberg-lab/jars/" + ICEBERG_JAR)), "missing " + ICEBERG_JAR
+    jars = os.environ.get("ICEBERG_LAB_JARS", os.path.expanduser("~/iceberg-lab/jars"))
+    assert os.path.exists(os.path.join(jars, ICEBERG_JAR)), f"missing {ICEBERG_JAR} in {jars} (run bash setup.sh)"
 
 
 def main():

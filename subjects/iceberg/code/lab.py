@@ -15,7 +15,8 @@ import shutil
 import subprocess
 import sys
 
-JARS = os.path.expanduser("~/iceberg-lab/jars")
+# The two jars that setup.sh downloads. Set ICEBERG_LAB_JARS to keep them somewhere else.
+JARS = os.environ.get("ICEBERG_LAB_JARS", os.path.expanduser("~/iceberg-lab/jars"))
 ROOT = "/tmp/iceberg-lab"
 CATALOG = "lab"
 

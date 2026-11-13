@@ -5,6 +5,8 @@ Notable changes to the learning garden, newest first. Dates are when the change 
 ## 2026-11-13
 
 ### Added
+- The README now says how to clone the repo and run it: the website (Node, `npm ci`, `npm run dev`), the checks the deploy runs, publishing a fork, and the exercises of each subject with what each needs (uv, a JDK for Spark and Iceberg, WSL on Windows). This was tried on a fresh clone of the repo: the site built (634 pages), the dev server answered, and the exercises of Data Quality, Great Expectations, Pydantic and Pytest ran on Windows, and those of Spark and Iceberg ran on Linux (WSL).
+- `subjects/iceberg/code/setup.sh` installs what the Iceberg exercises need outside Python (it checks for Java and uv, downloads the two jars, runs `uv sync`), the jar folder can be moved with `ICEBERG_LAB_JARS`, and the subject now has a `uv.lock` like the others.
 - A lesson page may have a `facts` list in its frontmatter, shown as bullets under its summary ("ตรวจสอบอย่างไร" / "How it was checked"). Every non-quiz lesson page of every subject has one in both languages (Singing included, which has an English version): which exercise ran it, which source file or book page it was read from, and what was not run. Items come from each page's own sources table, the subject's `verified-findings.md` and its exercises. The subject pages got the same list, and the longer descriptions of Data Quality, Pytest, Pydantic and Singing were cut to two or three sentences.
 - A subject JSON may have a `facts` list (and `en.facts`). The subject page shows it as short bullets under the description, headed "ตรวจสอบอย่างไร" / "How it was checked". Iceberg uses it for how the lessons were checked and what was not run, so its description is two lines instead of a paragraph.
 
