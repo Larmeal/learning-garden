@@ -15,6 +15,7 @@ updated: 2026-11-05
 import Step from '../../../../components/Step.astro';
 import Callout from '../../../../components/Callout.astro';
 import LazyLab from '../../../../components/labs/spark/LazyLab';
+import LineageLab from '../../../../components/labs/spark/LineageLab';
 import ErrorTiming from '../../../../components/labs/spark/ErrorTiming';
 
 <Step>
@@ -44,11 +45,23 @@ Spark works this way because, when it sees the whole plan before it runs, it can
 
 ## A repeated action means repeated work
 
-Spark does not keep the result of earlier actions. If you call `count()` twice on the same DataFrame, it reads the file and processes the data twice. If you need an intermediate result again and again, use `cache()`. The next run then does not read the file again. How to choose where to cache is in [lesson 7](/en/spark/performance-tuning/#when-cache-helps).
+Spark does not keep the result of earlier actions. If you call `count()` twice on the same DataFrame, it reads the file and processes the data twice. If you need an intermediate result again and again, use `cache()`. The next run then does not read the file again. How to choose where to cache is in [the Cache and Persist page](/en/spark/performance-tuning/cache-persist/).
 
 <Callout type="tip" title="cache() is lazy too">
 Calling `cache()` does not store the data right away. The data is stored when the first action runs through that point. So the first action is still as slow as before. The benefit starts from the second action.
 </Callout>
+
+</Step>
+
+<Step>
+
+## What else lineage is used for
+
+Lineage is not only there so that Spark can plan before it runs. Spark also uses it when a partition is lost, for example when the executor that holds the result dies. Spark does not keep copies of the data in several places and does not start the whole job over. It walks back along the chain of commands and rebuilds only the partition that is gone. Pick a recipe, pick the partition that is lost, and see what Spark has to go back and do.
+
+<LineageLab client:visible lang="en" />
+
+Two things in the picture are worth noticing. First, `filter` and `withColumn` use the partition with the same number in the step before (a narrow dependency), so the walk back is very narrow. `groupBy` and `join` need data from every partition (a wide dependency), which is a shuffle. Second, Spark saves the result of the part before the shuffle as shuffle files, so it does not have to run that part again, unless the files are gone too. The details of dependencies and stages are in [lesson 13](/en/spark/internals/#rdd-and-lineage).
 
 </Step>
 

@@ -20,6 +20,7 @@ import Callout from '../../../../components/Callout.astro';
 import JoinPickerLab from '../../../../components/labs/spark/JoinPickerLab';
 import SaltingLab from '../../../../components/labs/spark/SaltingLab';
 import SpillLab from '../../../../components/labs/spark/SpillLab';
+import RepartitionLab from '../../../../components/labs/spark/RepartitionLab';
 import JoinFlowLab from '../../../../components/labs/spark/JoinFlowLab';
 
 <Step>
@@ -144,6 +145,12 @@ salted.join(dim_salted, ["k", "salt"])        # ผลเท่ากับ join
 
 ## `repartition` กับ `coalesce`
 
+`repartition` กับ `coalesce` ต่างก็เปลี่ยนจำนวน Partition ของตาราง แต่ทำกันคนละแบบเลย ลองเลือกคำสั่งกับค่า n ในภาพข้างล่างนี้ แล้วดูว่าแถวต่าง ๆ ย้ายไปอยู่ Partition ไหน และ Spark ต้อง Shuffle หรือเปล่า
+
+<RepartitionLab client:visible />
+
+ส่วนแผนที่ Spark สร้างให้จริงของแต่ละคำสั่ง เป็นดังตารางนี้
+
 | คำสั่ง | แผนที่ได้ | ผลต่อ Partition |
 |---|---|---|
 | `df.repartition(8)` | `Exchange RoundRobinPartitioning(8)` | 8 (shuffle) |
@@ -161,18 +168,7 @@ salted.join(dim_salted, ["k", "salt"])        # ผลเท่ากับ join
 
 ## `cache()` ช่วยเมื่อไร
 
-`cache()` ไม่ได้ทำให้ทุกอย่างเร็วขึ้น มันแค่เก็บผลของแผนไว้ให้ใช้ซ้ำ จึงมีประโยชน์เมื่อ DataFrame เดียวถูกใช้หลาย Action ส่วนหลักที่วัดได้มีสี่ข้อ
-
-1. Cache เป็น Lazy เมื่อเรียก `cache()` แล้ว `explain()` จะเห็น `InMemoryTableScan` ทันที แต่ยังไม่มีข้อมูลเก็บเลย (Storage ว่าง) ข้อมูลจะถูกสร้างตอน Action แรก
-2. คีย์ของ Cache คือแผน DataFrame อีกตัวที่สร้างจากโค้ดเดียวกัน (ไม่ใช่ Object เดียวกัน) ก็ใช้ Cache นั้นได้ และ Filter ที่ต่อบน DataFrame ที่ Cache ก็อ่านจาก Cache
-3. ระดับที่เก็บ `cache()` บน DataFrame ใช้ `MEMORY_AND_DISK` (ค่า `spark.sql.defaultCacheStorageLevel`) PySpark แสดงเป็น `Disk Memory Deserialized 1x Replicated` ส่วน `persist(StorageLevel.MEMORY_ONLY)` แสดง `Memory Serialized 1x` และถ้าเรียก `persist` ซ้ำด้วยระดับอื่นหลังจาก Persist แล้ว ระดับจะไม่เปลี่ยน
-4. Partition ที่ Cache คือ Partition ตอน Shuffle เมื่อ Cache ผลของ `groupBy` จะได้ 200 Partition ทั้งที่ Query เดียวกันที่ไม่ Cache นั้น AQE รวมเหลือ 1 (วัดจริง: `numCachedPartitions` = 200)
-
-<Callout type="warn" title="Cache มีราคา">
-วัดบน 20 ล้านแถว คำนวณ `sqrt` แล้ว `groupBy().sum()` ไม่ Cache ใช้ราว 0.3 วินาที การ Cache ครั้งแรก (สร้างข้อมูลเก็บ) ใช้ราว 0.7 วินาที และ Aggregate จาก Cache ใช้ราว 0.4 วินาที คือไม่ได้เร็วขึ้นเลย เพราะงานคำนวณเดิมถูกอยู่แล้ว (ตัวเลขเป็นของคอมพิวเตอร์ผู้เขียน วัดรอบเดียว) Cache จะคุ้มเมื่องานที่ Cache แพง (อ่านจากแหล่งช้า, Join หนัก) และใช้ซ้ำหลายครั้ง
-</Callout>
-
-อย่าลืม `unpersist()` เมื่อเลิกใช้ และสร้าง DataFrame ใหม่หลัง Unpersist ถ้าต้องการเห็นผล (พฤติกรรมของ Object เก่าไม่คงที่ จึงไม่รับรอง)
+`cache()` ไม่ได้ทำให้ทุกอย่างเร็วขึ้น มันแค่เก็บผลของแผนไว้ให้ใช้ซ้ำ จึงมีประโยชน์เมื่อ DataFrame เดียวถูกใช้หลาย Action และมีราคาที่ต้องจ่าย (วัดแล้ว บางงานไม่เร็วขึ้นเลย) ว่า Cache ตัด Recipe ตรงไหน ทำงานอย่างไรกับสายที่มี Shuffle และ Join และ `persist` มีระดับอะไรบ้าง อยู่ใน[หน้า Cache และ Persist](/spark/performance-tuning/cache-persist/)
 
 </Step>
 

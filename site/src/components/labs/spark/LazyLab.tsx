@@ -87,7 +87,8 @@ export default function LazyLab({ lang = 'th' }: { lang?: Lang }) {
     }
     if (cache) setCached(true);
     const stepMs = reduce ? 0 : 450;
-    let i = 0;
+    // on a cache hit the first step (reading the file) is not run again: the walk starts at the step after it
+    let i = useCache ? 1 : 0;
     const tick = () => {
       if (i < plan.length) {
         setRunning(i);

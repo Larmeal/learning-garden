@@ -1,0 +1,77 @@
+---
+title: Cache and Persist
+summary: When one DataFrame is used by several actions, keeping an intermediate result saves Spark from walking the recipe again. This page looks at where a cache cuts the recipe, how it works in a recipe with a shuffle and a join, and where each StorageLevel keeps the data.
+facts:
+  - "How many steps each action runs when the cache is after different steps was run and asserted in exercises/07_performance_tuning.py with PySpark 4.2.0 (cache_lineage measures an RDD chain with a counter in every step, cache_dataframe measures DataFrames with a groupBy and a join with a UDF that counts rows)"
+  - "Where each StorageLevel keeps the data when memory is short (171 MB of data in 94 MB of storage memory), and what deleting the shuffle files does (the part before the shuffle runs again completely), were run and asserted in exercises/07b_jvm_limits.py (levels and lost_shuffle)"
+  - "The default level of cache() on a DataFrame, the key of a cache and the 200 partitions after a groupBy were run in exercises/07_performance_tuning.py, and the inside of CacheManager is on the Performance Tuning in Depth page, read from the source"
+  - "The cache timings (0.3, 0.7 and 0.4 seconds) were measured once on the author's machine. The shuffle files were deleted by the test itself, and a dead executor and a broadcast join were not tried"
+order: 5
+stage: sprout
+format: steps
+updated: 2026-11-14
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import CacheLab from '../../../../components/labs/spark/CacheLab';
+
+<Step>
+
+## Where a cache cuts the recipe
+
+`cache()` does not make everything faster. It keeps the result of a plan so it can be used again, so it is useful when one DataFrame is used by several actions.
+
+Without a cache, Spark walks the recipe it wrote down (the lineage from [lesson 2](/en/spark/lazy-evaluation/#what-else-lineage-is-used-for)) from the first step again every time we run an action. Pick where to cache in the picture below and compare three actions in a row.
+
+<CacheLab client:visible lang="en" />
+
+The picture tells us four things.
+
+- With no cache, every action does the same work.
+- A cache after a step makes the next action start from the stored result there. The closer the cache is to the end of the recipe, the more is skipped.
+- If one partition is lost, Spark redoes only that one.
+- In a recipe with a shuffle or a join, Spark can use the shuffle files again, so it skips the steps before the shuffle by itself even with no cache. A cache before the shuffle does not help when the same DataFrame is run again, but it helps when several different queries are built on the same base DataFrame (measured: two different queries on one base ran the expensive step on 4,000 rows each time without a cache, and once with the base cached).
+
+</Step>
+
+<Step>
+
+## How `cache()` and `persist()` differ
+
+`cache()` and `persist()` use the same mechanism. `cache()` uses the default level, and `persist(level)` lets us choose.
+
+| Level | Where it is kept | If memory is short |
+|---|---|---|
+| `MEMORY_ONLY` | Memory | A partition that does not fit is not stored and is built again in every action |
+| `MEMORY_AND_DISK` | Memory first, the overflow on disk | Read from disk instead of building again |
+| `DISK_ONLY` | All on disk | Does not use cache memory |
+
+Measured with 171 MB of data (6 partitions) and 94 MB of storage memory: `MEMORY_ONLY` stored 3 of the 6 partitions and the next action had to build the other 3 again. `MEMORY_AND_DISK` stored all 6, with the overflow on disk, and nothing had to be built again (the numbers depend on the machine and were measured on a PySpark RDD).
+
+The names of the levels are not quite the same in Scala and PySpark (for example `MEMORY_ONLY` in PySpark is stored serialized). The details are in the `CacheManager` section of the [Performance Tuning in Depth page](/en/spark/performance-tuning/in-depth/#inside-cachemanager).
+
+</Step>
+
+<Step>
+
+## What was measured on a DataFrame
+
+1. **Lazy**: after `cache()`, `explain()` shows `InMemoryTableScan` at once, but nothing is stored yet (Storage is empty). The data is built at the first action.
+2. **The key is the plan**: another DataFrame built from the same code (not the same object) can use that cache too, and a filter on top of a cached DataFrame also reads from the cache.
+3. **Storage level**: `cache()` on a DataFrame uses `MEMORY_AND_DISK` (the value of `spark.sql.defaultCacheStorageLevel`). PySpark shows it as `Disk Memory Deserialized 1x Replicated`, while `persist(StorageLevel.MEMORY_ONLY)` shows `Memory Serialized 1x`. If you call `persist` again with another level after it was persisted, the level does not change.
+4. **The cached partitions are the partitions at shuffle time**: cache the result of a `groupBy` and you get 200 partitions, even though the same query without cache is merged by AQE down to 1 (measured: `numCachedPartitions` = 200).
+
+</Step>
+
+<Step>
+
+## Cache has a price
+
+<Callout type="warn" title="What was measured">
+Measured on 20 million rows: computing `sqrt` then `groupBy().sum()` without cache takes about 0.3 seconds. The first cache (building the stored data) takes about 0.7 seconds, and the aggregate from the cache takes about 0.4 seconds. It was not faster at all, because the original computation was already cheap (the numbers belong to the author's machine, measured once). Cache pays off when the work that is cached is expensive (reading from a slow source, a heavy join) and is used many times.
+</Callout>
+
+Do not forget `unpersist()` when you are done, and build a new DataFrame after an unpersist if you want to see the effect (the behaviour of the old object is not stable, so it is not guaranteed).
+
+</Step>

@@ -20,6 +20,7 @@ import Callout from '../../../../components/Callout.astro';
 import JoinPickerLab from '../../../../components/labs/spark/JoinPickerLab';
 import SaltingLab from '../../../../components/labs/spark/SaltingLab';
 import SpillLab from '../../../../components/labs/spark/SpillLab';
+import RepartitionLab from '../../../../components/labs/spark/RepartitionLab';
 import JoinFlowLab from '../../../../components/labs/spark/JoinFlowLab';
 
 <Step>
@@ -148,6 +149,12 @@ Things to remember:
 
 ## `repartition` and `coalesce`
 
+`repartition` and `coalesce` both change the number of partitions of a table, but they do it in different ways. Pick a command and a value of n in the picture below and see where the rows go, and whether Spark has to shuffle.
+
+<RepartitionLab client:visible lang="en" />
+
+The plans that Spark really builds for each command are in this table.
+
 | Command | Plan you get | Effect on partitions |
 |---|---|---|
 | `df.repartition(8)` | `Exchange RoundRobinPartitioning(8)` | 8 (shuffle) |
@@ -165,18 +172,7 @@ Things to remember:
 
 ## When `cache()` helps
 
-`cache()` does not make everything faster. It keeps the result of a plan so it can be used again, so it is useful when one DataFrame is used by several actions. The main points that were measured:
-
-1. **Lazy**: after `cache()`, `explain()` shows `InMemoryTableScan` at once, but nothing is stored yet (Storage is empty). The data is built at the first action.
-2. **The key is the plan**: another DataFrame built from the same code (not the same object) can use that cache too, and a filter on top of a cached DataFrame also reads from the cache.
-3. **Storage level**: `cache()` on a DataFrame uses `MEMORY_AND_DISK` (the value of `spark.sql.defaultCacheStorageLevel`). PySpark shows it as `Disk Memory Deserialized 1x Replicated`, while `persist(StorageLevel.MEMORY_ONLY)` shows `Memory Serialized 1x`. If you call `persist` again with another level after it was persisted, the level does not change.
-4. **The cached partitions are the partitions at shuffle time**: cache the result of a `groupBy` and you get 200 partitions, even though the same query without cache is merged by AQE down to 1 (measured: `numCachedPartitions` = 200).
-
-<Callout type="warn" title="Cache has a price">
-Measured on 20 million rows: computing `sqrt` then `groupBy().sum()` without cache takes about 0.3 seconds. The first cache (building the stored data) takes about 0.7 seconds, and the aggregate from the cache takes about 0.4 seconds. It was not faster at all, because the original computation was already cheap (the numbers belong to the author's machine, measured once). Cache pays off when the work that is cached is expensive (reading from a slow source, a heavy join) and is used many times.
-</Callout>
-
-Do not forget `unpersist()` when you are done. Build a new DataFrame after `unpersist` if you want to see the effect (the behavior of the old object is not stable, so it is not guaranteed).
+`cache()` does not make everything faster. It keeps the result of a plan so it can be used again, so it is useful when one DataFrame is used by several actions, and it has a price (measured: some jobs are not faster at all). Where a cache cuts the recipe, how it works with a shuffle and a join, and which levels `persist` has are on the [Cache and Persist page](/en/spark/performance-tuning/cache-persist/).
 
 </Step>
 

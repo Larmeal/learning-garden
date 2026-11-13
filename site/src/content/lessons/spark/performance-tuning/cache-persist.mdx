@@ -1,0 +1,77 @@
+---
+title: Cache และ Persist
+summary: เมื่อ DataFrame เดียวถูกใช้หลาย Action การเก็บผลกลางทางช่วยให้ Spark ไม่ต้องเดินตาม Recipe ซ้ำ หน้านี้ดูว่า Cache ตัดสายตรงไหน ทำงานอย่างไรกับสายที่มี Shuffle และ Join และ StorageLevel แต่ละระดับเก็บข้อมูลไว้ที่ไหน
+facts:
+  - "จำนวนขั้นที่แต่ละ Action ทำเมื่อ Cache หลังขั้นต่าง ๆ รันและ assert ใน exercises/07_performance_tuning.py (cache_lineage วัดบน RDD ด้วยตัวนับทุกขั้น, cache_dataframe วัดบน DataFrame ที่มี groupBy และ Join ด้วย UDF ที่นับแถว) ด้วย PySpark 4.2.0"
+  - "การเก็บของ StorageLevel แต่ละระดับเมื่อ Memory ไม่พอ (ข้อมูล 171 MB บนที่เก็บ Cache 94 MB) และผลของการลบไฟล์ Shuffle (ขั้นก่อน Shuffle ต้องรันใหม่ทั้งหมด) รันและ assert ใน exercises/07b_jvm_limits.py (levels และ lost_shuffle)"
+  - "ค่าเริ่มต้นของ cache() บน DataFrame, คีย์ของ Cache และ 200 Partition หลัง groupBy รันใน exercises/07_performance_tuning.py ส่วนกลไกข้างในของ CacheManager อยู่ในหน้า Performance Tuning in Depth ซึ่งอ่านจาก Source"
+  - "เวลาของ Cache (0.3, 0.7 และ 0.4 วินาที) วัดรอบเดียวบนคอมพิวเตอร์ของผู้เขียน ส่วนการลบไฟล์ Shuffle ทำเองในการทดสอบ ยังไม่ได้ลองกับ Executor ที่ล้มจริงหรือ Join แบบ Broadcast"
+order: 5
+stage: sprout
+format: steps
+updated: 2026-11-14
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import CacheLab from '../../../../components/labs/spark/CacheLab';
+
+<Step>
+
+## Cache ตัด Recipe ตรงไหน
+
+`cache()` ไม่ได้ทำให้ทุกอย่างเร็วขึ้น มันแค่เก็บผลของแผนไว้ให้ใช้ซ้ำ จึงมีประโยชน์เมื่อ DataFrame เดียวถูกใช้หลาย Action
+
+ถ้าไม่ Cache Spark จะเดินตาม Recipe ที่จดไว้ (หรือ Lineage ที่เราเห็นใน[บทที่ 2](/spark/lazy-evaluation/#lineage-ใช้ทำอะไรอีก)) ตั้งแต่ขั้นแรกใหม่ทุกครั้งที่เรากด Action ลองเลือกจุดที่ Cache ในภาพข้างล่างนี้ แล้วเทียบ Action สามครั้งติดกัน
+
+<CacheLab client:visible />
+
+ภาพนี้บอกเราสี่อย่าง
+
+- ถ้าไม่ Cache ทุก Action ทำงานเท่ากัน
+- ถ้า Cache หลังขั้นไหน Action ถัดไปจะเริ่มจากผลที่เก็บไว้ตรงนั้น ยิ่ง Cache ใกล้ท้ายสายก็ยิ่งข้ามได้มาก
+- ถ้า Partition หายไปตัวหนึ่ง Spark ทำใหม่เฉพาะตัวนั้น
+- ในสายที่มี Shuffle หรือ Join Spark ใช้ไฟล์ Shuffle ซ้ำได้ จึงข้ามขั้นก่อน Shuffle เองแม้ไม่ Cache การ Cache ก่อน Shuffle เลยไม่ช่วยตอนเรียก DataFrame ตัวเดิมซ้ำ แต่ช่วยเมื่อมีหลาย Query ที่ต่างกันต่อจาก DataFrame ฐานเดียวกัน (วัดจริง: สองคำสั่งต่างกันจากฐานเดียวกัน ถ้าไม่ Cache ขั้นแพงรัน 4,000 แถวทั้งสองครั้ง ถ้า Cache ฐานไว้จะรันครั้งเดียว)
+
+</Step>
+
+<Step>
+
+## `cache()` กับ `persist()` ต่างกันอย่างไร
+
+`cache()` กับ `persist()` ใช้กลไกเดียวกัน `cache()` ใช้ระดับค่าเริ่มต้น ส่วน `persist(level)` ให้เราเลือกเอง
+
+| ระดับ | เก็บที่ไหน | ถ้า Memory ไม่พอ |
+|---|---|---|
+| `MEMORY_ONLY` | Memory | Partition ที่ใส่ไม่ได้จะไม่ถูกเก็บ และทำใหม่ทุก Action |
+| `MEMORY_AND_DISK` | Memory ก่อน ส่วนที่ล้นไป Disk | อ่านจาก Disk แทนการทำใหม่ |
+| `DISK_ONLY` | Disk ทั้งหมด | ไม่ใช้ Memory ของ Cache |
+
+วัดจริงด้วยข้อมูล 171 MB (6 Partition) บนที่เก็บ Cache 94 MB ได้ว่า `MEMORY_ONLY` เก็บได้ 3 จาก 6 Partition และ Action ถัดไปต้องทำอีก 3 ตัว ส่วน `MEMORY_AND_DISK` เก็บครบทั้ง 6 โดยส่วนที่ล้นไปอยู่ใน Disk และไม่ต้องทำใหม่เลย (ตัวเลขขึ้นกับคอมพิวเตอร์ และวัดบน RDD ของ PySpark)
+
+ชื่อระดับใน Scala กับ PySpark ไม่ตรงกันทั้งหมด (เช่น `MEMORY_ONLY` ใน PySpark เก็บแบบ Serialized) ดูรายละเอียดได้ในหัวข้อ `CacheManager` ของ[หน้า Performance Tuning in Depth](/spark/performance-tuning/in-depth/#cachemanager-ข้างใน)
+
+</Step>
+
+<Step>
+
+## สิ่งที่วัดได้กับ DataFrame
+
+1. Cache เป็น Lazy เมื่อเรียก `cache()` แล้ว `explain()` จะเห็น `InMemoryTableScan` ทันที แต่ยังไม่มีข้อมูลเก็บเลย (Storage ว่าง) ข้อมูลจะถูกสร้างตอน Action แรก
+2. คีย์ของ Cache คือแผน DataFrame อีกตัวที่สร้างจากโค้ดเดียวกัน (ไม่ใช่ Object เดียวกัน) ก็ใช้ Cache นั้นได้ และ Filter ที่ต่อบน DataFrame ที่ Cache ก็อ่านจาก Cache
+3. ระดับที่เก็บ `cache()` บน DataFrame ใช้ `MEMORY_AND_DISK` (ค่า `spark.sql.defaultCacheStorageLevel`) PySpark แสดงเป็น `Disk Memory Deserialized 1x Replicated` ส่วน `persist(StorageLevel.MEMORY_ONLY)` แสดง `Memory Serialized 1x` และถ้าเรียก `persist` ซ้ำด้วยระดับอื่นหลังจาก Persist แล้ว ระดับจะไม่เปลี่ยน
+4. Partition ที่ Cache คือ Partition ตอน Shuffle เมื่อ Cache ผลของ `groupBy` จะได้ 200 Partition ทั้งที่ Query เดียวกันที่ไม่ Cache นั้น AQE รวมเหลือ 1 (วัดจริง: `numCachedPartitions` = 200)
+
+</Step>
+
+<Step>
+
+## Cache มีราคา
+
+<Callout type="warn" title="ตัวเลขที่วัดได้">
+วัดบน 20 ล้านแถว คำนวณ `sqrt` แล้ว `groupBy().sum()` ไม่ Cache ใช้ราว 0.3 วินาที การ Cache ครั้งแรก (สร้างข้อมูลเก็บ) ใช้ราว 0.7 วินาที และ Aggregate จาก Cache ใช้ราว 0.4 วินาที คือไม่ได้เร็วขึ้นเลย เพราะงานคำนวณเดิมถูกอยู่แล้ว (ตัวเลขเป็นของคอมพิวเตอร์ผู้เขียน วัดรอบเดียว) Cache จะคุ้มเมื่องานที่ Cache แพง (อ่านจากแหล่งช้า, Join หนัก) และใช้ซ้ำหลายครั้ง
+</Callout>
+
+อย่าลืม `unpersist()` เมื่อเลิกใช้ และสร้าง DataFrame ใหม่หลัง Unpersist ถ้าต้องการเห็นผล (พฤติกรรมของ Object เก่าไม่คงที่ จึงไม่รับรอง)
+
+</Step>
