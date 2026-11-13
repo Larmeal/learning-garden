@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { ClockControls, prog, smooth, useClock, type Lang, type Mark } from './timeline';
 
 // JoinSelection as a flow chart you can walk with your own inputs (SparkStrategies.scala:181-420, joins.scala:318-390,
@@ -81,12 +82,29 @@ interface Text {
   presetGroup: string;
   noHint: string;
   hintBtn: (h: string) => string;
-  otherGroup: string;
-  equiBtn: (on: boolean) => string;
-  smallSideBtn: (left: boolean) => string;
-  smallBtn: (on: boolean) => string;
-  preferBtn: (on: boolean) => string;
-  shjBtn: (on: boolean) => string;
+  presetLabel: string;
+  presetCustom: string;
+  secQuery: string;
+  secSize: string;
+  secConf: string;
+  equiLabel: string;
+  equiYes: string;
+  equiNo: string;
+  hintLabel: string;
+  jtLabel: string;
+  sideLabel: string;
+  sideLeft: string;
+  sideRight: string;
+  smallLabel: string;
+  smallYes: string;
+  smallNo: string;
+  preferLabel: string;
+  preferTrue: string;
+  preferFalse: string;
+  shjLabel: string;
+  shjYes: string;
+  shjNo: string;
+  unused: string;
   svgLabel: (r: string) => string;
   equiTitle: string;
   noEqTitle: string;
@@ -139,12 +157,29 @@ const TEXT: Record<Lang, Text> = {
     presetGroup: 'ตัวอย่าง',
     noHint: 'ไม่มี Hint',
     hintBtn: (h) => `Hint ${h}`,
-    otherGroup: 'เงื่อนไขอื่น',
-    equiBtn: (on) => `มีเงื่อนไข "=": ${on ? 'ใช่' : 'ไม่'}`,
-    smallSideBtn: (left) => `ฝั่งที่เล็กกว่า: ${left ? 'ซ้าย' : 'ขวา'}`,
-    smallBtn: (on) => `ฝั่งเล็กอยู่ใต้ Broadcast threshold: ${on ? 'ใช่' : 'ไม่'}`,
-    preferBtn: (on) => `preferSortMergeJoin: ${on ? 'true (ค่าเริ่มต้น)' : 'false'}`,
-    shjBtn: (on) => `ขนาดผ่านเงื่อนไข Shuffled hash: ${on ? 'ใช่' : 'ไม่'}`,
+    presetLabel: 'เริ่มจากตัวอย่าง',
+    presetCustom: 'ปรับเอง (ไม่ตรงกับตัวอย่างใด)',
+    secQuery: '1. คำสั่ง Join ของเรา',
+    secSize: '2. ขนาดของตาราง',
+    secConf: '3. Config ของ Spark',
+    equiLabel: 'เงื่อนไขของ Join',
+    equiYes: 'มี "=" (เช่น a.k = b.k)',
+    equiNo: 'ไม่มี "=" (เช่น a.k < b.k)',
+    hintLabel: 'Hint ที่ใส่ในคำสั่ง',
+    jtLabel: 'Join type',
+    sideLabel: 'ตารางที่เล็กกว่าอยู่ฝั่งไหน',
+    sideLeft: 'ฝั่งซ้าย',
+    sideRight: 'ฝั่งขวา',
+    smallLabel: 'ฝั่งที่เล็กกว่าเล็กพอจะ Broadcast ไหม',
+    smallYes: 'เล็กพอ (ใต้ autoBroadcastJoinThreshold)',
+    smallNo: 'ใหญ่เกินไป',
+    preferLabel: 'preferSortMergeJoin',
+    preferTrue: 'true (ค่าเริ่มต้น)',
+    preferFalse: 'false',
+    shjLabel: 'ขนาดผ่านเงื่อนไขของ Shuffled Hash Join',
+    shjYes: 'ผ่าน',
+    shjNo: 'ไม่ผ่าน',
+    unused: 'เส้นทางนี้ไม่ได้ดูข้อนี้ จะเปลี่ยนก็ไม่มีผล',
     svgLabel: (r) => `ผังเลือก Join strategy ผลคือ ${r}`,
     equiTitle: 'Equi-join (มี =)',
     noEqTitle: 'ไม่มี =',
@@ -196,12 +231,29 @@ const TEXT: Record<Lang, Text> = {
     presetGroup: 'Examples',
     noHint: 'no hint',
     hintBtn: (h) => `hint ${h}`,
-    otherGroup: 'Other conditions',
-    equiBtn: (on) => `Has "=" condition: ${on ? 'yes' : 'no'}`,
-    smallSideBtn: (left) => `Smaller side: ${left ? 'left' : 'right'}`,
-    smallBtn: (on) => `Small side under broadcast threshold: ${on ? 'yes' : 'no'}`,
-    preferBtn: (on) => `preferSortMergeJoin: ${on ? 'true (default)' : 'false'}`,
-    shjBtn: (on) => `Size passes shuffled hash checks: ${on ? 'yes' : 'no'}`,
+    presetLabel: 'Start from an example',
+    presetCustom: 'Your own mix (no example matches)',
+    secQuery: '1. Our join',
+    secSize: '2. Size of the tables',
+    secConf: '3. Spark configuration',
+    equiLabel: 'Join condition',
+    equiYes: 'has "=" (for example a.k = b.k)',
+    equiNo: 'no "=" (for example a.k < b.k)',
+    hintLabel: 'Hint in the query',
+    jtLabel: 'Join type',
+    sideLabel: 'Which side is the smaller table',
+    sideLeft: 'left',
+    sideRight: 'right',
+    smallLabel: 'Is the smaller side small enough to broadcast',
+    smallYes: 'small enough (under autoBroadcastJoinThreshold)',
+    smallNo: 'too big',
+    preferLabel: 'preferSortMergeJoin',
+    preferTrue: 'true (default)',
+    preferFalse: 'false',
+    shjLabel: 'Size passes the shuffled hash join checks',
+    shjYes: 'passes',
+    shjNo: 'does not pass',
+    unused: 'This path does not look at it, so changing it has no effect',
     svgLabel: (r) => `Join strategy chart, the result is ${r}`,
     equiTitle: 'equi-join (has =)',
     noEqTitle: 'no =',
@@ -274,6 +326,18 @@ function edgePath(a: string, b: string) {
   return `M${x1} ${y1} H${xm} V${y2} H${x2}`;
 }
 
+function Row({ label, note, off, children }: { label: string; note: string; off?: boolean; children: ReactNode }) {
+  return (
+    <div className="jd-row" data-off={off ? '' : undefined}>
+      <div className="jd-label">
+        {label}
+        {off && <small>{note}</small>}
+      </div>
+      <div className="viz-steps" role="group" aria-label={label}>{children}</div>
+    </div>
+  );
+}
+
 export default function JoinDecisionLab({ lang = 'th' }: { lang?: Lang }) {
   const L = TEXT[lang];
   const [inp, setInp] = useState<Inp>(BASE);
@@ -282,6 +346,14 @@ export default function JoinDecisionLab({ lang = 'th' }: { lang?: Lang }) {
   const out = useMemo(() => decide(inp, L), [inp, L]);
   const preset = PRESETS.find((p) => JSON.stringify(p.v) === JSON.stringify(inp));
   const set = (patch: Partial<Inp>) => { setInp({ ...inp, ...patch }); clock.restart(); };
+
+  // the settings that the chosen path never asks about are dimmed, so it is clear which ones matter for this result
+  const used = {
+    jt: out.path.includes('ne_inner') || out.path.includes('bhj_q') || (inp.equi && (inp.hint === 'broadcast' || inp.hint === 'shuffle_replicate_nl')),
+    side: inp.equi && (out.path.includes('bhj_q') || inp.hint === 'broadcast'),
+    small: out.path.includes('bhj_q') || out.path.includes('ne_q'),
+    shj: out.path.includes('shj_q'),
+  };
 
   const STEP = 0.8;
   const lit = (id: string) => {
@@ -304,25 +376,55 @@ export default function JoinDecisionLab({ lang = 'th' }: { lang?: Lang }) {
   return (
     <figure className="viz lg">
       <div className="viz-title">{L.title}</div>
-      <div className="viz-steps" role="group" aria-label={L.presetGroup}>
-        {PRESETS.map((p, pi) => (
-          <button key={pi} type="button" aria-pressed={JSON.stringify(p.v) === JSON.stringify(inp)} onClick={() => { setInp(p.v); clock.restart(); }}>
-            {L.presets[pi]}{p.real ? L.measured : ''}
-          </button>
-        ))}
-      </div>
-      <div className="viz-steps" role="group" aria-label="join type">
-        {JT_IDS.map((j) => <button key={j} type="button" aria-pressed={inp.jt === j} onClick={() => set({ jt: j })}>{L.jt[j]}</button>)}
-      </div>
-      <div className="viz-steps" role="group" aria-label="hint">
-        {HINTS.map((h) => <button key={h} type="button" aria-pressed={inp.hint === h} onClick={() => set({ hint: h })}>{h === 'none' ? L.noHint : L.hintBtn(h)}</button>)}
-      </div>
-      <div className="viz-steps" role="group" aria-label={L.otherGroup}>
-        <button type="button" aria-pressed={inp.equi} onClick={() => set({ equi: !inp.equi })}>{L.equiBtn(inp.equi)}</button>
-        <button type="button" aria-pressed={inp.smallSide === 'left'} onClick={() => set({ smallSide: inp.smallSide === 'left' ? 'right' : 'left' })}>{L.smallSideBtn(inp.smallSide === 'left')}</button>
-        <button type="button" aria-pressed={inp.small} onClick={() => set({ small: !inp.small })}>{L.smallBtn(inp.small)}</button>
-        <button type="button" aria-pressed={!inp.preferSMJ} onClick={() => set({ preferSMJ: !inp.preferSMJ })}>{L.preferBtn(inp.preferSMJ)}</button>
-        <button type="button" aria-pressed={inp.shjOk} onClick={() => set({ shjOk: !inp.shjOk })}>{L.shjBtn(inp.shjOk)}</button>
+      <div className="jd-form">
+        <label className="jd-row">
+          <span className="jd-label">{L.presetLabel}</span>
+          <select
+            className="jd-select"
+            aria-label={L.presetGroup}
+            value={preset ? String(PRESETS.indexOf(preset)) : 'custom'}
+            onChange={(e) => {
+              if (e.target.value === 'custom') return;
+              setInp(PRESETS[Number(e.target.value)].v);
+              clock.restart();
+            }}
+          >
+            {PRESETS.map((p, pi) => <option key={pi} value={String(pi)}>{L.presets[pi]}{p.real ? L.measured : ''}</option>)}
+            {!preset && <option value="custom">{L.presetCustom}</option>}
+          </select>
+        </label>
+
+        <div className="jd-sec">{L.secQuery}</div>
+        <Row label={L.equiLabel} note={L.unused}>
+          <button type="button" aria-pressed={inp.equi} onClick={() => set({ equi: true })}>{L.equiYes}</button>
+          <button type="button" aria-pressed={!inp.equi} onClick={() => set({ equi: false })}>{L.equiNo}</button>
+        </Row>
+        <Row label={L.hintLabel} note={L.unused}>
+          {HINTS.map((h) => <button key={h} type="button" aria-pressed={inp.hint === h} onClick={() => set({ hint: h })}>{h === 'none' ? L.noHint : L.hintBtn(h)}</button>)}
+        </Row>
+        <Row label={L.jtLabel} note={L.unused} off={!used.jt}>
+          {JT_IDS.map((j) => <button key={j} type="button" aria-pressed={inp.jt === j} onClick={() => set({ jt: j })}>{L.jt[j]}</button>)}
+        </Row>
+
+        <div className="jd-sec">{L.secSize}</div>
+        <Row label={L.sideLabel} note={L.unused} off={!used.side}>
+          <button type="button" aria-pressed={inp.smallSide === 'left'} onClick={() => set({ smallSide: 'left' })}>{L.sideLeft}</button>
+          <button type="button" aria-pressed={inp.smallSide === 'right'} onClick={() => set({ smallSide: 'right' })}>{L.sideRight}</button>
+        </Row>
+        <Row label={L.smallLabel} note={L.unused} off={!used.small}>
+          <button type="button" aria-pressed={inp.small} onClick={() => set({ small: true })}>{L.smallYes}</button>
+          <button type="button" aria-pressed={!inp.small} onClick={() => set({ small: false })}>{L.smallNo}</button>
+        </Row>
+        <Row label={L.shjLabel} note={L.unused} off={!used.shj}>
+          <button type="button" aria-pressed={inp.shjOk} onClick={() => set({ shjOk: true })}>{L.shjYes}</button>
+          <button type="button" aria-pressed={!inp.shjOk} onClick={() => set({ shjOk: false })}>{L.shjNo}</button>
+        </Row>
+
+        <div className="jd-sec">{L.secConf}</div>
+        <Row label={L.preferLabel} note={L.unused} off={!used.shj}>
+          <button type="button" aria-pressed={inp.preferSMJ} onClick={() => set({ preferSMJ: true })}>{L.preferTrue}</button>
+          <button type="button" aria-pressed={!inp.preferSMJ} onClick={() => set({ preferSMJ: false })}>{L.preferFalse}</button>
+        </Row>
       </div>
       <div className="viz-box">
         <svg viewBox="0 0 880 500" role="img" aria-label={L.svgLabel(out.result)}>
@@ -335,12 +437,16 @@ export default function JoinDecisionLab({ lang = 'th' }: { lang?: Lang }) {
             const on = edgeOn(a, b);
             const A = NODES[a];
             const B = NODES[b];
-            const mx = A.x === B.x ? A.x + W / 2 + 8 : (A.x + W + B.x) / 2 + 4;
+            // a label must not run into a box: from the first question it sits left of the vertical line, before a result box it ends right at the box
+            let mx = A.x === B.x ? A.x + W / 2 + 8 : (A.x + W + B.x) / 2 + 4;
+            let anchor: 'start' | 'end' = 'start';
+            if (A.x !== B.x && a === 'eq') { mx = (A.x + W + B.x) / 2 - 4; anchor = 'end'; }
+            else if (A.x !== B.x && B.kind === 'r') { mx = B.x - 6; anchor = 'end'; }
             const my = A.x === B.x ? (A.y + H + B.y) / 2 + 4 : (A.y + B.y) / 2 + H / 2 - 4;
             return (
               <g key={a + b}>
                 <path d={edgePath(a, b)} fill="none" stroke={on ? 'var(--accent)' : 'var(--line-strong)'} strokeWidth={on ? 3.5 : 1.6} opacity={on ? 1 : 0.7} />
-                <text className="s" x={mx} y={my} style={{ fill: on ? 'var(--accent)' : undefined, fontWeight: on ? 700 : undefined }}>{l}</text>
+                <text className="s" x={mx} y={my} textAnchor={anchor} style={{ fill: on ? 'var(--accent)' : undefined, fontWeight: on ? 700 : undefined }}>{l}</text>
               </g>
             );
           })}
