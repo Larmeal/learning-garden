@@ -90,7 +90,7 @@ the numbers and the grammar of each language apart. Never use a string that you 
 
 ## Layout limits that bit before
 
-- The SVG has a `viewBox` of 880 units wide and scales to the column (about 730 px on a desktop, so 0.83). `.viz-box svg` has `min-width: 700px`, and
+- The SVG has a `viewBox` of 880 units wide and scales to the column (about 730 px on a desktop, so 0.83). `.viz-box svg` has `min-width: 660px` (below the 668 px that a 700 px lesson column leaves inside the box; a bigger minimum made every lab scroll sideways on a wide screen), and
   on a phone the box scrolls sideways (with soft shadows on the side that has more). Text below 12 units reads as 9 to 10 px on a desktop:
   keep labels short and at 12 units or more where you can.
 - **Keep the path of moving things away from text.** Seven Spark labs had a dot or a label that crossed a title, a caption or a file name at

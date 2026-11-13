@@ -9,7 +9,7 @@ For every page it
   2. clicks every option group (.seg and .viz-steps whose buttons are not numbered steps) and reports one whose buttons all give
      the same picture (NO VISIBLE EFFECT),
   3. goes through every step of every option and reports text inside an SVG that overlaps other text (OVERLAP),
-  4. loads the page at 390 px and reports a sideways scroll of the page itself (PHONE),
+  4. loads the page at a 1920 px screen and reports a lab box that scrolls sideways (BOX SCROLLS), and at 390 px a sideways scroll of the page itself (PHONE),
   5. reports script errors (ERROR).
 Exit code 1 when something was reported. It finds patterns; read the screenshots too.
 """
@@ -92,6 +92,11 @@ def audit_figure(pg, fig, name, report, settle):
         n = buttons.count()
         if n < 2:
             continue
+        # the other option groups go back to their first button: a choice in one group can make another group irrelevant
+        for h in option_g:
+            if h != g:
+                group(h).locator('button').first.click()
+        pg.wait_for_timeout(200)
         seen = []
         for b in range(n):
             buttons.nth(b).click()
@@ -174,6 +179,15 @@ def main():
                 report.append(f'ERROR             {path}: {e}')
             errors.clear()
 
+        # the lesson column is only 700 px wide on a big desktop screen: a lab box that is wider than that scrolls sideways and loses its edge
+        wide = br.new_context(viewport={'width': 1920, 'height': 900})
+        wide.add_init_script("localStorage.setItem('garden:view','read')")
+        wp = wide.new_page()
+        for path in args.paths:
+            wp.goto(args.base + path, wait_until='networkidle', timeout=180000)
+            for row in wp.evaluate("() => [...document.querySelectorAll('.viz-box')].map((b, i) => [i + 1, b.clientWidth, b.scrollWidth])"):
+                if row[2] > row[1] + 1:
+                    report.append(f'BOX SCROLLS       {path} lab {row[0]}: the box is {row[1]} px wide but its drawing needs {row[2]} (at a 1920 px screen)')
         phone = br.new_context(viewport={'width': 390, 'height': 800})
         phone.add_init_script("localStorage.setItem('garden:view','read')")
         pp = phone.new_page()
