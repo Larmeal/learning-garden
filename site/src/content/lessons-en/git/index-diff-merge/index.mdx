@@ -1,0 +1,187 @@
+---
+title: The index, diff and merge inside
+summary: The index file is binary and we can read it ourselves. It remembers data about each file so that git status need not open every file. Diff has four algorithms that give correct answers that look different, and merge finds renamed files by their content. We try them all and see what Git does not know.
+facts:
+  - "Run in exercises/13_index_diff_merge.py with Git 2.56.1. The bytes of .git/index are read with Python and compared with git ls-files. The pair of files on which the diff algorithms differ was found by a random search, so it is a made-up example."
+  - "On the Windows we ran, dev, ino, uid and gid in the index are 0. On Linux and macOS they hold real values. We did not run those two systems."
+  - "The minimum similarity for detecting a rename is read from diffcore.h. The part on the inside of merge follows Version Control with Git chapters 5 to 7."
+order: 13
+phase: E
+level: 4
+stage: sprout
+format: steps
+requires: [refs-and-packs]
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## Open the index file and look at the bytes
+
+The index we used in the early lessons is the file `.git/index`. Let us make three files, run `git add`, and read its bytes with Python (ran: `exercises/13_index_diff_merge.py`).
+
+```python
+import struct
+raw = open(".git/index", "rb").read()
+sig, version, count = struct.unpack(">4sII", raw[:12])
+# (b'DIRC', 2, 3)
+```
+
+The first 12 bytes are the letters `DIRC` (short for directory cache), version 2 and the number of entries, 3, which matches the constant `CACHE_SIGNATURE` that the source uses when it reads and writes the index (Source: `read-cache.c`). Then come the entries of the files, always sorted by name (`a.txt`, `b.txt`, `dir/c.txt`). Each entry has 10 fields of stat data about the file, the 20-byte id of the blob, 2 bytes of flags, and then the file name. In the exercise we parse these entries ourselves and compare the ids with `git hash-object` of each file, and they all match, as do the file size and the mode we read. At the end of the file are 20 bytes of the SHA-1 of everything before, to catch a damaged index (book: VCWG chapter 2, page 28, on the index).
+
+Before the first commit there is no extension called `TREE` in the file, but after `git write-tree` (or a commit) it appears. That extension remembers the tree id of every folder, so that the next commit makes new trees only for the folders that changed (ran).
+
+</Step>
+
+<Step>
+
+## `git status` does not open every file
+
+If a project has ten thousand files, `git status` does not read the content of every file each time. It looks at the stat data that the index remembers first.
+
+```text
+$ git ls-files --debug a.txt
+a.txt
+  ctime: <seconds>:<nanoseconds>
+  mtime: <seconds>:<nanoseconds>
+  dev: 0	ino: 0
+  uid: 0	gid: 0
+  size: 6	flags: 0
+```
+
+The index keeps the time the file was created and changed, the size and other data about the file. If the stat of the file in the folder matches what is remembered, the file is taken as unchanged without opening it. The values `dev`, `ino`, `uid` and `gid` are 0 in the exercise because it ran on Windows, where Git puts zeros. On a system such as Linux they are real numbers.
+
+What happens if we change the time of a file without changing the content (a `touch`)? The exercise checks it step by step. **First**, the entry in the index does not change straight after the `touch`. **Then**, `git status` sees that the stat differs from what was remembered, so it opens the file, compares the id, finds it is the same, and reports clean. **Finally**, it writes the new stat data back into the index too, so that next time it need not open the file again. All three steps were checked in the run.
+
+The index also has version 4, which compresses the file names, and we can switch to it with `git update-index --index-version 4` (ran).
+
+</Step>
+
+<Step>
+
+## A correct diff is not just one
+
+`git diff` compares two files with an algorithm, and there are four to choose from (`myers`, the default, `minimal`, `patience` and `histogram`). Each gives a correct result in the sense that applying it to the old file gives the new file, but they are not necessarily the same (book: VCWG chapter 7, page 173, on how Git derives diffs).
+
+The short pieces of code that we tried while writing this lesson (functions that swapped places, a function inserted in the middle) gave the same result in every algorithm, because Git already adjusts the result to be easy to read. So we searched at random over small files of 9 lines with many repeated lines, such as `{` and blank lines, until we found a pair where the four algorithms disagree. It is a made-up example, but real data with many repeated lines can give the same.
+
+```text
+$ git diff --diff-algorithm=patience
+@@ -1,8 +1,8 @@
+-{
+-{
+-
+ a();
+ {
++{
++{
++
+ {
+ 
+ c();
+```
+
+```text
+$ git diff --diff-algorithm=myers
+@@ -1,8 +1,8 @@
++a();
+ {
+ {
+-
+-a();
+ {
++
+ {
+ 
+ c();
+```
+
+The result is that patience counts 3 lines changed on each side, while myers, minimal and histogram count 2, and altogether we get three different looks. Each of them applied with `git apply` to the old file gives exactly the new file (ran). None is wrong.
+
+Another thing to note: there is no word "moved" in a diff. The result has only added lines and removed lines, whatever the algorithm (ran). Options such as `--color-moved` are only about display.
+
+</Step>
+
+<Step>
+
+## Merge finds a renamed file from its content
+
+Git does not record that a file was renamed. At merge time it compares the content of a file that went missing with files that are new (book: VCWG chapter 5, page 117, on tracking renames). If they are similar enough, it takes them as the same file.
+
+Say one side renamed `old.txt` to `new.txt`, and the other side edited a line of `old.txt`, and we merge.
+
+```text
+$ git merge mover
+Merge made by the 'ort' strategy.
+ old.txt => new.txt | 0
+ 1 file changed, 0 insertions(+), 0 deletions(-)
+ rename old.txt => new.txt (100%)
+```
+
+The result is no conflict, and the edit follows the file to its new name (ran). The 100% is the similarity of the renamed file.
+
+If the side that renamed it wrote entirely new content, the similarity falls below the threshold. The threshold is in the source as `DEFAULT_RENAME_SCORE 30000`, which the comment says is 50% (Source: `diffcore.h`). The result we got is that Git sees one file deleted and another added, and the merge collides.
+
+```text
+$ git merge mover
+CONFLICT (modify/delete): old.txt deleted in mover and modified in HEAD.  Version HEAD of old.txt left in tree.
+Automatic merge failed; fix conflicts and then commit the result.
+```
+
+(ran)
+
+</Step>
+
+<Step>
+
+## Compute a merge without touching anything
+
+`git merge-tree --write-tree` does the whole merge inside, and reports the result, without touching the working tree, the index or any branch. It is useful for tools that want to know beforehand whether a merge will collide.
+
+```text
+$ git merge-tree --write-tree main egg
+<id of the merged tree>
+```
+
+If there is no collision it prints the id of the resulting tree, which has the work of both sides, and the exercise checks that the folder and the branch did not change (ran). If there is a collision, it exits with 1 and prints the id of a tree and the three versions (stages 1, 2 and 3) of the file that collided, followed by the message `CONFLICT (content)`, which is the same data we saw in the index when a merge collided in the merge lesson.
+
+What does the work inside is the `ort` engine in the file `merge-ort.c` (Source), the same one that `git merge` calls, as in the message `Merge made by the 'ort' strategy.`
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We change the time of a file that is already committed without changing the content, and then run Git Status. What does Git do?"
+  options={['It says the file changed at once, because the time changed', 'It sees that the stat differs from what was remembered, so it opens the file and compares the content, finds it the same, treats it as clean, and records the new stat in the index', 'It checks nothing, because it trusts the index']}
+  answer={1}
+  why="Stat is only a first filter. If it matches, the file can be skipped, and if it does not, Git has to look at the real content. The exercise checks all three steps: the file time changed, the status came out empty, and the stat data in the index changed to the new value."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The bytes of the index (`DIRC`, version, number of entries), the entries sorted by name, the id and size in an entry match the real file, the `TREE` extension appears after `write-tree` | Ran: `exercises/13_index_diff_merge.py` |
+| `CACHE_SIGNATURE` | Source: `read-cache.c` |
+| `git ls-files --debug`, `touch` does not change the index at once, `git status` writes new stat into the index, index version 4 | Ran: `exercises/13_index_diff_merge.py` |
+| The values `dev`, `ino`, `uid`, `gid` are 0 on Windows | Ran: `exercises/13_index_diff_merge.py` (Windows only, Linux and macOS not tried) |
+| The four diff algorithms give three different looks on a made-up pair of files, and each applies with `git apply` to give the new file | Ran: `exercises/13_index_diff_merge.py` |
+| Merge follows a renamed file if it is similar enough, and below the threshold gives `CONFLICT (modify/delete)` | Ran: `exercises/13_index_diff_merge.py` |
+| The rename detection threshold of 50% | Source: `diffcore.h`, `DEFAULT_RENAME_SCORE` |
+| `git merge-tree --write-tree` computes a merge without touching anything, and exits with 1 on a collision | Ran: `exercises/13_index_diff_merge.py` |
+| The `ort` merge engine | Source: `merge-ort.c` |
+| The index, tracking renames and how a diff is derived | Book: VCWG chapter 2, page 28, chapter 5, page 117, chapter 7, page 173 |
+| The diff example with different looks is a made-up pair found by searching, and the other short examples we tried gave the same result in all four (they are not in the exercise) | Author |
+
+</Step>

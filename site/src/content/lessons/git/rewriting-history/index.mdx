@@ -1,0 +1,186 @@
+---
+title: แก้และย้อนประวัติ
+summary: คำสั่ง Reset, Revert, Amend, Cherry-pick และ Restore แก้ปัญหาคนละแบบ เราจะดูว่าแต่ละคำสั่งขยับอะไรบ้างในสามพื้นที่ของ Git (HEAD, Index, Working Tree) และคำสั่งไหนปลอดภัยเมื่อ Commit ถูกส่งให้คนอื่นไปแล้ว
+facts:
+  - "รันจริงใน exercises/08_rewriting_history.py ด้วย Git 2.56.1 แล้ว Assert ผลทุกข้อ ทั้งผลของ reset สามแบบต่อสามพื้นที่ revert Merge Commit amend cherry-pick และ restore"
+  - "เรื่องการแก้ประวัติอ้างหนังสือ Version Control with Git บทที่ 9 โดยเทียบกับผลที่รันแล้ว"
+  - "ผลของ git clean -f เป็นการลบไฟล์จริง จึงลองกับไฟล์ที่สร้างในโฟลเดอร์ชั่วคราวเท่านั้น"
+order: 8
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [team-workflow]
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ResetLab from '../../../../components/labs/git/ResetLab';
+
+<Step>
+
+## เลือกเครื่องมือตามว่าอะไรผิด
+
+พอใช้ Git ไปสักพัก ก็ต้องมีวันที่เราพลาด Commit ผิด ข้อความผิด หรือเอาของที่ไม่ควรเข้าไป คำสั่งที่ใช้แก้มีหลายตัวและหน้าตาคล้ายกันจนสับสน ตารางนี้แยกตามสิ่งที่เราอยากได้
+
+| อยากได้อะไร | ใช้ |
+|---|---|
+| แก้ Commit ล่าสุดที่ยังไม่ได้ส่งใคร (ข้อความหรือไฟล์) | `git commit --amend` |
+| ย้ายปลาย Branch ถอยไป (งานที่ยังไม่ส่งใคร) | `git reset` |
+| ยกเลิกผลของ Commit เก่า โดยไม่แก้ประวัติเดิม | `git revert` |
+| เอา Commit เดียวจาก Branch อื่นมา | `git cherry-pick` |
+| เอาไฟล์กลับมาเป็นเวอร์ชันที่เคยมี | `git restore` |
+
+หนังสือเตือนไว้ว่าการแก้ประวัติที่ส่งให้คนอื่นแล้วทำให้เกิดปัญหากับคนที่ถือสำเนาอยู่ (หนังสือ: VCWG บทที่ 9 หน้า 189) ดังนั้นคำถามแรกเสมอคือ Commit นี้ถูกส่งออกไปแล้วหรือยัง ถ้าส่งแล้ว ให้ใช้ `revert` ที่ไม่แตะประวัติเดิม
+
+</Step>
+
+<Step>
+
+## `git reset` ขยับปลาย Branch และพาสามพื้นที่ตามไปมากน้อยต่างกัน
+
+`reset` ย้าย Branch ที่เราอยู่ให้ไปชี้ Commit อื่น ส่วนจะพา Index และ Working Tree ไปด้วยหรือไม่ ขึ้นกับตัวเลือก (หนังสือ: VCWG บทที่ 9 หน้า 194) แบบฝึกสร้างประวัติสาม Commit `C1`, `C2`, `C3` แล้วสั่ง `reset` ถอยหนึ่งชั้นสามแบบ (รัน: `exercises/08_rewriting_history.py`)
+
+| ตัวเลือก | Branch (HEAD) | Index | Working Tree | ผลที่เห็น |
+|---|---|---|---|---|
+| `--soft` | ถอย | คงเดิม | คงเดิม | การแก้ของ `C3` ค้างอยู่ใน Index (Staged) |
+| `--mixed` (ค่าเริ่มต้น) | ถอย | ตาม `C2` | คงเดิม | การแก้ค้างอยู่ใน Working Tree (Unstaged) |
+| `--hard` | ถอย | ตาม `C2` | ตาม `C2` | การแก้หายไปจากโฟลเดอร์ด้วย |
+
+ผลที่แบบฝึกพิมพ์ของแต่ละแบบเป็นดังนี้
+
+```text
+reset --soft:   staged changes: 'a.txt'   unstaged: ''        file: '1\n2\n3\n'
+reset --mixed:  staged changes: ''         unstaged: 'a.txt'  file: '1\n2\n3\n'
+reset --hard:   staged changes: ''         unstaged: ''       file: '1\n2\n'
+```
+
+ในทั้งสามแบบ Commit `C3` ยังอยู่ใน Object Store (แบบฝึกตรวจด้วย `git cat-file -t ORIG_HEAD`) `reset --hard` จึงไม่ได้ทำลายประวัติ มันทำลายงานที่ยังไม่ได้ Commit ในโฟลเดอร์ต่างหาก และ Git จดตำแหน่งเดิมไว้ใน `ORIG_HEAD` ก่อนย้าย `HEAD` ทุกครั้ง ฟังก์ชัน `reset_refs` ในซอร์สเขียน `ORIG_HEAD` ด้วยค่าของ `HEAD` เดิมแล้วถึงเลื่อน `HEAD` (Source: `builtin/reset.c`)
+
+ถ้าใส่ชื่อไฟล์ตามหลัง `git reset <Commit> -- <ไฟล์>` คำสั่งไม่ขยับ Branch เลย มันแค่คัดลอกไฟล์นั้นจาก Commit ที่ระบุเข้า Index (รัน)
+
+</Step>
+
+<Step>
+
+## `git revert` เพิ่ม Commit ที่ยกเลิกของเก่า
+
+ถ้า Commit ที่ผิดถูกส่งให้คนอื่นไปแล้ว เราย้อนด้วยการสร้าง Commit ใหม่ที่ทำตรงข้ามกัน (หนังสือ: VCWG บทที่ 9 หน้า 191)
+
+```text
+$ git revert --no-edit HEAD~1          # ยกเลิก C4 ทั้งที่มี C5 ต่อท้ายแล้ว
+$ git log --oneline
+7fb669e Revert "C4 introduce a bug"
+99efedc C5 unrelated work
+92a9b54 C4 introduce a bug
+fb004ac C3
+24be0fa C2
+03c0a79 C1
+```
+
+ประวัติยาวขึ้นหนึ่งตัว ไม่มีอะไรหาย Parent ของ Commit ใหม่คือปลายเดิม ใครที่ดึงงานเราไปแล้วจึง Pull เพิ่มได้ตามปกติ ไฟล์ของ `C4` หายไป ส่วนงานอื่นอย่าง `C5` ยังอยู่ (รัน)
+
+กรณี Commit ที่เราจะยกเลิกคือ Merge Commit มีสอง Parent Git ไม่รู้ว่าจะย้อนไปทางไหน
+
+```text
+$ git revert --no-edit HEAD
+error: commit f9cb311494897d8f7be4d79c41cd970decc1a639 is a merge but no -m option was given.
+fatal: revert failed
+```
+
+ต้องบอกว่าสายไหนคือสายหลักที่จะกลับไปอยู่ด้วย `git revert -m 1 HEAD` ซึ่งเลือก Parent ตัวแรก (ฝั่งที่เราอยู่ตอน Merge) แบบฝึกยืนยันว่าไฟล์ของ Topic หายไปและไฟล์ของ `main` ยังอยู่
+
+</Step>
+
+<Step>
+
+## `git commit --amend` แทนที่ Commit ล่าสุด
+
+```text
+$ git commit --amend -m "C3 with the fix folded in"
+```
+
+Amend ไม่ได้แก้ Commit เดิมจริง ๆ แต่สร้าง Commit ใหม่ที่ Parent เดียวกัน แล้วเอา Branch ไปชี้ที่ Commit ใหม่ (หนังสือ: VCWG บทที่ 9 หน้า 192) Commit เก่าจึงไม่มี Branch ไหนชี้ถึง แต่ยังอยู่ใน Repository จนกว่าจะถูกเก็บกวาด (รัน)
+
+มีข้อสังเกตที่ผลรันให้เรา ต่อให้ Amend ที่ไม่เปลี่ยนเนื้อหาเลย ก็ยังได้ ID ใหม่ เพราะเวลาที่ผู้ Commit เป็นส่วนหนึ่งของ Commit อีกข้อหนึ่งคือ `git commit --amend` ไม่ได้เขียน `ORIG_HEAD` เหมือน `reset` และ `rebase` จึงอย่าหวังพึ่งมันเวลาอยากย้อน (รัน) ทางกลับคือ Reflog ซึ่งเป็นเรื่องของ[บทถัดไป](/git/recovery/)
+
+</Step>
+
+<Step>
+
+## `git cherry-pick` ก๊อป Commit เดียวมาใส่
+
+สมมติ Branch `dev` มีสาม Commit ในนั้นมีตัวหนึ่งเป็นการแก้บั๊ก (`D2 hot fix`) ที่เราอยากได้บน `main` เดี๋ยวนี้ โดยไม่เอาอีกสองตัว (หนังสือ: VCWG บทที่ 9 หน้า 203)
+
+```text
+$ git cherry-pick <ชื่อของ D2>
+$ git log --oneline --all --graph
+* 1442292 D3 feature y
+* 30c3c72 D2 hot fix
+* 5328e48 D1 feature x
+| * 93c315d D2 hot fix
+|/
+* 59970b3 B base
+```
+
+`main` ได้ `D2` ตัวใหม่ (`93c315d`) ที่ ID ต่างจากต้นฉบับ (`30c3c72`) เพราะ Parent ต่างกัน แต่การเปลี่ยนแปลงเหมือนกัน ลายนิ้วมือของการเปลี่ยนแปลง (`git patch-id`) ตรงกัน ถ้าเติม `-x` Git จะเขียนท้ายข้อความว่า `(cherry picked from commit ...)` ให้ รวมถึงคำสั่ง `git cherry -v main dev` ที่ใช้เช็กว่า Commit ไหนบน `dev` มีสำเนาอยู่ใน `main` แล้ว (ขึ้น `-`) และตัวไหนยังไม่มี (ขึ้น `+`) (รัน)
+
+</Step>
+
+<Step>
+
+## `git restore` เอาไฟล์กลับมา และ `git clean` ลบไฟล์ที่ Git ไม่รู้จัก
+
+```text
+$ git restore a.txt                     # เอาไฟล์จาก Index ทับ Working Tree
+$ git restore --staged a.txt            # เอารายการใน Index กลับไปเท่า HEAD ไม่แตะไฟล์
+$ git restore --source HEAD~2 a.txt     # เอาไฟล์จาก Commit ไหนก็ได้
+```
+
+คำสั่งแรกทิ้งการแก้ที่ยังไม่ได้ Add ไปเลย (รัน: หลังสั่ง ไฟล์กลับเป็นเวอร์ชันใน Index) คำสั่งที่สองถอดไฟล์ออกจาก Index โดยไม่เสียการแก้ในโฟลเดอร์ และคำสั่งที่สามเอาไฟล์ย้อนไปยังเวอร์ชันของ Commit ใดก็ได้ (หนังสือ: VCWG บทที่ 9 หน้า 205 เรื่อง `reset`, `revert` และ `checkout`)
+
+ส่วน `git clean -n` แสดงว่าไฟล์ไหนที่ Git ไม่เคยรู้จักและจะถูกลบ แล้ว `git clean -f` ลบจริง เป็นคำสั่งที่ไม่มีทางกลับ เพราะไฟล์พวกนั้นไม่เคยอยู่ใน Object Store เลย (รัน) ใช้ `-n` ดูก่อนทุกครั้ง
+
+</Step>
+
+<Step>
+
+## ลองสลับดูทั้งสามแบบ
+
+ภาพนี้วาดสามพื้นที่ของ Git ก่อนและหลัง `git reset --<ตัวเลือก> HEAD~1` เลือกตัวเลือกแล้วดูแถวล่าง พื้นที่ที่ถอยตามจะถูกระบาย ส่วนพื้นที่ที่ไม่ขยับจะเป็นสีธรรมดา ลองเทียบทั้งสามแบบ และดูสองบรรทัดล่างสุดว่าการแก้ของ Commit ที่ถอยออกไปค้างอยู่ใน Index หรือใน Working Tree
+
+<ResetLab client:visible />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Commit ผิดถูก Push ไปให้ทั้งทีมแล้ว เราควรย้อนด้วยวิธีไหน"
+  options={['Reset แบบ Hard ถอยหนึ่ง Commit แล้ว Push ทับ', 'Revert ซึ่งสร้าง Commit ใหม่ที่ยกเลิกของเก่า แล้ว Push ตามปกติ', 'Amend Commit นั้นแล้ว Push ทับ']}
+  answer={1}
+  why="Reset และ Amend เขียนประวัติใหม่ ซึ่งทำให้คนที่ดึงงานไปแล้วมีประวัติแยกจากเรา Revert ไม่แตะของเดิม มันต่อท้ายด้วย Commit ที่ทำตรงข้าม จึง Push ได้เป็น Fast-forward ธรรมดา แบบฝึกยืนยันว่า Parent ของ Commit ที่ Revert สร้างคือปลายเดิม"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| `reset` สามแบบขยับสามพื้นที่ไม่เท่ากัน, Commit เก่ายังอยู่หลัง `reset --hard`, `reset` ที่มีชื่อไฟล์ไม่ขยับ Branch | รัน: `exercises/08_rewriting_history.py` |
+| `reset` เขียน `ORIG_HEAD` ก่อนย้าย `HEAD` | Source: `builtin/reset.c`, ฟังก์ชัน `reset_refs` |
+| `revert` เพิ่ม Commit ใหม่, Revert Merge Commit ต้องใช้ `-m` | รัน: `exercises/08_rewriting_history.py` |
+| `--amend` สร้าง Commit ใหม่ ID ใหม่แม้ไม่เปลี่ยนเนื้อหา, ไม่เขียน `ORIG_HEAD` | รัน: `exercises/08_rewriting_history.py` |
+| `cherry-pick` ได้ ID ใหม่แต่ Patch ID เท่าเดิม, `-x`, `git cherry` | รัน: `exercises/08_rewriting_history.py` |
+| `git restore` สามรูปแบบ, `git clean -n` และ `-f` | รัน: `exercises/08_rewriting_history.py` |
+| ปรัชญาและข้อควรระวังในการแก้ประวัติ, `revert`, `--amend`, `reset`, `cherry-pick` | หนังสือ: VCWG บทที่ 9 หน้า 189, 191, 192, 194 และ 203 |
+| การเปรียบเทียบ `reset`, `revert` และ `checkout` | หนังสือ: VCWG บทที่ 9 หน้า 205 |
+| ตารางเลือกเครื่องมือตามปัญหา | ผู้เขียน |
+
+</Step>

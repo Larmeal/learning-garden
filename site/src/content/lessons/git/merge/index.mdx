@@ -1,0 +1,183 @@
+---
+title: Merge และ Conflict
+summary: Merge มีสองแบบ คือแค่ขยับ Branch ไปข้างหน้า กับสร้าง Commit ใหม่ที่มี Parent สองตัว ถ้าสองฝั่งแก้บรรทัดเดียวกัน Git จะเกิด Conflict ซึ่งเราจะดูว่าไฟล์กับ Index หน้าตาเป็นอย่างไร และออกจากสถานการณ์นั้นได้อย่างไร
+facts:
+  - "รันจริงใน exercises/04_merge.py ด้วย Git 2.56.1 แล้ว Assert ผลทุกข้อ ทั้ง Fast-forward, Merge Commit ที่มีสอง Parent, Marker ใน Conflict, สามเวอร์ชันใน Index และ git merge --abort"
+  - "ตัวหนังสืออ้าง Learning Git บทที่ 5, 9 และ 10 กับ Version Control with Git บทที่ 6 โดยเทียบกับผลที่รันแล้ว"
+  - "Merge Conflict ที่ลองเป็นแบบแก้บรรทัดเดียวกัน ไม่ได้ลองกรณีไฟล์ถูกลบหรือเปลี่ยนชื่อในอีกฝั่ง ซึ่งบทที่ว่าด้วยข้างในของ Merge จะลองบางส่วน"
+order: 4
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [branches]
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## Merge แบบแรก แค่ขยับ Branch ไปข้างหน้า
+
+สมมติ `main` ยังอยู่ที่เดิมตั้งแต่ตอนแตก Branch `dessert` ออกไป ส่วน `dessert` มี Commit เพิ่มมาหนึ่งตัว ถ้าเราอยู่บน `main` แล้วสั่ง `git merge dessert` (รัน: `exercises/04_merge.py`)
+
+```text
+$ git merge dessert
+Updating f28b636..f5c962f
+Fast-forward
+ dessert.txt | 1 +
+ 1 file changed, 1 insertion(+)
+ create mode 100644 dessert.txt
+```
+
+ข้อความ `Fast-forward` บอกว่า Git ไม่ได้สร้าง Commit ใหม่เลย `main` เป็นบรรพบุรุษของ `dessert` อยู่แล้ว Git จึงย้ายไฟล์ `main` ให้ชี้ไปที่ Commit เดียวกับ `dessert` เท่านั้น แบบฝึกตรวจว่าหลัง Merge ชื่อ Commit ของสองสายเท่ากันทุกตัวอักษร และ Commit ปลายสายมี Parent เพียงตัวเดียว (หนังสือ: LG บทที่ 5 หน้า 70)
+
+</Step>
+
+<Step>
+
+## Merge แบบที่สอง สร้าง Commit ใหม่ที่มีสอง Parent
+
+ถ้าสองสายต่างก็เดินไปข้างหน้าแล้ว `main` ไม่ใช่บรรพบุรุษของอีกสายอีกต่อไป Git จะต้องหาจุดที่ทั้งสองแตกออกจากกัน แล้วรวมงานของทั้งสองฝั่งเข้าด้วยกัน
+
+```text
+$ git merge-base main drinks
+<ชื่อของ Commit ที่ drinks แตกออกมา>
+
+$ git merge --no-edit drinks
+Merge made by the 'ort' strategy.
+ drinks.txt | 1 +
+ 1 file changed, 1 insertion(+)
+ create mode 100644 drinks.txt
+```
+
+`git merge-base` ตอบว่าบรรพบุรุษร่วมที่ใกล้ที่สุดของสองสายคือ Commit ไหน (แบบฝึกยืนยันว่าตรงกับจุดที่แตก) จากนั้น Git เทียบสามจุด คือบรรพบุรุษร่วม ปลายของเรา และปลายของอีกฝั่ง แล้วรวมการเปลี่ยนแปลงเข้าด้วยกัน เราเรียกวิธีนี้ว่า Three-way Merge (หนังสือ: LG บทที่ 9 หน้า 141 และ VCWG บทที่ 6 หน้า 123)
+
+ผลคือ Commit ใหม่หนึ่งตัวที่ Parent ตัวแรกคือ `main` เดิม และ Parent ตัวที่สองคือปลายของ `drinks` ไฟล์ทั้งสองฝั่งอยู่ครบใน Working Tree (รัน) ชื่อ `ort` ที่เห็นในข้อความคือชื่อกลไกที่ Git 2.56.1 ใช้ Merge ซึ่งอยู่ในไฟล์ `merge-ort.c` ของซอร์ส (Source: `merge-ort.c`) เดี๋ยวเราจะได้เปิดดูข้างในกันอีกครั้งในบทท้าย ๆ
+
+ถ้าสั่ง Merge Branch ที่ถูกรวมไปแล้ว Git จะตอบ `Already up to date` โดยไม่ทำอะไร และถ้าเราอยากให้ Fast-forward ได้ก็ยังสร้าง Merge Commit ไว้เป็นหลักฐานว่ามี Branch นี้เคยแยกออกไป ให้ใส่ `--no-ff` แบบฝึกยืนยันว่ากรณีนี้ได้ Commit ที่มีสอง Parent จริง
+
+</Step>
+
+<Step>
+
+## Conflict เกิดเมื่อสองฝั่งแก้ที่เดียวกัน
+
+ลองให้ฝั่งหนึ่งเปลี่ยนบรรทัดที่สองของ `menu.txt` เป็น `salad with tuna` และอีกฝั่งเปลี่ยนบรรทัดเดียวกันเป็น `salad with egg` แล้ว Merge
+
+```text
+$ git merge egg
+Auto-merging menu.txt
+CONFLICT (content): Merge conflict in menu.txt
+Automatic merge failed; fix conflicts and then commit the result.
+```
+
+คราวนี้ Git ตัดสินเองไม่ได้ว่าจะเอาฝั่งไหน มันจึงหยุดกลางทางและเขียนทั้งสองฝั่งลงไฟล์ให้เราเลือก (หนังสือ: LG บทที่ 10 หน้า 175 และ VCWG บทที่ 6 หน้า 127)
+
+```text
+soup
+<<<<<<< HEAD
+salad with tuna
+=======
+salad with egg
+>>>>>>> egg
+bread
+```
+
+ส่วนระหว่าง `<<<<<<< HEAD` กับ `=======` คือของฝั่งเรา ส่วนระหว่าง `=======` กับ `>>>>>>> egg` คือของฝั่งที่เอาเข้ามา ส่วนที่เหลือไม่มีปัญหาจึงอยู่ในไฟล์ตามปกติ ไฟล์ `.git/MERGE_HEAD` ถูกสร้างขึ้นมาจดว่ากำลัง Merge กับ Commit ไหนอยู่ และ `git status --short` ขึ้น `UU menu.txt` ซึ่งแปลว่าทั้งสองฝั่งแก้ (Unmerged)
+
+</Step>
+
+<Step>
+
+## Git เก็บสามเวอร์ชันไว้ใน Index
+
+ข้างในเรื่อง Conflict ที่น่าสนใจกว่าไฟล์ที่มี Marker คือสิ่งที่อยู่ใน Index (หนังสือ: VCWG บทที่ 6 หน้า 138)
+
+```text
+$ git ls-files --unmerged
+100644 686df3dcd3f6d9762f4282862589f918c3f44504 1	menu.txt
+100644 0ae7d0c492af62878286e61693f0ab14fc06fa87 2	menu.txt
+100644 58f1784453de613c2e43d314d9bde53b6c740273 3	menu.txt
+```
+
+ตัวเลขที่ท้ายสามบรรทัดคือ **Stage** ปกติทุกไฟล์ใน Index เป็น Stage 0 แต่ไฟล์ที่ Conflict จะมีสามรายการ Stage 1 คือเวอร์ชันของบรรพบุรุษร่วม Stage 2 คือเวอร์ชันของเรา และ Stage 3 คือเวอร์ชันของอีกฝั่ง เราเปิดดูแต่ละอันได้ด้วย `git show :1:menu.txt`, `:2:` และ `:3:` (รัน) Git จึงไม่ได้ทิ้งอะไรหาย ของทั้งสามอยู่ครบเสมอ
+
+ถ้าอยากเห็นเวอร์ชันบรรพบุรุษร่วมในไฟล์ด้วย ให้ขอแบบ `diff3`
+
+```text
+$ git checkout --conflict=diff3 menu.txt
+$ cat menu.txt
+soup
+<<<<<<< ours
+salad with tuna
+||||||| base
+salad
+=======
+salad with egg
+>>>>>>> theirs
+bread
+```
+
+สังเกตว่าชื่อบน Marker เปลี่ยนจาก `HEAD` กับ `egg` ไปเป็น `ours` กับ `theirs` เพราะ Git ใส่ชื่อเริ่มต้นต่างกันตามรูปแบบที่เราขอ ตอนไหนที่เห็น `base` ได้ ก็จะรู้ว่าแต่ละฝั่งเปลี่ยนจากอะไรไป ซึ่งช่วยตัดสินใจได้ง่ายขึ้นมาก
+
+</Step>
+
+<Step>
+
+## ออกจาก Conflict ได้สองทาง
+
+**ทางแรก** ยกเลิกทั้งหมด `git merge --abort` ทำให้ `main` กลับไปอยู่ที่เดิมก่อน Merge ไฟล์ `MERGE_HEAD` ถูกลบ และ Working Tree สะอาด (รัน และหนังสือ: VCWG บทที่ 6 หน้า 141)
+
+**ทางที่สอง** แก้ไฟล์ให้เป็นอย่างที่ต้องการ ลบ Marker ทิ้ง แล้ว `git add` ซึ่งบอก Git ว่าไฟล์นี้จัดการเสร็จแล้ว รายการสามเวอร์ชันใน Index จะหายไป จากนั้น `git commit` เพื่อปิด Merge
+
+```text
+$ git add menu.txt
+$ git commit --no-edit
+$ git log --format=%s -n 1
+Merge branch 'egg'
+```
+
+Commit ที่ได้มีสอง Parent เหมือน Merge ปกติ โดยตัวที่สองคือปลายของ `egg` (รัน)
+
+<Callout type="tip" title="ไม่ต้องกลัว Conflict">
+
+Conflict ไม่ใช่ความผิดพลาด มันคือ Git บอกว่า "ตรงนี้ฉันไม่รู้ว่าเธออยากได้แบบไหน" และเนื่องจากสามเวอร์ชันอยู่ครบ ไม่มีอะไรหายไประหว่างทาง ถ้าเริ่มสับสน `git merge --abort` ใช้ได้ทุกเมื่อ
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เรา Merge แล้วเกิด Conflict ในไฟล์เดียว ระหว่างที่ยังแก้ไม่เสร็จ ไฟล์นั้นใน Index มีเวอร์ชันกี่แบบ และ Stage ไหนเป็นเวอร์ชันของบรรพบุรุษร่วม"
+  options={['สองแบบ คือของเรากับของอีกฝั่ง บรรพบุรุษร่วมไม่ถูกเก็บ', 'สามแบบ Stage 1 เป็นของบรรพบุรุษร่วม Stage 2 ของเรา Stage 3 ของอีกฝั่ง', 'แบบเดียว คือไฟล์ที่มี Marker อยู่ตอนนี้']}
+  answer={1}
+  why="Git เก็บทั้งสามเวอร์ชันไว้ใน Index จนกว่าเราจะ Add แบบฝึกสั่งให้ Git แสดงรายการที่ยังไม่ Merge ได้สามบรรทัดของ Stage 1, 2 และ 3 และสั่งแสดงเนื้อหาของแต่ละ Stage ให้เนื้อหาที่ตรงกับบรรพบุรุษร่วม ฝั่งเรา และฝั่งอีกคน ไฟล์ที่มี Marker เป็นแค่ผลที่ Git เขียนลง Working Tree ให้เรามอง"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Fast-forward ไม่สร้าง Commit ใหม่และ Branch ชี้ Commit เดียวกัน | รัน: `exercises/04_merge.py` |
+| `git merge-base` ตอบจุดที่แตก, Merge Commit มีสอง Parent, `Already up to date`, `--no-ff` | รัน: `exercises/04_merge.py` |
+| ข้อความ `Merge made by the 'ort' strategy.` | รัน: `exercises/04_merge.py` |
+| Conflict ทำให้ `git merge` ออกด้วยรหัส 1, ข้อความ `CONFLICT (content)`, Marker, `MERGE_HEAD`, สถานะ `UU` | รัน: `exercises/04_merge.py` |
+| สามเวอร์ชันใน Index (Stage 1, 2, 3), ชื่อ Marker ของ `diff3` เป็น `ours`, `base`, `theirs` | รัน: `exercises/04_merge.py` |
+| `git merge --abort` คืน `main` และลบ `MERGE_HEAD`, Add แล้ว Commit ได้ Merge Commit สอง Parent | รัน: `exercises/04_merge.py` |
+| Merge ใช้กลไก `ort` ของ Git 2.56.1 | Source: `merge-ort.c` (`merge_incore_nonrecursive`, `merge_incore_recursive`) |
+| ชนิดของ Merge, Fast-forward, Three-way Merge | หนังสือ: LG บทที่ 5 หน้า 64 และ 70, บทที่ 9 หน้า 141 |
+| Merge Conflict และวิธีแก้ | หนังสือ: LG บทที่ 10 หน้า 175 และ 176, VCWG บทที่ 6 หน้า 127, 138 และ 141 |
+| ข้อความที่ว่า Conflict ไม่ใช่ความผิดพลาด | ผู้เขียน |
+
+</Step>

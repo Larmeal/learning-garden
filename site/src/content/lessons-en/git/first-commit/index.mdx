@@ -1,0 +1,195 @@
+---
+title: The first commit
+summary: One file can live in three places, the working tree, the index and the repository. We follow where git add and git commit move it, and why git diff gives different answers depending on what you compare.
+facts:
+  - "Run in exercises/01_first_commit.py with Git 2.56.1 and every result is asserted, including that the first commit gets the same id on every run, because the exercise fixes the author and the clock."
+  - "The three areas follow the book Learning Git chapter 2 and Version Control with Git chapter 5, checked against what we ran."
+  - "The examples use small text files we made ourselves. We did not try a large repository."
+order: 1
+phase: A
+level: 1
+stage: sprout
+format: steps
+requires: [what-is-git]
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ThreeAreasLab from '../../../../components/labs/git/ThreeAreasLab';
+
+<Step>
+
+## What `git init` creates
+
+Start with an empty folder and run `git init`. Let us see what changed (ran: `exercises/01_first_commit.py`).
+
+```text
+$ ls -A
+.git
+
+$ cat .git/HEAD
+ref: refs/heads/main
+
+$ git status
+On branch main
+
+No commits yet
+
+nothing to commit (create/copy files and use "git add" to track)
+```
+
+The only thing added is the `.git` folder, which holds everything about this repository: the history, the branch names and the settings. If we delete it, the folder goes back to being an ordinary folder (book: LG chapter 2, page 22).
+
+The `HEAD` file says we are on a branch called `main`, which does not exist yet because we have never committed. That matches what `git status` says, `No commits yet`.
+
+</Step>
+
+<Step>
+
+## One file, three places
+
+Create a file `notes.txt` that says `hello`, and ask for the status.
+
+```text
+$ git status --short
+?? notes.txt                        # two question marks: Git does not know this file yet
+
+$ git ls-files --stage              # what is in the index
+                                    # (empty)
+```
+
+This is the point to meet the three areas of Git (book: LG chapter 2, page 26).
+
+The **working tree** is the folders and files we see and edit every day. The **index**, which LG calls the staging area, is a place to park what we have chosen to put into the next commit. The **repository** is the whole history of commits kept inside `.git`.
+
+Right now `notes.txt` is only in the working tree. Let us run `git add` to copy it into the index.
+
+```text
+$ git add notes.txt
+
+$ git status --short
+A  notes.txt                        # the first A: added to the index
+
+$ git ls-files --stage
+100644 ce013625030ba8dba906f756967f9e9ca394464a 0	notes.txt
+```
+
+The line in the index tells three things: the file mode (`100644` is a normal file), the name of the content (`ce0136...`, the same name we saw for `hello` in [the last lesson](/en/git/what-is-git/#every-name-comes-from-the-content-itself)), and the file name. Interesting: `git add` does not just take a note. It has already written the content of the file into `.git/objects/ce/013625...` (ran: we checked that the file exists).
+
+If we keep editing `notes.txt` after `git add`, the index still holds the old content. That is why there is a parking place in the middle: we choose what goes into a commit (book: VCWG chapter 5, page 103, on why the index matters).
+
+</Step>
+
+<Step>
+
+## `git commit` turns what is in the index into a commit
+
+```text
+$ git commit -m "Add notes"
+
+$ git log --oneline
+41d3c6b Add notes
+
+$ git status --short
+                                    # (empty)
+```
+
+After the commit `git status` is empty, because all three places agree: the file in the working tree, the index and the latest commit are the same. What `git commit` does is take the list in the index, make one list of files from it, and make a commit that points at that list. Then it moves the branch `main` to the new commit. The file `.git/refs/heads/main` has only just been created, because a branch with no commit has nothing to point at (ran).
+
+The first commit has no commit before it, so it has no `parent` line inside. We call a commit like this a root commit.
+
+<Callout type="note" title="Why the commit id on this page is the same every time">
+
+The id of a commit is computed from the content, the author's name and the time. If you run it yourself you get a different id, because your name and time are not ours. The exercise of this lesson fixes the author and the time, so every run gives `41d3c6b` and we can put the number in the lesson.
+
+</Callout>
+
+</Step>
+
+<Step>
+
+## `git diff` has three forms, because there are three places to compare
+
+When there are three places, there must be a way to compare each pair. Edit `notes.txt` to add a line `world` and watch what happens step by step.
+
+| Command | Compares | After the edit | After `git add` |
+|---|---|---|---|
+| `git diff` | working tree with the index | shows `+world` | empty |
+| `git diff --staged` | index with the latest commit | empty | shows `+world` |
+| `git diff HEAD` | working tree with the latest commit | shows `+world` | shows `+world` |
+
+The table comes from results that the exercise ran and asserted in every cell. The short form of `git status --short` has two letters. The first says how the index differs from the latest commit, and the second says how the working tree differs from the index.
+
+```text
+M  notes.txt     # just added: the change waits in the index
+ M notes.txt     # edited but not yet added
+MM notes.txt     # added, and then edited again
+```
+
+</Step>
+
+<Step>
+
+## Step through it
+
+This picture follows the same `notes.txt` one command at a time. Press next and watch two things. First, where the copies of the file go after `git add` and `git commit`. Second, the two letters of `git status --short` that change with them. At the step that shows `MM`, look at which version of the file the next commit takes.
+
+<ThreeAreasLab client:visible lang="en" />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We edit notes to add a second line World, run Add, then edit again to add a third line Again, and run a plain Commit (without the option -a). Which version of the file does the commit store?"
+  options={['The one with both World and Again, because a commit always takes the latest file', 'The one with World only, because a commit takes what is in the index at the time of Add', 'Git refuses to commit, because the file changed after Add']}
+  answer={1}
+  why="A commit is built from the index. It does not read the file in the working tree at that moment. The exercise confirms the commit holds Hello and World, while the line Again stays in the working tree as an unstaged change (the short status is a space and then M). To put every tracked file into a commit at once, use the option -a, which stages them first (book: VCWG chapter 5, page 111)."
+/>
+
+</Step>
+
+<Step>
+
+## `.gitignore` tells Git which files to leave alone
+
+A file such as `debug.log`, or a folder that a program makes by itself, should not go into the history. We write a rule in a file called `.gitignore`, for example the one line `*.log`.
+
+```text
+$ git status --short
+?? .gitignore                       # debug.log does not show up, though it is in the folder
+
+$ git check-ignore -v debug.log
+.gitignore:1:*.log	debug.log      # file 1, line 1: this is the rule that skipped it
+
+$ git add debug.log
+The following paths are ignored by one of your .gitignore files:
+debug.log                           # Git refuses unless we force it with git add -f
+```
+
+`.gitignore` is itself an ordinary file that we add and commit, so that everyone who clones gets the same rules (book: VCWG chapter 5, page 118). One thing to remember is that a rule only keeps out files Git does not know yet. If a file was committed already, or we forced it in with `git add -f`, Git keeps tracking it as usual, whatever the rule says (ran).
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| `git init` creates only `.git`, `HEAD` points at `refs/heads/main`, `No commits yet` | Ran: `exercises/01_first_commit.py` |
+| A new file is `??`, after `git add` it is `A`, the index holds the id and mode `100644`, `git add` already wrote the content into `.git/objects` | Ran: `exercises/01_first_commit.py` |
+| The first commit gets the id `41d3c6b`, `main` was just created, a root commit has no `parent` | Ran: `exercises/01_first_commit.py` |
+| `git diff`, `git diff --staged`, `git diff HEAD` and the short forms `M `, ` M`, `MM` | Ran: `exercises/01_first_commit.py`, `exercises/02_history.py` |
+| A commit stores what was staged, not the latest file | Ran: `exercises/01_first_commit.py` |
+| `.gitignore`, `git check-ignore -v`, `git add -f` | Ran: `exercises/01_first_commit.py` |
+| The three areas of Git and the staging area | Book: LG chapter 2, page 26 |
+| `git init` and making a repository | Book: LG chapter 2, page 22 |
+| Why the index matters, `git commit -a`, `.gitignore` | Book: VCWG chapter 5, pages 103, 111 and 118 |
+| Our choice to explain it as working tree, index and repository, and the remarks about the parking place | Author |
+
+</Step>

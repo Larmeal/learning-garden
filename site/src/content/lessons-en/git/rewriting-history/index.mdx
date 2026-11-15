@@ -1,0 +1,187 @@
+---
+title: Fixing and undoing history
+summary: Reset, revert, amend, cherry-pick and restore each solve a different problem. We see what each moves among Git's three areas (HEAD, the index and the working tree), and which command is safe once a commit has gone to other people.
+facts:
+  - "Run in exercises/08_rewriting_history.py with Git 2.56.1 and every result is asserted: what the three kinds of reset do to the three areas, reverting a merge commit, amend, cherry-pick and restore."
+  - "The text on altering history follows Version Control with Git chapter 9, checked against what we ran."
+  - "git clean -f really deletes files, so we tried it only on a file made in a temporary folder."
+order: 8
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [team-workflow]
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ResetLab from '../../../../components/labs/git/ResetLab';
+
+<Step>
+
+## Choose the tool by what went wrong
+
+Sooner or later we slip: a wrong commit, a wrong message, or something that should not have gone in. The commands that fix this are many and look alike, which is confusing. This table sorts them by what we want.
+
+| What we want | Use |
+|---|---|
+| Fix the latest commit that nobody has yet (message or files) | `git commit --amend` |
+| Move the tip of the branch back (work nobody has yet) | `git reset` |
+| Cancel the effect of an old commit without altering the old history | `git revert` |
+| Take one commit from another branch | `git cherry-pick` |
+| Get a file back as a version it once had | `git restore` |
+
+The book warns that altering history that others already have causes problems for anyone who holds a copy (book: VCWG chapter 9, page 189). So the first question is always whether the commit has been sent out. If it has, use `revert`, which does not touch the old history.
+
+</Step>
+
+<Step>
+
+## `git reset` moves the branch tip and takes the three areas along by different amounts
+
+`reset` moves the branch we are on to point at another commit. Whether it takes the index and the working tree along depends on the option (book: VCWG chapter 9, page 194). The exercise builds a history of three commits `C1`, `C2`, `C3` and runs `reset` back one step in three ways (ran: `exercises/08_rewriting_history.py`).
+
+| Option | Branch (HEAD) | Index | Working tree | What we see |
+|---|---|---|---|---|
+| `--soft` | goes back | unchanged | unchanged | the change of `C3` is left in the index (staged) |
+| `--mixed` (the default) | goes back | follows `C2` | unchanged | the change is left in the working tree (unstaged) |
+| `--hard` | goes back | follows `C2` | follows `C2` | the change is gone from the folder too |
+
+What the exercise printed for each is this.
+
+```text
+reset --soft:   staged changes: 'a.txt'   unstaged: ''        file: '1\n2\n3\n'
+reset --mixed:  staged changes: ''         unstaged: 'a.txt'  file: '1\n2\n3\n'
+reset --hard:   staged changes: ''         unstaged: ''       file: '1\n2\n'
+```
+
+In all three, commit `C3` is still in the object store (the exercise checks with `git cat-file -t ORIG_HEAD`). So `reset --hard` does not destroy history. It destroys the work in the folder that was not committed. And Git notes the old position in `ORIG_HEAD` before it moves `HEAD`: the function `reset_refs` in the source writes `ORIG_HEAD` with the old value of `HEAD` and only then moves `HEAD` (Source: `builtin/reset.c`).
+
+If we put a file name after it, `git reset <commit> -- <file>`, the command does not move the branch at all. It only copies that file from the given commit into the index (ran).
+
+</Step>
+
+<Step>
+
+## `git revert` adds a commit that cancels an old one
+
+If the wrong commit has already gone to other people, we undo it by making a new commit that does the opposite (book: VCWG chapter 9, page 191).
+
+```text
+$ git revert --no-edit HEAD~1          # cancel C4 although C5 is already on top
+$ git log --oneline
+7fb669e Revert "C4 introduce a bug"
+99efedc C5 unrelated work
+92a9b54 C4 introduce a bug
+fb004ac C3
+24be0fa C2
+03c0a79 C1
+```
+
+The history is one longer and nothing is lost. The parent of the new commit is the old tip, so anyone who already pulled our work can pull the addition as usual. The file of `C4` is gone, while other work such as `C5` stays (ran).
+
+If the commit we want to cancel is a merge commit, with two parents, Git does not know which way to go back.
+
+```text
+$ git revert --no-edit HEAD
+error: commit f9cb311494897d8f7be4d79c41cd970decc1a639 is a merge but no -m option was given.
+fatal: revert failed
+```
+
+We must say which line is the mainline to return to, with `git revert -m 1 HEAD`, which picks the first parent (the side we were on at the merge). The exercise confirms that the files of the topic are gone and the files of `main` remain.
+
+</Step>
+
+<Step>
+
+## `git commit --amend` replaces the latest commit
+
+```text
+$ git commit --amend -m "C3 with the fix folded in"
+```
+
+Amend does not really edit the old commit. It makes a new commit with the same parent and moves the branch to it (book: VCWG chapter 9, page 192). The old commit is then pointed at by no branch, but it stays in the repository until it is cleaned up (ran).
+
+The run gives us two things to note. Even an amend that changes no content still gets a new id, because the committer's time is part of the commit. And `git commit --amend` does not write `ORIG_HEAD` the way `reset` and `rebase` do, so do not count on it when we want to go back (ran). The way back is the reflog, which is the matter of [the next lesson](/en/git/recovery/).
+
+</Step>
+
+<Step>
+
+## `git cherry-pick` copies one commit over
+
+Say branch `dev` has three commits and one of them is a bug fix (`D2 hot fix`) that we want on `main` right now, without the other two (book: VCWG chapter 9, page 203).
+
+```text
+$ git cherry-pick <name of D2>
+$ git log --oneline --all --graph
+* 1442292 D3 feature y
+* 30c3c72 D2 hot fix
+* 5328e48 D1 feature x
+| * 93c315d D2 hot fix
+|/
+* 59970b3 B base
+```
+
+`main` gets a new `D2` (`93c315d`) whose id differs from the original (`30c3c72`) because the parent differs, but the change is the same. The fingerprint of the change (`git patch-id`) matches. If we add `-x`, Git writes `(cherry picked from commit ...)` at the end of the message. And the command `git cherry -v main dev` checks which commits on `dev` already have a copy in `main` (shown with `-`) and which do not (shown with `+`) (ran).
+
+</Step>
+
+<Step>
+
+## `git restore` brings files back, and `git clean` deletes files Git does not know
+
+```text
+$ git restore a.txt                     # put the file from the index over the working tree
+$ git restore --staged a.txt            # take the index entry back to HEAD, leave the file alone
+$ git restore --source HEAD~2 a.txt     # take the file from any commit
+```
+
+The first command throws away edits not yet added (ran: afterwards the file is the version in the index). The second takes the file out of the index without losing the edits in the folder, and the third takes a file back to the version of any commit (book: VCWG chapter 9, page 205, on `reset`, `revert` and `checkout`).
+
+`git clean -n` shows which files Git has never known and would delete, and `git clean -f` deletes them for real. There is no way back, because those files were never in the object store (ran). Always look first with `-n`.
+
+</Step>
+
+<Step>
+
+## Switch between the three options
+
+This picture draws Git's three areas before and after `git reset --<option> HEAD~1`. Pick an option and look at the lower row. Areas that stepped back are filled, and areas that did not move are plain. Compare all three, and look at the last two lines to see whether the change of the commit we stepped back from is left in the index or in the working tree.
+
+<ResetLab client:visible lang="en" />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A wrong commit has already been pushed to the whole team. Which way should we undo it?"
+  options={['A hard reset back one commit and then a force push', 'A revert, which makes a new commit that cancels the old one, and then a normal push', 'An amend of that commit and then a force push']}
+  answer={1}
+  why="Reset and amend rewrite history, which leaves anyone who already pulled with a history that splits from ours. Revert does not touch the old one. It appends a commit that does the opposite, so it can be pushed as an ordinary fast-forward. The exercise confirms that the parent of the commit a revert makes is the old tip."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| Three kinds of `reset` move the three areas by different amounts, the old commit is still there after `reset --hard`, `reset` with a file name does not move the branch | Ran: `exercises/08_rewriting_history.py` |
+| `reset` writes `ORIG_HEAD` before it moves `HEAD` | Source: `builtin/reset.c`, the function `reset_refs` |
+| `revert` adds a new commit, and reverting a merge commit needs `-m` | Ran: `exercises/08_rewriting_history.py` |
+| `--amend` makes a new commit with a new id even if the content did not change, and does not write `ORIG_HEAD` | Ran: `exercises/08_rewriting_history.py` |
+| `cherry-pick` gets a new id but the same patch id, `-x`, `git cherry` | Ran: `exercises/08_rewriting_history.py` |
+| `git restore` in three forms, `git clean -n` and `-f` | Ran: `exercises/08_rewriting_history.py` |
+| The philosophy of altering history and its cautions, `revert`, `--amend`, `reset`, `cherry-pick` | Book: VCWG chapter 9, pages 189, 191, 192, 194 and 203 |
+| Comparing `reset`, `revert` and `checkout` | Book: VCWG chapter 9, page 205 |
+| The table that chooses a tool by problem | Author |
+
+</Step>

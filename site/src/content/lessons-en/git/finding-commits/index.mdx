@@ -1,0 +1,145 @@
+---
+title: Finding the commit that broke it
+summary: A good history answers who changed this line, since when the code has been broken, and when a string showed up. We use bisect to find the first bad commit by halving, blame to see who last changed each line, and the pickaxe to search the history by text.
+facts:
+  - "Run in exercises/10_finding_commits.py with Git 2.56.1 and every result is asserted: bisect by hand and with a script, the forms of blame, and searching with -S and -G."
+  - "The history used has 16 commits and a small test script we wrote, so it does not prove that bisect works with tests that run long or are unstable."
+  - "Bisect, blame and the pickaxe follow Version Control with Git chapter 8."
+order: 10
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [recovery]
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## One day the code that used to work is broken
+
+The team has made 16 commits. At commit 1 the test script passed, but now at commit 16 it does not. Nobody knows who broke it. Going through the commits one by one is slow, but Git has `git bisect`, which uses the same idea as guessing a number in a game: halve the remaining range again and again (book: VCWG chapter 8, page 177).
+
+We tell Git that the last commit is bad and the first is good. Git switches to the commit in the middle and asks whether it is good or bad. Each time we answer, Git cuts away half the range (ran: `exercises/10_finding_commits.py`).
+
+```text
+$ git bisect start HEAD <name of commit 1>
+Bisecting: 7 revisions left to test after this (roughly 3 steps)
+
+$ git bisect good      # the middle one passes
+$ git bisect bad       # the later half is broken
+$ git bisect good
+$ git bisect bad
+932adfbf68b44cbb0367161179de20fe1d5dd424 is the first 'bad' commit
+```
+
+Four answers find commit 11, the first one that changed the value in the settings file from positive to negative. The exercise confirms Git points at the right commit and uses no more than four answers, which matches log2 of 16. When it is over, run `git bisect reset` to go back to the original branch.
+
+</Step>
+
+<Step>
+
+## Let a script answer for us
+
+Answering good and bad by hand is tedious when we already have a script that can check. `git bisect run` takes one command and uses the exit code it returns to decide. Zero means good, and a number from 1 to 124 means bad.
+
+```text
+$ git bisect start HEAD <name of commit 1>
+$ git bisect run python check.py
+...
+    commit 11
+
+ config.txt | 2 +-
+ notes.txt  | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+bisect found first 'bad' commit
+```
+
+Git tests by itself until it finds it, and prints the guilty commit in full. The result matches the one we got by hand (ran). Both need the last commit to be definitely bad and the first definitely good, and the test must give the same result every time. If the result is random, bisect gets lost. (The exercise used only zero and one. The other special exit codes of bisect were not tried.)
+
+<Callout type="tip" title="Notice the message">
+
+The message when it finds the commit is `is the first 'bad' commit`, with quotation marks around the word bad. If we write a script that has to read the result of bisect, we should match this text exactly.
+
+</Callout>
+
+</Step>
+
+<Step>
+
+## `git blame` says who last changed each line
+
+When we know which file has the problem, the next question is who wrote this line, and why (book: VCWG chapter 8, page 183).
+
+```text
+$ git blame poem.txt
+^eb9617f (Ada 2026-01-01 1) roses are red
+e451ec86 (Bea 2026-01-01 2) violets are purple
+^eb9617f (Ada 2026-01-01 3) sugar is sweet
+```
+
+Every line has the name of the commit that last changed it, the author, the date and the line number. A `^` in front says the line comes from the very first commit of the history (the exercise checks both). To look at only part of it, use `-L 2,2`, and to look at the file as it was before the latest commit, put a commit before the file name, for example `git blame HEAD~1 -- poem.txt`.
+
+A common problem is a commit that only re-indented. It becomes the last person to change every line and hides whoever really wrote them. Git has two fixes. Add `-w` so that blame ignores whitespace changes, or write the full 40-character name of such commits in a file and run `git blame --ignore-revs-file <that file>` so that it skips them (the exercise checks both ways, and found that the list file needs full names, because a short one makes Git complain about an invalid object name).
+
+</Step>
+
+<Step>
+
+## The pickaxe searches the history by text
+
+Another kind of question is "when did this string appear or disappear in the history" (book: VCWG chapter 8, page 184). `git log` has two options that sound alike but answer differently. The exercise makes five commits that involve the word `TODO` and the number 12.
+
+```text
+$ git log --format=%s -S TODO
+S5 another todo elsewhere
+S3 add a todo
+
+$ git log --format=%s -G 'return 1[0-9]'
+S4 comment the number
+S2 raise the price
+S1 add price
+
+$ git log --format=%s -S 'return 12'
+S2 raise the price
+```
+
+`-S` (the pickaxe) asks whether **the number of times the string appears** changed in that commit, so it finds only when `TODO` was added (`S3` and `S5`). `-G` uses a regular expression and asks whether **a changed line** matches the pattern, so commit `S4`, which only added a comment at the end of a line that has `return`, is caught too, though the count of `return 12` did not change. That is why `-S 'return 12'` does not find `S4`. Pick the option that matches the question.
+
+Other helpers we tried gave these results. `--diff-filter=A` keeps only commits that added new files, and `git log -L 3,3:code.txt` follows the history of line 3 of a file. If a file was renamed, `git log -- <new name>` stops at the rename, and we have to add `--follow` to go through to the old name (ran).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A commit only added a comment at the end of a line that has return 12, without adding or removing the text return 12. Does a search with the option S for return 12 find this commit?"
+  options={['Yes, because that line was changed', 'No, because the option S counts how many times the string appears, and the count did not change', 'It gives an error']}
+  answer={1}
+  why="S asks whether the number of times the string appears changed. Adding a comment at the end of the line does not change the count. The exercise's search finds only one commit, the one where the number became 12. To find a commit like that too we need the option G, which asks whether a changed line matches the pattern."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| Bisect by hand finds the first bad commit within four answers out of 16 commits, and the message `is the first 'bad' commit` | Ran: `exercises/10_finding_commits.py` |
+| `git bisect run` uses the exit code of the script and finds the same commit | Ran: `exercises/10_finding_commits.py` |
+| `git blame` shows commit name, author and date, `^` is the first commit, `-L`, `blame HEAD~1 -- file` | Ran: `exercises/10_finding_commits.py` |
+| `-w` and `--ignore-revs-file` (which needs full names) skip a commit that only re-indented | Ran: `exercises/10_finding_commits.py` |
+| `-S` counts how many times a string appears, `-G` catches changed lines, `--diff-filter=A`, `log -L` | Ran: `exercises/10_finding_commits.py` |
+| `git log -- new-name` stops at the rename, `--follow` goes on | Ran: `exercises/10_finding_commits.py` |
+| `git bisect`, `git blame`, the pickaxe | Book: VCWG chapter 8, pages 177, 183 and 184 |
+| The comparison of bisect with guessing a number, to give a picture | Author |
+
+</Step>

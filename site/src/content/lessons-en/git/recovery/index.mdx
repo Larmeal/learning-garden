@@ -1,0 +1,160 @@
+---
+title: Stash, reflog and getting lost commits back
+summary: Stash puts unfinished work aside, and the reflog records every move of HEAD and of the branches. We use the two to get work back after a hard reset and after deleting a branch, and to see when a commit is really gone.
+facts:
+  - "Run in exercises/09_recovery.py with Git 2.56.1 and every result is asserted: stash, the reflog, recovering after a hard reset and after a deleted branch, git fsck, and the real deletion with gc."
+  - "The ages at which reflog entries expire were measured and do not match the book or the documentation in the same source tree. The lesson tells what ran and says that they differ."
+  - "Stash and the reflog follow Version Control with Git chapter 10."
+order: 9
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [rewriting-history]
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## Stash keeps unfinished work aside
+
+We are halfway through editing a file and have to fix an urgent bug on another branch. If we switch now, Git may refuse (as we saw in the lesson on branches). The way out is **stash**, which keeps both the staged and unstaged edits somewhere, and gives the folder back clean (book: VCWG chapter 10, pages 221 and 222).
+
+The exercise creates three situations at once: `a.txt` edited and added, `b.txt` edited and not added, and a new `new.txt` that Git does not know (ran: `exercises/09_recovery.py`).
+
+```text
+$ git stash push -m "half done"
+Saved working directory and index state On main: half done
+
+$ git status --short
+?? new.txt                            # a file Git does not know is not kept unless we ask
+
+$ git stash list
+stash@{0}: On main: half done
+```
+
+Inside, there is nothing special. A stash is a commit on the ref `refs/stash` that has two parents: the first is the commit we were on, and the second is a commit that holds the state of the index (the exercise checks both the type and the number of parents). Because it is a commit it lives in the object store and takes part in Git's naming like any other commit.
+
+We can bring the work back in two ways.
+
+```text
+$ git switch -c other
+$ git stash pop                       # bring it back and drop the stash
+$ git stash apply                     # bring it back but keep the stash for reuse
+$ git stash push -u                   # keep files that Git does not know too
+```
+
+`pop` works on another branch too. The exercise confirms the edits come back whole and the stash leaves the list. One thing to note is that edits that were staged come back unstaged, unless we add `--index`. And `-u` makes `new.txt` kept and brought back as well (book: VCWG chapter 10, pages 227 and 230, on mixing a stash with new work and turning it into a branch).
+
+</Step>
+
+<Step>
+
+## The reflog records every move of HEAD
+
+Another thing Git writes all the time without being told is every time `HEAD` or a branch moves to point somewhere else (book: VCWG chapter 10, page 232). Make a history of three commits and run `git reset --hard HEAD~2`.
+
+```text
+$ git reflog
+6b2350e HEAD@{0}: reset: moving to HEAD~2
+b58d69b HEAD@{1}: commit: C3
+0b387f7 HEAD@{2}: commit: C2
+6b2350e HEAD@{3}: commit (initial): C1
+```
+
+Each line is one move. The newest is on top. `HEAD@{1}` means "where `HEAD` was before the latest move", which is `b58d69b`, the tip of `C3` that we have just stepped back from. Each branch also has a reflog of its own (`git reflog show main`). All of it lives in `.git/logs` and belongs to our own computer, and it is never pushed anywhere (ran).
+
+Knowing that, getting work back after `reset --hard` is straightforward.
+
+```text
+$ git reset --hard HEAD@{1}
+```
+
+`C3` is back with all its files (ran).
+
+</Step>
+
+<Step>
+
+## Getting back a branch that was deleted
+
+Make a branch `experiment`, do one commit, and delete it with `git branch -D`. The name is gone, but the reflog remembers that we once switched away from it.
+
+```text
+$ git reflog | grep "moving from experiment"
+<short name> HEAD@{n}: checkout: moving from experiment to main
+```
+
+The reflog is ordered from newest to oldest. The line below this one is the last commit we made on `experiment`, with its name at the front of the line (the exercise checks this position). After that, `git branch experiment <commit name>` gives us the branch back (ran).
+
+If the reflog is no use, for example when we do not know where to look, Git has a tool that checks the object store directly, `git fsck`.
+
+```text
+$ git fsck --lost-found --no-reflogs
+dangling commit dd8e2c1ae2928c325ad8c7ee7f5e170f37991e93
+```
+
+A commit that nothing points at is called dangling. The option `--lost-found` copies it into `.git/lost-found/commit` so we can open it (ran).
+
+</Step>
+
+<Step>
+
+## When is it really gone
+
+A commit that no name points at is not deleted at once. It survives as long as the reflog remembers it and `git gc` has not cleaned up. The exercise shows both steps: tell the reflog to forget everything at once, then tell `gc` to delete whatever is not referenced at once.
+
+```text
+$ git reflog expire --expire=now --all
+$ git gc --prune=now
+$ git cat-file -t dd8e2c1
+fatal: Not a valid object name dd8e2c1
+```
+
+That commit is really gone, while a commit that is still in a branch survives the same cleanup (ran).
+
+Normally we do not have to run anything. Git removes old reflog entries by itself, and the question that follows is how old. The book says a commit that no ref reaches expires at 30 days, and one that is still reachable at 90 days (book: VCWG chapter 10, page 236). The documentation in the same source tree that we ran says `gc.reflogExpire` defaults to 90 days (the file `Documentation/config/gc.adoc`).
+
+<Callout type="warn" title="The numbers we measured do not match the documentation">
+
+We measured for real. We made reflog entries that were 20 days and 40 days old, and ran `git reflog expire --all` with no option. The 20-day entry stayed, and the 40-day entry was gone (ran: `exercises/09_recovery.py`, section 7). With `--expire=90.days.ago` the 40-day entry survives. This matches the code in `reflog.h` of Git 2.56.1, which sets the default of `default_expire_total` to 30 days and `default_expire_unreachable` to 90 days (Source: `reflog.h`, `REFLOG_EXPIRE_OPTIONS_INIT`), the reverse of what the book and the documentation say. We have not checked whether this is a defect in Git or whether we misread the macro. What we can be sure of is the result on this computer. If we rely on the expiry time, we should set `gc.reflogExpire` ourselves.
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We deleted a branch with unmerged work yesterday and have only just remembered. Where do we start looking for the commit?"
+  options={['There is no way, because deleting a branch deletes its commits', 'Look in the reflog for the line where we switched away from that branch, and make a new branch from the commit name we find', 'Clone the whole repository again']}
+  answer={1}
+  why="Deleting a branch deletes only the name. The commit is still there, and the reflog notes when we switched away from that branch. The exercise gets the branch back this way. If the reflog has nothing, we can still look for commits that nothing points at with the fsck command, as long as Git has not cleaned up."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A stash is a commit on `refs/stash` with two parents, files Git does not know are not kept without `-u`, `pop` works on another branch, `apply` keeps the stash | Ran: `exercises/09_recovery.py` |
+| The reflog records every move, `HEAD@{1}`, a branch has its own reflog, it lives in `.git/logs` | Ran: `exercises/09_recovery.py` |
+| Getting back after `reset --hard`, and getting back a deleted branch | Ran: `exercises/09_recovery.py` |
+| `git fsck --lost-found --no-reflogs` shows a dangling commit and copies it to `.git/lost-found` | Ran: `exercises/09_recovery.py` |
+| `git reflog expire --expire=now --all` followed by `git gc --prune=now` makes a commit really gone | Ran: `exercises/09_recovery.py` |
+| A reflog entry 20 days old is kept, one 40 days old expires by default, and `--expire=90.days.ago` keeps it | Ran: `exercises/09_recovery.py` |
+| In the code the defaults are `default_expire_total` 30 days and `default_expire_unreachable` 90 days | Source: `reflog.h`, `REFLOG_EXPIRE_OPTIONS_INIT` |
+| The documentation and the book say `gc.reflogExpire` is 90 days and an unreachable commit 30 days (which does not match what ran) | Source: `Documentation/config/gc.adoc`, book: VCWG chapter 10, page 236 |
+| Stash, its use cases, and the reflog | Book: VCWG chapter 10, pages 221, 222, 227, 230 and 232 |
+| The doubt about whether the mismatch is a defect in Git or a misreading of the macro by us | Author |
+
+</Step>

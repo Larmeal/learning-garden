@@ -2,6 +2,14 @@
 
 Notable changes to the learning garden, newest first. Dates are when the change was made.
 
+## 2026-11-15
+
+### Added
+- New subject `git`: 15 lessons in Thai and English, each with a quiz (what Git is, the first commit, reading history, branches and HEAD, merge, rebase, remotes, pull requests and teamwork, fixing history, stash and reflog, finding commits, the object store, refs and packfiles, the index and diff and merge inside, patches and hooks and submodules). The lesson list comes from the tables of contents of *Learning Git* and *Version Control with Git* and from the Git source.
+- `subjects/git/code/`: 16 exercises that run the real Git (2.56.1) in throwaway repositories with a fixed author, clock and configuration, so the ids repeat, and `verify.py` (368 checks). `subjects/git/docs/` has the overview, the sources (page offsets of the two books) and the verified findings.
+- `subjects/git/graphs/git-current/`: knowledge graph of Git v2.56.1 (681 C files, 9,621 nodes, 25,983 edges, 10 layers, an 18-step tour).
+- Six labs in `site/src/components/labs/git/`: three areas of a file, branch and HEAD, merge against rebase, three repositories with fetch and a rejected push, the three kinds of reset, and the objects behind two commits (click a box to read its bytes, data from `exercises/15_object_graph.py`).
+
 ## 2026-11-13
 
 ### Added

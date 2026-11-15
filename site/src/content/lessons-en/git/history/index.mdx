@@ -1,0 +1,172 @@
+---
+title: Reading history
+summary: One commit can be called by several names. We look at absolute and relative names, how to pick a range of commits with two dots or three, and how to filter the history down to what you want to see.
+facts:
+  - "Run in exercises/02_history.py with Git 2.56.1 and every result is asserted: the names of a commit, what each range picks, and the output of git log and git diff."
+  - "The names of commits, ranges and diffs follow the book Version Control with Git chapters 4 and 7, checked against what we ran."
+  - "The history used is tiny (5 commits and one fork). We did not try a history of thousands of commits."
+order: 2
+phase: A
+level: 1
+stage: sprout
+format: steps
+requires: [first-commit]
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## What does a history look like
+
+Take a small project with five commits and run `git log --oneline` (ran: `exercises/02_history.py`).
+
+```text
+$ git log --oneline
+e4109b2 c5 add mint
+a9945e5 c4 update readme
+6ee1606 c3 add basil
+c1a5dff c2 add plants
+4c0f96e c1 add readme
+```
+
+The newest is on top. Each line is one commit, with a short seven-character name and the message we wrote when we committed. The question that comes straight away is: if we want to talk about commit `6ee1606`, do we have to remember these numbers every time? No. Git lets us call the same commit in several ways.
+
+</Step>
+
+<Step>
+
+## One commit, many names
+
+We can call a commit by its full 40-character name (or a short beginning, as long as it is not shared with another one), by a branch name, or relative to where we stand (book: VCWG chapter 4, pages 82 and 85).
+
+| Name | Points at | Result when run |
+|---|---|---|
+| `HEAD` | the commit we are on now | `e4109b2` |
+| `main` | the tip of the branch `main` | `e4109b2` (the same as `HEAD` right now) |
+| `HEAD~1` or `HEAD^` | the parent of `HEAD` | `a9945e5` |
+| `HEAD~3` | three steps back along the parents | `c1a5dff` |
+| `e410` | the full name that begins with these four | the same as `HEAD`, because no other commit begins like that |
+
+To see which full name a short one stands for, use `git rev-parse`, which turns every name into the full 40 characters. Besides commits, `:` and `^{tree}` point at things inside a commit. `HEAD:plants.txt` is the content of a file, which is a blob, and `HEAD^{tree}` is the list of all the files of that commit, which is a tree. The exercise checks all of this with `git cat-file -t`.
+
+<Callout type="tip" title="~ and ^ differ when there is a merge">
+
+On an ordinary commit with one parent, `HEAD~1` and `HEAD^` give the same result. But a commit that is the result of a merge has two parents. Then `HEAD^1` is the first parent (the branch we were on when we merged) and `HEAD^2` is the second (the branch we brought in). We will use this in the lesson on merging.
+
+</Callout>
+
+</Step>
+
+<Step>
+
+## Ranges of commits
+
+Often we do not want one commit, but "from there to here". A range is written with two dots, `A..B`, which reads: the commits we can reach from B that we cannot reach from A (book: VCWG chapter 4, page 96).
+
+```text
+$ git log --format=%s HEAD~3..HEAD
+c5 add mint
+c4 update readme
+c3 add basil
+```
+
+We get the three commits after `HEAD~3`, not including `HEAD~3` itself. The same range can be written `HEAD ^HEAD~3`, meaning take everything from `HEAD` and cut away what is reachable from `HEAD~3`. And if we swap the sides to `HEAD..HEAD~3` we get nothing, because no commit is reachable from `HEAD~3` that is not reachable from `HEAD`.
+
+It gets more interesting when the history splits in two. Say we have branches `left` and `right` that split from the same point. `left` has one commit `L1`, and `right` has `R1` and `R2`.
+
+```text
+$ git log --format=%s left..right
+R2 right
+R1 right
+
+$ git log --format=%s left...right
+L1 left
+R1 right
+R2 right
+```
+
+Two dots answer "what does `right` have that `left` does not". Three dots answer "what does each side have that the other does not". And to find where the two lines split, ask `git merge-base left right` (all of it was run).
+
+</Step>
+
+<Step>
+
+## Filtering the history down to what you want
+
+The history of a real project is too long to read in full, so `git log` has several filters. Look at what the exercise ran.
+
+```text
+$ git log --format=%s -- readme.txt
+c4 update readme
+c1 add readme
+
+$ git log --format=%s --grep=basil
+c3 add basil
+
+$ git log --stat --format=%s -n 1
+c5 add mint
+
+ plants.txt | 1 +
+ 1 file changed, 1 insertion(+)
+```
+
+`-- readme.txt` keeps only the commits that touched that file (note the `--` that separates the name of a commit from the name of a file). `--grep` searches the text of the commit message, `-n 1` limits the count, and `--stat` shows which files each commit changed and by how many lines. `--graph` also draws the lines of the branches, with one star per commit (book: VCWG chapter 4, page 90, and LG chapter 3, page 40).
+
+</Step>
+
+<Step>
+
+## Comparing two points of the history with `git diff`
+
+`git diff` can compare anything that points to a snapshot, for example two commits (book: VCWG chapter 7, page 159).
+
+```text
+$ git diff HEAD~2 HEAD~1
+diff --git a/readme.txt b/readme.txt
+index 93d5621..4220618 100644
+--- a/readme.txt
++++ b/readme.txt
+@@ -1 +1,2 @@
+ Garden notes
++updated
+```
+
+The diff of `c3` and `c4` touches only `readme.txt`, because `c4` changed that one file. If we only want the list of files with a letter for the kind of change, use `--name-status` (we get `M` and the file name for a file that was modified), and for a summary in numbers, use `--stat`.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Branch Left has one new commit that Right does not have, and Right has two that Left does not. How do the results differ between a range with two dots from Left to Right and a range with three dots between the two sides?"
+  options={['Two dots give three commits, three dots give two', 'Two dots give only the two commits of Right, and three dots give all three, from both sides', 'Both give the same result, only in a different order']}
+  answer={1}
+  why="Two dots answer what Right has that Left does not, so we get only R1 and R2. Three dots take what each side has and the other lacks, so we get L1, R1 and R2. The exercise runs both on a history like this and asserts the results."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The names `HEAD`, `main`, `HEAD~1`, `HEAD^`, `HEAD~3`, a short beginning, `HEAD:file`, `HEAD^{tree}` | Ran: `exercises/02_history.py` |
+| `A..B`, `HEAD ^A`, `A...B` and `git merge-base` | Ran: `exercises/02_history.py` |
+| `git log -- path`, `--grep`, `-n`, `--stat`, `--graph` | Ran: `exercises/02_history.py` |
+| `git diff A B`, `--name-status`, `--stat` | Ran: `exercises/02_history.py` |
+| `HEAD^1` is the first parent and `HEAD^2` the second of a merge commit | Ran: `exercises/02_history.py` |
+| Absolute and relative commit names | Book: VCWG chapter 4, pages 82 and 85 |
+| Commit ranges and commit graphs | Book: VCWG chapter 4, pages 96 and 90 |
+| Basic `git log` | Book: LG chapter 3, page 40 |
+| The forms of `git diff` | Book: VCWG chapter 7, page 159 |
+| The remark that one commit has many names so that we do not have to remember ids | Author |
+
+</Step>

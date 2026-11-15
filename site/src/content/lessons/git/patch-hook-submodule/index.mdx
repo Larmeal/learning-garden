@@ -1,0 +1,170 @@
+---
+title: Patch, Hook และ Submodule
+summary: Git ไปไกลกว่า Repository เดียวได้สามทาง ส่ง Commit เป็นไฟล์ Patch ผ่านอีเมล ใช้ Hook ให้ Git ตรวจงานเราก่อน Commit หรือก่อนรับ Push และดึง Repository อื่นมาเป็น Submodule ที่ถูกปักไว้ที่ Commit เดียว
+facts:
+  - "รันจริงใน exercises/14_patch_hook_submodule.py ด้วย Git 2.56.1 ทั้ง git format-patch กับ git am, Hook ฝั่งเราและฝั่ง Remote และ Submodule พร้อมข้อความที่ Git ตอบตอนปฏิเสธ"
+  - "Hook ทำงานผ่าน sh ที่มากับ Git for Windows ที่เรารัน ไม่ได้ลองบน Linux หรือ macOS ซึ่งไม่มีปัญหาเรื่อง sh แต่เราไม่ได้รัน"
+  - "ที่ไม่ได้รัน คือการส่ง Patch ทางอีเมลจริง (git send-email) กับ git subtree ซึ่งหนังสือกล่าวถึงแต่เราตัดออก เรื่อง Patch, Hook และ Submodule อ้างหนังสือ Version Control with Git บทที่ 13 ถึง 15"
+order: 14
+phase: F
+level: 4
+stage: sprout
+format: steps
+requires: [index-diff-merge]
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## Patch คือ Commit ที่เขียนเป็นอีเมล
+
+บางโปรเจกต์รับงานผ่านอีเมลแทนที่จะผ่านการ Push สิ่งที่แนบไปคือ **Patch** ไฟล์ข้อความที่มีทั้งการเปลี่ยนแปลงและข้อมูลของ Commit (หนังสือ: VCWG บทที่ 13 หน้า 317) `git format-patch -2` สร้างไฟล์ให้หนึ่งไฟล์ต่อหนึ่ง Commit ของสอง Commit ล่าสุด (รัน: `exercises/14_patch_hook_submodule.py`)
+
+```text
+$ git format-patch -2
+0001-A2-add-a-second-line.patch
+0002-A3-add-b.patch
+
+$ head 0001-A2-add-a-second-line.patch
+From bf9a2d482f9d26ff897b88a501f4890e7e0f1eec Mon Sep 17 00:00:00 2001
+From: Ada <ada@example.com>
+Date: Thu, 1 Jan 2026 10:00:02 +0000
+Subject: [PATCH 1/2] A2 add a second line
+
+---
+ a.txt | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/a.txt b/a.txt
+index d00491f..1191247 100644
+--- a/a.txt
++++ b/a.txt
+@@ -1 +1,2 @@
+ 1
++2
+```
+
+หน้าตาเหมือนอีเมลจริง ๆ มีหัวข้อ `From`, `Date` และ `Subject` แล้วข้อความ แล้ว Diff บรรทัดแรกขึ้นต้นด้วย ID ของ Commit ต้นทาง ฝั่งผู้รับใช้ `git am` เอา Patch ไปสร้าง Commit กลับมา (หนังสือ: VCWG บทที่ 13 หน้า 330)
+
+```text
+$ git am 0001-A2-add-a-second-line.patch 0002-A3-add-b.patch
+```
+
+ได้ Commit ที่ผู้เขียนเดิม ข้อความเดิม และไฟล์เดิม ต้นไม้ของ Commit ปลายสายเหมือนต้นทางทุกตัวอักษร แต่ ID ของ Commit ไม่เหมือน เพราะวันที่ของผู้เขียน (Author Date) ถูกเก็บจาก Patch ส่วนวันที่ของผู้ Commit (Committer Date) เป็นเวลาที่รัน `git am` และ Parent ในแบบฝึกก็ไม่ใช่ตัวเดียวกัน เพราะเรา Commit แรกในอีกโฟลเดอร์คนละเวลา (รัน)
+
+ก่อนใช้ Patch จริง ตรวจได้ก่อนว่าเข้ากับไฟล์ตอนนี้ไหม ด้วย `git apply --check` ซึ่งไม่แก้อะไรเลย ถ้าไฟล์ไม่ตรง Git ตอบ `patch does not apply` และไฟล์ยังเหมือนเดิม (รัน)
+
+</Step>
+
+<Step>
+
+## Hook ให้ Git ตรวจงานเราตอนทำ Commit
+
+**Hook** คือสคริปต์ที่ Git เรียกเองในจังหวะที่กำหนด ไฟล์อยู่ในโฟลเดอร์ `.git/hooks` ชื่อไฟล์คือชื่อจังหวะ เช่น `pre-commit` (หนังสือ: VCWG บทที่ 14 หน้า 339 และ 342) ที่ Git ใส่ไว้ให้ตอน `git init` ทุกตัวลงท้ายด้วย `.sample` จึงไม่ทำงานจนกว่าเราจะเปลี่ยนชื่อ
+
+ลองเขียน `pre-commit` ที่ห้าม Commit ถ้าบรรทัดที่เพิ่มมีคำว่า `DEBUG`
+
+```sh
+#!/bin/sh
+if git diff --cached | grep -q "^+.*DEBUG"; then
+  echo "pre-commit: remove the DEBUG line first" >&2
+  exit 1
+fi
+```
+
+```text
+$ git commit -m "C2 with debug"
+pre-commit: remove the DEBUG line first
+```
+
+Hook ที่ออกด้วยรหัสไม่ใช่ศูนย์ทำให้ Commit ล้ม (รัน) ถ้าจำเป็นต้องข้ามจริง ๆ ใช้ `--no-verify` ซึ่งข้าม Hook `pre-commit` และ `commit-msg` (รัน) Hook ตัวอื่นแก้ข้อความได้ด้วย เช่น `commit-msg` ที่ต่อท้ายบรรทัด `Signed-off-by` ให้ ก่อนที่ Commit จะถูกสร้าง (รัน)
+
+ข้อควรรู้สำคัญคือ Hook ไม่ใช่ส่วนหนึ่งของประวัติ เมื่อ Clone Repository ไปที่อื่น เราจะได้ไฟล์ตัวอย่าง `.sample` ของ `git init` ไม่ได้ Hook ที่ตั้งไว้ในต้นฉบับ (รัน) ถ้าอยากให้ทั้งทีมใช้ Hook ชุดเดียวกัน ให้เก็บมันเป็นโฟลเดอร์ในโปรเจกต์ แล้วตั้ง `core.hooksPath` ชี้ไปที่นั่น ซึ่งตัวมันเองก็ต้องให้ทุกคนตั้งเอง (รัน: ตั้งค่าได้และ Git อ่านค่ากลับมาถูก) หนังสือยังถามไว้ด้วยว่าควรใช้ Hook หรือไม่ (หนังสือ: VCWG บทที่ 14 หน้า 350)
+
+</Step>
+
+<Step>
+
+## Hook ฝั่ง Remote ปฏิเสธ Push ได้
+
+Hook ยังอยู่ฝั่ง Remote ได้ด้วย ซึ่งแก้ปัญหาที่ว่าทุกคนต้องตั้งเองไม่ได้ เพราะมันบังคับที่ปลายทาง (หนังสือ: VCWG บทที่ 14 หน้า 348 เรื่อง Push-Related Hooks) ลองตั้ง `pre-receive` บน Bare Repository ให้ปฏิเสธ Commit ที่ข้อความขึ้นต้นด้วย `WIP`
+
+```text
+$ git push origin main
+remote: pre-receive: no WIP commits on refs/heads/main
+To ../garden.git
+ ! [remote rejected] main -> main (pre-receive hook declined)
+error: failed to push some refs to '../garden.git'
+```
+
+ข้อความที่ขึ้นต้นด้วย `remote:` คือสิ่งที่ Hook ฝั่ง Remote พิมพ์ออกมา และ Remote ไม่เปลี่ยนเลย พอแก้ข้อความ Commit ด้วย `git commit --amend` แล้ว Push ใหม่ ผ่าน (รัน)
+
+</Step>
+
+<Step>
+
+## Submodule คือ Repository อื่นที่ปักไว้ที่ Commit เดียว
+
+บางครั้งโปรเจกต์ต้องใช้โค้ดจาก Repository อื่น เช่นไลบรารีที่ทีมอื่นดูแล Submodule ให้เรามี Repository นั้นอยู่ในโฟลเดอร์ย่อย โดยที่ประวัติของสองที่ยังแยกกัน (หนังสือ: VCWG บทที่ 15 หน้า 354 และ 355) ตัวอย่างใช้ไลบรารีเป็นโฟลเดอร์ในคอมพิวเตอร์
+
+```text
+$ git submodule add ../lib vendor/lib
+$ cat .gitmodules
+[submodule "vendor/lib"]
+	path = vendor/lib
+	url = ../lib
+
+$ git ls-tree HEAD vendor/lib
+160000 commit 1b40e98d2c01609c636084249fe19b6946601111	vendor/lib
+```
+
+ไฟล์ `.gitmodules` จดว่าโฟลเดอร์ไหนมาจาก URL ไหน ส่วนใน Tree ของ Commit รายการ `vendor/lib` มีสิทธิ์เป็น `160000` ที่เรียกว่า **Gitlink** ซึ่งเก็บ ID ของ Commit ของ Repository อื่น (หนังสือ: VCWG บทที่ 15 หน้า 352) ไฟล์ของไลบรารีจึงไม่ได้อยู่ใน Repository หลักเลย มีแค่ตัวชี้ที่บอกว่าใช้เวอร์ชัน Commit ไหน
+
+เมื่อไลบรารีมี Commit ใหม่ Repository หลักไม่ตามเอง `git submodule status` ยังบอก ID เดิม ต้องเข้าไป Pull ในโฟลเดอร์ของไลบรารีก่อน พอทำแล้ว `git status` ของ Repository หลักจะเห็นว่า `vendor/lib` เปลี่ยน แล้วเรา `git add` กับ Commit ตัวชี้ใหม่เข้าไป การปักไว้ที่ Commit ใดทำให้ใครก็ตามที่ Checkout Commit นั้นของ Repository หลักได้ไลบรารีเวอร์ชันเดียวกันเสมอ ซึ่งทำให้ Build ซ้ำได้ (รัน)
+
+คนที่ Clone Repository หลักจะได้โฟลเดอร์ `vendor/lib` เป็นโฟลเดอร์ว่าง ต้องสั่ง `git submodule update --init` เพื่อไปดึงมาและ Checkout ตาม Commit ที่ปักไว้ (รัน)
+
+<Callout type="note" title="ทำไมต้องใส่ protocol.file.allow">
+
+ในแบบฝึก URL ของ Submodule เป็นโฟลเดอร์ในคอมพิวเตอร์เดียวกัน ซึ่ง Git ปฏิเสธโดยค่าเริ่มต้นด้วยข้อความ `fatal: transport 'file' not allowed` เราจึงต้องใส่ `-c protocol.file.allow=always` ตอนสั่ง (รัน: แบบฝึกตรวจทั้งการปฏิเสธและการสำเร็จเมื่อใส่) ในงานจริงที่ URL ชี้ไปที่ Server เรื่องนี้ไม่เกิด
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราตั้ง Hook ชื่อ Pre Commit ไว้ใน Repository ของเรา เพื่อนที่ Clone Repository นี้ไปได้ Hook ของเราไปด้วยไหม"
+  options={['ได้ เพราะ Hook อยู่ใน Repository', 'ไม่ได้ เพราะ Hook ไม่ใช่ส่วนของประวัติ Clone ได้แค่ไฟล์ตัวอย่างมาตรฐาน', 'ได้เฉพาะตอนใช้ Clone แบบ Bare']}
+  answer={1}
+  why="Hook อยู่ในโฟลเดอร์ Hooks ใต้โฟลเดอร์ของ Git ซึ่งไม่ถูก Clone ไปด้วย แบบฝึกตรวจว่า Repository ที่ Clone มามีแต่ไฟล์ตัวอย่างของ Git Init และไม่มี Pre Commit กับ Commit Msg ที่ตั้งไว้ในต้นฉบับ ถ้าอยากให้ทั้งทีมใช้ ต้องเก็บ Hook ไว้เป็นโฟลเดอร์ในโปรเจกต์และให้ทุกคนตั้ง Core Hooks Path หรือบังคับที่ฝั่ง Remote"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| `git format-patch` สร้างไฟล์ต่อ Commit, หน้าตาเป็นอีเมล, ขึ้นต้นด้วย ID ของ Commit | รัน: `exercises/14_patch_hook_submodule.py` |
+| `git am` สร้าง Commit ที่ผู้เขียน ข้อความ และต้นไม้เหมือนเดิม แต่ ID ต่างเพราะ Parent กับวันที่ผู้ Commit | รัน: `exercises/14_patch_hook_submodule.py` |
+| `git apply --check` ตรวจโดยไม่แก้ และปฏิเสธ Patch ที่ไม่ตรงด้วยข้อความ `patch does not apply` | รัน: `exercises/14_patch_hook_submodule.py` |
+| `pre-commit` ที่ออกด้วยรหัสไม่ใช่ศูนย์ทำให้ Commit ล้ม, `--no-verify` ข้ามได้, `commit-msg` แก้ข้อความได้ | รัน: `exercises/14_patch_hook_submodule.py` |
+| Hook ไม่ถูก Clone ไปด้วย, `core.hooksPath` | รัน: `exercises/14_patch_hook_submodule.py` |
+| `pre-receive` บน Remote ปฏิเสธ Push และ Push ผ่านเมื่อแก้ข้อความ | รัน: `exercises/14_patch_hook_submodule.py` |
+| `.gitmodules`, รายการ `160000` ใน Tree, ตัวชี้ที่ปักไว้ไม่ตามเอง, Clone แล้วโฟลเดอร์ว่าง, `submodule update --init` | รัน: `exercises/14_patch_hook_submodule.py` |
+| `transport 'file' not allowed` และการแก้ด้วย `protocol.file.allow` | รัน: `exercises/14_patch_hook_submodule.py` |
+| Patch: การสร้างและการใช้ | หนังสือ: VCWG บทที่ 13 หน้า 317 และ 330 |
+| Hook: ประเภท การติดตั้ง Hook ที่เกี่ยวกับ Push และข้อพิจารณาว่าควรใช้หรือไม่ | หนังสือ: VCWG บทที่ 14 หน้า 339, 342, 348 และ 350 |
+| Submodule และ Gitlink | หนังสือ: VCWG บทที่ 15 หน้า 352, 354 และ 355 |
+| การส่ง Patch ทางอีเมลจริง และ `git subtree` | ไม่ได้รัน หนังสือกล่าวถึง (VCWG บทที่ 13 หน้า 326 และบทที่ 15 หน้า 364) แต่บทนี้ตัดออก |
+
+</Step>

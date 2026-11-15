@@ -1,0 +1,183 @@
+---
+title: Branches and HEAD
+summary: A branch is a small file that holds the name of one commit, and HEAD says which branch we are on. Once those two are clear, switch, a detached HEAD and deleting a branch are no longer mysterious.
+facts:
+  - "Run in exercises/03_branches.py with Git 2.56.1 and every result is asserted: the size of a branch file, how a commit moves a branch, and the messages Git gives when it refuses."
+  - "Branch, HEAD and detached HEAD follow the books Learning Git chapter 4 and Version Control with Git chapter 3, checked against what we ran."
+  - "Everything ran on small repositories we made ourselves. We did not try a large number of branches."
+order: 3
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [history]
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import BranchHeadLab from '../../../../components/labs/git/BranchHeadLab';
+
+<Step>
+
+## A branch is one small file
+
+People new to Git often think a branch copies the whole project to another place, so they worry about the cost. Let us look inside first to see what it really is (ran: `exercises/03_branches.py`).
+
+```text
+$ cat .git/refs/heads/main
+e819934ad96cbaa6ec0215c7eba4450e0c82f64a
+
+$ cat .git/HEAD
+ref: refs/heads/main
+```
+
+The branch `main` is a file called `main` in the folder `.git/refs/heads`. Inside is only the full 40-character name of the latest commit and a newline, 41 bytes in all (book: VCWG chapter 3, page 61). The `HEAD` file does not hold the name of a commit. It holds the name of the branch we are on, `refs/heads/main`.
+
+Seen like this, making a new branch is not scary.
+
+```text
+$ git branch feature
+$ git branch
+  feature
+* main
+```
+
+The command only creates another file, `feature`, with the same commit name as `main`. No new object is made, and the files in our folder do not move. The star `*` says we are still on `main` (ran).
+
+</Step>
+
+<Step>
+
+## A commit moves only the branch we are on
+
+Let us switch to `feature` and commit one new file, and see what changes.
+
+```text
+$ git switch feature
+$ cat .git/HEAD
+ref: refs/heads/feature
+
+# edit a file, then git add and git commit give a new commit, c3
+
+$ git rev-parse feature        # moved to c3
+$ git rev-parse main           # still where it was
+```
+
+**First**, `git switch` rewrites `HEAD` to point at `feature`. **Then**, `git commit` makes a commit and moves the branch file that `HEAD` points at, which is `feature`, to the new commit. `main` is not touched. That is what "branching off" means: both lines share the old history up to the split point, but the tip of each goes its own way.
+
+The files in our folder change with it. The file the new commit added is there while we are on `feature`, disappears the moment we switch back to `main`, and comes back when we switch to `feature` again (ran), because `git switch` changes the working tree to match the snapshot at the tip of the branch we choose.
+
+</Step>
+
+<Step>
+
+## Switching when there is unfinished work
+
+If we edited a file and have not committed, what happens when we switch branches? Git decides by whether that file differs between the two branches.
+
+If we make a new branch with `git switch -c` while we have unfinished work, the work comes along, because the new branch points at the same commit and nothing needs to be overwritten (ran). But if we switch to a branch where that same file differs from the one we are on, Git refuses.
+
+```text
+$ git switch wip
+error: Your local changes to the following files would be overwritten by checkout:
+	app.txt
+Please commit your changes or stash them before you switch branches.
+Aborting
+```
+
+Git refuses because the switch would overwrite work that is not saved anywhere. We can commit first, or put it aside with `git stash`, which we will talk about in the lesson on getting work back.
+
+</Step>
+
+<Step>
+
+## A detached HEAD is a HEAD that points straight at a commit
+
+We can run `git switch --detach` to any commit, and see how `HEAD` changes (book: VCWG chapter 3, page 74, and LG chapter 5, page 80).
+
+```text
+$ git switch --detach <name of c1>
+$ cat .git/HEAD
+<the full 40-character name of c1>
+
+$ git branch
+* (HEAD detached at <short name of c1>)
+  main
+```
+
+This time the `HEAD` file does not point at a branch. It holds the name of a commit directly. If we commit from here, no branch follows the new commit. After we switch back to `main`, no name points at it any more (ran: `git branch --contains` gives nothing). To keep it, make a branch from the commit name before we forget it.
+
+```text
+$ git branch rescue <name of c5>
+$ git branch --contains <name of c5>
+  rescue
+```
+
+<Callout type="tip" title="Why this mode exists">
+
+A detached HEAD is not a mistake. It is the way to go and look at an old snapshot without moving any branch. It is good for looking at what the code was like, or for trying something and throwing it away.
+
+</Callout>
+
+</Step>
+
+<Step>
+
+## Deleting a branch deletes the name, not the commits
+
+```text
+$ git branch -d feature
+error: the branch 'feature' is not fully merged
+hint: If you are sure you want to delete it, run 'git branch -D feature'
+
+$ git branch -D feature
+```
+
+`-d` refuses because `feature` has commits that are in no other branch, so after deleting there would be no name pointing at them. `-D` deletes without asking. After that the file `.git/refs/heads/feature` is gone, but commit `c3` that it pointed at is still in `.git/objects` (ran: `git cat-file -t` still says `commit`). We can only get that commit back if we still know its name, and the lesson on getting work back shows how to find the name again (for deleting branches, book: VCWG chapter 3, page 76).
+
+Once the branch has been merged, `-d` deletes it without complaint, because all its commits are kept somewhere else.
+
+</Step>
+
+<Step>
+
+## Step through it
+
+This picture follows everything we have just done. A dot is a commit, a rectangle is a branch, and the label `HEAD` says where we are. Press next one step at a time, and notice that on a commit only one label moves, and that with a detached HEAD the pointer goes straight at a dot, so the new dot has no label following it.
+
+<BranchHeadLab client:visible lang="en" />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We are on Main and create a branch called Feature without switching to it. What happens to the repository?"
+  options={['Git copies the whole project to Feature', 'Git creates one small file that holds the same commit name as Main, no new object is made, and the files in the folder do not change', 'Git creates a new empty commit for Feature']}
+  answer={1}
+  why="A branch is a file that holds the name of a commit. The exercise checks that after Feature is created its file holds exactly the same commit name as Main, and git status is still empty. Nothing was copied, so it is instant even for a large project."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A branch is a 41-byte file in `.git/refs/heads`, `HEAD` holds `ref: refs/heads/<name>`, `git branch` makes a second file with no new object | Ran: `exercises/03_branches.py` |
+| A commit moves only the branch `HEAD` points at, `git switch` changes the files in the working tree | Ran: `exercises/03_branches.py` |
+| Unfinished work comes along to a new branch, and Git refuses when something would be overwritten, with the message shown | Ran: `exercises/03_branches.py` |
+| A detached HEAD holds a commit name, commits made while detached have no branch, `git branch <name> <commit>` keeps them | Ran: `exercises/03_branches.py` |
+| `-d` refuses an unmerged branch, `-D` deletes it but the commit stays | Ran: `exercises/03_branches.py` |
+| Branch and HEAD | Book: LG chapter 4, pages 53 and 55 |
+| Creating, switching and deleting branches | Book: VCWG chapter 3, pages 61, 66 and 76 |
+| Detached HEAD | Book: VCWG chapter 3, page 74, and LG chapter 5, page 80 |
+| The remark that people often think a branch copies the whole project | Author |
+
+</Step>

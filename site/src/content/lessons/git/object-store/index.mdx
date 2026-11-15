@@ -1,0 +1,193 @@
+---
+title: Object Store
+summary: ข้างในโฟลเดอร์ของ Git เก็บของสี่ชนิด คือ Blob, Tree, Commit และ Tag โดยแต่ละชิ้นมีชื่อมาจาก SHA-1 ของเนื้อหาของมันเอง เราจะคำนวณ ID ด้วย Python แล้วเทียบกับที่ Git ให้ สร้าง Commit ด้วยมือจากคำสั่งระดับล่าง และดูว่า Git จับของที่ถูกแก้ได้อย่างไร
+facts:
+  - "รันจริงใน exercises/11_object_store.py ด้วย Git 2.56.1 โดยคำนวณ ID ของ Blob, Tree และ Commit ด้วย hashlib ของ Python แล้วเทียบกับที่ Git ให้ทุกตัว"
+  - "รูปแบบของ Object ที่ถูกบีบอัดอ่านจาก object-file.c ในซอร์ส Git v2.56.1 ส่วนเรื่อง SHA-256 รันสร้าง Repository จริงแล้วเทียบ ID"
+  - "เรื่อง Object Store อ้างหนังสือ Version Control with Git บทที่ 2"
+order: 11
+phase: E
+level: 4
+stage: sprout
+format: steps
+requires: [finding-commits]
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ObjectStoreLab from '../../../../components/labs/git/ObjectStoreLab';
+
+<Step>
+
+## Blob คือเนื้อหาไฟล์ มี Header สั้น ๆ นำหน้า
+
+ในบทแรกเราเห็นแล้วว่า Git ตั้งชื่อเนื้อหาด้วย SHA-1 ตอนนี้เรามาดูว่ามันคำนวณจากอะไรกันแน่ ถ้าเอาแค่ข้อความ `hello` กับตัวขึ้นบรรทัดใหม่ไปคำนวณ SHA-1 ตรง ๆ จะไม่ได้ชื่อที่ Git ให้ เพราะ Git ใส่ Header ไว้ข้างหน้าก่อน คือชนิดของ Object เว้นวรรค แล้วขนาดเป็นตัวเลข แล้วตัวอักขระศูนย์ (NUL) หนึ่งตัว (รัน: `exercises/11_object_store.py`)
+
+```python
+import hashlib
+
+body = b"hello\n"
+store = b"blob " + str(len(body)).encode() + b"\0" + body     # b"blob 6\0hello\n"
+hashlib.sha1(store).hexdigest()
+# 'ce013625030ba8dba906f756967f9e9ca394464a'
+```
+
+ตัวเลขนี้เหมือนกับที่ `git hash-object` ให้ทุกตัวอักษร ฟังก์ชัน `format_object_header` ในซอร์สสร้าง Header นี้ด้วยรูปแบบ `"%s %"PRIuMAX` แล้วบวก NUL ตามหลัง (Source: `object-file.c`)
+
+ลองสั่งให้ Git เขียนมันลงดิสก์จริง ๆ ด้วย `git hash-object -w --stdin` ได้ไฟล์ `.git/objects/ce/013625030ba8dba906f756967f9e9ca394464a` ซึ่งชื่อโฟลเดอร์คือสองตัวอักษรแรกของ ID และชื่อไฟล์คือตัวที่เหลือ 38 ตัว เพื่อไม่ให้โฟลเดอร์เดียวมีไฟล์เป็นพันเป็นหมื่น เนื้อในไฟล์คือ Header กับเนื้อหา ที่ผ่านการบีบอัดด้วย Zlib พอ Decompress กลับมาจะได้ `blob 6` ตามด้วย NUL และ `hello` เป๊ะ ๆ (รัน)
+
+ชื่อไฟล์ไม่ได้อยู่ใน Blob ทำให้ไฟล์สองไฟล์ชื่อต่างกันที่เนื้อหาเหมือนกันใช้ Blob ก้อนเดียวกัน (หนังสือ: VCWG บทที่ 2 หน้า 38 เรื่อง Blob Objects and Hashes)
+
+</Step>
+
+<Step>
+
+## Tree คือรายชื่อไฟล์ของหนึ่งโฟลเดอร์
+
+Blob ไม่รู้ชื่อไฟล์ ชื่อไฟล์อยู่ใน **Tree** ซึ่งเป็น Object อีกชนิดหนึ่งที่ทำหน้าที่เป็นโฟลเดอร์ แต่ละรายการใน Tree มีสิทธิ์ของไฟล์ ชื่อ และชื่อ Object ที่ชี้ไป (หนังสือ: VCWG บทที่ 2 หน้า 39)
+
+สร้างโฟลเดอร์ที่มี `notes.txt` กับ `src/app.txt` แล้วดู
+
+```text
+$ git ls-tree <tree>
+100644 blob ce013625030ba8dba906f756967f9e9ca394464a	notes.txt
+040000 tree 8e37aeb42fda047c1de512588a05f5849757d605	src
+```
+
+โฟลเดอร์ย่อย `src` เป็น Tree ของตัวเองที่ถูกชี้จาก Tree บน เรียงตามชื่อ แต่ละรายการในไบต์จริงคือสิทธิ์ เว้นวรรค ชื่อ NUL แล้วชื่อ Object แบบ **ไบต์ดิบ 20 ตัว** ไม่ใช่ตัวอักษรฐานสิบหก 40 ตัว แบบฝึกประกอบไบต์นี้เองใน Python แล้วเอาไป Hash พร้อม Header `tree <ขนาด>` ได้ชื่อเท่ากับที่ `git write-tree` ให้ ทั้ง Tree ย่อยและ Tree บน (รัน)
+
+ใน Tree ไม่มีเนื้อหาไฟล์ ไม่มีวันที่ และไม่มีขนาด มีแค่ชื่อกับสิทธิ์และ ID ตรงตามที่แบบฝึกตรวจ (ไม่เจอข้อความ `hello` ใน Tree เลย)
+
+</Step>
+
+<Step>
+
+## Commit คือข้อความธรรมดาที่ชี้ Tree
+
+```text
+$ git cat-file -p <Commit แรก>
+tree e5f88fb95dd95ea6a9cf8bca89ec2efcfcd12664
+author Ada <ada@example.com> 1767261601 +0000
+committer Ada <ada@example.com> 1767261601 +0000
+
+First commit
+```
+
+Commit เป็นข้อความล้วน ๆ บรรทัดแรกบอก Tree ของ Snapshot บรรทัดต่อมาคือผู้เขียนกับผู้ Commit พร้อมเวลาแบบ Unix Timestamp และเขตเวลา แล้วเว้นหนึ่งบรรทัดก่อนข้อความที่เราเขียน (หนังสือ: VCWG บทที่ 2 หน้า 43) แบบฝึกเอาข้อความนี้ไปใส่ Header `commit <ขนาด>` แล้วคำนวณ SHA-1 เอง ได้ ID เท่ากับ Commit จริง
+
+Commit ที่สองมีบรรทัด `parent <ID ของ Commit แรก>` เพิ่มเข้ามา เพราะ ID ของ Commit คำนวณจากทั้งข้อความรวมถึงบรรทัด `parent` ID ของ Commit หนึ่งจึงผูกกับประวัติทั้งสายก่อนหน้ามัน ถ้าใครแก้อะไรกลางสาย ID ของทุก Commit หลังจากนั้นเปลี่ยนไปหมด นี่คือเหตุผลที่ Commit ใหม่ที่เกิดจาก Rebase ได้ ID ใหม่ในบทก่อนหน้า (รัน)
+
+</Step>
+
+<Step>
+
+## สร้าง Commit ด้วยมือได้
+
+คำสั่ง `git add` กับ `git commit` ที่เราใช้ทุกวันเป็นของระดับบนที่ห่อคำสั่งระดับล่างเอาไว้ เราลองประกอบเองได้ทีละชิ้น
+
+```text
+$ git hash-object -w --stdin                              # เขียน Blob
+$ git update-index --add --cacheinfo 100644,<Blob>,hand.txt   # ใส่ลง Index
+$ git write-tree                                          # Index -> Tree
+$ git commit-tree <Tree> -m "by hand"                     # Tree -> Commit
+$ git update-ref refs/heads/main <Commit>                 # ให้ Branch ชี้
+```
+
+หลัง `commit-tree` เรามี Commit อยู่ใน Object Store แล้ว แต่ยังไม่มี Branch ไหนชี้ (แบบฝึกตรวจว่า `git branch --list` ว่างเปล่า) ต้องรอ `update-ref` ถึงเห็นใน `git log` และเช็กเอาต์ไฟล์ออกมาในโฟลเดอร์ได้ โดยที่ไฟล์เกิดขึ้นจากของใน Object Store ล้วน ๆ (รัน)
+
+</Step>
+
+<Step>
+
+## Tag มีสองแบบ
+
+```text
+$ git tag v1-light                    # Tag แบบเบา
+$ git tag -a v1 -m "release one"      # Tag แบบมีหมายเหตุ
+
+$ git cat-file -p v1
+object d712b54cdcbb1ed018463f6a9d1505f0178d75f0
+type commit
+tag v1
+tagger Ada <ada@example.com> 1767261602 +0000
+
+release one
+```
+
+Tag แบบเบาไม่ใช่ Object เลย เป็น Ref ที่ชี้ตรงไปยัง Commit เหมือน Branch ที่ไม่ขยับ ส่วน Tag แบบมีหมายเหตุเป็น Object ชนิดที่สี่ ชื่อ `tag` ซึ่งเก็บ Object ที่ชี้ไป ชนิดของมัน ชื่อ ผู้ตั้ง และข้อความ (หนังสือ: VCWG บทที่ 2 หน้า 46) ใช้ `v1^{commit}` เพื่อ "ปอก" Tag ลงไปถึง Commit (รัน)
+
+</Step>
+
+<Step>
+
+## ความยาวของ ID เป็นเรื่องของ Repository
+
+ทุกอย่างข้างบนใช้ SHA-1 ซึ่งยาว 40 ตัวอักษร หนังสือเขียนถึงข้อกังวลเรื่องการใช้ SHA-1 ไว้ในหัวข้อของมันเอง (หนังสือ: VCWG บทที่ 2 หน้า 41) Git 2.56.1 สร้าง Repository ที่ใช้ SHA-256 ได้ด้วย
+
+```text
+$ git init --object-format=sha256
+$ git hash-object a.txt           # a.txt เขียนว่า hello ขึ้นบรรทัดใหม่
+```
+
+ได้ ID ยาว 64 ตัวอักษร และเท่ากับ `hashlib.sha256(b"blob 6\0hello\n")` ที่เราคำนวณเอง (รัน) รูปแบบ Header ยังเหมือนเดิม เปลี่ยนแค่ฟังก์ชัน Hash
+
+</Step>
+
+<Step>
+
+## Git ตรวจทุก Object กับชื่อของมัน
+
+ถ้าชื่อมาจากเนื้อหา Git ก็ตรวจได้ว่าเนื้อหายังตรงกับชื่อไหม ลองเขียนทับไฟล์ Blob ของเราด้วยเนื้อหาอื่น แล้วสั่ง `git fsck`
+
+```text
+$ git fsck
+missing blob ce013625030ba8dba906f756967f9e9ca394464a
+error: e427984d4a2c1904681f2e2ee5980f37640d353f: hash-path mismatch, found at: .git/objects/ce/013625030ba8dba906f756967f9e9ca394464a
+```
+
+Git รายงานสองข้อ ไฟล์นี้เก็บ Object ที่ ID คือ `e427984...` ไม่ใช่ `ce01362...` ตามชื่อไฟล์ (`hash-path mismatch`) และ Blob ที่ควรอยู่ตรงนี้หายไป (`missing blob`) นี่คือคำตอบของคำถามที่เราทิ้งไว้ในบทแรก ว่า Git รู้ได้อย่างไรว่าของเสียหาย (รัน)
+
+</Step>
+
+<Step>
+
+## ดู Commit สองรอบเป็นภาพเดียว
+
+ภาพนี้รวมทุกอย่างในบทไว้ด้วยกัน Commit ชี้ Tree และ Tree ชี้ Blob กับ Tree ย่อย กดไปทีละขั้นเพื่อดูว่า Commit ที่สองสร้างอะไรใหม่และใช้อะไรซ้ำ สังเกตลูกศรจาก Tree หลักใหม่ที่กลับไปหา Tree ย่อย `src` เดิม นี่คือเหตุผลที่ Repository ไม่โตตามจำนวนเวอร์ชัน ทุกกล่องคลิกได้ ตารางข้างล่างจะแสดงไบต์ที่ถูก Hash ของกล่องนั้นจริง ๆ
+
+<ObjectStoreLab client:visible />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Blob สองก้อนที่มาจากไฟล์ชื่อต่างกันแต่เนื้อหาเหมือนกันเป๊ะ จะเป็นอย่างไรใน Object Store"
+  options={['เป็นสอง Object เพราะชื่อไฟล์ต่างกัน', 'เป็น Object เดียวกัน เพราะชื่อไฟล์ไม่ได้อยู่ใน Blob และ ID มาจากเนื้อหากับ Header เท่านั้น', 'Git เก็บชื่อไฟล์ไว้ใน Blob แล้วเลือกใช้ก้อนแรก']}
+  answer={1}
+  why="Blob ไม่รู้จักชื่อไฟล์ ชื่อไฟล์อยู่ใน Tree ID ของ Blob คำนวณจาก Header กับเนื้อหา เท่านั้น แบบฝึกคำนวณ ID ด้วย Python จากไบต์ของ Header และเนื้อหาแล้วได้ตรงกับที่ Git ให้ จึงไม่มีที่ว่างให้ชื่อไฟล์เข้าไปปะปน"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| ID ของ Blob คือ SHA-1 ของ `blob <ขนาด>` + NUL + เนื้อหา, `hash-object` ไม่มี `-w` ไม่เขียนอะไร, ไฟล์ Loose Object คือข้อมูลเดียวกันที่บีบอัดด้วย Zlib | รัน: `exercises/11_object_store.py` |
+| Header ของ Object สร้างด้วย `format_object_header` | Source: `object-file.c` |
+| Tree ประกอบด้วยสิทธิ์ ชื่อ NUL และ ID 20 ไบต์ เรียงตามชื่อ, โฟลเดอร์ย่อยเป็น Tree ของตัวเอง | รัน: `exercises/11_object_store.py` |
+| Commit เป็นข้อความที่มี `tree`, `author`, `committer`, ข้อความ และ ID คำนวณซ้ำได้, Commit ที่สองมี `parent` | รัน: `exercises/11_object_store.py` |
+| สร้าง Commit ด้วย `hash-object`, `update-index`, `write-tree`, `commit-tree`, `update-ref` | รัน: `exercises/11_object_store.py` |
+| Tag แบบเบาเป็น Ref, Tag แบบมีหมายเหตุเป็น Object ชนิด `tag`, `v1^{commit}` | รัน: `exercises/11_object_store.py` |
+| Repository แบบ SHA-256 ได้ ID ยาว 64 ตัวอักษร | รัน: `exercises/11_object_store.py` |
+| `git fsck` ตรวจเจอ `hash-path mismatch` และ `missing blob` | รัน: `exercises/11_object_store.py` |
+| Object Store, Blob, Tree, Commit, Tag และเรื่อง SHA1 | หนังสือ: VCWG บทที่ 2 หน้า 26, 38, 39, 41, 43 และ 46 |
+| ข้อสังเกตว่าบทนี้ตอบคำถามที่ทิ้งไว้ในบทแรก | ผู้เขียน |
+
+</Step>

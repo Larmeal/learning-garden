@@ -1,0 +1,194 @@
+---
+title: Commit แรก
+summary: ไฟล์หนึ่งไฟล์อยู่ได้สามที่ คือ Working Tree, Index และ Repository เรามาตามดูว่าคำสั่ง Add กับ Commit ย้ายมันไปที่ไหน แล้วทำไม Diff ถึงให้ผลต่างกันตามที่เราเลือก
+facts:
+  - "รันจริงใน exercises/01_first_commit.py ด้วย Git 2.56.1 แล้ว Assert ผลทุกข้อ รวมถึง Commit แรกที่ได้ ID เดิมทุกรอบ เพราะแบบฝึกตั้งผู้เขียนกับเวลาให้คงที่"
+  - "เรื่องสามพื้นที่อ้างหนังสือ Learning Git บทที่ 2 และ Version Control with Git บทที่ 5 ซึ่งเทียบกับผลที่รันแล้ว"
+  - "ตัวอย่างใช้ไฟล์ข้อความเล็ก ๆ ที่เราสร้างเอง ไม่ได้ลองกับ Repository ขนาดใหญ่"
+order: 1
+phase: A
+level: 1
+stage: sprout
+format: steps
+requires: [what-is-git]
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ThreeAreasLab from '../../../../components/labs/git/ThreeAreasLab';
+
+<Step>
+
+## `git init` สร้างอะไรขึ้นมา
+
+เริ่มจากโฟลเดอร์ว่าง ๆ หนึ่งอัน แล้วสั่ง `git init` ลองดูกันว่ามีอะไรเปลี่ยนไปบ้าง (รัน: `exercises/01_first_commit.py`)
+
+```text
+$ ls -A
+.git
+
+$ cat .git/HEAD
+ref: refs/heads/main
+
+$ git status
+On branch main
+
+No commits yet
+
+nothing to commit (create/copy files and use "git add" to track)
+```
+
+สิ่งเดียวที่เพิ่มเข้ามาคือโฟลเดอร์ `.git` ซึ่งเป็นที่เก็บทุกอย่างของ Repository นี้ ทั้งประวัติ ชื่อ Branch และการตั้งค่า ถ้าลบมันทิ้งไป โฟลเดอร์ของเราก็กลับมาเป็นโฟลเดอร์ธรรมดา (หนังสือ: LG บทที่ 2 หน้า 22)
+
+ไฟล์ `HEAD` ข้างในบอกว่าเรากำลังอยู่บน Branch ชื่อ `main` ซึ่งยังไม่มีอยู่จริงเพราะเรายังไม่เคย Commit เลย ตรงกับที่ `git status` บอกว่า `No commits yet`
+
+</Step>
+
+<Step>
+
+## ไฟล์หนึ่งไฟล์ อยู่ได้สามที่
+
+ลองสร้างไฟล์ `notes.txt` ที่เขียนว่า `hello` แล้วถามสถานะดู
+
+```text
+$ git status --short
+?? notes.txt                        # สองเครื่องหมายคำถาม แปลว่า Git ยังไม่รู้จักไฟล์นี้
+
+$ git ls-files --stage              # รายการใน Index
+                                    # (ว่างเปล่า)
+```
+
+ตรงนี้ต้องรู้จักพื้นที่สามแห่งของ Git (หนังสือ: LG บทที่ 2 หน้า 26)
+
+**Working Tree** คือโฟลเดอร์และไฟล์ที่เรามองเห็นและแก้ไขอยู่ทุกวัน ส่วน **Index** หรือที่ LG เรียกว่า Staging Area เป็นที่พักของสิ่งที่เราเลือกไว้แล้วว่าจะเอาไปอยู่ใน Commit ถัดไป และ **Repository** คือประวัติทั้งหมดของ Commit ที่เก็บไว้ใน `.git`
+
+ตอนนี้ `notes.txt` อยู่แค่ใน Working Tree เท่านั้น ลองสั่ง `git add` เพื่อคัดลอกมันเข้า Index
+
+```text
+$ git add notes.txt
+
+$ git status --short
+A  notes.txt                        # A ตัวแรก แปลว่าเพิ่มเข้า Index แล้ว
+
+$ git ls-files --stage
+100644 ce013625030ba8dba906f756967f9e9ca394464a 0	notes.txt
+```
+
+บรรทัดใน Index บอกสามอย่าง คือสิทธิ์ของไฟล์ (`100644` คือไฟล์ธรรมดา) ชื่อของเนื้อหา (`ce0136...` ซึ่งเป็นชื่อเดียวกับที่เราเห็นจาก `hello` ใน[บทที่แล้ว](/git/what-is-git/#ชื่อของทุกอย่างมาจากเนื้อหาของมันเอง)) และชื่อไฟล์ น่าสนใจตรงที่ `git add` ไม่ได้แค่จด แต่เขียนเนื้อหาของไฟล์ลงใน `.git/objects/ce/013625...` ไปแล้วด้วย (รัน: ตรวจว่าไฟล์นั้นมีอยู่จริง)
+
+ถ้าเราแก้ `notes.txt` ต่อหลังจาก `git add` Index จะยังเก็บของเดิมไว้ นี่คือเหตุผลที่ต้องมีที่พักตรงกลาง เราเลือกได้ว่าจะเอาอะไรเข้า Commit (หนังสือ: VCWG บทที่ 5 หน้า 103 พูดถึงความสำคัญของ Index)
+
+</Step>
+
+<Step>
+
+## `git commit` เอาของใน Index ไปสร้างเป็น Commit
+
+```text
+$ git commit -m "Add notes"
+
+$ git log --oneline
+41d3c6b Add notes
+
+$ git status --short
+                                    # (ว่างเปล่า)
+```
+
+หลัง Commit แล้ว `git status` ว่างเปล่า เพราะทั้งสามที่ตรงกันหมด ไฟล์ใน Working Tree, Index และ Commit ล่าสุดเหมือนกัน สิ่งที่ `git commit` ทำคือเอารายการใน Index มาสร้างเป็นรายชื่อไฟล์หนึ่งชุด แล้วสร้าง Commit ที่ชี้ไปที่ชุดนั้น จากนั้นก็ขยับ Branch `main` ให้ชี้มาที่ Commit ใหม่ ไฟล์ `.git/refs/heads/main` เพิ่งถูกสร้างขึ้นมาตอนนี้เอง เพราะ Branch ที่ไม่มี Commit ก็ไม่มีอะไรให้ชี้ (รัน)
+
+Commit แรกไม่มี Commit ก่อนหน้า จึงไม่มีบรรทัด `parent` อยู่ข้างใน เราเรียก Commit แบบนี้ว่า Root Commit
+
+<Callout type="note" title="ทำไม Commit ID ในหน้านี้ถึงเหมือนกันทุกครั้ง">
+
+ID ของ Commit คำนวณจากเนื้อหา ชื่อผู้เขียน และเวลา ถ้ารันเองในคอมพิวเตอร์ของคุณจะได้ ID คนละตัว เพราะชื่อกับเวลาไม่เหมือนเรา แบบฝึกของบทนี้ตั้งชื่อ ผู้เขียน และเวลาให้คงที่ ทุกครั้งที่รันจึงได้ `41d3c6b` เหมือนเดิม และเราเอาตัวเลขนี้มาใส่ในบทเรียนได้
+
+</Callout>
+
+</Step>
+
+<Step>
+
+## `git diff` มีสามแบบ เพราะมีสามที่ให้เทียบ
+
+เมื่อมีสามที่ ก็ต้องมีคำสั่งเทียบแต่ละคู่ ลองแก้ `notes.txt` ให้มีบรรทัด `world` เพิ่ม แล้วดูทีละขั้น
+
+| สั่ง | เทียบอะไรกับอะไร | หลังแก้ไฟล์ | หลัง `git add` |
+|---|---|---|---|
+| `git diff` | Working Tree กับ Index | เห็น `+world` | ว่างเปล่า |
+| `git diff --staged` | Index กับ Commit ล่าสุด | ว่างเปล่า | เห็น `+world` |
+| `git diff HEAD` | Working Tree กับ Commit ล่าสุด | เห็น `+world` | เห็น `+world` |
+
+ตารางนี้มาจากผลที่แบบฝึกรันและ Assert ไว้ทุกช่อง ส่วนตัวย่อใน `git status --short` มีสองตัวอักษร ตัวแรกบอกว่า Index ต่างจาก Commit ล่าสุดอย่างไร ตัวที่สองบอกว่า Working Tree ต่างจาก Index อย่างไร
+
+```text
+M  notes.txt     # เพิ่ง git add แล้ว แก้ไขรออยู่ใน Index
+ M notes.txt     # แก้ไฟล์แล้วแต่ยังไม่ได้ git add
+MM notes.txt     # git add ไปแล้ว แต่หลังจากนั้นแก้ต่ออีก
+```
+
+</Step>
+
+<Step>
+
+## ลองกดตามทีละขั้น
+
+ภาพนี้ตามไฟล์ `notes.txt` ตัวเดิมไปทีละคำสั่ง ลองกดปุ่มถัดไปแล้วดูสองอย่าง อย่างแรกคือสำเนาของไฟล์ไปอยู่ที่ไหนหลัง `git add` กับ `git commit` อย่างที่สองคือสองตัวอักษรของ `git status --short` ที่เปลี่ยนตาม โดยเฉพาะขั้นที่เจอ `MM` ให้ดูว่า Commit ถัดมาเอาไฟล์เวอร์ชันไหนไป
+
+<ThreeAreasLab client:visible />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราแก้ไฟล์ Notes ให้มีบรรทัดที่สองว่า World แล้วสั่ง Add จากนั้นแก้ต่อให้มีบรรทัดที่สามว่า Again แล้วสั่ง Commit แบบธรรมดา (ไม่ใส่ตัวเลือก -a) Commit จะเก็บไฟล์เวอร์ชันไหน"
+  options={['เวอร์ชันที่มีทั้ง World และ Again เพราะ Commit เอาไฟล์ล่าสุดเสมอ', 'เวอร์ชันที่มีแค่ World เพราะ Commit เอาของที่อยู่ใน Index ตอนสั่ง Add', 'Git ไม่ยอมให้ Commit เพราะไฟล์ถูกแก้หลังสั่ง Add']}
+  answer={1}
+  why="Commit สร้างจากสิ่งที่อยู่ใน Index ไม่ได้อ่านจากไฟล์ใน Working Tree ตอนนั้น แบบฝึกยืนยันว่า Commit เก็บ Hello กับ World ส่วนบรรทัด Again ยังค้างอยู่ใน Working Tree เป็นการแก้ที่ยังไม่ได้ Stage (ตัวย่อสถานะเป็นช่องว่างตามด้วย M) ถ้าอยากเอาไฟล์ที่ Git รู้จักแล้วทุกตัวเข้า Commit พร้อมกัน ต้องใส่ตัวเลือก -a ซึ่ง Stage ให้ก่อน (หนังสือ: VCWG บทที่ 5 หน้า 111)"
+/>
+
+</Step>
+
+<Step>
+
+## `.gitignore` บอก Git ว่าไฟล์ไหนไม่ต้องสนใจ
+
+ไฟล์อย่าง `debug.log` หรือโฟลเดอร์ที่โปรแกรมสร้างขึ้นเอง ไม่ควรไปอยู่ในประวัติ เรากำหนดกฎไว้ในไฟล์ `.gitignore` เช่นบรรทัดเดียวว่า `*.log`
+
+```text
+$ git status --short
+?? .gitignore                       # debug.log ไม่โผล่ ถึงมันจะอยู่ในโฟลเดอร์
+
+$ git check-ignore -v debug.log
+.gitignore:1:*.log	debug.log      # ไฟล์ที่ 1 บรรทัดที่ 1 คือกฎที่ทำให้ไฟล์นี้ถูกข้าม
+
+$ git add debug.log
+The following paths are ignored by one of your .gitignore files:
+debug.log                           # Git ไม่ยอม Add ถ้าไม่บังคับด้วย git add -f
+```
+
+`.gitignore` เองก็เป็นไฟล์ธรรมดาที่เรา `git add` และ Commit เพื่อให้ทุกคนที่ Clone ไปใช้กฎเดียวกัน (หนังสือ: VCWG บทที่ 5 หน้า 118) ข้อควรจำคือกฎนี้กันแค่ไฟล์ที่ Git ยังไม่เคยรู้จัก ถ้าไฟล์ถูก Commit ไปแล้ว หรือเราบังคับ `git add -f` เข้าไป Git จะติดตามไฟล์นั้นต่อไปตามปกติ ไม่ว่ากฎจะเขียนว่าอะไร (รัน)
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| `git init` สร้างแค่ `.git`, `HEAD` ชี้ `refs/heads/main`, `No commits yet` | รัน: `exercises/01_first_commit.py` |
+| ไฟล์ใหม่เป็น `??`, `git add` แล้วเป็น `A`, Index เก็บ ID กับสิทธิ์ `100644`, `git add` เขียนเนื้อหาลง `.git/objects` แล้ว | รัน: `exercises/01_first_commit.py` |
+| Commit แรกได้ ID `41d3c6b`, `main` เพิ่งถูกสร้าง, Root Commit ไม่มี `parent` | รัน: `exercises/01_first_commit.py` |
+| `git diff`, `git diff --staged`, `git diff HEAD` และตัวย่อ `M `, ` M`, `MM` | รัน: `exercises/01_first_commit.py`, `exercises/02_history.py` |
+| Commit เก็บของที่ Stage ไว้ ไม่ใช่ไฟล์ล่าสุด | รัน: `exercises/01_first_commit.py` |
+| `.gitignore`, `git check-ignore -v`, `git add -f` | รัน: `exercises/01_first_commit.py` |
+| สามพื้นที่ของ Git และ Staging Area | หนังสือ: LG บทที่ 2 หน้า 26 |
+| `git init` และการสร้าง Repository | หนังสือ: LG บทที่ 2 หน้า 22 |
+| ความสำคัญของ Index, `git commit -a`, `.gitignore` | หนังสือ: VCWG บทที่ 5 หน้า 103, 111 และ 118 |
+| ที่ที่เราเลือกอธิบายเป็น Working Tree, Index, Repository และข้อสังเกตเรื่องที่พัก | ผู้เขียน |
+
+</Step>

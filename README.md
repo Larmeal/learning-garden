@@ -16,6 +16,7 @@ The lessons on the site are written in Thai, and every subject also has an Engli
 | Data Quality | 13 | Data quality assurance: rules, measurement, monitoring and incident response, independent of any one tool |
 | Pytest | 15 | Writing tests you can trust, then how pytest collects, runs and reports them inside |
 | Pydantic | 12 | Type hints that validate real data, and how the validation works inside |
+| Git | 15 | From the commands you use every day to what the `.git` folder really holds: objects, refs, packfiles and the index |
 | Guitar | 11 | From picking up a guitar for the first time to improvising and transcribing by ear |
 | Music theory | 9 | Notes, rhythm, scales, chords and song form, written for people who play but never studied theory |
 | Singing | 10 | How the voice works and how to train it, with labs that synthesize the voice in the browser |
@@ -80,6 +81,7 @@ The lessons state numbers (row counts, query plans, file layouts, error messages
 | Great Expectations | uv | `uv sync`, then `uv run python 01_first_validation.py` |
 | Pydantic | uv | `uv sync`, then `uv run python verify.py` |
 | Pytest | uv | `uv sync`, then `uv run python verify.py` |
+| Git | **Git 2.56**, Python 3.12 or newer (standard library only) | `python verify.py` (or `uv run python verify.py`), about 1.5 minutes |
 | Apache Spark | uv, **JDK 17 or 21**, Linux, macOS or WSL | `uv sync`, then `uv run python exercises/01_architecture.py` or `uv run python verify.py` |
 | Apache Iceberg | uv, **JDK 17 or 21**, Linux, macOS or WSL | `bash setup.sh` once, then `uv run python exercises/01_first_table.py` or `uv run python verify.py` |
 

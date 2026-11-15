@@ -1,0 +1,177 @@
+---
+title: Pull Request และการทำงานเป็นทีม
+summary: Pull Request เป็นฟีเจอร์ของเว็บ Hosting ส่วนที่เป็น Git ข้างหลังมันคือ Branch ที่ถูก Push กับคำสั่งไม่กี่ตัว เราจะรันส่วนที่เป็น Git ทั้งหมด คือดู Diff แบบที่หน้า Review เห็น และรวมงานสามแบบ (Merge Commit, Squash, Rebase) ว่าประวัติออกมาหน้าตาต่างกันอย่างไร
+facts:
+  - "รันจริงใน exercises/07_team_workflow.py ด้วย Git 2.56.1 โดยใช้ Bare Repository กับ Clone สองตัวแทนผู้ดูแลและผู้ร่วมงาน ส่วน git request-pull รันจริงเช่นกัน"
+  - "ที่ไม่ได้รัน คือหน้าตาของเว็บ Hosting เช่น ปุ่ม Pull Request, การ Review, การตรวจอัตโนมัติ และ Branch Protection อธิบายจากหนังสือ Learning Git บทที่ 12 เท่านั้น"
+  - "ข้อความเรื่องรวมงานสามแบบเป็นสิ่งที่หน้าเว็บ Hosting ส่วนใหญ่เสนอให้เลือก ที่เราพิสูจน์คือผลของแต่ละแบบต่อประวัติ ไม่ได้พิสูจน์ว่าเว็บใดใช้คำสั่งไหนข้างหลัง"
+order: 7
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [remotes]
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## Pull Request คือคำขอให้คนอื่นรับงานของเราเข้าไป
+
+เวลาทำงานเป็นทีม เรามักไม่ Push เข้า `main` ตรง ๆ เราแตก Branch ของตัวเอง ทำงาน Push ขึ้นไป แล้วขอให้ผู้ดูแลตรวจก่อนรับเข้า ขั้นตอนขอและตรวจนี้ถ้าทำบนเว็บ Hosting เรียกว่า **Pull Request** (หรือ Merge Request ในบางเว็บ) หนังสือ Learning Git เล่าว่ามันมีไว้ให้คนอื่นได้ดูและให้ความเห็นก่อนที่งานจะเข้าไปอยู่ใน Branch หลัก (หนังสือ: LG บทที่ 12 หน้า 233 และ 235)
+
+ข้อสำคัญคือ Pull Request ไม่ใช่ฟีเจอร์ของ Git ตัว Git เองไม่รู้จักคำนี้ ส่วนที่เป็น Git ล้วน ๆ มีแค่สามอย่าง คือ Branch ที่ถูก Push ขึ้น Remote วิธีดูว่า Branch นั้นเพิ่มอะไรมา และวิธีรวมมัน ส่วนปุ่ม ช่องแสดงความเห็น การตรวจอัตโนมัติ และการห้าม Push เข้า `main` ตรง ๆ เป็นของเว็บ ซึ่งบทเรียนนี้ไม่ได้รัน (ดูหมายเหตุท้ายบท)
+
+เรามาลองดูส่วนที่เป็น Git กัน (รัน: `exercises/07_team_workflow.py`) ผู้ร่วมงานแตก `topic/search` ทำสอง Commit แล้ว Push ผู้ดูแลที่ถือ `main` จึง `git fetch` มาดู
+
+</Step>
+
+<Step>
+
+## หน้า Review เห็นอะไร แล้ว Git บอกเราได้เองอย่างไร
+
+ระหว่างนี้ `main` ก้าวไปข้างหน้าอีกหนึ่ง Commit (ผู้ดูแลแก้ `app.txt`) ลองเทียบ Branch ของผู้ร่วมงานกับ `main` สองแบบ
+
+```text
+$ git diff --stat main origin/topic/search
+ app.txt    | 1 -
+ search.txt | 2 ++
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+
+$ git diff --stat main...origin/topic/search
+ search.txt | 2 ++
+ 1 file changed, 2 insertions(+)
+```
+
+แบบแรกเทียบปลายทั้งสองข้างตรง ๆ จึงเห็นการแก้ `app.txt` ของ `main` เป็นของที่ "หายไป" จาก Topic ทั้งที่ผู้ร่วมงานไม่ได้ทำ แบบที่สองใช้จุดสามจุด ซึ่งเทียบจากจุดที่แตกออกจากกัน จึงเห็นเฉพาะงานของ Topic และนั่นคือสิ่งที่หน้า Review ควรแสดง (หนังสือ: VCWG บทที่ 7 หน้า 168 เรื่อง Diff กับช่วงของ Commit)
+
+Git มีคำสั่งที่เขียนคำขอเป็นข้อความให้ด้วย คือ `git request-pull` ผู้ร่วมงานเป็นคนรัน
+
+```text
+$ git request-pull origin/main ../garden.git topic/search
+The following changes since commit 5b4eab77dfe8b1653f2e7952389dc414cba0d4d7:
+
+  M1 first version (2026-01-01 10:00:01 +0000)
+
+are available in the Git repository at:
+
+  ../garden.git topic/search
+
+for you to fetch changes up to 9b17c04b5c9dc3ed8a5bab7f32c5f063128c75c2:
+
+  C2 finish search (2026-01-01 10:00:03 +0000)
+
+----------------------------------------------------------------
+Ada (2):
+      C1 start search
+      C2 finish search
+
+ search.txt | 2 ++
+ 1 file changed, 2 insertions(+)
+ create mode 100644 search.txt
+```
+
+ข้อความนี้บอกครบว่าฐานคือ Commit ไหน ที่อยู่ของ Branch คืออะไร มี Commit อะไรบ้างและแก้ไฟล์ไหน เป็นข้อมูลชุดเดียวกับที่หน้า Pull Request บนเว็บแสดง (แบบฝึกตรวจว่าข้อความมีทั้งฐาน Commit และ Diffstat)
+
+</Step>
+
+<Step>
+
+## รวมงานได้สามแบบ ประวัติออกมาต่างกัน
+
+เมื่อผู้ดูแลพอใจ เว็บส่วนใหญ่ให้เลือกวิธีรวม เราจำลองแต่ละวิธีด้วยคำสั่งของ Git (รัน) เริ่มจากสถานการณ์เดียวกัน และดูว่าประวัติของ `main` หน้าตาเป็นอย่างไร
+
+**แบบที่หนึ่ง Merge Commit** สั่ง `git merge --no-ff` ได้ Commit ที่มีสอง Parent
+
+```text
+*   5563f88 Merge remote-tracking branch 'origin/topic/search'
+|\
+| * 9b17c04 C2 finish search
+| * 75c37a7 C1 start search
+* | 4631cb3 M2 main moves on meanwhile
+|/
+* 5b4eab7 M1 first version
+```
+
+Commit ของผู้ร่วมงานยังอยู่ครบด้วย ID เดิม และ `git log --first-parent` อ่านเป็นรายการของงานที่รวมเข้า `main` ทีละก้อนได้ ซึ่งสะดวกเวลาอยากเห็นว่า Pull Request ไหนเข้าเมื่อไร
+
+**แบบที่สอง Squash** สั่ง `git merge --squash` แล้ว `git commit` ได้ Commit เดียว
+
+```text
+* 415c727 Add search (#1)
+* 622d93e M1 first version
+```
+
+Commit ของผู้ร่วมงานไม่ได้เข้ามาอยู่ในประวัติของ `main` ไฟล์ออกมาเหมือนกับแบบที่หนึ่งเป๊ะ แต่ประวัติสั้นกว่า ข้อที่ต้องระวังคือ Git จะไม่รู้ว่า Topic ถูกรวมแล้ว เพราะ Commit ของ Topic ไม่ใช่บรรพบุรุษของ `main` ผล `git branch -r --merged main` จึงไม่นับ `origin/topic/search` เราต้องลบ Branch นั้นเอง
+
+**แบบที่สาม Rebase แล้ว Fast-forward** ผู้ร่วมงาน Rebase Topic ไปบนปลาย `main` แล้ว Push ทับด้วย `--force-with-lease` ผู้ดูแลจึง Merge แบบ `--ff-only`
+
+```text
+* a84833d C2 finish search
+* f00631a C1 start search
+* f84005b M2 main moves on meanwhile
+* 795a716 M1 first version
+```
+
+ประวัติเป็นเส้นตรง Commit ของ Topic ได้ ID ใหม่ตามที่เรียนในบท [Rebase](/git/rebase/) `--ff-only` ทำงานได้เพราะ Topic ต่อจากปลาย `main` พอดีแล้ว
+
+ไม่มีแบบไหนถูกที่สุด ทีมเลือกตามสิ่งที่อยากเห็นในประวัติ ส่วนตัวผู้เขียนมองว่าแบบแรกเหมาะกับทีมที่อยากย้อนดูทีละ Pull Request ส่วนแบบสองกับสามเหมาะกับทีมที่อยากให้ประวัติสั้นและอ่านง่าย (ผู้เขียน)
+
+</Step>
+
+<Step>
+
+## เมื่อเราไม่มีสิทธิ์เขียนลง Repository หลัก
+
+ในโปรเจกต์โอเพนซอร์ส เรามักไม่มีสิทธิ์ Push เข้า Repository หลักโดยตรง วิธีที่ใช้กันคือ **Fork** ทำสำเนาของ Repository หลักบนเว็บเป็นของเราเอง เรา Clone สำเนานั้นลงมา แล้วเพิ่ม Remote ตัวที่สองชื่อ `upstream` ที่ชี้ไป Repository หลัก
+
+```text
+$ git remote add upstream ../upstream.git
+$ git remote
+fork
+upstream
+
+$ git fetch upstream
+$ git log --format=%s main..upstream/main
+U2 upstream moves
+$ git merge --ff-only upstream/main
+```
+
+แบบฝึกจำลองด้วยสอง Bare Repository ในโฟลเดอร์ (เรา Clone จากต้นทางแล้วเปลี่ยนชื่อ `origin` เป็น `fork`) ได้ผลตามนี้ทุกบรรทัด `fork` คือที่ที่เราเขียนได้ ส่วน `upstream` คือแหล่งที่เราดึงงานใหม่ของคนอื่นมาตามให้ทัน เราส่ง Pull Request จาก `fork` ไปยัง `upstream` ส่วนการสร้าง Fork ที่ทำบนเว็บ ไม่ได้รัน
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ทีมเลือกรวม Pull Request แบบ Squash หลังรวมแล้ว Git บอกว่า Branch ของผู้ร่วมงานถูกรวมเข้า Main แล้วหรือยัง"
+  options={['บอกว่ารวมแล้ว เพราะไฟล์ออกมาเหมือนกัน', 'ยังไม่นับว่ารวม เพราะ Commit ของ Branch นั้นไม่ได้เป็นบรรพบุรุษของ Main ต้องลบ Branch เอง', 'Git ลบ Branch ให้อัตโนมัติ']}
+  answer={1}
+  why="Git ตัดสินว่ารวมแล้วจากการที่ Commit เป็นบรรพบุรุษหรือไม่ ไม่ได้ดูเนื้อไฟล์ Squash สร้าง Commit ใหม่ตัวเดียว Commit เดิมของ Branch จึงไม่ถูกนับ แบบฝึกตรวจว่าไฟล์เหมือนกันกับแบบ Merge แต่รายการ Branch ที่รวมแล้วไม่มี Branch นั้น"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Diff จุดสองจุดเห็นงานของ `main` ปะปน ส่วนจุดสามจุดเห็นเฉพาะงานของ Topic | รัน: `exercises/07_team_workflow.py` |
+| `git request-pull` เขียนฐาน ที่อยู่ Commit และ Diffstat | รัน: `exercises/07_team_workflow.py` |
+| Merge Commit ได้สอง Parent และ `--first-parent` อ่านเป็นรายการ | รัน: `exercises/07_team_workflow.py` |
+| Squash ได้ Commit เดียว Commit ของ Topic ไม่อยู่ในประวัติ และ Git ไม่นับว่ารวมแล้ว | รัน: `exercises/07_team_workflow.py` |
+| Rebase แล้ว `--ff-only` ได้เส้นตรง | รัน: `exercises/07_team_workflow.py` |
+| Remote ตัวที่สองชื่อ `upstream` ใช้ตามงานต้นทาง | รัน: `exercises/07_team_workflow.py` |
+| Pull Request, เหตุผลที่ใช้ และวิธีที่มันถูกรวม | หนังสือ: LG บทที่ 12 หน้า 233, 235 และ 237 |
+| Diff กับช่วงของ Commit | หนังสือ: VCWG บทที่ 7 หน้า 168 |
+| หน้าตาของเว็บ Hosting, ปุ่ม, Review, การตรวจอัตโนมัติ, Branch Protection, การสร้าง Fork บนเว็บ | ไม่ได้รัน อธิบายจากหนังสือเท่านั้น |
+| ความเห็นว่าแบบรวมงานแบบไหนเหมาะกับทีมแบบไหน | ผู้เขียน |
+
+</Step>

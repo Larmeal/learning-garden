@@ -1,0 +1,159 @@
+---
+title: Stash, Reflog และการกู้ Commit ที่หาย
+summary: Stash เก็บงานที่ทำค้างไว้ชั่วคราว ส่วน Reflog จดทุกการเคลื่อนของ HEAD และ Branch เราจะใช้สองอย่างนี้กู้งานหลัง Reset แบบ Hard หลังลบ Branch และดูว่า Commit หายจริงตอนไหน
+facts:
+  - "รันจริงใน exercises/09_recovery.py ด้วย Git 2.56.1 แล้ว Assert ผลทุกข้อ ทั้ง Stash, Reflog, การกู้หลัง reset --hard และหลังลบ Branch, git fsck และการลบจริงด้วย gc"
+  - "ตัวเลขอายุของรายการใน Reflog รันวัดจริงแล้วไม่ตรงกับหนังสือและเอกสารในซอร์สชุดเดียวกัน บทนี้เล่าตามที่รันได้และบอกว่ามันไม่ตรงกัน"
+  - "เรื่อง Stash และ Reflog อ้างหนังสือ Version Control with Git บทที่ 10"
+order: 9
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [rewriting-history]
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## Stash เก็บงานค้างไว้ก่อน
+
+กำลังแก้ไฟล์อยู่ครึ่งทาง แล้วต้องไปแก้บั๊กด่วนอีก Branch หนึ่ง ถ้าสลับ Branch ตอนนี้ Git อาจไม่ยอม (เหมือนที่เราเจอในบท Branch) ทางออกคือ **Stash** ซึ่งเก็บทั้งการแก้ที่ Stage แล้วและที่ยังไม่ได้ Stage ไว้ที่หนึ่ง แล้วคืนโฟลเดอร์ให้สะอาด (หนังสือ: VCWG บทที่ 10 หน้า 221 และ 222)
+
+แบบฝึกสร้างสามสถานการณ์พร้อมกัน คือแก้ `a.txt` แล้ว Add, แก้ `b.txt` ไม่ Add และสร้าง `new.txt` ที่ Git ยังไม่รู้จัก (รัน: `exercises/09_recovery.py`)
+
+```text
+$ git stash push -m "half done"
+Saved working directory and index state On main: half done
+
+$ git status --short
+?? new.txt                            # ไฟล์ที่ Git ไม่รู้จัก ไม่ถูกเก็บถ้าไม่สั่งเพิ่ม
+
+$ git stash list
+stash@{0}: On main: half done
+```
+
+ข้างในไม่ใช่อะไรพิเศษ Stash คือ Commit บน Ref ชื่อ `refs/stash` ที่มีสอง Parent ตัวแรกคือ Commit ที่เราอยู่ตอนนั้น ตัวที่สองคือ Commit ที่เก็บสภาพของ Index (แบบฝึกตรวจทั้งชนิดและจำนวน Parent) เพราะเป็น Commit มันจึงอยู่ใน Object Store และเข้าระบบตั้งชื่อของ Git เหมือน Commit อื่น
+
+เอางานกลับมาได้สองแบบ
+
+```text
+$ git switch -c other
+$ git stash pop                       # เอากลับมาแล้วทิ้ง Stash
+$ git stash apply                     # เอากลับมา แต่เก็บ Stash ไว้ใช้ซ้ำ
+$ git stash push -u                   # เก็บไฟล์ที่ Git ไม่รู้จักด้วย
+```
+
+`pop` ใช้ได้บน Branch อื่นด้วย แบบฝึกยืนยันว่าการแก้กลับมาครบ และ Stash หายจากรายการ ข้อสังเกตคือการแก้ที่เคย Stage ไว้จะกลับมาเป็น Unstaged เว้นแต่ใส่ `--index` ส่วน `-u` ทำให้ `new.txt` ถูกเก็บและถูกเอากลับมาด้วย (หนังสือ: VCWG บทที่ 10 หน้า 227 และ 230 เรื่องการเอา Stash ไปรวมกับงานใหม่และแปลงเป็น Branch)
+
+</Step>
+
+<Step>
+
+## Reflog จดทุกการเคลื่อนของ HEAD
+
+อีกอย่างที่ Git จดไว้ตลอดโดยเราไม่ต้องบอก คือทุกครั้งที่ `HEAD` หรือ Branch ย้ายไปชี้ที่อื่น (หนังสือ: VCWG บทที่ 10 หน้า 232) สร้างประวัติสามคอมมิต แล้วสั่ง `git reset --hard HEAD~2`
+
+```text
+$ git reflog
+6b2350e HEAD@{0}: reset: moving to HEAD~2
+b58d69b HEAD@{1}: commit: C3
+0b387f7 HEAD@{2}: commit: C2
+6b2350e HEAD@{3}: commit (initial): C1
+```
+
+แต่ละบรรทัดคือการย้ายหนึ่งครั้ง ใหม่สุดอยู่บน `HEAD@{1}` แปลว่า "ที่ที่ `HEAD` เคยอยู่ก่อนการย้ายล่าสุด" ซึ่งก็คือ `b58d69b` ปลายของ `C3` ที่เพิ่งถอยออกมา Branch แต่ละตัวมี Reflog ของตัวเองด้วย (`git reflog show main`) ทั้งหมดเก็บอยู่ใน `.git/logs` และเป็นของคอมพิวเตอร์เรา ไม่ถูก Push ไปที่ไหน (รัน)
+
+พอรู้แบบนี้ การกู้หลัง `reset --hard` ก็ตรงไปตรงมา
+
+```text
+$ git reset --hard HEAD@{1}
+```
+
+`C3` กลับมาพร้อมไฟล์ครบ (รัน)
+
+</Step>
+
+<Step>
+
+## กู้ Branch ที่ลบไป
+
+ลองสร้าง Branch `experiment` ทำงานหนึ่ง Commit แล้วลบทิ้งด้วย `git branch -D` ชื่อหายไปแล้ว แต่ Reflog ยังจำได้ว่าเราเคยสลับออกจากมัน
+
+```text
+$ git reflog | grep "moving from experiment"
+<ชื่อสั้น> HEAD@{n}: checkout: moving from experiment to main
+```
+
+Reflog เรียงจากใหม่ไปเก่า บรรทัดที่อยู่ใต้บรรทัดนี้ลงไปคือ Commit สุดท้ายที่เราทำบน `experiment` โดยชื่อของมันอยู่หน้าบรรทัด (แบบฝึกตรวจตำแหน่งนี้) จากนั้นสั่ง `git branch experiment <ชื่อ Commit>` ก็ได้ Branch กลับมา (รัน)
+
+ถ้า Reflog ใช้ไม่ได้ เช่นไม่รู้จะหาตรงไหน Git มีเครื่องมือตรวจ Object Store ตรง ๆ คือ `git fsck`
+
+```text
+$ git fsck --lost-found --no-reflogs
+dangling commit dd8e2c1ae2928c325ad8c7ee7f5e170f37991e93
+```
+
+Commit ที่ไม่มีอะไรชี้ถึงเลยถูกเรียกว่า Dangling ส่วนตัวเลือก `--lost-found` คัดลอกมันไปไว้ใน `.git/lost-found/commit` ให้เปิดดูได้ (รัน)
+
+</Step>
+
+<Step>
+
+## หายจริงตอนไหน
+
+Commit ที่ไม่มีชื่อชี้ถึงไม่ได้ถูกลบทันที มันอยู่ได้ตราบที่ Reflog ยังจำและ `git gc` ยังไม่เก็บกวาด แบบฝึกทำให้เห็นทั้งสองขั้น คือสั่งให้ Reflog ลืมทุกอย่างทันที แล้วสั่งให้ `gc` ลบสิ่งที่ไม่ถูกอ้างถึงทันที
+
+```text
+$ git reflog expire --expire=now --all
+$ git gc --prune=now
+$ git cat-file -t dd8e2c1
+fatal: Not a valid object name dd8e2c1
+```
+
+Commit นั้นหายจริง ส่วน Commit ที่ยังอยู่ใน Branch อยู่รอดจากการเก็บกวาดชุดเดียวกัน (รัน)
+
+ตามปกติเราไม่ต้องสั่งอะไรเอง Git ลบรายการ Reflog ที่เก่าเกินไปให้เอง และคำถามที่ตามมาคือเก่าแค่ไหน หนังสือบอกว่า Commit ที่ไม่มี Ref ชี้ถึงหมดอายุที่ 30 วัน ส่วนที่ยังเข้าถึงได้หมดอายุที่ 90 วัน (หนังสือ: VCWG บทที่ 10 หน้า 236) เอกสารในซอร์สชุดเดียวกับที่เรารันก็เขียนว่า `gc.reflogExpire` ค่าเริ่มต้น 90 วัน (ไฟล์ `Documentation/config/gc.adoc`)
+
+<Callout type="warn" title="ตัวเลขที่รันได้ไม่ตรงกับเอกสาร">
+
+เราลองวัดจริง โดยสร้างรายการ Reflog ที่มีอายุ 20 วันกับ 40 วัน แล้วสั่ง `git reflog expire --all` โดยไม่ใส่ตัวเลือกอะไร ผลคือรายการอายุ 20 วันยังอยู่ แต่รายการอายุ 40 วันถูกลบไปแล้ว (รัน: `exercises/09_recovery.py` ส่วนที่เจ็ด) ถ้าตั้ง `--expire=90.days.ago` รายการอายุ 40 วันอยู่รอด ตรงกับโค้ดใน `reflog.h` ของ Git 2.56.1 ที่ตั้งค่าเริ่มต้นของ `default_expire_total` ไว้ที่ 30 วัน และ `default_expire_unreachable` ไว้ที่ 90 วัน (Source: `reflog.h`, `REFLOG_EXPIRE_OPTIONS_INIT`) ซึ่งกลับด้านกับที่หนังสือและเอกสารเขียน เรายังไม่ได้ตรวจว่านี่เป็นข้อบกพร่องของ Git หรือเราอ่านมาโครผิด สิ่งที่แน่ใจได้คือผลที่รันในเครื่องนี้ ถ้าจะพึ่งพาเวลาหมดอายุ ให้ตั้งค่าเองใน `gc.reflogExpire` ให้ชัดเจน
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราลบ Branch ที่ยังมีงานไม่ได้ Merge ไปเมื่อวานแล้วเพิ่งนึกได้ ควรเริ่มหา Commit จากที่ไหน"
+  options={['ไม่มีทางหาได้ เพราะลบ Branch คือลบ Commit', 'ดู Reflog หาบรรทัดที่เราเคยสลับออกจาก Branch นั้น แล้วสร้าง Branch ใหม่จากชื่อ Commit ที่เจอ', 'Clone Repository ใหม่ทั้งหมด']}
+  answer={1}
+  why="การลบ Branch ลบแค่ชื่อ Commit ยังอยู่ และ Reflog จดไว้ว่าเราสลับออกจาก Branch นั้นเมื่อไร แบบฝึกกู้ Branch ด้วยวิธีนี้สำเร็จ ถ้า Reflog ไม่มีข้อมูล ก็ยังตรวจหา Commit ที่ไม่มีอะไรชี้ถึงได้ด้วยคำสั่ง Fsck ตราบที่ Git ยังไม่เก็บกวาด"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Stash เป็น Commit บน `refs/stash` ที่มีสอง Parent, ไม่เก็บไฟล์ที่ Git ไม่รู้จักถ้าไม่ใส่ `-u`, `pop` ได้บน Branch อื่น, `apply` เก็บ Stash ไว้ | รัน: `exercises/09_recovery.py` |
+| Reflog จดทุกการย้าย, `HEAD@{1}`, Branch มี Reflog ของตัวเอง, อยู่ใน `.git/logs` | รัน: `exercises/09_recovery.py` |
+| กู้หลัง `reset --hard` และกู้ Branch ที่ลบ | รัน: `exercises/09_recovery.py` |
+| `git fsck --lost-found --no-reflogs` แสดง Dangling Commit และคัดลอกไป `.git/lost-found` | รัน: `exercises/09_recovery.py` |
+| `git reflog expire --expire=now --all` ตามด้วย `git gc --prune=now` ทำให้ Commit หายจริง | รัน: `exercises/09_recovery.py` |
+| รายการ Reflog อายุ 20 วันอยู่ อายุ 40 วันหมดอายุโดยค่าเริ่มต้น และ `--expire=90.days.ago` เก็บไว้ | รัน: `exercises/09_recovery.py` |
+| ค่าเริ่มต้นในโค้ดคือ `default_expire_total` 30 วัน และ `default_expire_unreachable` 90 วัน | Source: `reflog.h`, `REFLOG_EXPIRE_OPTIONS_INIT` |
+| เอกสารและหนังสือบอกว่า `gc.reflogExpire` 90 วัน และ Commit ที่ไม่มีอะไรชี้ถึง 30 วัน (ไม่ตรงกับผลที่รัน) | Source: `Documentation/config/gc.adoc`, หนังสือ: VCWG บทที่ 10 หน้า 236 |
+| Stash, กรณีใช้งาน และ Reflog | หนังสือ: VCWG บทที่ 10 หน้า 221, 222, 227, 230 และ 232 |
+| ข้อสงสัยว่าความไม่ตรงกันเป็นข้อบกพร่องของ Git หรือเรามองมาโครผิด | ผู้เขียน |
+
+</Step>

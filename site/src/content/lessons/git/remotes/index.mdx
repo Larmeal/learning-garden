@@ -1,0 +1,177 @@
+---
+title: Remote, Fetch และ Push
+summary: Remote คือชื่อที่ Git จดไว้แทนที่อยู่ของ Repository อื่น เราจะดูว่าตอน Clone Git จดอะไรไว้ในไฟล์ตั้งค่า ทำไม Fetch ถึงไม่แตะงานของเรา Pull คือสองคำสั่งต่อกัน และทำไม Push ถึงถูกปฏิเสธ
+facts:
+  - "รันจริงใน exercises/06_remotes.py ด้วย Git 2.56.1 โดยใช้ Bare Repository ในโฟลเดอร์เป็น Remote และ Clone สองตัวแทน Alice กับ Bob จึงไม่ได้ผ่านเครือข่ายจริง"
+  - "ข้อความที่ Git ตอบ เช่น rejected (fetch first) และ stale info มาจากการรันจริง ส่วน Path ในผลลัพธ์เราแทนด้วยชื่อสมมติ"
+  - "เรื่อง Remote และ Tracking Branch อ้างหนังสือ Version Control with Git บทที่ 11 และ Learning Git บทที่ 7 ถึง 9"
+order: 6
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [rebase]
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import RemotesLab from '../../../../components/labs/git/RemotesLab';
+
+<Step>
+
+## Remote คือชื่อที่จดไว้แทนที่อยู่
+
+Repository ที่คนหลายคนใช้ร่วมกันมักมีสำเนากลางอยู่ที่ไหนสักแห่ง ซึ่งโดยทั่วไปเป็น **Bare Repository** คือ Repository ที่ไม่มี Working Tree มีเฉพาะสิ่งที่ปกติอยู่ใน `.git` (หนังสือ: VCWG บทที่ 11 หน้า 240) ในแบบฝึกเราใช้โฟลเดอร์หนึ่งทำหน้าที่นั้น และให้ Alice กับ Bob เป็นสอง Clone ที่คุยกับมันผ่านชื่อ `origin` (รัน: `exercises/06_remotes.py`)
+
+Alice เริ่มจาก Repository ในคอมพิวเตอร์ของเธอที่มี Commit แรกแล้ว บอก Git ว่าสำเนากลางอยู่ที่ไหน แล้ว `git push -u origin main`
+
+```text
+$ git remote add origin ../garden.git
+$ git push -u origin main
+branch 'main' set up to track 'origin/main'.
+```
+
+สิ่งที่ Git จดไว้ อยู่ในไฟล์ `.git/config` ของ Alice
+
+```text
+[remote "origin"]
+	url = ../garden.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
+[branch "main"]
+	remote = origin
+	merge = refs/heads/main
+```
+
+กลุ่มแรกบอกว่า `origin` คือที่อยู่ไหน และเมื่อ Fetch ให้เอา Branch ทุกตัวของ Remote มาเก็บไว้ในชื่อ `refs/remotes/origin/...` กลุ่มที่สองบอกว่า `main` ของเรา "ตาม" `origin/main` ซึ่งเป็นผลของตัวเลือก `-u` (หนังสือ: VCWG บทที่ 11 หน้า 243 และ 244) ในไฟล์ `.git/refs/remotes/origin/main` เป็นไฟล์เล็ก ๆ แบบเดียวกับ Branch ที่เก็บชื่อ Commit ล่าสุดที่เรารู้ว่า Remote มี เรียกว่า **Remote-tracking Branch**
+
+Bob เริ่มต่างออกไป เขาไม่มีอะไรเลยและใช้ `git clone` ซึ่งทำให้ได้ทั้งหมดในคำสั่งเดียว คือคัดลอกประวัติทั้งก้อน ตั้งชื่อ Remote เป็น `origin` ตั้ง `main` ให้ตาม `origin/main` และเช็กเอาต์ `main` ให้ (หนังสือ: LG บทที่ 8 หน้า 114 และรัน)
+
+</Step>
+
+<Step>
+
+## Fetch เอาของมาไว้ใกล้ ๆ แต่ไม่แตะงานของเรา
+
+Alice Commit งานใหม่แล้ว Push ขึ้นไป ตอนนี้ Bob ยังไม่รู้เรื่อง `origin/main` ของ Bob ยังชี้ Commit เดิม พอ Bob สั่ง `git fetch`
+
+```text
+$ git fetch           # Bob
+$ git status
+Your branch is behind 'origin/main' by 1 commit, and can be fast-forwarded.
+
+$ git log --format=%s main..origin/main
+A2 add plants
+```
+
+`git fetch` ขยับเฉพาะ `origin/main` ซึ่งเป็นความจำของเราเรื่องตำแหน่งของ Remote ส่วน `main` ของ Bob กับไฟล์ในโฟลเดอร์ไม่ถูกแตะเลย แบบฝึกตรวจทั้งสองข้อ ช่วงที่เขียนว่า `main..origin/main` ที่เราเรียนในบทก่อนหน้า ตอบทันทีว่า Merge ครั้งหน้าจะได้อะไรมา (หนังสือ: LG บทที่ 8 หน้า 132 และ VCWG บทที่ 11 หน้า 260)
+
+พอ Bob ตัดสินใจรวม ก็สั่ง `git merge origin/main` ซึ่งในกรณีนี้เป็น Fast-forward เพราะ Bob ยังไม่มีงานของตัวเอง
+
+</Step>
+
+<Step>
+
+## `git pull` คือ Fetch ตามด้วย Merge
+
+ถ้าไม่อยากพิมพ์สองคำสั่ง `git pull` ทำทั้งสองอย่างต่อกัน ในแบบฝึก Alice Push อีกรอบ แล้ว Bob สั่ง `git pull` ได้ Fast-forward และไฟล์ใหม่ทันที (หนังสือ: LG บทที่ 9 หน้า 167)
+
+ที่ต้องรู้คือ `pull` ตัดสินใจแทนเราว่าจะ Merge หรือ Rebase ซึ่งอยู่ที่ตัวเลือก `--no-rebase` หรือ `--rebase` ตอนที่ Bob มี Commit ของตัวเองและ Alice ก็มี ถ้าใช้ `git pull --rebase` ผลคือ Commit ของ Bob ถูกเล่นซ้ำต่อท้ายงานของ Alice ประวัติยังเป็นเส้นตรง ไม่มี Merge Commit (รัน) ถ้าใช้ `--no-rebase` ผลคือ Merge Commit ที่มีสอง Parent
+
+</Step>
+
+<Step>
+
+## Push ที่ถูกปฏิเสธ
+
+Alice Push งานใหม่ขึ้นไปก่อน แล้ว Bob ที่ยังไม่ได้ Fetch ทำงานเพิ่มแล้วลอง Push
+
+```text
+$ git push           # Bob
+To ../garden.git
+ ! [rejected]        main -> main (fetch first)
+error: failed to push some refs to '../garden.git'
+hint: Updates were rejected because the remote contains work that you do not
+hint: have locally. This is usually caused by another repository pushing to
+hint: the same ref. If you want to integrate the remote changes, use
+hint: 'git pull' before pushing again.
+```
+
+Git ปฏิเสธเพราะถ้ารับ Push ของ Bob ไว้ `main` ของ Remote จะย้ายไปที่ Commit ของ Bob ซึ่งไม่ได้ต่อจาก Commit ของ Alice งานของ Alice จะหลุดออกจากปลาย Branch นี่คือ **Non-fast-forward Push** (หนังสือ: VCWG บทที่ 11 หน้า 268) ทางออกคือ Bob ดึงงานของ Alice มารวมก่อน (Pull) แล้วค่อย Push ซึ่งคราวนี้เป็นการต่อท้ายตามปกติ (รัน)
+
+เมื่อเราเป็นคนที่เขียนประวัติของตัวเองใหม่ เช่นหลัง Rebase ทำให้ Push ธรรมดาถูกปฏิเสธเสมอ จะใช้ `--force-with-lease` ซึ่งปลอดภัยกว่า `--force` เพราะมันยอม Push ทับเฉพาะเมื่อ Remote ยังอยู่ที่ตำแหน่งที่เรา Fetch ไว้ล่าสุด
+
+```text
+$ git push --force-with-lease    # ตอนที่ Bob Push เข้ามาหลัง Fetch ครั้งล่าสุดของ Alice
+ ! [rejected]        main -> main (stale info)
+```
+
+ข้อความ `stale info` บอกว่าข้อมูลที่เรามีเก่าไปแล้ว ต้อง Fetch ใหม่ Rebase แล้วค่อยลอง หลังทำอย่างนั้นแบบฝึกยืนยันว่า Push ผ่าน
+
+</Step>
+
+<Step>
+
+## จัดการ Branch บน Remote
+
+```text
+$ git push origin main:release          # ส่ง main ของเราไปสร้าง Branch ชื่อ release บน Remote
+$ git ls-remote --heads origin
+df83be66eecadb3c3c6502e81ba3966ec5d66cb2	refs/heads/main
+df83be66eecadb3c3c6502e81ba3966ec5d66cb2	refs/heads/release
+
+$ git push origin --delete release
+$ git fetch --prune                      # ฝั่งที่ยังจำ origin/release ได้
+```
+
+รูปแบบ `ต้นทาง:ปลายทาง` บอกว่าจะเอาอะไรของเราไปเป็นอะไรบน Remote (หนังสือ: VCWG บทที่ 11 หน้า 280) `git ls-remote` ถามรายการของ Remote ตรง ๆ โดยไม่แตะอะไรในคอมพิวเตอร์ของเรา และสังเกตว่าหลังมีคนลบ Branch บน Remote แล้ว คนอื่นที่ Fetch ธรรมดายังเห็น `origin/release` ค้างอยู่ ต้องใช้ `--prune` ถึงจะเก็บกวาดให้ (รัน)
+
+<Callout type="note" title="Remote ไม่จำเป็นต้องเป็นเว็บ">
+
+ตลอดบทนี้ `origin` เป็นแค่โฟลเดอร์ ชื่อเว็บอย่าง GitHub หรือ GitLab ไม่ได้อยู่ใน Git เลย เว็บเหล่านั้นเป็น Remote ที่เพิ่มหน้าตา การตรวจสิทธิ์ และ Pull Request เข้ามาให้ ซึ่งเป็นเรื่องของ[บทถัดไป](/git/team-workflow/)
+
+</Callout>
+
+</Step>
+
+<Step>
+
+## ดูสามที่พร้อมกัน
+
+ภาพนี้วาด Alice, Origin และ Bob ไว้ด้วยกัน แต่ละที่มี Commit ของตัวเอง ป้าย `main` และ ป้าย `origin/main` ซึ่งเป็นความจำของแต่ละฝั่งว่า Origin อยู่ตรงไหน ลองกดไปทีละขั้นและสังเกตตอน Fetch ว่าเฉพาะ `origin/main` ของ Bob ที่ขยับ และตอน Push ถูกปฏิเสธว่า Origin มี Commit ที่ Bob ไม่มี
+
+<RemotesLab client:visible />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Bob สั่ง Fetch แล้วดูสถานะ Git บอกว่า Branch ของเขาตามหลัง Origin Main อยู่หนึ่ง Commit สิ่งที่ Fetch ขยับไปคืออะไร"
+  options={['Main ของ Bob และไฟล์ในโฟลเดอร์ขยับไปที่ Commit ใหม่', 'เฉพาะ Origin Main ซึ่งเป็นความจำว่า Remote อยู่ตรงไหน ส่วน Main และไฟล์ของ Bob ยังเหมือนเดิม', 'ไม่มีอะไรขยับ ต้อง Pull ก่อนถึงจะเห็น']}
+  answer={1}
+  why="Fetch เอา Commit มาเก็บและอัปเดตชื่อ Remote-tracking Branch เท่านั้น แบบฝึกตรวจว่าหลัง Fetch Origin Main ตรงกับ Remote แต่ Main ของ Bob กับไฟล์ยังเป็นของเดิม และสถานะนับว่าตามหลัง 1 Commit ถ้าอยากเอาเข้า Branch ของเรา ต้อง Merge หรือ Rebase ต่อ ซึ่ง Pull ทำให้ในคำสั่งเดียว"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| `git push -u` เขียน `[remote "origin"]` และ `[branch "main"]` ลง `.git/config`, ไฟล์ `refs/remotes/origin/main` | รัน: `exercises/06_remotes.py` |
+| `git clone` คัดลอกประวัติทั้งหมดและตั้ง `origin` กับ `main` ให้ตาม `origin/main` | รัน: `exercises/06_remotes.py` |
+| Fetch ขยับเฉพาะ `origin/main`, `main..origin/main` บอกสิ่งที่จะได้ | รัน: `exercises/06_remotes.py` |
+| `git pull` = Fetch + Merge, `pull --rebase` ได้เส้นตรง | รัน: `exercises/06_remotes.py` |
+| Push ถูกปฏิเสธ (`fetch first`), `--force-with-lease` ปฏิเสธด้วย `stale info` | รัน: `exercises/06_remotes.py` |
+| `main:release`, `ls-remote`, `--delete`, `fetch --prune` | รัน: `exercises/06_remotes.py` |
+| Bare Repository, Remote, Tracking Branch | หนังสือ: VCWG บทที่ 11 หน้า 240, 243 และ 244 |
+| Non-fast-forward Push, การเพิ่มและลบ Branch บน Remote | หนังสือ: VCWG บทที่ 11 หน้า 268 และ 280 |
+| Clone, Fetch และ Pull | หนังสือ: LG บทที่ 8 หน้า 114 และ 132, บทที่ 9 หน้า 167 |
+| ที่อยู่ `../garden.git` ในตัวอย่างเป็นชื่อสมมติแทน Path จริงของคอมพิวเตอร์ที่รัน | ผู้เขียน |
+
+</Step>

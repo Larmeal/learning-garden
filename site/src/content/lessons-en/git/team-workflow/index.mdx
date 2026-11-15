@@ -1,0 +1,178 @@
+---
+title: Pull requests and teamwork
+summary: A pull request is a feature of a hosting website, not of Git, but behind it are a pushed branch and a few Git commands. We run all the Git parts, which are the diff a review page shows and the three ways of taking work in (merge commit, squash and rebase) and how the history differs.
+facts:
+  - "Run in exercises/07_team_workflow.py with Git 2.56.1, using a bare repository and two clones for the maintainer and the contributor. git request-pull was run for real too."
+  - "Not run: the look of a hosting website, such as the pull request button, reviews, automatic checks and branch protection. They are explained from the book Learning Git chapter 12 only."
+  - "Three ways of combining work are what most hosting sites offer. What we prove is the effect of each on the history, not which command a given site uses behind the scenes."
+order: 7
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [remotes]
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## A pull request is a request that others take our work in
+
+When we work in a team we often do not push straight into `main`. We branch off, do our work, push it, and ask the maintainer to check before it is taken in. On a hosting website this asking and checking is called a **pull request** (or a merge request on some sites). The book Learning Git says it exists so that other people can see the work and comment before it goes into the main branch (book: LG chapter 12, pages 233 and 235).
+
+The important thing is that a pull request is not a feature of Git. Git itself does not know the word. The pure Git part is only three things: a branch that was pushed to a remote, a way to see what that branch adds, and a way to combine it. The button, the comment boxes, the automatic checks and the rule that stops pushes straight to `main` belong to the website, and this lesson did not run them (see the note at the end).
+
+Let us look at the Git part (ran: `exercises/07_team_workflow.py`). A contributor branches `topic/search`, makes two commits and pushes. The maintainer, who holds `main`, runs `git fetch` to look.
+
+</Step>
+
+<Step>
+
+## What the review page shows, and how Git tells us by itself
+
+In the meantime `main` has gone one commit ahead (the maintainer edited `app.txt`). Let us compare the contributor's branch with `main` in two ways.
+
+```text
+$ git diff --stat main origin/topic/search
+ app.txt    | 1 -
+ search.txt | 2 ++
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+
+$ git diff --stat main...origin/topic/search
+ search.txt | 2 ++
+ 1 file changed, 2 insertions(+)
+```
+
+The first compares the two tips directly, so the edit of `app.txt` made on `main` shows as something that has "disappeared" from the topic, though the contributor did not do that. The second uses three dots, which compares from the point where they split, so it shows only the work of the topic. That is what a review page should show (book: VCWG chapter 7, page 168, on diffs and commit ranges).
+
+Git even has a command that writes the request as text, `git request-pull`, which the contributor runs.
+
+```text
+$ git request-pull origin/main ../garden.git topic/search
+The following changes since commit 5b4eab77dfe8b1653f2e7952389dc414cba0d4d7:
+
+  M1 first version (2026-01-01 10:00:01 +0000)
+
+are available in the Git repository at:
+
+  ../garden.git topic/search
+
+for you to fetch changes up to 9b17c04b5c9dc3ed8a5bab7f32c5f063128c75c2:
+
+  C2 finish search (2026-01-01 10:00:03 +0000)
+
+----------------------------------------------------------------
+Ada (2):
+      C1 start search
+      C2 finish search
+
+ search.txt | 2 ++
+ 1 file changed, 2 insertions(+)
+ create mode 100644 search.txt
+```
+
+The text says which commit is the base, where the branch is, which commits there are and which files they changed. It is the same set of information a pull request page on the web shows (the exercise checks that the text has both the base commit and the diffstat).
+
+</Step>
+
+<Step>
+
+## Three ways to take it in, three different histories
+
+When the maintainer is happy, most websites let them choose how to combine. We imitate each with Git's own commands (ran), starting from the same situation, and look at the history of `main`.
+
+**Way one, a merge commit.** `git merge --no-ff` gives a commit with two parents.
+
+```text
+*   5563f88 Merge remote-tracking branch 'origin/topic/search'
+|\
+| * 9b17c04 C2 finish search
+| * 75c37a7 C1 start search
+* | 4631cb3 M2 main moves on meanwhile
+|/
+* 5b4eab7 M1 first version
+```
+
+The contributor's commits are all there with their own ids, and `git log --first-parent` reads as a list of the pieces of work taken into `main` one by one, which is handy when we want to see which pull request went in and when.
+
+**Way two, squash.** `git merge --squash` and then `git commit` give one commit.
+
+```text
+* 415c727 Add search (#1)
+* 622d93e M1 first version
+```
+
+The contributor's commits did not come into the history of `main`. The files come out exactly as in way one, but the history is shorter. The thing to watch is that Git does not know the topic was merged, because the commits of the topic are not ancestors of `main`. So `git branch -r --merged main` does not count `origin/topic/search`, and we have to delete that branch ourselves.
+
+**Way three, rebase and then fast-forward.** The contributor rebases the topic onto the tip of `main` and force-pushes with `--force-with-lease`. The maintainer then merges with `--ff-only`.
+
+```text
+* a84833d C2 finish search
+* f00631a C1 start search
+* f84005b M2 main moves on meanwhile
+* 795a716 M1 first version
+```
+
+The history is a straight line, and the commits of the topic have new ids, as we learned in the rebase lesson. `--ff-only` works because the topic now continues exactly from the tip of `main`.
+
+No way is the best. A team chooses by what it wants to see in the history. Personally I think way one suits a team that wants to look back pull request by pull request, and ways two and three suit a team that wants a short history that is easy to read (author).
+
+</Step>
+
+<Step>
+
+## When we have no right to write to the main repository
+
+In an open source project we often cannot push straight into the main repository. The usual way is a **fork**: make a copy of the main repository on the website as our own, clone that copy, and add a second remote called `upstream` that points at the main repository.
+
+```text
+$ git remote add upstream ../upstream.git
+$ git remote
+fork
+upstream
+
+$ git fetch upstream
+$ git log --format=%s main..upstream/main
+U2 upstream moves
+$ git merge --ff-only upstream/main
+```
+
+The exercise imitates it with two bare repositories in folders (we clone from the origin and rename `origin` to `fork`), and it gives these results line by line. `fork` is where we can write, and `upstream` is the source we pull new work from so that we keep up. We send the pull request from `fork` to `upstream`. Making the fork on the website was not run.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The team merges pull requests by squash. After the merge, does Git say the contributor branch has been merged into Main?"
+  options={['Yes, because the files come out the same', 'No, because the commits of that branch are not ancestors of Main, so we have to delete the branch ourselves', 'Git deletes the branch automatically']}
+  answer={1}
+  why="Git decides a branch is merged by whether its commits are ancestors, not by looking at the files. A squash makes one new commit, so the original commits of the branch do not count. The exercise checks that the files are the same as with a merge, while the list of merged branches does not have that branch."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A two-dot diff mixes in the work of `main`, and a three-dot diff shows only the work of the topic | Ran: `exercises/07_team_workflow.py` |
+| `git request-pull` writes the base, the address, the commits and the diffstat | Ran: `exercises/07_team_workflow.py` |
+| A merge commit gets two parents and `--first-parent` reads as a list | Ran: `exercises/07_team_workflow.py` |
+| A squash gives one commit, the commits of the topic are not in the history, and Git does not count it as merged | Ran: `exercises/07_team_workflow.py` |
+| Rebase and then `--ff-only` gives a straight line | Ran: `exercises/07_team_workflow.py` |
+| A second remote named `upstream` is used to keep up with the source | Ran: `exercises/07_team_workflow.py` |
+| Pull requests, why we use them and how they are merged | Book: LG chapter 12, pages 233, 235 and 237 |
+| Diffs and commit ranges | Book: VCWG chapter 7, page 168 |
+| The look of a hosting website, buttons, reviews, automatic checks, branch protection, making a fork on the web | Not run, explained from the book only |
+| The opinion on which way of combining suits which team | Author |
+
+</Step>

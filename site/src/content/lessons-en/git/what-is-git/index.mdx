@@ -1,0 +1,135 @@
+---
+title: What is Git
+summary: Git keeps your work as a snapshot each time, and names everything after its own content. We try both with real commands before we meet commits and branches.
+facts:
+  - "Run in exercises/00_snapshots.py with Git 2.56.1, and every result is asserted. The point that a clone has the whole history uses exercises/06_remotes.py."
+  - "The statements about snapshots and hashes come from the book Version Control with Git, pages 5 and 29, and we checked them against what we ran."
+  - "The distributed part was not run over a network. Every remote in the exercises is a folder on the same computer."
+order: 0
+phase: A
+level: 1
+stage: sprout
+format: steps
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## You changed a file and want yesterday's version back
+
+Person A is writing a report for a teacher. After many edits the folder holds `report_final.docx`, `report_final_v2.docx` and `report_final_v2_this_one_for_real.docx`. On the deadline A opens the wrong file, sends the version that does not have the last paragraph yet, and the teacher writes back.
+
+A's problem is that A has to remember which file is newer, what changed, and why. A system that remembers this for you is called version control, and Git is one of them.
+
+Let us first look at how it keeps our work inside, because once that is clear, the rest of the commands make sense on their own.
+
+</Step>
+
+<Step>
+
+## Git keeps a picture of the whole project each time
+
+Say we have two files: `a.txt` that says `alpha` and `b.txt` that says `beta`. We ask Git to keep them once, which is one **commit**, then make `a.txt` longer and keep it again. `git ls-tree` lists the files of a commit, and this is what it prints (ran: `exercises/00_snapshots.py`).
+
+```text
+$ git ls-tree ed9a6af          # the first commit
+100644 blob 4a58007052a65fbc2fc3f910f2855f45a4058e74	a.txt
+100644 blob 65b2df87f7df3aeedef04be96703e55ac19c2cfb	b.txt
+
+$ git ls-tree 189969c          # the second commit
+100644 blob 9bf8e491329fd9fb548d37fd9d53ecd138c17745	a.txt
+100644 blob 65b2df87f7df3aeedef04be96703e55ac19c2cfb	b.txt
+```
+
+The long numbers are the names of the content of each file (we will see where they come from in a moment). Look at `b.txt`: both commits point at the same one, because we did not touch that file. `a.txt` changed, so a new block was made, and the second commit still lists both files. It does not list only what changed.
+
+This is the first thing *Version Control with Git* asks us to unlearn. Many older systems remember "what was changed" in each round, but Git takes a **snapshot** of the state of the whole project at that moment (book: VCWG chapter 1, page 5).
+
+<Callout type="note" title="Doesn't storing whole files waste space?">
+
+It looks like it would, but a file that did not change is shared as one block, as we just saw. When a repository grows, Git also gathers similar content and stores it as differences afterwards. We will look at that in the lesson on what is inside `.git`.
+
+</Callout>
+
+</Step>
+
+<Step>
+
+## Every name comes from the content itself
+
+The 40-character numbers were not picked at random. Git computes them from the content of the file with a hash function called SHA-1. Let us ask Git for the name of the text `hello` plus a newline, in two different folders, and then change one letter.
+
+```text
+$ git hash-object --stdin    # in the first repository  (text: hello)
+ce013625030ba8dba906f756967f9e9ca394464a
+
+$ git hash-object --stdin    # in the second repository (text: hello)
+ce013625030ba8dba906f756967f9e9ca394464a
+
+$ git hash-object --stdin    # text: hellp
+d7a963a648c4564f03a0952546d2800681628048
+```
+
+The same content gets the same name in any folder and on any computer, but changing a single `o` into `p` changes the whole name. The book calls a system like this content-addressable (book: VCWG chapter 2, page 29).
+
+Two things come as a bonus. **First**, if two files have the same content, Git stores only one block. **Second**, if someone secretly changes the content while the name stays the same, Git can tell at once that the data is damaged (we will make that happen in the lesson on [the object store](/en/git/object-store/)).
+
+<Callout type="note" title="SHA-1 and SHA-256">
+
+The book talks about SHA-1, which has been the default all along, but the Git 2.56.1 we ran can also make a repository that uses SHA-256, with names 64 characters long. We will try it in the object store lesson.
+
+</Callout>
+
+</Step>
+
+<Step>
+
+## Old versions stay, nothing is overwritten
+
+Because each commit already points at its own blocks, changing `a.txt` did not overwrite anything. We can look at the file as it was in the first commit whenever we like.
+
+```text
+$ git show ed9a6af:a.txt
+alpha
+```
+
+If we count everything Git has stored after two commits, we get 7 objects (ran: `git count-objects -v` gives `count: 7`). The first commit made 4 new ones: 2 file blocks, 1 list of the files in the folder, and the commit itself. The second commit added only 3: the new `a.txt`, the new list of files, and the commit.
+
+One more thing is worth knowing from the start. Everything above happened on our own computer, with no network. When we clone someone else's repository we get the whole history with it (ran: `exercises/06_remotes.py`, which clones and sees the full history). That is why Git is called a distributed version control system: a computer that cloned the repository already has everything, and does not ask a central server for the history each time.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A project has 100 files and no subfolders. We change one file and commit. How many new objects does Git create?"
+  options={['100, because a snapshot stores every file again', '3: the changed file, the new list of files, and the commit', '1, because it stores only the part that changed']}
+  answer={1}
+  why="A snapshot lists every file, but the files we did not change point back to the same blocks, so nothing new is made for them. The exercise checks that our second commit added 3 objects (from 4 to 7). Storing only the part that changed is how older systems work, and Git stores the changed file whole."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The same content gets the same name in two repositories, and one changed letter changes the whole name | Ran: `exercises/00_snapshots.py` |
+| An unchanged file points at the same block, a changed file is stored whole, and the second commit still lists every file | Ran: `exercises/00_snapshots.py` |
+| The first commit made 4 objects, and two commits make 7 (2 commits, 2 file lists, 3 files) | Ran: `exercises/00_snapshots.py` |
+| The first version of a file can still be read after it changed | Ran: `exercises/00_snapshots.py` |
+| A clone has the whole history | Ran: `exercises/06_remotes.py` |
+| Git stores snapshots, not deltas | Book: VCWG chapter 1, page 5 |
+| Content-addressable, the name comes from the SHA-1 of the content | Book: VCWG chapter 2, page 29 |
+| A SHA-256 repository gets names 64 characters long | Ran: `exercises/11_object_store.py` |
+| The story of person A and the choice of a version control system | Author |
+
+</Step>

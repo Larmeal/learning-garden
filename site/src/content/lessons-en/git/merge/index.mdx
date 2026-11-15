@@ -1,0 +1,184 @@
+---
+title: Merge and conflicts
+summary: There are two kinds of merge, moving a branch forward, and making a new commit with two parents. When both sides change the same line Git reports a conflict, and we look at what the file and the index look like and how to get out.
+facts:
+  - "Run in exercises/04_merge.py with Git 2.56.1 and every result is asserted: fast-forward, a merge commit with two parents, the markers in a conflict, the three versions in the index, and git merge --abort."
+  - "The text follows Learning Git chapters 5, 9 and 10 and Version Control with Git chapter 6, checked against what we ran."
+  - "The conflict we tried is two sides editing the same line. We did not try a file deleted or renamed on the other side. The lesson on the inside of merging tries some of that."
+order: 4
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [branches]
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## The first kind of merge just moves a branch forward
+
+Say `main` has stayed where it was since we split `dessert` off, and `dessert` has one more commit. If we are on `main` and run `git merge dessert` (ran: `exercises/04_merge.py`):
+
+```text
+$ git merge dessert
+Updating f28b636..f5c962f
+Fast-forward
+ dessert.txt | 1 +
+ 1 file changed, 1 insertion(+)
+ create mode 100644 dessert.txt
+```
+
+The message `Fast-forward` says Git made no new commit. `main` was already an ancestor of `dessert`, so Git only moved the `main` file to point at the same commit as `dessert`. The exercise checks that after the merge the commit names of the two lines are the same, and that the tip has only one parent (book: LG chapter 5, page 70).
+
+</Step>
+
+<Step>
+
+## The second kind makes a new commit with two parents
+
+If both lines have moved forward, `main` is no longer an ancestor of the other. Git has to find where the two split, and bring the work of both sides together.
+
+```text
+$ git merge-base main drinks
+<name of the commit where drinks split off>
+
+$ git merge --no-edit drinks
+Merge made by the 'ort' strategy.
+ drinks.txt | 1 +
+ 1 file changed, 1 insertion(+)
+ create mode 100644 drinks.txt
+```
+
+`git merge-base` tells which commit is the closest common ancestor of the two lines (the exercise confirms it is the point where they split). Then Git compares three points, the common ancestor, our tip and the other tip, and combines the changes. We call this a three-way merge (book: LG chapter 9, page 141, and VCWG chapter 6, page 123).
+
+The result is one new commit whose first parent is the old `main` and whose second parent is the tip of `drinks`. The files of both sides are in the working tree (ran). The name `ort` in the message is the engine Git 2.56.1 uses to merge, found in the file `merge-ort.c` of the source (Source: `merge-ort.c`). We will open it up again in a later lesson.
+
+If we merge a branch that is already included, Git answers `Already up to date` and does nothing. And if we want a merge commit even when a fast-forward is possible, so that it is on record that this branch once split off, we add `--no-ff`. The exercise confirms that this gives a commit with two parents.
+
+</Step>
+
+<Step>
+
+## A conflict happens when both sides change the same place
+
+Let one side change the second line of `menu.txt` to `salad with tuna`, and the other side change the same line to `salad with egg`, and then merge.
+
+```text
+$ git merge egg
+Auto-merging menu.txt
+CONFLICT (content): Merge conflict in menu.txt
+Automatic merge failed; fix conflicts and then commit the result.
+```
+
+This time Git cannot decide which side to take. It stops halfway and writes both sides into the file for us to choose (book: LG chapter 10, page 175, and VCWG chapter 6, page 127).
+
+```text
+soup
+<<<<<<< HEAD
+salad with tuna
+=======
+salad with egg
+>>>>>>> egg
+bread
+```
+
+The part between `<<<<<<< HEAD` and `=======` is our side, and the part between `=======` and `>>>>>>> egg` is the side we brought in. The rest had no problem, so it stays in the file as normal. The file `.git/MERGE_HEAD` was created to note which commit we are merging with, and `git status --short` shows `UU menu.txt`, which means both sides modified it (unmerged).
+
+</Step>
+
+<Step>
+
+## Git keeps three versions in the index
+
+What is more interesting about a conflict than the file with markers is what is in the index (book: VCWG chapter 6, page 138).
+
+```text
+$ git ls-files --unmerged
+100644 686df3dcd3f6d9762f4282862589f918c3f44504 1	menu.txt
+100644 0ae7d0c492af62878286e61693f0ab14fc06fa87 2	menu.txt
+100644 58f1784453de613c2e43d314d9bde53b6c740273 3	menu.txt
+```
+
+The number at the end of the three lines is the **stage**. Normally every file in the index is at stage 0, but a conflicted file has three entries. Stage 1 is the version of the common ancestor, stage 2 is ours, and stage 3 is the other side's. We can open each with `git show :1:menu.txt`, `:2:` and `:3:` (ran). So Git has not lost anything: all three are always there.
+
+If we also want to see the common ancestor's version in the file, ask for the `diff3` style.
+
+```text
+$ git checkout --conflict=diff3 menu.txt
+$ cat menu.txt
+soup
+<<<<<<< ours
+salad with tuna
+||||||| base
+salad
+=======
+salad with egg
+>>>>>>> theirs
+bread
+```
+
+Notice that the labels on the markers changed from `HEAD` and `egg` to `ours` and `theirs`, because Git uses different default labels for the style we ask for. When we can see `base`, we know what each side changed from, which makes the decision much easier.
+
+</Step>
+
+<Step>
+
+## Two ways out of a conflict
+
+**The first way** is to cancel everything. `git merge --abort` puts `main` back where it was before the merge, the file `MERGE_HEAD` is removed, and the working tree is clean (ran, and book: VCWG chapter 6, page 141).
+
+**The second way** is to edit the file into what we want, remove the markers, and run `git add`, which tells Git this file is dealt with. The three versions in the index go away. Then `git commit` closes the merge.
+
+```text
+$ git add menu.txt
+$ git commit --no-edit
+$ git log --format=%s -n 1
+Merge branch 'egg'
+```
+
+The commit has two parents like a normal merge, and the second is the tip of `egg` (ran).
+
+<Callout type="tip" title="Do not be afraid of conflicts">
+
+A conflict is not a mistake. It is Git saying "here I do not know which one you want". And because all three versions are kept, nothing is lost on the way. If we start to feel lost, `git merge --abort` works at any moment.
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We merge and get a conflict in one file. While we are still fixing it, how many versions of that file are in the index, and which stage is the common ancestor's?"
+  options={['Two, ours and the other side, the common ancestor is not kept', 'Three: stage 1 is the common ancestor, stage 2 is ours, stage 3 is the other side', 'One, the file that has the markers now']}
+  answer={1}
+  why="Git keeps all three versions in the index until we run Add. The exercise runs git ls-files --unmerged and gets three lines for stages 1, 2 and 3, and git show for each stage gives the content of the common ancestor, our side and the other side. The file with markers is only what Git writes into the working tree for us to look at."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A fast-forward makes no new commit and the branches point at the same commit | Ran: `exercises/04_merge.py` |
+| `git merge-base` finds the split point, a merge commit has two parents, `Already up to date`, `--no-ff` | Ran: `exercises/04_merge.py` |
+| The message `Merge made by the 'ort' strategy.` | Ran: `exercises/04_merge.py` |
+| A conflict makes `git merge` exit with 1, the message `CONFLICT (content)`, the markers, `MERGE_HEAD`, the status `UU` | Ran: `exercises/04_merge.py` |
+| Three versions in the index (stages 1, 2, 3), and the `diff3` marker labels `ours`, `base`, `theirs` | Ran: `exercises/04_merge.py` |
+| `git merge --abort` restores `main` and removes `MERGE_HEAD`, Add and Commit give a merge commit with two parents | Ran: `exercises/04_merge.py` |
+| Merging uses the `ort` engine of Git 2.56.1 | Source: `merge-ort.c` (`merge_incore_nonrecursive`, `merge_incore_recursive`) |
+| Kinds of merge, fast-forward, three-way merge | Book: LG chapter 5, pages 64 and 70, and chapter 9, page 141 |
+| Merge conflicts and how to resolve them | Book: LG chapter 10, pages 175 and 176, and VCWG chapter 6, pages 127, 138 and 141 |
+| The remark that a conflict is not a mistake | Author |
+
+</Step>

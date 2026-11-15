@@ -1,0 +1,186 @@
+---
+title: Rebase
+summary: Rebase replays our commits on a new base, so the history is a straight line, but every replayed commit gets a new id. We see where the old ones still are, what to do when a conflict stops it halfway, and how interactive rebase helps to fix the history.
+facts:
+  - "Run in exercises/05_rebase.py with Git 2.56.1 and every result is asserted: the shape of the history before and after, the ids that change, ORIG_HEAD and the reflog, the stop at a conflict, and --onto."
+  - "The interactive rebase ran with a script that writes the pick, fixup, reword and drop list instead of opening an editor, so the result repeats."
+  - "The text follows Learning Git chapter 11 and Version Control with Git chapter 9, checked against what we ran."
+order: 5
+phase: B
+level: 3
+stage: sprout
+format: steps
+requires: [merge]
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import MergeRebaseLab from '../../../../components/labs/git/MergeRebaseLab';
+
+<Step>
+
+## Replay our commits on a new base
+
+Same situation as in the merge lesson: we split `feature` off `main` and made two commits, and now `main` has moved ahead by one. The history looks like this (ran: `exercises/05_rebase.py`).
+
+```text
+* 1e4768c M1 main one
+| * aa574fc F2 feature two
+| * d3e98c1 F1 feature one
+|/
+* 05b88c6 B1 base
+```
+
+One way is to merge, which gives a commit with two parents. The other is to rebase, which makes it look as if we had only just split `feature` off the tip of `main`. We are on `feature` and run `git rebase main`.
+
+```text
+* f6eb776 F2 feature two
+* fe3ac52 F1 feature one
+* 1e4768c M1 main one
+* 05b88c6 B1 base
+```
+
+The history is a straight line, with no merge commit. Git does three things in turn. **First**, it remembers the change of each commit on `feature`. **Then**, it moves `feature` to the tip of `main`. **Finally**, it replays those changes one by one on the new base (book: LG chapter 11, page 213 splits it into five stages, and here we shorten it to three, and VCWG chapter 9, page 206).
+
+Look at the ids. `F1` used to be `d3e98c1` and is now `fe3ac52`, and `F2` went from `aa574fc` to `f6eb776`. The reason is that the parent is part of the content of a commit, so when the parent changes the id changes, all the way up the line above the new base. But the change the commit makes is the same. The exercise confirms it with `git patch-id`, a fingerprint of a change, which gives the same value for the old and new commit (ran).
+
+</Step>
+
+<Step>
+
+## The old ones are still there
+
+Rebase sounds like overwriting history, but the old commits are still in the repository. Only no branch points at them. Before it starts, Git notes the old position in `ORIG_HEAD`, and the reflog of `HEAD` notes every step.
+
+```text
+$ git reflog -n 6
+f6eb776 HEAD@{0}: rebase (finish): returning to refs/heads/feature
+f6eb776 HEAD@{1}: rebase (pick): F2 feature two
+fe3ac52 HEAD@{2}: rebase (pick): F1 feature one
+1e4768c HEAD@{3}: rebase (start): checkout main
+aa574fc HEAD@{4}: checkout: moving from main to feature
+1e4768c HEAD@{5}: commit: M1 main one
+```
+
+The fourth line from the top says `aa574fc` was the tip of `feature` before the rebase. If we change our mind, `git reset --hard ORIG_HEAD` takes us straight back (the exercise checks both `ORIG_HEAD` and the return). We will go deeper into the reflog and `reset` in the later lessons.
+
+</Step>
+
+<Step>
+
+## A rebase stops halfway when it meets a conflict
+
+Because a rebase replays commits one at a time, a conflict can happen at one commit. Let `main` and `egg` edit the same line of `menu.txt`, and run `git rebase main` on `egg`.
+
+```text
+$ git rebase main
+Auto-merging menu.txt
+CONFLICT (content): Merge conflict in menu.txt
+error: could not apply b2c87e6... E1 egg
+hint: Resolve all conflicts manually, mark them as resolved with
+hint: "git add/rm <conflicted_files>", then run "git rebase --continue".
+hint: You can instead skip this commit: run "git rebase --skip".
+hint: To abort and get back to the state before "git rebase", run "git rebase --abort".
+```
+
+Now `git status` says we are in the middle of a rebase, and `HEAD` is detached from the branch for the whole replay. One thing that confuses many people is that the sides of the markers in the file mean the opposite of a merge. The `HEAD` side is the one we are rebasing onto (the tip of `main`), and the other side is our own commit being replayed (ran).
+
+There are three ways out. Fix the file, run `git add`, and then `git rebase --continue` to go on. Or `git rebase --skip` to drop that commit. Or `git rebase --abort`, which puts everything back as before the rebase. The exercise checks `--continue` (a straight line that has the fixed file) and `--abort` (the branch tip returns to exactly where it was).
+
+</Step>
+
+<Step>
+
+## `--onto` moves only the slice we choose
+
+Sometimes we do not want to move everything. Say `topic2` split off `topic1`, which is not finished, but we want only the work of `topic2` on `main`.
+
+```text
+$ git rebase --onto main topic1        # while on topic2
+* 12c01cb T2 topic two (built on topic one)
+* c5f2f85 M main moves on
+| * 7153183 T1 topic one
+|/
+* 74b2280 A base
+```
+
+Read the command as: take the commits `topic2` has and `topic1` does not, and replay them on `main`. The result is that `topic2` has only its own work on top of `main`, and `topic1` is left as it was (ran).
+
+</Step>
+
+<Step>
+
+## Interactive rebase edits our own history
+
+If we run `git rebase -i`, Git opens a list of commits and we choose what to do with each (book: VCWG chapter 9, page 209). The exercise uses a script to edit the list for us, so the result is fixed, with these five commits.
+
+| Commit | What we put | Result |
+|---|---|---|
+| `A1 add a` | `pick` | kept |
+| `A2 fix typo in a` | `fixup` | folded into `A1`, its own message dropped |
+| `B1 add b` | `reword` | kept, with a new message |
+| `O1 debug print` | `drop` | removed altogether |
+
+```text
+$ git log --format=%s
+B1 add b (reworded)
+A1 add a
+S0 start
+```
+
+The new `A1` has the change of `A2` inside it, and the file that `O1` added is gone from the folder (ran).
+
+</Step>
+
+<Step>
+
+## The golden rule: do not rebase commits that others already have
+
+Because a rebase makes new commits in place of the old, if the old commits were already sent to other people, our history now splits from theirs. Someone who pulled our work has the old commits, while we hold new commits with the same content, and getting them back in line takes extra work. The book sums this up as the "Golden Rule of Rebasing" (book: LG chapter 11, page 223). We will see the effect for real when `git push` is rejected, in the lesson on remotes.
+
+An easy thing to remember: rebase commits that are only on our own computer as much as you like, but do not rebase commits you have sent out to others.
+
+</Step>
+
+<Step>
+
+## Compare merge and rebase in one picture
+
+This picture puts the same situation on two sides. The left side is combined with a merge, and the right with a rebase. Press through the steps and look at three things: the shape of the history, whether the ids of F1 and F2 change, and that after a rebase the old F1 and F2 have not gone anywhere.
+
+<MergeRebaseLab client:visible lang="en" />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="After we rebase branch Feature onto Main, how is the first commit of Feature different from before the rebase?"
+  options={['The id is the same, because the change it makes is the same', 'The id is new, but the change it makes is the same', 'It is gone, replaced by a merge commit']}
+  answer={1}
+  why="The id of a commit is computed from its content, including the parent. When the parent changes, the id changes, but the change itself is the same. The exercise confirms that the new id differs from the old one while the fingerprint of the change (the patch id) matches, and that the old commit is still in the repository. The way back is ORIG_HEAD."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A rebase makes the history a straight line with no merge commit, replayed commits get new ids but the same patch id, `main` does not move | Ran: `exercises/05_rebase.py` |
+| `ORIG_HEAD` keeps the old tip, the old commits remain, the reflog notes every step, `git reset --hard ORIG_HEAD` undoes it | Ran: `exercises/05_rebase.py` |
+| A rebase stops at a conflict, `HEAD` is detached, the sides of the markers, `--continue` and `--abort` | Ran: `exercises/05_rebase.py` |
+| `--onto` moves only the chosen slice | Ran: `exercises/05_rebase.py` |
+| Interactive rebase: `fixup`, `reword`, `drop` | Ran: `exercises/05_rebase.py` |
+| The five stages of a rebase, the golden rule | Book: LG chapter 11, pages 213 and 223 |
+| Rebase and `rebase -i` | Book: VCWG chapter 9, pages 206 and 209 |
+| Shortening the five stages to three for a shorter story | Author |
+| The reminder to rebase only commits that are still on our own computer | Author |
+
+</Step>

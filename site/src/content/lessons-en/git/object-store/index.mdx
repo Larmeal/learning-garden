@@ -1,0 +1,194 @@
+---
+title: The object store
+summary: Inside the Git folder it keeps four kinds of object, blob, tree, commit and tag, each named by the SHA-1 of its own content. We compute ids in Python and compare them with what Git gives, build a commit by hand with low-level commands, and see how Git catches an object that was changed.
+facts:
+  - "Run in exercises/11_object_store.py with Git 2.56.1. The ids of blobs, trees and commits are computed with Python's hashlib and compared with Git's every time."
+  - "The layout of a compressed object is read from object-file.c in the Git v2.56.1 source. For SHA-256 we really made a repository and compared the ids."
+  - "The object store follows Version Control with Git chapter 2."
+order: 11
+phase: E
+level: 4
+stage: sprout
+format: steps
+requires: [finding-commits]
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ObjectStoreLab from '../../../../components/labs/git/ObjectStoreLab';
+
+<Step>
+
+## A blob is the content of a file, with a short header in front
+
+In the first lesson we saw that Git names content with SHA-1. Now let us see exactly what it computes from. If we take just the text `hello` and a newline and compute SHA-1 straight away, we do not get the name Git gives, because Git puts a header in front: the type of the object, a space, the size as a number, and one NUL character (ran: `exercises/11_object_store.py`).
+
+```python
+import hashlib
+
+body = b"hello\n"
+store = b"blob " + str(len(body)).encode() + b"\0" + body     # b"blob 6\0hello\n"
+hashlib.sha1(store).hexdigest()
+# 'ce013625030ba8dba906f756967f9e9ca394464a'
+```
+
+The number is the same as what `git hash-object` gives, character for character. The function `format_object_header` in the source builds this header with the format `"%s %"PRIuMAX` and then adds the NUL (Source: `object-file.c`).
+
+Let us tell Git to write it to disk with `git hash-object -w --stdin`. We get the file `.git/objects/ce/013625030ba8dba906f756967f9e9ca394464a`, where the folder name is the first two characters of the id and the file name is the remaining 38, so that no single folder holds thousands of files. The content of the file is the header and the content, compressed with zlib. When we decompress it we get `blob 6`, a NUL and `hello`, exactly (ran).
+
+The file name is not in the blob, so two files with different names and the same content share one blob (book: VCWG chapter 2, page 38, on blob objects and hashes).
+
+</Step>
+
+<Step>
+
+## A tree is the list of files of one folder
+
+A blob does not know the file name. The file name is in a **tree**, another kind of object that acts as a folder. Each entry in a tree has the file mode, a name and the name of the object it points to (book: VCWG chapter 2, page 39).
+
+Make a folder with `notes.txt` and `src/app.txt` and look.
+
+```text
+$ git ls-tree <tree>
+100644 blob ce013625030ba8dba906f756967f9e9ca394464a	notes.txt
+040000 tree 8e37aeb42fda047c1de512588a05f5849757d605	src
+```
+
+The subfolder `src` is a tree of its own, pointed at from the tree above, and the entries are sorted by name. In the real bytes an entry is the mode, a space, the name, a NUL, and then the name of the object as **20 raw bytes**, not 40 hexadecimal characters. The exercise builds those bytes itself in Python and hashes them with the header `tree <size>`, and gets the same name as `git write-tree` gives, for both the subtree and the top tree (ran).
+
+A tree holds no content of files, no dates and no sizes. It has only names, modes and ids, which the exercise checks (the text `hello` is nowhere in the tree).
+
+</Step>
+
+<Step>
+
+## A commit is plain text that points at a tree
+
+```text
+$ git cat-file -p <the first commit>
+tree e5f88fb95dd95ea6a9cf8bca89ec2efcfcd12664
+author Ada <ada@example.com> 1767261601 +0000
+committer Ada <ada@example.com> 1767261601 +0000
+
+First commit
+```
+
+A commit is plain text. The first line says the tree of the snapshot. The next lines are the author and the committer, with the time as a Unix timestamp and the time zone, then one empty line before the message we wrote (book: VCWG chapter 2, page 43). The exercise puts this text under the header `commit <size>` and computes SHA-1 itself, and gets the same id as the real commit.
+
+The second commit has one more line, `parent <id of the first commit>`, because the id of a commit is computed from the whole text including the `parent` line. So the id of a commit is tied to the whole history before it. If anyone changes something in the middle, the id of every commit after it changes. That is why the new commits made by a rebase got new ids in the earlier lesson (ran).
+
+</Step>
+
+<Step>
+
+## We can build a commit by hand
+
+The `git add` and `git commit` we use every day are high-level commands that wrap low-level ones. We can put it together ourselves piece by piece.
+
+```text
+$ git hash-object -w --stdin                              # write a blob
+$ git update-index --add --cacheinfo 100644,<blob>,hand.txt   # put it in the index
+$ git write-tree                                          # index -> tree
+$ git commit-tree <tree> -m "by hand"                     # tree -> commit
+$ git update-ref refs/heads/main <commit>                 # make a branch point at it
+```
+
+After `commit-tree` we have a commit in the object store, but no branch points at it yet (the exercise checks that `git branch --list` is empty). Only after `update-ref` can we see it in `git log` and check the file out into the folder, with the file coming from nothing but objects (ran).
+
+</Step>
+
+<Step>
+
+## There are two kinds of tag
+
+```text
+$ git tag v1-light                    # a lightweight tag
+$ git tag -a v1 -m "release one"      # an annotated tag
+
+$ git cat-file -p v1
+object d712b54cdcbb1ed018463f6a9d1505f0178d75f0
+type commit
+tag v1
+tagger Ada <ada@example.com> 1767261602 +0000
+
+release one
+```
+
+A lightweight tag is not an object at all. It is a ref pointing straight at a commit, like a branch that never moves. An annotated tag is the fourth kind of object, called `tag`, which holds the object it points at, its type, its name, who made it and a message (book: VCWG chapter 2, page 46). Use `v1^{commit}` to "peel" a tag down to the commit (ran).
+
+</Step>
+
+<Step>
+
+## The length of an id belongs to the repository
+
+Everything above uses SHA-1, which is 40 characters long. The book discusses the worries about SHA-1 in a section of its own (book: VCWG chapter 2, page 41). Git 2.56.1 can also make a repository that uses SHA-256.
+
+```text
+$ git init --object-format=sha256
+$ git hash-object a.txt           # a.txt says hello and a newline
+```
+
+The id is 64 characters long and equals `hashlib.sha256(b"blob 6\0hello\n")` that we computed ourselves (ran). The format of the header is the same, and only the hash function changes.
+
+</Step>
+
+<Step>
+
+## Git checks every object against its name
+
+If the name comes from the content, Git can check that the content still matches the name. Let us overwrite our blob file with other content, and run `git fsck`.
+
+```text
+$ git fsck
+missing blob ce013625030ba8dba906f756967f9e9ca394464a
+error: e427984d4a2c1904681f2e2ee5980f37640d353f: hash-path mismatch, found at: .git/objects/ce/013625030ba8dba906f756967f9e9ca394464a
+```
+
+Git reports two things. This file holds an object whose id is `e427984...` and not `ce01362...` as the file name says (`hash-path mismatch`), and the blob that should be here is missing (`missing blob`). This is the answer to the question we left open in the first lesson, how Git knows when something is damaged (ran).
+
+</Step>
+
+<Step>
+
+## See two commits as one picture
+
+This picture gathers everything in the lesson. A commit points at a tree, and a tree points at blobs and subtrees. Press through the steps to see what the second commit makes new and what it reuses. Notice the arrow from the new top tree back to the old subtree `src`. That is why a repository does not grow with the number of versions. Every box can be clicked, and the table below shows the bytes of that box that are really hashed.
+
+<ObjectStoreLab client:visible lang="en" />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Two blobs come from files with different names but exactly the same content. What happens in the object store?"
+  options={['They are two objects, because the file names differ', 'They are one object, because the file name is not in the blob and the id comes only from the header and the content', 'Git keeps the file name in the blob and uses the first one']}
+  answer={1}
+  why="A blob does not know the file name. The name is in the tree. The id of a blob is computed from the header and the content only. The exercise computes the id in Python from the bytes of the header and the content and gets what Git gives, so there is no room for a file name to get mixed in."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The id of a blob is the SHA-1 of `blob <size>` + NUL + the content, `hash-object` without `-w` writes nothing, a loose object file is the same data compressed with zlib | Ran: `exercises/11_object_store.py` |
+| The header of an object is built by `format_object_header` | Source: `object-file.c` |
+| A tree has the mode, name, NUL and a 20-byte id, sorted by name, a subfolder is a tree of its own | Ran: `exercises/11_object_store.py` |
+| A commit is text with `tree`, `author`, `committer` and a message, and its id can be recomputed, and the second commit has `parent` | Ran: `exercises/11_object_store.py` |
+| Making a commit with `hash-object`, `update-index`, `write-tree`, `commit-tree`, `update-ref` | Ran: `exercises/11_object_store.py` |
+| A lightweight tag is a ref, an annotated tag is an object of type `tag`, `v1^{commit}` | Ran: `exercises/11_object_store.py` |
+| A SHA-256 repository gets ids 64 characters long | Ran: `exercises/11_object_store.py` |
+| `git fsck` finds `hash-path mismatch` and `missing blob` | Ran: `exercises/11_object_store.py` |
+| The object store, blob, tree, commit, tag and the note on SHA1 | Book: VCWG chapter 2, pages 26, 38, 39, 41, 43 and 46 |
+| The remark that this lesson answers the question left open in the first lesson | Author |
+
+</Step>

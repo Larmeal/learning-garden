@@ -1,0 +1,178 @@
+---
+title: Remotes, fetch and push
+summary: A remote is a name Git keeps in place of the address of another repository. We see what clone writes in the config file, why fetch does not touch our work, that pull is two commands in a row, and why a push is rejected.
+facts:
+  - "Run in exercises/06_remotes.py with Git 2.56.1, using a bare repository in a folder as the remote and two clones as Alice and Bob, so no real network was used."
+  - "The messages Git gives, such as rejected (fetch first) and stale info, come from real runs. In the output we replace the paths with made-up names."
+  - "Remotes and tracking branches follow Version Control with Git chapter 11 and Learning Git chapters 7 to 9."
+order: 6
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [rebase]
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import RemotesLab from '../../../../components/labs/git/RemotesLab';
+
+<Step>
+
+## A remote is a name kept in place of an address
+
+A repository that many people share usually has a central copy somewhere, normally a **bare repository**, which has no working tree and holds only what is normally inside `.git` (book: VCWG chapter 11, page 240). In the exercise a folder plays that part, and Alice and Bob are two clones that talk to it through the name `origin` (ran: `exercises/06_remotes.py`).
+
+Alice starts from a repository on her own computer that has a first commit. She tells Git where the central copy is, and runs `git push -u origin main`.
+
+```text
+$ git remote add origin ../garden.git
+$ git push -u origin main
+branch 'main' set up to track 'origin/main'.
+```
+
+What Git noted is in Alice's `.git/config`.
+
+```text
+[remote "origin"]
+	url = ../garden.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
+[branch "main"]
+	remote = origin
+	merge = refs/heads/main
+```
+
+The first group says where `origin` is, and that a fetch should keep every branch of the remote under the names `refs/remotes/origin/...`. The second says our `main` "follows" `origin/main`, which is the effect of the option `-u` (book: VCWG chapter 11, pages 243 and 244). The file `.git/refs/remotes/origin/main` is a small file like a branch, holding the name of the latest commit we know the remote has. It is called a **remote-tracking branch**.
+
+Bob starts differently. He has nothing, and uses `git clone`, which does it all in one command: it copies the whole history, names the remote `origin`, sets `main` to follow `origin/main`, and checks out `main` (book: LG chapter 8, page 114, and ran).
+
+</Step>
+
+<Step>
+
+## Fetch brings things close but does not touch our work
+
+Alice commits new work and pushes it. Bob does not know yet, and his `origin/main` still points at the old commit. When Bob runs `git fetch`:
+
+```text
+$ git fetch           # Bob
+$ git status
+Your branch is behind 'origin/main' by 1 commit, and can be fast-forwarded.
+
+$ git log --format=%s main..origin/main
+A2 add plants
+```
+
+`git fetch` moves only `origin/main`, which is our memory of where the remote is. Bob's `main` and the files in his folder are not touched at all. The exercise checks both. The range `main..origin/main` from the earlier lesson answers at once what the next merge will bring (book: LG chapter 8, page 132, and VCWG chapter 11, page 260).
+
+When Bob decides to combine, he runs `git merge origin/main`, which here is a fast-forward because Bob has no work of his own.
+
+</Step>
+
+<Step>
+
+## `git pull` is a fetch followed by a merge
+
+If we do not want to type two commands, `git pull` does both in a row. In the exercise Alice pushes again, and Bob runs `git pull` and gets a fast-forward and the new file at once (book: LG chapter 9, page 167).
+
+What we must know is that `pull` decides for us whether to merge or rebase, which depends on the option `--no-rebase` or `--rebase`. When Bob has his own commit and Alice has hers, `git pull --rebase` replays Bob's commit after Alice's work, and the history stays a straight line with no merge commit (ran). With `--no-rebase` we get a merge commit with two parents.
+
+</Step>
+
+<Step>
+
+## A rejected push
+
+Alice pushes new work first. Then Bob, who has not fetched, does more work and tries to push.
+
+```text
+$ git push           # Bob
+To ../garden.git
+ ! [rejected]        main -> main (fetch first)
+error: failed to push some refs to '../garden.git'
+hint: Updates were rejected because the remote contains work that you do not
+hint: have locally. This is usually caused by another repository pushing to
+hint: the same ref. If you want to integrate the remote changes, use
+hint: 'git pull' before pushing again.
+```
+
+Git refuses because if it accepted Bob's push, `main` on the remote would move to Bob's commit, which does not continue from Alice's commit, and Alice's work would fall off the tip of the branch. This is a **non-fast-forward push** (book: VCWG chapter 11, page 268). The way out is that Bob first brings Alice's work in (pull) and then pushes, which is now an ordinary append (ran).
+
+When we are the ones who rewrote our own history, for example after a rebase, a plain push is always rejected. We use `--force-with-lease`, which is safer than `--force` because it overwrites only if the remote is still at the position we last fetched.
+
+```text
+$ git push --force-with-lease    # when Bob pushed after Alice's last fetch
+ ! [rejected]        main -> main (stale info)
+```
+
+The message `stale info` says that what we have is out of date, so we must fetch again, rebase and then try. After doing that, the exercise confirms the push goes through.
+
+</Step>
+
+<Step>
+
+## Managing branches on a remote
+
+```text
+$ git push origin main:release          # send our main to make a branch called release on the remote
+$ git ls-remote --heads origin
+df83be66eecadb3c3c6502e81ba3966ec5d66cb2	refs/heads/main
+df83be66eecadb3c3c6502e81ba3966ec5d66cb2	refs/heads/release
+
+$ git push origin --delete release
+$ git fetch --prune                      # on the side that still remembers origin/release
+```
+
+The form `source:destination` says what of ours becomes what on the remote (book: VCWG chapter 11, page 280). `git ls-remote` asks the remote for its list directly, without touching anything on our computer. And notice that after someone deletes a branch on the remote, others who run a plain fetch still see `origin/release` left over. They need `--prune` to clean it up (ran).
+
+<Callout type="note" title="A remote does not have to be a website">
+
+Throughout this lesson `origin` is just a folder. The names of websites such as GitHub or GitLab are not in Git at all. Those sites are remotes that add a look, permission checks and pull requests, which is the matter of [the next lesson](/en/git/team-workflow/).
+
+</Callout>
+
+</Step>
+
+<Step>
+
+## See the three places together
+
+This picture draws Alice, Origin and Bob together. Each place has its own commits, its label `main`, and a label `origin/main`, which is each side's memory of where Origin is. Press through the steps and watch that at the fetch only Bob's `origin/main` moves, and that at the rejected push Origin has a commit that Bob does not.
+
+<RemotesLab client:visible lang="en" />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Bob runs fetch and then looks at the status. Git says his branch is behind Origin Main by one commit. What did fetch move?"
+  options={['Bob Main and the files in his folder moved to the new commit', 'Only Origin Main, which is the memory of where the remote is, while his Main and files stay as they were', 'Nothing moved, we have to pull first to see it']}
+  answer={1}
+  why="Fetch only brings in the commits and updates the name of the remote-tracking branch. The exercise checks that after the fetch Origin Main matches the remote, while Bob's Main and files are still the old ones, and the status counts one commit behind. To get it into our own branch we merge or rebase next, which pull does in one command."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| `git push -u` writes `[remote "origin"]` and `[branch "main"]` into `.git/config`, and the file `refs/remotes/origin/main` | Ran: `exercises/06_remotes.py` |
+| `git clone` copies the whole history and makes `origin` and `main` follow `origin/main` | Ran: `exercises/06_remotes.py` |
+| Fetch moves only `origin/main`, and `main..origin/main` shows what we would get | Ran: `exercises/06_remotes.py` |
+| `git pull` = fetch + merge, and `pull --rebase` gives a straight line | Ran: `exercises/06_remotes.py` |
+| A rejected push (`fetch first`), and `--force-with-lease` refuses with `stale info` | Ran: `exercises/06_remotes.py` |
+| `main:release`, `ls-remote`, `--delete`, `fetch --prune` | Ran: `exercises/06_remotes.py` |
+| Bare repository, remote, tracking branch | Book: VCWG chapter 11, pages 240, 243 and 244 |
+| Non-fast-forward push, adding and deleting remote branches | Book: VCWG chapter 11, pages 268 and 280 |
+| Clone, fetch and pull | Book: LG chapter 8, pages 114 and 132, and chapter 9, page 167 |
+| The address `../garden.git` in the examples is a made-up name for the real path of the computer that ran it | Author |
+
+</Step>

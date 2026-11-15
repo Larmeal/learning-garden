@@ -1,0 +1,161 @@
+---
+title: Refs and packfiles
+summary: The names of branches and tags are kept as small files called refs, and they can be gathered into one file. The thousands of objects are gathered into a pack, which keeps old versions as differences from newer ones. We look at both, and at the reftable refs that newer Git offers.
+facts:
+  - "Run in exercises/12_refs_and_packs.py with Git 2.56.1 and every result is asserted: the ref files, packed-refs, the size and bytes of a pack, the delta chains in verify-pack, and reftable."
+  - "The numbers for the pack (4,838 bytes against 16,613 bytes of loose objects, deltas at most 2 deep) come from a test file we made with 20 versions, so they are an example of the behaviour and not a standard."
+  - "The window and the depth of deltas are read from builtin/pack-objects.c in the Git v2.56.1 source. The reason why Git keeps the newest version whole is the opinion of the author."
+order: 12
+phase: E
+level: 4
+stage: sprout
+format: steps
+requires: [object-store]
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## A ref is a small file that holds the name of an object
+
+In the lesson on branches we saw that a branch is a file in the folder `.git/refs/heads`. Now that we know the objects, we can say it more clearly: a **ref** is a name we choose that points at an object. There are several kinds. Let us make two branches, one lightweight tag and one annotated tag, and look at the files (ran: `exercises/12_refs_and_packs.py`).
+
+```text
+$ find .git/refs -type f
+refs/heads/feature
+refs/heads/main
+refs/tags/annotated
+refs/tags/light
+```
+
+A lightweight tag holds the id of a commit straight away, and an annotated tag holds the id of an object of type tag (which we saw in the object store lesson) that needs peeling one more layer to reach the commit. So `git for-each-ref` can tell the type of each. The `HEAD` file is a **symbolic ref**, a ref that points not at an object but at the name of another ref. `git symbolic-ref HEAD` answers `refs/heads/main` (book: VCWG chapter 4, page 83, on refs and symrefs). Names must follow rules, for example no two dots in a row, which `git check-ref-format` checks (ran).
+
+</Step>
+
+<Step>
+
+## Many refs can be gathered into one file
+
+If there are a thousand tags, a thousand files make things slow. `git pack-refs --all` moves every ref into the file `.git/packed-refs`.
+
+```text
+$ cat .git/packed-refs
+# pack-refs with: peeled fully-peeled sorted
+f2575f3466856e9ee8754bcb65de844da171ff1b refs/heads/feature
+f2575f3466856e9ee8754bcb65de844da171ff1b refs/heads/main
+355ef446e5aaa790d6c604f1dbdbae238933cc90 refs/tags/annotated
+^f2575f3466856e9ee8754bcb65de844da171ff1b
+f2575f3466856e9ee8754bcb65de844da171ff1b refs/tags/light
+```
+
+The individual ref files are gone, and every name still works as before. The line that starts with `^` under the annotated tag is the commit it finally points at, already peeled, so Git does not have to open the tag object each time it looks (the header `peeled fully-peeled sorted` says this too, and matches the comments in the source `refs/packed-backend.c`).
+
+If the same ref has both a file and a line in `packed-refs`, the file wins. The exercise confirms it by switching to `feature` and committing: the file `refs/heads/feature` appears again and `git rev-parse feature` gives the new value, though the old line is still in `packed-refs` (ran).
+
+</Step>
+
+<Step>
+
+## Objects start as one file each, and are then gathered into a pack
+
+Every object we made so far is a single file, called a loose object. Let us make a file of 200 lines, change it a little in every version, and make 20 commits.
+
+```text
+$ git count-objects -v
+count: 60
+in-pack: 0
+packs: 0
+
+$ git gc
+$ git count-objects -v
+count: 0
+in-pack: 60
+packs: 1
+size-pack: 7
+```
+
+20 commits give 60 objects: 20 commits, 20 trees and 20 blobs (ran). After `git gc` no loose object is left, and all 60 are in one pack, which is a pair of files in `.git/objects/pack`. The `.pack` file holds the data and the `.idx` file is the index for finding things (book: VCWG chapter 2, page 32, on packfiles).
+
+We can read the bytes of these files as we did for objects. The exercise reads the first 12 bytes of the `.pack` and finds the letters `PACK`, then version number 2 and the number of objects, 60, matching the constants `PACK_SIGNATURE` and `PACK_VERSION` in `pack.h` (Source: `pack.h`). The `.idx` file starts with the special bytes `ff 74 4f 63` and version 2, followed by a table of 256 slots (the fan-out) whose last slot equals the total number of objects. It helps lookups be fast by narrowing the range with the first byte of the id first (ran).
+
+</Step>
+
+<Step>
+
+## Why the pack is so much smaller
+
+The exercise measures the loose objects at 16,613 bytes in all, while the pack after gathering is 4,838 bytes, less than a third (ran: this number comes from our test file, and the real size varies by project). The reason is that a pack stores similar objects as a **delta**, the difference from another object, instead of storing the whole block. `git verify-pack -v` shows it.
+
+```text
+$ git verify-pack -v pack-....idx
+...
+non delta: 41 objects
+chain length = 1: 2 objects
+chain length = 2: 17 objects
+```
+
+Of the 20 versions of the blob, 19 are stored as deltas (at most 2 deep, meaning a delta of a delta) and 1 is stored whole, which is the **latest version** of the file. Its real size is 13,476 bytes, but in the pack it takes less than 1,000 bytes because it is compressed (ran). The ones stored as deltas take even less.
+
+The limits of a delta can be read from the source. They are `window = 10` (when looking for a partner it compares with at most ten nearby objects) and `depth = 50` (a chain of deltas is at most 50 long), in the file `builtin/pack-objects.c` (Source). The result we saw was only 2 deep because the test file is small.
+
+As for why Git keeps the latest version whole and the older ones as deltas, our opinion is that the latest version is the one read most often. Note that this is a guess at the reason. What the run really shows is that the latest version is the one block stored whole (author).
+
+<Callout type="note" title="Deltas do not contradict snapshots">
+
+The first lesson said Git stores snapshots, not differences. The two do not contradict each other. At the level we can see, a commit points at a full snapshot of every file and any version can be read at once. A delta is a space-saving technique hidden at the point of storing in the pack file, and the user need not care.
+
+</Callout>
+
+</Step>
+
+<Step>
+
+## Reftable keeps refs in a binary table
+
+Git 2.56.1 lets us choose a newer way to store refs, called **reftable**, when we create a repository (the code is in the `reftable/` folder of the source).
+
+```text
+$ git init --ref-format=reftable
+$ ls .git/reftable
+0x000000000001-0x000000000002-2cfb261b.ref
+tables.list
+```
+
+Instead of one file per ref, there is now no file `refs/heads/main` at all. All the refs are in binary tables in the folder `reftable`, and `tables.list` records the order of the tables. The commands we use, such as `git rev-parse` and `git log`, carry on as before (ran). We can change back with `git refs migrate --ref-format=files`, after which every ref is in the file `packed-refs` (ran). The exercise did not compare the speed of the two ways, so we do not conclude which is faster.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We run gc and see that no loose object is left, and everything is in a pack. Can we still open the first version of a file that is stored as a delta?"
+  options={['No, because it is stored as a difference and we would have to go back one step at a time', 'Yes, at once as before. Git rebuilds the delta into the whole file by itself, and a commit always points at a full snapshot', 'Yes, but we have to run unpack first']}
+  answer={1}
+  why="A delta is a detail of how things are stored in a pack. The user sees the objects as before, and Git follows the delta chain and gives back the full content. The exercise confirms that after gc every object can still be read and Git answers normally."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| Branches and tags are files under `refs/`, a lightweight tag holds a commit id and an annotated tag holds a tag id, `symbolic-ref`, `check-ref-format` | Ran: `exercises/12_refs_and_packs.py` |
+| `git pack-refs --all` gathers refs in `packed-refs`, a line with `^` is the peeled value, a ref file wins over a line in `packed-refs` | Ran: `exercises/12_refs_and_packs.py` |
+| 20 commits give 60 loose objects, `gc` leaves 1 pack, the first bytes of the `.pack` (`PACK`, version 2, number of objects) and of the `.idx` | Ran: `exercises/12_refs_and_packs.py` |
+| `PACK_SIGNATURE` and `PACK_VERSION` | Source: `pack.h` |
+| The pack is less than a third of the loose objects, 19 of 20 blobs are deltas at most 2 deep, the newest version is stored whole | Ran: `exercises/12_refs_and_packs.py` |
+| `window = 10` and `depth = 50` | Source: `builtin/pack-objects.c` |
+| Reftable can be made with `--ref-format=reftable` and moved back with `git refs migrate` | Ran: `exercises/12_refs_and_packs.py` |
+| Refs, symrefs and packfiles | Book: VCWG chapter 4, page 83, and chapter 2, page 32 |
+| The reason why Git keeps the newest version whole | Author (a guess at the reason, what we saw is the run) |
+
+</Step>

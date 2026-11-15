@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Four questions to check that you know what the index remembers, how many kinds of diff there are, and how merge finds a renamed file.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="What does the entry of each file in the index file hold?"
+  options={['The whole content of the file', 'The stat data of the file, the id of the blob, flags and the file name', 'Only the file name']}
+  answer={1}
+  why="The content is in the object store. The index keeps the stat data, used to filter out files that did not change, the id of the blob that goes into the next commit, flags and the name. The exercise reads the bytes of the index with Python and the ids in the entries match what Git computes from the files."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The time of a file was changed but not the content, and Git Status is empty. Does that mean Git checked the content?"
+  options={['No, Git trusts the time of the file', 'Yes, because the stat differed from what was remembered, Git opened the file and compared the id, found it the same, so the status is empty', 'Yes, but it checks against the remote']}
+  answer={1}
+  why="Stat is only a first filter. If it does not match, Git has to look at the real content. The exercise checks that after changing the file time the status is empty and the index has the new stat data, which makes the next time faster."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Four diff algorithms give different results. Does that mean some of them are wrong?"
+  options={['Wrong, because there is only one correct result', 'No, every one applied to the old file gives the new file, they only choose differently which lines count as the same', 'All wrong except the default one']}
+  answer={1}
+  why="A diff is a set of additions and removals that turns the old file into the new one, and many sets can do it. The exercise applies the result of all four with Git Apply to the old file and gets exactly the new file in every case, so it is a matter of readability and how lines are counted, not correctness."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="One side renamed a file and wrote almost entirely new content in it, and the other side edited the old file. What is the result of the merge?"
+  options={['Git always follows the renamed file', 'If the similarity of content is below the threshold of about half, Git sees a delete and an add, and a conflict of the modify and delete kind occurs', 'The merge succeeds and nothing happens']}
+  answer={1}
+  why="Git does not record renames. It guesses from the similarity of content, and the threshold in the source is 50 percent. The exercise imitates both cases. If it is very similar the edit follows the file to the new name, and if the file was rewritten we get a modify and delete conflict."
+/>
+
+</Step>

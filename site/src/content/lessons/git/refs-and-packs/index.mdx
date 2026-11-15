@@ -1,0 +1,160 @@
+---
+title: Ref และ Packfile
+summary: ชื่อของ Branch กับ Tag เก็บเป็นไฟล์เล็ก ๆ ที่เรียกว่า Ref และถูกรวมไว้ในไฟล์เดียวได้ ส่วน Object ที่เป็นพันเป็นหมื่นถูกรวมเป็น Pack ซึ่งเก็บเวอร์ชันเก่าเป็นส่วนต่างจากเวอร์ชันใหม่ เราจะดูทั้งสองอย่างและ Ref แบบ Reftable ที่ Git รุ่นใหม่มีให้เลือก
+facts:
+  - "รันจริงใน exercises/12_refs_and_packs.py ด้วย Git 2.56.1 แล้ว Assert ผลทุกข้อ ทั้งไฟล์ Ref, packed-refs, ขนาดและโครงสร้างไบต์ของ Pack, ลำดับชั้นของ Delta ใน verify-pack และ Reftable"
+  - "ตัวเลขของ Pack (ขนาด 4,838 ไบต์เทียบกับ 16,613 ไบต์ของ Loose Object, Delta ลึกสุด 2 ชั้น) มาจากไฟล์ทดลองที่เราสร้างเอง 20 เวอร์ชัน จึงเป็นตัวอย่างของพฤติกรรม ไม่ใช่ค่ามาตรฐาน"
+  - "ค่าหน้าต่างและความลึกของ Delta อ่านจาก builtin/pack-objects.c ในซอร์ส Git v2.56.1 ส่วนอธิบายว่าทำไม Git เก็บเวอร์ชันล่าสุดทั้งไฟล์ เป็นความเห็นของผู้เขียน"
+order: 12
+phase: E
+level: 4
+stage: sprout
+format: steps
+requires: [object-store]
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## Ref คือไฟล์เล็ก ๆ ที่เก็บชื่อ Object
+
+บทที่ว่าด้วย Branch เห็นแล้วว่า Branch คือไฟล์ในโฟลเดอร์ `.git/refs/heads` ตอนนี้เรารู้จัก Object ครบแล้ว เลยพูดได้ชัดขึ้นว่า **Ref** คือชื่อที่เราตั้งเองซึ่งชี้ไปที่ Object ตัวหนึ่ง มีหลายประเภท ลองสร้าง Branch สอง Tag แบบเบาหนึ่ง และ Tag แบบมีหมายเหตุหนึ่ง แล้วดูไฟล์ (รัน: `exercises/12_refs_and_packs.py`)
+
+```text
+$ find .git/refs -type f
+refs/heads/feature
+refs/heads/main
+refs/tags/annotated
+refs/tags/light
+```
+
+Tag แบบเบาเก็บ ID ของ Commit ตรง ๆ ส่วน Tag แบบมีหมายเหตุเก็บ ID ของ Object ชนิด Tag (ที่เราเห็นในบท [Object Store](/git/object-store/)) ซึ่งต้องปอกอีกชั้นถึงจะถึง Commit `git for-each-ref` จึงบอกชนิดของแต่ละอันได้ ไฟล์ `HEAD` เป็น **Symbolic Ref** คือ Ref ที่ไม่ได้ชี้ Object แต่ชี้ชื่อ Ref อีกตัวหนึ่ง `git symbolic-ref HEAD` ตอบ `refs/heads/main` (หนังสือ: VCWG บทที่ 4 หน้า 83 เรื่อง Refs และ Symrefs) และชื่อต้องเป็นไปตามกฎ เช่นห้ามมีจุดสองจุดติดกัน ซึ่ง `git check-ref-format` ตรวจให้ (รัน)
+
+</Step>
+
+<Step>
+
+## Ref หลายตัวรวมไว้ในไฟล์เดียวได้
+
+ถ้ามี Tag เป็นพัน การมีไฟล์เป็นพันไฟล์ทำให้ช้า `git pack-refs --all` ย้ายทุก Ref ไปรวมในไฟล์ `.git/packed-refs`
+
+```text
+$ cat .git/packed-refs
+# pack-refs with: peeled fully-peeled sorted
+f2575f3466856e9ee8754bcb65de844da171ff1b refs/heads/feature
+f2575f3466856e9ee8754bcb65de844da171ff1b refs/heads/main
+355ef446e5aaa790d6c604f1dbdbae238933cc90 refs/tags/annotated
+^f2575f3466856e9ee8754bcb65de844da171ff1b
+f2575f3466856e9ee8754bcb65de844da171ff1b refs/tags/light
+```
+
+ไฟล์ Ref แต่ละตัวหายไป ชื่อทุกตัวยังใช้ได้เหมือนเดิม บรรทัดที่ขึ้นต้นด้วย `^` ใต้ Tag แบบมีหมายเหตุคือ Commit ปลายทางที่ปอกแล้ว (Peeled) ทำให้ Git ไม่ต้องไปเปิด Object Tag ทุกครั้งที่ค้นหา (ส่วนหัวของไฟล์ `peeled fully-peeled sorted` ก็บอกเรื่องนี้ ตรงกับคอมเมนต์ในซอร์ส `refs/packed-backend.c`)
+
+ถ้า Ref ชื่อเดียวกันมีทั้งไฟล์และบรรทัดใน `packed-refs` ไฟล์ชนะ แบบฝึกยืนยันโดยสลับไปที่ `feature` แล้ว Commit ใหม่ ไฟล์ `refs/heads/feature` เกิดขึ้นอีกครั้ง `git rev-parse feature` ได้ค่าใหม่ ทั้งที่บรรทัดเก่ายังอยู่ใน `packed-refs` (รัน)
+
+</Step>
+
+<Step>
+
+## Object เริ่มเป็นไฟล์เดียวต่อชิ้น แล้วถูกรวมเป็น Pack
+
+Object ทุกชิ้นที่เราสร้างมาเป็นไฟล์เดี่ยว ๆ ที่เรียกว่า Loose Object ลองสร้างไฟล์ 200 บรรทัด แล้วแก้นิดหน่อยในทุกเวอร์ชัน ทำ 20 Commit
+
+```text
+$ git count-objects -v
+count: 60
+in-pack: 0
+packs: 0
+
+$ git gc
+$ git count-objects -v
+count: 0
+in-pack: 60
+packs: 1
+size-pack: 7
+```
+
+20 Commit ให้ 60 ชิ้น คือ Commit 20 ตัว Tree 20 ตัว Blob 20 ตัว (รัน) หลัง `git gc` ไม่มี Loose Object เหลือเลย ทั้ง 60 ชิ้นไปอยู่ใน Pack เดียว ซึ่งคือไฟล์คู่ใน `.git/objects/pack` ไฟล์ `.pack` เก็บข้อมูล ไฟล์ `.idx` เป็นดัชนีไว้ค้นหา (หนังสือ: VCWG บทที่ 2 หน้า 32 เรื่อง Packfiles)
+
+เราอ่านไบต์ของไฟล์เหล่านี้ได้เหมือนที่ทำกับ Object แบบฝึกอ่าน 12 ไบต์แรกของ `.pack` แล้วพบตัวอักษร `PACK` ตามด้วยเลขเวอร์ชัน 2 และจำนวน Object 60 ซึ่งตรงกับค่าคงที่ `PACK_SIGNATURE` กับ `PACK_VERSION` ใน `pack.h` (Source: `pack.h`) ส่วนไฟล์ `.idx` ขึ้นต้นด้วยไบต์เฉพาะ `ff 74 4f 63` กับเวอร์ชัน 2 แล้วตามด้วยตาราง 256 ช่อง (Fan-out) ที่ช่องสุดท้ายเท่ากับจำนวน Object ทั้งหมด เป็นกลไกที่ช่วยให้ค้นหาได้เร็ว โดยแบ่งช่วงด้วยไบต์แรกของ ID ก่อน (รัน)
+
+</Step>
+
+<Step>
+
+## ทำไม Pack ถึงเล็กกว่ามาก
+
+แบบฝึกวัดขนาด Loose Object ทั้งหมดได้ 16,613 ไบต์ แต่ Pack ที่ได้หลังรวมมีขนาด 4,838 ไบต์ ไม่ถึงหนึ่งในสามของเดิม (รัน: ตัวเลขนี้มาจากไฟล์ทดลองของเรา ขนาดจริงของแต่ละโปรเจกต์จะต่างกัน) เหตุผลคือ Pack เก็บ Object ที่คล้ายกันเป็น **Delta** คือส่วนต่างจาก Object อีกตัว แทนที่จะเก็บทั้งก้อน `git verify-pack -v` แสดงให้เห็น
+
+```text
+$ git verify-pack -v pack-....idx
+...
+non delta: 41 objects
+chain length = 1: 2 objects
+chain length = 2: 17 objects
+```
+
+จาก Blob 20 เวอร์ชัน มี 19 ตัวถูกเก็บเป็น Delta (ลึกสุด 2 ชั้น หมายความว่า Delta ของ Delta) และมี 1 ตัวเก็บทั้งก้อน ซึ่งคือ **เวอร์ชันล่าสุด** ของไฟล์ ขนาดจริงของมัน 13,476 ไบต์ แต่ใน Pack ใช้ไม่ถึง 1,000 ไบต์เพราะถูกบีบอัด (รัน) ส่วนตัวเก็บเป็น Delta ใช้ที่เล็กกว่านั้นอีก
+
+ส่วนตัวเลขเพดานของ Delta อ่านจากซอร์สได้ คือ `window = 10` (เทียบกับ Object ใกล้ ๆ ไม่เกินสิบตัวตอนหาคู่) และ `depth = 50` (โซ่ของ Delta ยาวสุด 50 ชั้น) ในไฟล์ `builtin/pack-objects.c` (Source) ผลที่เราเห็นลึกแค่ 2 ชั้น เพราะไฟล์ทดลองเล็ก
+
+ที่ว่าทำไม Git เลือกเก็บเวอร์ชันล่าสุดทั้งไฟล์ ส่วนตัวเก่ากว่าเป็น Delta ความเห็นของเราคือเพราะเวอร์ชันล่าสุดเป็นตัวที่ถูกอ่านบ่อยที่สุด ขอบอกว่านี่เป็นการเดาเหตุผล สิ่งที่รันเห็นจริงคือ เวอร์ชันล่าสุดเป็นก้อนเดียวที่เก็บทั้งไฟล์ (ผู้เขียน)
+
+<Callout type="note" title="Delta ไม่ได้ขัดกับ Snapshot">
+
+บทแรกบอกว่า Git เก็บ Snapshot ไม่ใช่ส่วนต่าง สองอย่างนี้ไม่ขัดกัน ในระดับที่เรามองเห็น Commit ชี้ Snapshot ครบทุกไฟล์และอ่านเวอร์ชันไหนก็ได้ทันที Delta เป็นเทคนิคประหยัดที่ซ่อนอยู่ตอนเก็บลงดิสก์ในไฟล์ Pack ผู้ใช้ไม่ต้องสนใจ
+
+</Callout>
+
+</Step>
+
+<Step>
+
+## Reftable เก็บ Ref เป็นตารางไบนารี
+
+Git 2.56.1 ให้เลือกเก็บ Ref แบบใหม่ ชื่อ **Reftable** ได้ตอนสร้าง Repository (โค้ดอยู่ในโฟลเดอร์ `reftable/` ของซอร์ส)
+
+```text
+$ git init --ref-format=reftable
+$ ls .git/reftable
+0x000000000001-0x000000000002-2cfb261b.ref
+tables.list
+```
+
+แทนที่จะมีไฟล์ต่อ Ref ตอนนี้ไม่มีไฟล์ `refs/heads/main` เลย Ref ทั้งหมดอยู่ในตารางไบนารีในโฟลเดอร์ `reftable` และ `tables.list` จดลำดับของตาราง คำสั่งทั้งหลายที่เราใช้ ไม่ว่า `git rev-parse` หรือ `git log` ใช้ต่อได้เหมือนเดิม (รัน) และเปลี่ยนกลับได้ด้วย `git refs migrate --ref-format=files` ซึ่งหลังเปลี่ยน Ref ทุกตัวไปอยู่ในไฟล์ `packed-refs` (รัน) แบบฝึกไม่ได้เทียบความเร็วของสองแบบ จึงไม่ได้สรุปว่าอันไหนเร็วกว่า
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราสั่ง Gc แล้วพบว่าไม่มี Loose Object เหลือ ทุกอย่างอยู่ใน Pack เราเปิด Commit เก่าเวอร์ชันแรกของไฟล์ที่ถูกเก็บเป็น Delta ได้ไหม"
+  options={['ไม่ได้ เพราะเก็บเป็นส่วนต่างต้องย้อนทีละชั้น', 'ได้ทันทีเหมือนเดิม Git ประกอบ Delta กลับเป็นทั้งไฟล์ให้โดยอัตโนมัติ และ Commit ก็ชี้ Snapshot ครบเสมอ', 'ได้ แต่ต้องสั่ง Unpack ก่อน']}
+  answer={1}
+  why="Delta เป็นรายละเอียดตอนเก็บใน Pack ผู้ใช้เห็น Object เหมือนเดิม Git อ่าน Delta ตามโซ่แล้วคืนเนื้อหาครบ แบบฝึกยืนยันว่าหลัง gc ทุก Object ยังอ่านได้ และ Git ตอบปกติ"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Branch และ Tag เป็นไฟล์ใต้ `refs/`, Tag แบบเบาเก็บ ID ของ Commit และแบบมีหมายเหตุเก็บ ID ของ Tag, `symbolic-ref`, `check-ref-format` | รัน: `exercises/12_refs_and_packs.py` |
+| `git pack-refs --all` รวม Ref ไว้ใน `packed-refs`, บรรทัด `^` คือค่าที่ปอกแล้ว, ไฟล์ Ref ชนะบรรทัดใน `packed-refs` | รัน: `exercises/12_refs_and_packs.py` |
+| 20 Commit ได้ 60 Loose Object, `gc` ทำให้เหลือ 1 Pack, ไบต์ต้นของ `.pack` (`PACK`, เวอร์ชัน 2, จำนวน Object) และของ `.idx` | รัน: `exercises/12_refs_and_packs.py` |
+| `PACK_SIGNATURE` และ `PACK_VERSION` | Source: `pack.h` |
+| Pack เล็กกว่า Loose Object หนึ่งในสามขึ้นไป, 19 จาก 20 Blob เก็บเป็น Delta ลึกสุด 2 ชั้น, เวอร์ชันล่าสุดเก็บทั้งก้อน | รัน: `exercises/12_refs_and_packs.py` |
+| `window = 10` และ `depth = 50` | Source: `builtin/pack-objects.c` |
+| Reftable สร้างได้ด้วย `--ref-format=reftable` และย้ายกลับด้วย `git refs migrate` | รัน: `exercises/12_refs_and_packs.py` |
+| Refs, Symrefs และ Packfiles | หนังสือ: VCWG บทที่ 4 หน้า 83 และบทที่ 2 หน้า 32 |
+| เหตุผลที่ Git เก็บเวอร์ชันล่าสุดทั้งก้อน | ผู้เขียน (เดาเหตุผล สิ่งที่เห็นจริงคือผลการรัน) |
+
+</Step>

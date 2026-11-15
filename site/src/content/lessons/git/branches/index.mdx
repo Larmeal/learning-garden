@@ -1,0 +1,182 @@
+---
+title: Branch และ HEAD
+summary: Branch เป็นแค่ไฟล์เล็ก ๆ ที่จดชื่อ Commit ไว้หนึ่งอัน ส่วน HEAD บอกว่าเรากำลังอยู่บน Branch ไหน พอเข้าใจสองอย่างนี้ คำสั่ง Switch, Detached HEAD และการลบ Branch ก็ไม่ลึกลับอีกต่อไป
+facts:
+  - "รันจริงใน exercises/03_branches.py ด้วย Git 2.56.1 แล้ว Assert ผลทุกข้อ ทั้งขนาดไฟล์ของ Branch การย้ายของ Branch ตอน Commit และข้อความที่ Git ตอบตอนปฏิเสธ"
+  - "เรื่อง Branch, HEAD และ Detached HEAD อ้างหนังสือ Learning Git บทที่ 4 และ Version Control with Git บทที่ 3 โดยเทียบกับผลที่รันแล้ว"
+  - "ทุกอย่างรันบน Repository เล็ก ๆ ที่เราสร้างเอง ไม่ได้ลองกับ Branch จำนวนมาก"
+order: 3
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [history]
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import BranchHeadLab from '../../../../components/labs/git/BranchHeadLab';
+
+<Step>
+
+## Branch เป็นไฟล์เล็ก ๆ ไฟล์เดียว
+
+คนที่เพิ่งใช้ Git มักนึกว่า Branch คือการก๊อปปี้โปรเจกต์ทั้งก้อนไปอีกชุด จึงกลัวว่าจะเปลือง แต่ลองดูข้างในกันก่อนว่ามันคืออะไรกันแน่ (รัน: `exercises/03_branches.py`)
+
+```text
+$ cat .git/refs/heads/main
+e819934ad96cbaa6ec0215c7eba4450e0c82f64a
+
+$ cat .git/HEAD
+ref: refs/heads/main
+```
+
+Branch `main` คือไฟล์ชื่อ `main` ในโฟลเดอร์ `.git/refs/heads` ข้างในมีแค่ชื่อเต็ม 40 ตัวอักษรของ Commit ล่าสุดกับตัวขึ้นบรรทัดใหม่ รวมเป็น 41 ไบต์พอดี (หนังสือ: VCWG บทที่ 3 หน้า 61) ส่วนไฟล์ `HEAD` ไม่ได้เก็บชื่อ Commit แต่เก็บชื่อ Branch ที่เรากำลังอยู่ คือ `refs/heads/main`
+
+พอเห็นแบบนี้ การสร้าง Branch ใหม่ก็ไม่น่ากลัวแล้ว
+
+```text
+$ git branch feature
+$ git branch
+  feature
+* main
+```
+
+คำสั่งนี้แค่สร้างไฟล์ `feature` อีกไฟล์ที่มีชื่อ Commit เดียวกับ `main` ไม่มี Object ใหม่เกิดขึ้นเลย และไฟล์ในโฟลเดอร์ของเราก็ไม่ขยับ ดาว `*` บอกว่าเรายังอยู่บน `main` (รัน)
+
+</Step>
+
+<Step>
+
+## Commit ขยับเฉพาะ Branch ที่เราอยู่
+
+ลองสลับไปที่ `feature` แล้ว Commit ไฟล์ใหม่หนึ่งไฟล์ ดูว่าอะไรเปลี่ยนบ้าง
+
+```text
+$ git switch feature
+$ cat .git/HEAD
+ref: refs/heads/feature
+
+# แก้ไฟล์ แล้ว git add, git commit ได้ Commit ใหม่ชื่อ c3
+
+$ git rev-parse feature        # ขยับไปที่ c3
+$ git rev-parse main           # ยังอยู่ที่เดิม
+```
+
+**ขั้นตอนแรก** `git switch` เขียน `HEAD` ใหม่ให้ชี้ที่ `feature` **ขั้นตอนต่อมา** `git commit` สร้าง Commit แล้วเลื่อนไฟล์ Branch ที่ `HEAD` ชี้อยู่ ซึ่งคือ `feature` ให้ชี้ที่ Commit ใหม่ ส่วน `main` ไม่ถูกแตะ นี่คือความหมายของ "แตกสาย" ทั้งสองสายยังมีประวัติเดิมร่วมกันถึงจุดแยก แต่ปลายของแต่ละสายไปคนละทาง
+
+ไฟล์ในโฟลเดอร์ของเราก็เปลี่ยนตาม ไฟล์ที่ Commit ใหม่เพิ่มเข้ามาจะมีอยู่ตอนที่เราอยู่บน `feature` และหายไปทันทีที่เราสลับกลับไป `main` แล้วโผล่กลับมาเมื่อสลับไป `feature` อีกครั้ง (รัน) เพราะ `git switch` เปลี่ยนไฟล์ใน Working Tree ให้ตรงกับ Snapshot ของปลาย Branch ที่เราเลือก
+
+</Step>
+
+<Step>
+
+## สลับ Branch ตอนที่มีงานค้างอยู่
+
+ถ้าเราแก้ไฟล์ไว้แล้วยังไม่ได้ Commit แล้วสลับ Branch จะเกิดอะไรขึ้น Git ตัดสินใจตามว่าไฟล์นั้นต่างกันระหว่างสอง Branch หรือเปล่า
+
+ถ้าเราสร้าง Branch ใหม่ด้วย `git switch -c` ตอนมีงานค้าง งานนั้นจะติดตามเราไปด้วย เพราะ Branch ใหม่ชี้ Commit เดิม ไม่มีอะไรต้องเขียนทับ (รัน) แต่ถ้าเราจะสลับไป Branch ที่มีไฟล์เดียวกันนั้นต่างจากที่เราอยู่ Git จะไม่ยอมสลับ
+
+```text
+$ git switch wip
+error: Your local changes to the following files would be overwritten by checkout:
+	app.txt
+Please commit your changes or stash them before you switch branches.
+Aborting
+```
+
+Git ปฏิเสธเพราะการสลับจะเขียนทับงานที่ยังไม่มีสำเนาอยู่ที่ไหนเลย Commit ไว้ก่อนก็ได้ หรือเก็บพักไว้ด้วย `git stash` ซึ่งเราจะคุยกันในบทที่ว่าด้วยการกู้งาน
+
+</Step>
+
+<Step>
+
+## Detached HEAD คือ HEAD ที่ชี้ Commit ตรง ๆ
+
+เราสั่ง `git switch --detach` ไปที่ Commit ใด ๆ ก็ได้ แล้วดูว่า `HEAD` เปลี่ยนไปอย่างไร (หนังสือ: VCWG บทที่ 3 หน้า 74 และ LG บทที่ 5 หน้า 80)
+
+```text
+$ git switch --detach <ชื่อของ c1>
+$ cat .git/HEAD
+<ชื่อเต็ม 40 ตัวอักษรของ c1>
+
+$ git branch
+* (HEAD detached at <ชื่อสั้นของ c1>)
+  main
+```
+
+คราวนี้ไฟล์ `HEAD` ไม่ได้ชี้ Branch แต่เก็บชื่อ Commit ตรง ๆ ถ้าเรา Commit ต่อจากตรงนี้ Commit ใหม่ไม่มี Branch ไหนตามมาเลย พอเราสลับกลับไป `main` Commit นั้นจะไม่มีชื่อไหนชี้ถึงแล้ว (รัน: `git branch --contains` ให้ผลว่างเปล่า) ถ้าอยากเก็บไว้ ให้สร้าง Branch จากชื่อ Commit ก่อนที่จะลืมมัน
+
+```text
+$ git branch rescue <ชื่อของ c5>
+$ git branch --contains <ชื่อของ c5>
+  rescue
+```
+
+<Callout type="tip" title="ทำไมต้องมีโหมดนี้">
+
+Detached HEAD ไม่ใช่ความผิดพลาด มันคือวิธีเข้าไปดู Snapshot เก่าโดยไม่ขยับ Branch ไหนเลย เหมาะกับตอนที่อยากไล่ดูว่าเมื่อก่อนโค้ดหน้าตาเป็นอย่างไร หรือทดลองอะไรสักอย่างแล้วทิ้งได้
+
+</Callout>
+
+</Step>
+
+<Step>
+
+## ลบ Branch คือลบชื่อ ไม่ได้ลบ Commit
+
+```text
+$ git branch -d feature
+error: the branch 'feature' is not fully merged
+hint: If you are sure you want to delete it, run 'git branch -D feature'
+
+$ git branch -D feature
+```
+
+`-d` ปฏิเสธเพราะ `feature` มี Commit ที่ยังไม่อยู่ใน Branch ไหนเลย ถ้าลบไปก็จะไม่มีชื่อไหนชี้ถึงมันแล้ว ส่วน `-D` ลบให้โดยไม่ถาม หลังลบ ไฟล์ `.git/refs/heads/feature` หายไป แต่ Commit `c3` ที่มันเคยชี้ยังอยู่ใน `.git/objects` (รัน: `git cat-file -t` ยังตอบ `commit`) การกลับมาเจอ Commit นั้นทำได้ก็ต่อเมื่อเรายังจำชื่อของมันได้ ซึ่งบทที่ว่าด้วยการกู้งานจะสอนวิธีหาชื่อกลับมา (เรื่องการลบ Branch หนังสือ: VCWG บทที่ 3 หน้า 76)
+
+พอ Merge Branch นั้นเข้าไปแล้ว `-d` จะลบให้โดยไม่บ่น เพราะ Commit ทั้งหมดของมันถูกเก็บไว้ที่อื่นแล้ว
+
+</Step>
+
+<Step>
+
+## ลองกดตามทีละขั้น
+
+ภาพนี้ตามสิ่งที่เราเพิ่งทำมาทั้งหมด จุดคือ Commit ป้ายสี่เหลี่ยมคือ Branch ส่วนป้าย `HEAD` บอกว่าเราอยู่ตรงไหน กดถัดไปทีละขั้น แล้วสังเกตว่าตอน Commit มีป้ายเดียวที่ขยับ และตอน Detached HEAD ชี้ไปที่จุดตรง ๆ จนจุดที่เกิดใหม่ไม่มีป้ายใดตามมา
+
+<BranchHeadLab client:visible />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราอยู่บน Main แล้วสั่งสร้าง Branch ใหม่ชื่อ Feature โดยยังไม่ได้ Switch ไป สิ่งที่เกิดขึ้นกับ Repository คือข้อใด"
+  options={['Git ก๊อปไฟล์ทั้งโปรเจกต์ไปไว้ที่ Feature', 'Git สร้างไฟล์เล็ก ๆ หนึ่งไฟล์ที่เก็บชื่อ Commit เดียวกับ Main ไม่มี Object ใหม่ และไฟล์ในโฟลเดอร์ไม่เปลี่ยน', 'Git สร้าง Commit ใหม่ที่ว่างเปล่าให้ Feature']}
+  answer={1}
+  why="Branch คือไฟล์ที่เก็บชื่อ Commit แบบฝึกตรวจว่าหลังสร้าง Feature ไฟล์ของมันมีชื่อ Commit เดียวกับ Main ทุกตัวอักษร และ Git Status ยังว่างเปล่า ไม่มีอะไรถูกก๊อปปี้ จึงสร้างได้ในพริบตาแม้โปรเจกต์ใหญ่"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Branch เป็นไฟล์ 41 ไบต์ใน `.git/refs/heads`, `HEAD` เก็บ `ref: refs/heads/<ชื่อ>`, `git branch` สร้างไฟล์ที่สองโดยไม่มี Object ใหม่ | รัน: `exercises/03_branches.py` |
+| Commit ขยับเฉพาะ Branch ที่ `HEAD` ชี้, `git switch` เปลี่ยนไฟล์ใน Working Tree | รัน: `exercises/03_branches.py` |
+| งานที่ค้างติดไปกับ Branch ใหม่, Git ปฏิเสธเมื่อจะถูกเขียนทับ พร้อมข้อความที่เห็น | รัน: `exercises/03_branches.py` |
+| Detached HEAD เก็บชื่อ Commit, Commit ที่ทำตอน Detached ไม่มี Branch ชี้, `git branch <ชื่อ> <Commit>` เก็บคืน | รัน: `exercises/03_branches.py` |
+| `-d` ปฏิเสธ Branch ที่ยังไม่ Merge, `-D` ลบแต่ Commit ยังอยู่ | รัน: `exercises/03_branches.py` |
+| Branch และ HEAD | หนังสือ: LG บทที่ 4 หน้า 53 และ 55 |
+| การสร้าง การสลับ และการลบ Branch | หนังสือ: VCWG บทที่ 3 หน้า 61, 66 และ 76 |
+| Detached HEAD | หนังสือ: VCWG บทที่ 3 หน้า 74 และ LG บทที่ 5 หน้า 80 |
+| ประโยคที่ว่าคนมักนึกว่า Branch คือการก๊อปทั้งโปรเจกต์ | ผู้เขียน |
+
+</Step>

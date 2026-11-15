@@ -1,0 +1,185 @@
+---
+title: Rebase
+summary: Rebase เอา Commit ของเราไปเล่นซ้ำบนฐานใหม่ ประวัติจึงเป็นเส้นตรง แต่ทุก Commit ที่ถูกเล่นซ้ำได้ ID ใหม่ เราจะดูว่าของเก่ายังอยู่ที่ไหน ทำอย่างไรเมื่อเกิด Conflict กลางทาง และ Interactive Rebase ช่วยแก้ประวัติได้อย่างไร
+facts:
+  - "รันจริงใน exercises/05_rebase.py ด้วย Git 2.56.1 แล้ว Assert ผลทุกข้อ ทั้งรูปร่างของประวัติก่อนและหลัง ID ที่เปลี่ยน ORIG_HEAD และ Reflog การหยุดตอน Conflict และ --onto"
+  - "Interactive Rebase รันโดยให้สคริปต์เขียนรายการ pick, fixup, reword และ drop แทนการเปิด Editor จึงได้ผลที่ทำซ้ำได้"
+  - "ข้อความเรื่อง Rebase อ้าง Learning Git บทที่ 11 และ Version Control with Git บทที่ 9 โดยเทียบกับผลที่รันแล้ว"
+order: 5
+phase: B
+level: 3
+stage: sprout
+format: steps
+requires: [merge]
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import MergeRebaseLab from '../../../../components/labs/git/MergeRebaseLab';
+
+<Step>
+
+## เล่น Commit ของเราซ้ำบนฐานใหม่
+
+สถานการณ์เดียวกับบท Merge คือเราแตก `feature` ออกจาก `main` ไปทำงานสองคอมมิต พอกลับมาดู `main` ก็ไปข้างหน้าแล้วหนึ่งตัว ประวัติตอนนี้เป็นแบบนี้ (รัน: `exercises/05_rebase.py`)
+
+```text
+* 1e4768c M1 main one
+| * aa574fc F2 feature two
+| * d3e98c1 F1 feature one
+|/
+* 05b88c6 B1 base
+```
+
+ทางที่หนึ่งคือ Merge ซึ่งจะได้ Commit ที่มีสอง Parent อีกทางคือ Rebase ซึ่งทำให้เหมือนเราเพิ่งแตก `feature` ออกมาจากปลาย `main` ตอนนี้เอง เราอยู่บน `feature` แล้วสั่ง `git rebase main`
+
+```text
+* f6eb776 F2 feature two
+* fe3ac52 F1 feature one
+* 1e4768c M1 main one
+* 05b88c6 B1 base
+```
+
+ประวัติกลายเป็นเส้นตรงและไม่มี Merge Commit เลย Git ทำสามอย่างต่อกัน **ขั้นตอนแรก** จำการเปลี่ยนแปลงของแต่ละ Commit บน `feature` ไว้ **ขั้นตอนต่อมา** ย้าย `feature` ไปที่ปลาย `main` **ขั้นตอนสุดท้าย** เล่นการเปลี่ยนแปลงเหล่านั้นซ้ำทีละตัวบนฐานใหม่ (หนังสือ: LG บทที่ 11 หน้า 213 แบ่งเป็นห้าขั้น ในที่นี้เราย่อให้เหลือสาม และ VCWG บทที่ 9 หน้า 206)
+
+ลองดูที่ ID สิ ตัวที่เป็น `F1` เดิมคือ `d3e98c1` ตอนนี้เป็น `fe3ac52` และ `F2` จาก `aa574fc` เป็น `f6eb776` เหตุผลคือ Parent เป็นส่วนหนึ่งของเนื้อหาของ Commit พอ Parent เปลี่ยน ID ก็เปลี่ยนตามทั้งสายเหนือจุดฐานใหม่ แต่ตัวการเปลี่ยนแปลงที่ Commit ทำยังเหมือนเดิม แบบฝึกยืนยันด้วย `git patch-id` ซึ่งให้ลายนิ้วมือของการเปลี่ยนแปลง ว่า Commit เก่ากับใหม่ได้ค่าเดียวกัน (รัน)
+
+</Step>
+
+<Step>
+
+## ของเก่ายังอยู่ ไม่ได้หายไปไหน
+
+Rebase ฟังดูเหมือนเขียนทับประวัติ แต่จริง ๆ Commit เก่ายังอยู่ใน Repository เพียงแต่ไม่มี Branch ไหนชี้ถึง ก่อนเริ่ม Rebase Git จดตำแหน่งเดิมไว้ใน `ORIG_HEAD` และ Reflog ของ `HEAD` ก็จดทุกก้าว
+
+```text
+$ git reflog -n 6
+f6eb776 HEAD@{0}: rebase (finish): returning to refs/heads/feature
+f6eb776 HEAD@{1}: rebase (pick): F2 feature two
+fe3ac52 HEAD@{2}: rebase (pick): F1 feature one
+1e4768c HEAD@{3}: rebase (start): checkout main
+aa574fc HEAD@{4}: checkout: moving from main to feature
+1e4768c HEAD@{5}: commit: M1 main one
+```
+
+บรรทัดที่สี่จากบนบอกว่า `aa574fc` คือปลาย `feature` ก่อนเริ่ม Rebase ถ้าเปลี่ยนใจ สั่ง `git reset --hard ORIG_HEAD` ก็กลับมาที่นั่นได้ทันที (แบบฝึกตรวจทั้ง `ORIG_HEAD` และการกลับ) เรื่อง Reflog กับ `reset` เราจะลงลึกกันในบทหลัง ๆ
+
+</Step>
+
+<Step>
+
+## Rebase หยุดกลางทางเมื่อเจอ Conflict
+
+เพราะ Rebase เล่น Commit ซ้ำทีละตัว Conflict จึงเกิดทีละ Commit ได้ ลองให้ `main` กับ `egg` แก้บรรทัดเดียวกันของ `menu.txt` แล้วสั่ง `git rebase main` บน `egg`
+
+```text
+$ git rebase main
+Auto-merging menu.txt
+CONFLICT (content): Merge conflict in menu.txt
+error: could not apply b2c87e6... E1 egg
+hint: Resolve all conflicts manually, mark them as resolved with
+hint: "git add/rm <conflicted_files>", then run "git rebase --continue".
+hint: You can instead skip this commit: run "git rebase --skip".
+hint: To abort and get back to the state before "git rebase", run "git rebase --abort".
+```
+
+ตอนนี้ `git status` บอกว่ากำลังอยู่กลาง Rebase และ `HEAD` ถูกถอดออกจาก Branch (Detached) ชั่วคราวตลอดการเล่นซ้ำ ข้อสังเกตที่ทำให้หลายคนงงคือด้านของ Marker ในไฟล์ สลับความหมายกับตอน Merge ฝั่ง `HEAD` คือฝั่งที่เรากำลัง Rebase ไปอยู่บนมัน (ปลาย `main`) ส่วนอีกฝั่งคือ Commit ของเราที่กำลังถูกเล่นซ้ำ (รัน)
+
+ทางออกมีสามทาง แก้ไฟล์แล้ว `git add` ตามด้วย `git rebase --continue` เพื่อไปต่อ หรือ `git rebase --skip` เพื่อข้าม Commit นั้นไปเลย หรือ `git rebase --abort` ซึ่งคืนทุกอย่างให้เหมือนก่อน Rebase แบบฝึกตรวจทั้ง `--continue` (ได้เส้นตรงที่มีไฟล์ที่แก้แล้ว) และ `--abort` (ปลาย Branch กลับมาเท่าเดิมทุกตัวอักษร)
+
+</Step>
+
+<Step>
+
+## `--onto` ย้ายแค่ช่วงที่เลือก
+
+บางครั้งเราไม่ได้อยากย้ายทุกอย่าง สมมติ `topic2` แตกออกจาก `topic1` ซึ่งยังทำไม่เสร็จ แต่เราอยากเอาแค่งานของ `topic2` ไปไว้บน `main`
+
+```text
+$ git rebase --onto main topic1        # ตอนอยู่บน topic2
+* 12c01cb T2 topic two (built on topic one)
+* c5f2f85 M main moves on
+| * 7153183 T1 topic one
+|/
+* 74b2280 A base
+```
+
+อ่านคำสั่งว่า เอา Commit ที่ `topic2` มีและ `topic1` ไม่มี ไปเล่นซ้ำบน `main` ผลคือ `topic2` มีเฉพาะงานของตัวเองต่อจาก `main` ส่วน `topic1` ถูกปล่อยไว้ตามเดิม (รัน)
+
+</Step>
+
+<Step>
+
+## Interactive Rebase แก้ประวัติของตัวเอง
+
+ถ้าสั่ง `git rebase -i` Git จะเปิดรายการ Commit ให้เราเลือกว่าจะทำอะไรกับแต่ละตัว (หนังสือ: VCWG บทที่ 9 หน้า 209) แบบฝึกใช้สคริปต์แก้รายการแทนเรา เพื่อให้ผลคงที่ โดยมี Commit ห้าตัวต่อไปนี้
+
+| Commit | คำสั่งที่ใส่ | ผล |
+|---|---|---|
+| `A1 add a` | `pick` | คงไว้ |
+| `A2 fix typo in a` | `fixup` | ยุบเข้า `A1` ทิ้งข้อความของตัวเอง |
+| `B1 add b` | `reword` | คงไว้ แต่เปลี่ยนข้อความ |
+| `O1 debug print` | `drop` | ถูกทิ้งไปเลย |
+
+```text
+$ git log --format=%s
+B1 add b (reworded)
+A1 add a
+S0 start
+```
+
+ไฟล์ `a.txt` ใน `A1` ใหม่มีการแก้ของ `A2` อยู่ครบ และไฟล์ที่ `O1` เคยเพิ่มหายไปจากโฟลเดอร์ (รัน)
+
+</Step>
+
+<Step>
+
+## กฎทอง: ไม่ Rebase Commit ที่คนอื่นมีแล้ว
+
+เพราะ Rebase สร้าง Commit ใหม่แทนของเก่า ถ้า Commit เก่าเคยถูกส่งให้คนอื่นไปแล้ว ตอนนี้ประวัติของเราจะแยกจากของคนอื่น คนที่ดึงงานเราไปแล้วจะได้ Commit เก่า ส่วนเราถือ Commit ใหม่ที่เนื้อหาเหมือนกัน และการจะรวมกลับมาให้ตรงกันต้องทำงานเพิ่ม หนังสือสรุปเรื่องนี้เป็น "Golden Rule of Rebasing" (หนังสือ: LG บทที่ 11 หน้า 223) เราจะได้เห็นผลจริงตอนที่ `git push` ถูกปฏิเสธในบทที่ว่าด้วย Remote
+
+ข้อควรจำง่าย ๆ คือ Rebase Commit ที่ยังอยู่แค่ในเครื่องเราได้ตามสบาย แต่อย่า Rebase Commit ที่ส่งออกไปให้คนอื่นแล้ว
+
+</Step>
+
+<Step>
+
+## เทียบ Merge กับ Rebase ในภาพเดียว
+
+ภาพนี้วางสถานการณ์เดียวกันไว้สองด้าน ด้านซ้ายรวมด้วย Merge ด้านขวารวมด้วย Rebase ลองกดไปทีละขั้นแล้วดูสามอย่าง รูปร่างของประวัติ ID ของ F1 กับ F2 ที่เปลี่ยนหรือไม่เปลี่ยน และที่ว่าตอน Rebase แล้ว F1 กับ F2 เดิมยังไม่หายไปไหน
+
+<MergeRebaseLab client:visible />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="หลัง Rebase Branch Feature ไปบน Main แล้ว Commit ตัวแรกของ Feature เมื่อเทียบกับก่อน Rebase เป็นอย่างไร"
+  options={['ID เหมือนเดิม เพราะการเปลี่ยนแปลงที่ทำเหมือนเดิม', 'ID ใหม่ แต่การเปลี่ยนแปลงที่ทำเหมือนเดิม', 'หายไป ถูกแทนด้วย Merge Commit']}
+  answer={1}
+  why="ID ของ Commit คำนวณจากเนื้อหารวมทั้ง Parent เมื่อ Parent เปลี่ยน ID ก็เปลี่ยน ส่วนตัวการเปลี่ยนแปลงยังเหมือนเดิม แบบฝึกยืนยันว่า ID ใหม่ต่างจากเดิม แต่ลายนิ้วมือของการเปลี่ยนแปลง (Patch ID) ตรงกัน และ Commit เก่ายังอยู่ใน Repository ทางที่ย้อนกลับได้คือ ORIG_HEAD"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Rebase ทำให้ประวัติเป็นเส้นตรงไม่มี Merge Commit, Commit ที่ถูกเล่นซ้ำได้ ID ใหม่ แต่ Patch ID เท่าเดิม, `main` ไม่ขยับ | รัน: `exercises/05_rebase.py` |
+| `ORIG_HEAD` เก็บปลายเดิม, Commit เก่ายังอยู่, Reflog จดทุกก้าว, `git reset --hard ORIG_HEAD` ย้อนกลับ | รัน: `exercises/05_rebase.py` |
+| Rebase หยุดตอน Conflict, `HEAD` เป็น Detached, ด้านของ Marker, `--continue` และ `--abort` | รัน: `exercises/05_rebase.py` |
+| `--onto` ย้ายเฉพาะช่วงที่เลือก | รัน: `exercises/05_rebase.py` |
+| Interactive Rebase: `fixup`, `reword`, `drop` | รัน: `exercises/05_rebase.py` |
+| ห้าขั้นของ Rebase, Golden Rule | หนังสือ: LG บทที่ 11 หน้า 213 และ 223 |
+| การย่อห้าขั้นให้เหลือสามขั้นเพื่อเล่าให้สั้น | ผู้เขียน |
+| Rebase และ `rebase -i` | หนังสือ: VCWG บทที่ 9 หน้า 206 และ 209 |
+| ข้อควรจำที่ว่า Rebase เฉพาะ Commit ที่ยังอยู่แค่ในเครื่อง | ผู้เขียน |
+
+</Step>

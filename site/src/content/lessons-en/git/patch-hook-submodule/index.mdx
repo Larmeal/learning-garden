@@ -1,0 +1,171 @@
+---
+title: Patches, hooks and submodules
+summary: Git can reach beyond a single repository in three ways. We can send commits as patch files by mail, use hooks to make Git check our work before a commit or before it accepts a push, and bring in another repository as a submodule that is pinned to one commit.
+facts:
+  - "Run in exercises/14_patch_hook_submodule.py with Git 2.56.1: git format-patch and git am, hooks on our side and on the remote, and submodules, with the messages Git gives when it refuses."
+  - "The hooks ran through the sh that comes with Git for Windows. We did not try Linux or macOS, where sh is no problem, but we did not run it."
+  - "Not run: sending patches by real mail (git send-email) and git subtree, which the book mentions and we left out. Patches, hooks and submodules follow Version Control with Git chapters 13 to 15."
+order: 14
+phase: F
+level: 4
+stage: sprout
+format: steps
+requires: [index-diff-merge]
+updated: 2026-11-15
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## A patch is a commit written as a mail
+
+Some projects take work by mail rather than by push. What is attached is a **patch**, a text file that has both the change and the data of the commit (book: VCWG chapter 13, page 317). `git format-patch -2` makes one file per commit for the last two commits (ran: `exercises/14_patch_hook_submodule.py`).
+
+```text
+$ git format-patch -2
+0001-A2-add-a-second-line.patch
+0002-A3-add-b.patch
+
+$ head 0001-A2-add-a-second-line.patch
+From bf9a2d482f9d26ff897b88a501f4890e7e0f1eec Mon Sep 17 00:00:00 2001
+From: Ada <ada@example.com>
+Date: Thu, 1 Jan 2026 10:00:02 +0000
+Subject: [PATCH 1/2] A2 add a second line
+
+---
+ a.txt | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/a.txt b/a.txt
+index d00491f..1191247 100644
+--- a/a.txt
++++ b/a.txt
+@@ -1 +1,2 @@
+ 1
++2
+```
+
+It looks like a real mail, with `From`, `Date` and `Subject` headers, then the message, then the diff. The first line starts with the id of the source commit. The receiving side uses `git am` to turn the patch back into commits (book: VCWG chapter 13, page 330).
+
+```text
+$ git am 0001-A2-add-a-second-line.patch 0002-A3-add-b.patch
+```
+
+We get commits with the same author, the same message and the same files. The tree of the commit at the end of the line is the same as the source, character for character. But the ids of the commits are not the same, because the author date is kept from the patch while the committer date is the time we ran `git am`, and the parent in the exercise is not the same one either, because we made the first commit in the other folder at a different time (ran).
+
+Before using a real patch we can check whether it fits the file as it is now with `git apply --check`, which changes nothing. If the file does not match, Git answers `patch does not apply` and the file stays as it was (ran).
+
+</Step>
+
+<Step>
+
+## A hook lets Git check our work when we commit
+
+A **hook** is a script that Git calls itself at a set moment. The file is in the folder `.git/hooks`, and its name is the name of the moment, such as `pre-commit` (book: VCWG chapter 14, pages 339 and 342). The ones Git puts there at `git init` all end with `.sample`, so they do nothing until we rename them.
+
+Let us write a `pre-commit` that refuses a commit if a line we add contains the word `DEBUG`.
+
+```sh
+#!/bin/sh
+if git diff --cached | grep -q "^+.*DEBUG"; then
+  echo "pre-commit: remove the DEBUG line first" >&2
+  exit 1
+fi
+```
+
+```text
+$ git commit -m "C2 with debug"
+pre-commit: remove the DEBUG line first
+```
+
+A hook that exits with a code other than zero makes the commit fail (ran). If we really must skip it, we use `--no-verify`, which skips the `pre-commit` and `commit-msg` hooks (ran). Other hooks can change the message too, for example a `commit-msg` that appends a `Signed-off-by` line before the commit is made (ran).
+
+One important thing to know is that a hook is not part of the history. When we clone a repository elsewhere we get the `.sample` files of `git init`, not the hooks set in the original (ran). If we want the whole team to use the same hooks, we keep them as a folder in the project and set `core.hooksPath` to point there, which everyone still has to set themselves (ran: the value can be set and Git reads it back correctly). The book also asks whether to use hooks at all (book: VCWG chapter 14, page 350).
+
+</Step>
+
+<Step>
+
+## A hook on the remote can reject a push
+
+A hook can also live on the remote, which solves the problem that everyone must set it up themselves, because it is enforced at the destination (book: VCWG chapter 14, page 348, on push-related hooks). Let us set a `pre-receive` on a bare repository to reject a commit whose message starts with `WIP`.
+
+```text
+$ git push origin main
+remote: pre-receive: no WIP commits on refs/heads/main
+To ../garden.git
+ ! [remote rejected] main -> main (pre-receive hook declined)
+error: failed to push some refs to '../garden.git'
+```
+
+The line that starts with `remote:` is what the hook on the remote printed, and the remote did not change at all. After we fix the commit message with `git commit --amend` and push again, it goes through (ran).
+
+</Step>
+
+<Step>
+
+## A submodule is another repository pinned to one commit
+
+Sometimes a project needs the code of another repository, for example a library kept by another team. A submodule lets us have that repository in a subfolder while the histories of the two stay separate (book: VCWG chapter 15, pages 354 and 355). The example uses a library that is a folder on the computer.
+
+```text
+$ git submodule add ../lib vendor/lib
+$ cat .gitmodules
+[submodule "vendor/lib"]
+	path = vendor/lib
+	url = ../lib
+
+$ git ls-tree HEAD vendor/lib
+160000 commit 1b40e98d2c01609c636084249fe19b6946601111	vendor/lib
+```
+
+The file `.gitmodules` notes which folder comes from which URL. In the tree of the commit, the entry `vendor/lib` has the mode `160000`, called a **gitlink**, which holds the id of a commit of another repository (book: VCWG chapter 15, page 352). So the files of the library are not in the main repository at all. There is only a pointer that says which commit of it to use.
+
+When the library gets a new commit, the main repository does not follow by itself. `git submodule status` still says the old id. We have to go into the library's folder and pull first. After that, `git status` of the main repository sees that `vendor/lib` changed, and we `git add` and commit the new pointer. Pinning to a commit means that anyone who checks out that commit of the main repository always gets the same version of the library, which makes a build repeatable (ran).
+
+Someone who clones the main repository gets `vendor/lib` as an empty folder, and has to run `git submodule update --init` to fetch it and check out the commit that is pinned (ran).
+
+<Callout type="note" title="Why protocol.file.allow is needed">
+
+In the exercise the URL of the submodule is a folder on the same computer, which Git refuses by default with the message `fatal: transport 'file' not allowed`. So we must pass `-c protocol.file.allow=always` when we run it (ran: the exercise checks both the refusal and the success when it is given). In real work where the URL points at a server, this does not come up.
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We set a hook named Pre Commit in our repository. Does a friend who clones this repository get our hook?"
+  options={['Yes, because the hook is inside the repository', 'No, because a hook is not part of the history, and a clone only gets the standard sample files', 'Only when cloned as bare']}
+  answer={1}
+  why="Hooks live in the hooks folder under Git's own folder, which is not cloned along. The exercise checks that a cloned repository has only the sample files of Git Init and not the Pre Commit and Commit Msg that were set in the original. If we want the whole team to use one, we keep the hooks as a folder in the project and everyone sets Core Hooks Path, or we enforce it on the remote side."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| `git format-patch` makes one file per commit, it looks like a mail, and it starts with the id of the commit | Ran: `exercises/14_patch_hook_submodule.py` |
+| `git am` makes commits with the same author, message and tree, but the ids differ because of the parent and the committer date | Ran: `exercises/14_patch_hook_submodule.py` |
+| `git apply --check` checks without changing, and refuses a patch that does not fit with `patch does not apply` | Ran: `exercises/14_patch_hook_submodule.py` |
+| A `pre-commit` that exits non-zero makes the commit fail, `--no-verify` skips it, `commit-msg` can change the message | Ran: `exercises/14_patch_hook_submodule.py` |
+| Hooks are not cloned along, `core.hooksPath` | Ran: `exercises/14_patch_hook_submodule.py` |
+| `pre-receive` on a remote rejects a push, and the push goes through when the message is fixed | Ran: `exercises/14_patch_hook_submodule.py` |
+| `.gitmodules`, the `160000` entry in the tree, the pinned pointer does not follow by itself, an empty folder after clone, `submodule update --init` | Ran: `exercises/14_patch_hook_submodule.py` |
+| `transport 'file' not allowed` and the fix with `protocol.file.allow` | Ran: `exercises/14_patch_hook_submodule.py` |
+| Patches: generating and applying | Book: VCWG chapter 13, pages 317 and 330 |
+| Hooks: the types, installing, push-related hooks and whether to use them | Book: VCWG chapter 14, pages 339, 342, 348 and 350 |
+| Submodules and gitlinks | Book: VCWG chapter 15, pages 352, 354 and 355 |
+| Sending patches by real mail and `git subtree` | Not run. The book covers them (VCWG chapter 13, page 326, and chapter 15, page 364) but this lesson leaves them out |
+
+</Step>
