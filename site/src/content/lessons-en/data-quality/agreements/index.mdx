@@ -71,7 +71,7 @@ freshness: {column: order_ts, max_age_hours: 24}
 on_breach: {notify: "#orders-data", respond_within_hours: 2, resolve_within_business_days: 1}
 ```
 
-(Some columns are left out to keep it short. The full file is in the repo.) `quality.rules` points at ids in the rule registry of [lesson 4](/en/data-quality/rule-design/#the-rule-registry-a-query-with-an-owner-a-threshold-and-an-impact). The contract does not write the rules again. It names which rules are the promise for this dataset.
+(Some columns are left out to keep it short. The full file is in the repo.) `quality.rules` points at ids in the rule registry of [lesson 4](/en/data-quality/rule-design/#the-rule-registry-a-query-with-an-owner-a-threshold-and-an-impact). The contract does not write the rules again. It names which rules are the promise for this table.
 
 </Step>
 
@@ -135,12 +135,12 @@ Medallion describes contracts in two forms that differ in where they are enforce
 - **A contract on the structure of the data produced**: dbt calls it a "model contract". It specifies the schema, column types and constraints of a model. **Unlike a test, if the logic or the incoming data does not match the contract, the model fails to build**, instead of building and then telling you it is wrong.
 - **A contract at ingestion**: incoming data must match the promised format, schema and quality. If it does not, it is rejected, similar to an SLA in software work.
 
-The exercise compares the two approaches when the producer renames `total_amount` to `amount_total` and sends a dataset:
+The exercise compares the two approaches when the producer renames `total_amount` to `amount_total` and sends the table:
 
 | Approach | Result |
 |---|---|
 | Test after loading | The table already has the new shape. The test says `column total_amount is missing` and `column amount_total is not in the contract` |
-| Reject before loading | `enforce_on_ingest()` rejects the dataset and the table is not touched. The reason: `customer_id arrived as VARCHAR, expected BIGINT; missing column total_amount` |
+| Reject before loading | `enforce_on_ingest()` rejects the data and the table is not touched. The reason: `customer_id arrived as VARCHAR, expected BIGINT; missing column total_amount` |
 
 Rejecting before loading protects consumers more, but it also makes the producer feel the contract sooner, and there has to be a way to fix and resend. The right choice depends on how much a consumer can tolerate a broken batch ([lesson 5](/en/data-quality/checkpoints/#when-a-check-fails-let-it-through-quarantine-or-stop) on intrusive versus nonintrusive).
 
@@ -157,7 +157,7 @@ DQF warns about SLAs: setting an SLA just to have one, without the investment an
 ## Check yourself
 
 - A producer wants to change a column type from INT to BIGINT. Which kind should that be under your rules, and who needs to know first?
-- For a dataset you look after, which parts of its contract live in people's heads and are not written down anywhere?
+- For a table you look after, which parts of its contract live in people's heads and are not written down anywhere?
 - If a new team asks "what does your data contract mean?", how do you answer in one sentence?
 
 </Step>

@@ -5,7 +5,7 @@ facts:
   - "Ran in 07_monitoring.py และ verify_monitoring.mts on DuckDB 2.0.0 and pandas 3.1.0 with synthetic data, and every table and that the lab calculators match Python on all 33 sets is asserted"
   - "Detectors and thresholds follow DQF chapter 4, pages 70 to 86 and 105 to 115, and alert fatigue chapter 6, pages 145 to 147"
   - "Statistical process control follows DMBOK2 section 4.5, pages 488 to 489"
-  - "The synthetic dataset, the labels of real incidents and the thresholds tried are the author's"
+  - "The synthetic table, the labels of real incidents and the thresholds tried are the author's"
 order: 7
 phase: C
 level: 4
@@ -38,7 +38,7 @@ There are five pillars to watch: **freshness, distribution, volume, schema, line
 
 ## Data with known answers, so detectors can be scored
 
-To say a detector is "good" you have to know which days the real incidents were. The book itself admits that accuracy cannot be computed without ground truth, so it sets the labels itself in the example (book: DQF chapter 4, pages 105 to 111). We build a daily dataset of 120 days where **the answers are known** (**this data is synthetic**, not real).
+To say a detector is "good" you have to know which days the real incidents were. The book itself admits that accuracy cannot be computed without ground truth, so it sets the labels itself in the example (book: DQF chapter 4, pages 105 to 111). We build a daily table of 120 days where **the answers are known** (**this data is synthetic**, not real).
 
 - Rows loaded per day, with a weekly cycle: about 1,000 on weekdays, about 520 on Saturdays, about 430 on Sundays.
 - The first 28 days are clean and are used for calibration.
@@ -55,7 +55,7 @@ To say a detector is "good" you have to know which days the real incidents were.
 
 DQF builds a freshness detector by counting "days since the last update" and setting a threshold for how many is too many. The book points out that this number is **a model parameter and has no "correct" value**. The smaller it is, the more real incidents it catches (high recall) but the more false alerts it raises. The larger it is, the more often an alert is right (high precision) but it may miss things (book: DQF chapter 4, pages 106 to 110).
 
-The result on our dataset (3 stretches are real incidents of 2, 3 and 4 days; 3 stretches are planned pauses of 1, 1 and 2 days):
+The result on our tables (3 stretches are real incidents of 2, 3 and 4 days; 3 stretches are planned pauses of 1, 1 and 2 days):
 
 | Alert when no load for at least | Alerts | Correct | False | Missed | precision | recall |
 |---:|---:|---:|---:|---:|---:|---:|
@@ -78,7 +78,7 @@ The simplest method is the z-score: subtract the mean, divide by the standard de
 1. The central limit theorem relies on independent, random observations, but business data usually depends on other variables. The book's example: a shop closed on Sundays has a daily customer count of 0 one day in seven, which is not bell-shaped.
 2. "Abnormal" is not the same as "interesting". Some values far from the mean do not help us fix downtime.
 
-Try it on our dataset. The mean of the first 28 days is 857 rows and the standard deviation is 242 (one number for data with a weekly cycle). Compare that with a detector that compares **with the median of the same weekday in previous weeks**:
+Try it on our tables. The mean of the first 28 days is 857 rows and the standard deviation is 242 (one number for data with a weekly cycle). Compare that with a detector that compares **with the median of the same weekday in previous weeks**:
 
 | Detector | Threshold | Correct | False | Missed | precision | recall | F1 |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -92,7 +92,7 @@ Try it on our dataset. The mean of the first 28 days is 857 rows and the standar
 (ran: `07_monitoring.py`) The plain z-score reaches an F1 of only 0.50 at best, because a weekday that falls to 400 rows (z of about -1.9) looks "not abnormal" against the overall mean, while a normal Saturday or Sunday already looks low.
 
 <Callout type="warn" title="Do not trust the 1.00 in this table">
-This dataset is clean and regular, and was built so that the weekly cycle is the only complication. A detector that compares with the same weekday therefore scores almost perfectly. Real data has holidays, campaigns, growth and incidents that nobody labeled. Treat this result as a picture of the **direction**, that knowing the cycle of your data helps a lot, not as a number you will get in real work.
+This table is clean and regular, and was built so that the weekly cycle is the only complication. A detector that compares with the same weekday therefore scores almost perfectly. Real data has holidays, campaigns, growth and incidents that nobody labeled. Treat this result as a picture of the **direction**, that knowing the cycle of your data helps a lot, not as a number you will get in real work.
 </Callout>
 
 </Step>
@@ -140,7 +140,7 @@ F-beta = (1 + β²) × precision × recall / (β² × precision + recall)
 
 β = 1 weighs them equally. β > 1 says "I worry more about missing an incident than about the occasional false alert" (recall counts more). β < 1 is the opposite. The book uses the example of a warning system where a false negative is far worse, so F2 or F3 should be used instead of F1.
 
-The book also warns about **accuracy**: a detector that always answers "not abnormal" gets very high accuracy when incidents are rare. In our dataset, a detector that never alerts on the null rate (92 evaluated days, 6 with incidents) gets 93.5% accuracy while catching nothing. So look at precision and recall, not accuracy.
+The book also warns about **accuracy**: a detector that always answers "not abnormal" gets very high accuracy when incidents are rare. In our tables, a detector that never alerts on the null rate (92 evaluated days, 6 with incidents) gets 93.5% accuracy while catching nothing. So look at precision and recall, not accuracy.
 
 </Step>
 
@@ -194,6 +194,6 @@ On alerts, DQF says that getting an alert that needs no action is sometimes fine
 | Statistical Process Control, common and special causes, control limits | book: DMBOK2 section 4.5, pages 488 to 489 |
 | Anomaly detection is not the only option; alert fatigue | book: DQF chapter 6, pages 145 to 147; chapter 8, page 215 |
 | Every table of numbers in this lesson, the lab's calculation matching Python for all 33 settings | ran: `07_monitoring.py`, `verify_monitoring.mts` |
-| The synthetic dataset, the labels of real incidents and the thresholds chosen to try; the comparison with the same-weekday median | author |
+| The synthetic table, the labels of real incidents and the thresholds chosen to try; the comparison with the same-weekday median | author |
 
 </Step>

@@ -71,7 +71,7 @@ freshness: {column: order_ts, max_age_hours: 24}
 on_breach: {notify: "#orders-data", respond_within_hours: 2, resolve_within_business_days: 1}
 ```
 
-(เราตัดบาง Column ออกเพื่อให้สั้น ไฟล์เต็มอยู่ใน Repo) ส่วน `quality.rules` ชี้ไปที่ id ใน Rule Registry ของ[บท 4](/data-quality/rule-design/#rule-registry-query-พร้อมเจ้าของ-threshold-และ-impact) Contract จึงไม่ต้องเขียน Rule ซ้ำ เพียงแค่ระบุว่า Rule ไหนคือคำสัญญาของ Dataset นี้
+(เราตัดบาง Column ออกเพื่อให้สั้น ไฟล์เต็มอยู่ใน Repo) ส่วน `quality.rules` ชี้ไปที่ id ใน Rule Registry ของ[บท 4](/data-quality/rule-design/#rule-registry-query-พร้อมเจ้าของ-threshold-และ-impact) Contract จึงไม่ต้องเขียน Rule ซ้ำ เพียงแค่ระบุว่า Rule ไหนคือคำสัญญาของ Table นี้
 
 </Step>
 
@@ -135,12 +135,12 @@ Medallion บรรยาย Contract ในสองรูปแบบที่
 - แบบแรกคือ Contract ที่เป็นโครงสร้างของข้อมูลที่ผลิต ซึ่ง Dbt เรียกว่า "Model Contract" โดยระบุ Schema, Type ของ Column และ Constraint ของ Model **ต่างจาก Test ตรงที่ถ้าตรรกะหรือข้อมูลขาเข้าไม่ตรง Contract Model จะ Build ไม่ผ่าน** แทนที่จะ Build เสร็จแล้วค่อยแจ้งว่าผิด
 - แบบที่สองคือ Contract ตอนนำข้อมูลเข้า ซึ่งข้อมูลที่เข้ามาต้องตรงกับ Format, Schema และคุณภาพที่สัญญาไว้ ถ้าไม่ตรงก็จะถูกปฏิเสธ คล้ายกับ SLA ในงานซอฟต์แวร์
 
-แบบฝึกเทียบสองวิธีเมื่อ Producer เปลี่ยน `total_amount` เป็น `amount_total` แล้วส่ง Dataset มา
+แบบฝึกเทียบสองวิธีเมื่อ Producer เปลี่ยน `total_amount` เป็น `amount_total` แล้วส่ง Table มา
 
 | วิธี | ผล |
 |---|---|
 | Test หลัง Load | Table มี Format ใหม่ไปแล้ว และ Test บอกว่า `column total_amount is missing` และ `column amount_total is not in the contract` |
-| ปฏิเสธก่อน Load | `enforce_on_ingest()` ปฏิเสธ Dataset โดย Table ไม่ถูกแตะ และให้เหตุผลว่า `customer_id arrived as VARCHAR, expected BIGINT; missing column total_amount` |
+| ปฏิเสธก่อน Load | `enforce_on_ingest()` ปฏิเสธข้อมูลที่ส่งมา โดย Table ไม่ถูกแตะ และให้เหตุผลว่า `customer_id arrived as VARCHAR, expected BIGINT; missing column total_amount` |
 
 การปฏิเสธก่อน Load ปกป้อง Consumer ได้มากกว่า แต่ในทางกลับกัน Producer ก็จะรู้สึกถึง Contract เร็วกว่าด้วย และเราต้องมีช่องทางให้แก้แล้วส่งมาใหม่ ส่วนว่าทางไหนเหมาะกว่าก็ขึ้นอยู่กับว่า Consumer ทนข้อมูลชุดที่พังได้แค่ไหน ([บท 5](/data-quality/checkpoints/#เมื่อไม่ผ่าน-ปล่อยผ่าน-quarantine-หรือหยุด) เรื่อง Intrusive กับ Nonintrusive)
 
@@ -157,7 +157,7 @@ DQF เตือนเรื่อง SLA ว่า ถ้าตั้ง SLA �
 ## เช็กตัวเอง
 
 - Producer อยากเปลี่ยน Type ของ Column จาก INT เป็น BIGINT ควรจัดเป็นประเภทไหนใน Rule ของคุณ และใครต้องรู้ก่อน
-- Contract ของ Dataset ที่คุณดูแลอยู่ มีข้อใดบ้างที่อยู่ในหัวคน ไม่ได้เขียนไว้ที่ไหน
+- Contract ของ Table ที่คุณดูแลอยู่ มีข้อใดบ้างที่อยู่ในหัวคน ไม่ได้เขียนไว้ที่ไหน
 - ถ้าทีมใหม่ถามว่า "Data Contract ของคุณหมายถึงอะไร" ในหนึ่งประโยค คุณตอบอย่างไร
 
 </Step>

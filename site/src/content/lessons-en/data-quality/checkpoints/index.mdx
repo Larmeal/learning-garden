@@ -46,14 +46,14 @@ The relevant DMBOK2 principle: look after quality across the whole data lifecycl
 
 ## At what level to check, and can it be done in the stream
 
-DMBOK2 Table 31 (page 481) splits measurement into three levels of granularity, and says each can be done two ways: **in-stream**, while the data moves through the system, and **batch**, with queries or profiling tools on data that is already stored. It also says dataset-level measurement usually cannot be done in-stream, because it needs the whole set (book: DMBOK2 section 2.7.2, pages 479 to 481).
+DMBOK2 Table 31 (page 481) splits measurement into three levels of granularity, and says each can be done two ways: **in-stream**, while the data moves through the system, and **batch**, with queries or profiling tools on data that is already stored. It also says table-level measurement usually cannot be done in-stream, because it needs the whole set (book: DMBOK2 section 2.7.2, pages 479 to 481).
 
-| Level | Example rule | In-stream? | Found in the dataset |
+| Level | Example rule | In-stream? | Found in our tables |
 |---|---|---|---:|
 | One value (element) | email has the format a@b.c | Yes, it looks at one value | 15 |
-| Whole row (record) | shipped_ts is not before order_ts | Yes, it looks at one row | 10 |
-| Whole set (data set) | order_id is unique | No, it needs to see the whole set | 20 |
-| Whole set (data set) | The newest order is no more than 24 hours old | No, it needs to see the whole set | 1 (failing) |
+| Whole row | shipped_ts is not before order_ts | Yes, it looks at one row | 10 |
+| Whole table | order_id is unique | No, it needs to see the whole set | 20 |
+| Whole table | The newest order is no more than 24 hours old | No, it needs to see the whole set | 1 (failing) |
 
 (ran: `05_checkpoints.py`. The numbers match what was planted, and the last row counts as 1 to mean "failing".)
 
@@ -160,7 +160,7 @@ DMBOK2 suggests ways to prevent problems that do not wait for the pipeline (book
 
 The five spellings of country in the example at the top of this lesson can be prevented at the source (a country picker instead of free typing), which is cheaper than fixing the report every run.
 
-Andrew Jones's book on data contracts pushes the same idea one step further: the team that generates the data runs the checks, in three places. At publishing time, a library the producer calls checks each record against the contract. In the infrastructure, a table or topic that enforces a schema refuses a bad write. After publishing, rules and observability tools watch for what the first two missed. The first two keep a bad record inside the producing system, and only the third catches problems after consumers may have read them. A quarantine like policy B above does the job that the book gives to a dead letter queue: set the bad record aside with its reason so it can be inspected and replayed after the fix (book: Contracts chapter 10, pages 163 to 166). The page on [data contracts in practice](/en/data-quality/agreements/contracts-in-practice/#where-to-check-the-data), under [lesson 6](/en/data-quality/agreements/contracts-in-practice/#who-gets-the-call-when-the-source-changes), has the details.
+Andrew Jones's book on data contracts pushes the same idea one step further: the team that generates the data runs the checks, in three places. At publishing time, a library the producer calls checks each row against the contract. In the infrastructure, a table or topic that enforces a schema refuses a bad write. After publishing, rules and observability tools watch for what the first two missed. The first two keep a bad row inside the producing system, and only the third catches problems after consumers may have read them. A quarantine like policy B above does the job that the book gives to a dead letter queue: set the bad row aside with its reason so it can be inspected and replayed after the fix (book: Contracts chapter 10, pages 163 to 166). The page on [data contracts in practice](/en/data-quality/agreements/contracts-in-practice/#where-to-check-the-data), under [lesson 6](/en/data-quality/agreements/contracts-in-practice/#who-gets-the-call-when-the-source-changes), has the details.
 
 <Callout type="try" title="Try it in this repo">
 Open `05_checkpoints.py` and change policy B so it also quarantines rows whose `country` is not in the list. See how total revenue and TH revenue change. Then try "convert to TH" instead of quarantining. Compare the two approaches: which one hides the problem at the source more, and which one exposes it more?

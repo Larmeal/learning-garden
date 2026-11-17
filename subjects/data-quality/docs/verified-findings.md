@@ -214,3 +214,8 @@ All `ran` results use `dqlab.py` (seed 20261101, as-of 2026-11-01 08:00, DuckDB 
 - The first version of the generator let `shipped_ts` run past the as-of time, an unplanned defect that the profile
   exposed. It was fixed in `dqlab.py` (shipping takes 1 or 2 days, and `ingested_at` is capped at as-of). The rule
   that came out of it: after changing a generator, profile the data again before trusting "only planted defects".
+
+## Completeness page, second rewrite (2026-11-16)
+
+- **ran** (`13_dimension_pitfalls.py`): the email denominators (500 customers, 460 with an email, 445 well formed; 92.00%, 96.74% and 89.00%), a made-up patient table of 6 rows (4 empty, 1 defect, 1 not asked, 2 correct, 3 with an allergy), a made-up sensor table (24, 18, 24 readings, 66 of 66 rows complete, 66 of 72 against the schedule, 91.7%), a made-up three-day table against a source (missing 0, 24, 0) and a made-up five-record table (phone filled 20%, 10 pairs, 0 comparable).
+- **author**: the examples from a hospital, an online shop, human resources, a sign-up system and a factory sensor, the four kinds of placeholder, the receipts with a gap in the numbers, and the order of the five questions that sort a problem into a dimension. None is in the books or the dataset.

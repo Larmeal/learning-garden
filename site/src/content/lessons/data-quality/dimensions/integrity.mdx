@@ -26,7 +26,7 @@ import Callout from '../../../../components/Callout.astro';
 
 Order 65 บอกว่าเป็นของ Customer หมายเลข 9017 แต่ตาราง `customers` ของเรามี Customer แค่หมายเลข 1 ถึง 500 ไม่มีใครชื่อ 9017 เลย Key ที่ชี้ไปหาของที่ไม่มีแบบนี้เรียกว่า **Orphan** ฝั่ง `payments` ก็เป็นแบบเดียวกัน Payment หมายเลข 2534, 2535 และ 2536 ชี้ไปหา Order หมายเลข 9001, 9002 และ 9003 ที่ไม่มีอยู่ใน `orders`
 
-DMBOK2 อธิบาย Data Integrity ว่าเป็นแนวคิดที่รวมเรื่อง Completeness, Accuracy และ Consistency เข้าด้วยกัน และในทางปฏิบัติมักหมายถึงสองอย่าง อย่างแรกคือ Referential Integrity คือความสอดคล้องระหว่างสองตารางผ่าน Reference Key ที่ทั้งคู่มี อย่างที่สองคือความสอดคล้องภายใน Data Set ที่ไม่มีช่องโหว่หรือส่วนที่หายไป Data Set ที่ไม่มี Referential Integrity จะมี Orphan (Reference Key ที่ชี้ไปหาของที่ไม่มี) หรือ Duplicate (Row ที่เหมือนกันเป๊ะซึ่งอาจทำให้ Aggregation เพี้ยน) และระดับของ Orphan วัดได้ทั้งเป็นจำนวนดิบหรือเป็นเปอร์เซ็นต์ของ Data Set (หนังสือ: DMBOK2 Table 29 หน้า 459)
+DMBOK2 อธิบาย Data Integrity ว่าเป็นแนวคิดที่รวมเรื่อง Completeness, Accuracy และ Consistency เข้าด้วยกัน และในทางปฏิบัติมักหมายถึงสองอย่าง อย่างแรกคือ Referential Integrity คือความสอดคล้องระหว่างสองตารางผ่าน Reference Key ที่ทั้งคู่มี อย่างที่สองคือความสอดคล้องภายใน Table ที่ไม่มีช่องโหว่หรือส่วนที่หายไป Table ที่ไม่มี Referential Integrity จะมี Orphan (Reference Key ที่ชี้ไปหาของที่ไม่มี) หรือ Duplicate (Row ที่เหมือนกันเป๊ะซึ่งอาจทำให้ Aggregation เพี้ยน) และระดับของ Orphan วัดได้ทั้งเป็นจำนวนดิบหรือเป็นเปอร์เซ็นต์ของ Table (หนังสือ: DMBOK2 Table 29 หน้า 459)
 
 </Step>
 
@@ -38,7 +38,7 @@ DMBOK2 อธิบาย Data Integrity ว่าเป็นแนวคิด
 
 | ที่ไหน | Integrity หมายถึง |
 |---|---|
-| DMBOK2 | หลัก ๆ คือ Referential Integrity บวกการไม่มีช่องโหว่ภายใน Data Set (หนังสือ: DMBOK2 Table 29 หน้า 459) |
+| DMBOK2 | หลัก ๆ คือ Referential Integrity บวกการไม่มีช่องโหว่ภายใน Table (หนังสือ: DMBOK2 Table 29 หน้า 459) |
 | Ten Steps | data integrity fundamentals เป็น Dimension ที่กว้างกว่ามาก ครอบคลุม Existence, Validity, Structure และ Content ซึ่งได้จากการ Profile ส่วน Referential Integrity เป็นแค่หนึ่งแถวในนั้น (หนังสือ: Ten Steps บทที่ 4 หน้า 128 ถึง 135) |
 | ฐานข้อมูล | Integrity Constraint เช่น Foreign Key ที่ Database บังคับไม่ให้เกิด Orphan |
 
@@ -113,7 +113,7 @@ WHERE customer_id NOT IN (SELECT customer_id FROM customers UNION ALL SELECT NUL
 
 ใน `orders` กับ `customers` ตาราง `orders` เรียกว่าตารางลูก (Child) เพราะมันอ้างถึง `customers` ซึ่งเป็นตารางแม่ (Parent) การตรวจ Integrity มีทิศทาง คือเริ่มจากตารางลูกแล้วถามว่าสิ่งที่มันอ้างถึงมีอยู่ในตารางแม่ไหม
 
-ถ้ามี Customer ที่ไม่เคยมี Order เลย นั่นยังไม่ถือว่าเป็นการละเมิด เว้นแต่ธุรกิจจะมีกฎว่าทุก Customer ต้องเคยสั่งของ ใน Dataset ของเราไม่มี Customer แบบนั้นเลย (0 คน) ถ้ามี ก็คือคนที่ยังไม่เคยซื้อ เราจึงควรเขียนทิศทางไว้ใน Rule ให้ชัดว่า "จากลูกไปหาแม่"
+ถ้ามี Customer ที่ไม่เคยมี Order เลย นั่นยังไม่ถือว่าเป็นการละเมิด เว้นแต่ธุรกิจจะมีกฎว่าทุก Customer ต้องเคยสั่งของ ในตารางของเราไม่มี Customer แบบนั้นเลย (0 คน) ถ้ามี ก็คือคนที่ยังไม่เคยซื้อ เราจึงควรเขียนทิศทางไว้ใน Rule ให้ชัดว่า "จากลูกไปหาแม่"
 
 Integrity ยังมีข้อจำกัดอีกข้อ Key ที่ชี้ไปหาของที่มีอยู่ ก็ยังเป็น Key ที่ผิดตัวได้ ลองสมมติว่า Order หนึ่งเป็นของ Customer 56 แต่ถูกบันทึกเป็น Customer 55 ทั้งสองหมายเลขมีอยู่ใน `customers` Rule ของเราผ่าน เพราะ Integrity ตรวจแค่ว่า Key ไปลงที่ไหนสักแห่ง ไม่ได้ตรวจว่าลงถูกที่หรือเปล่า คำถามนั้นเป็นของ [Accuracy](/data-quality/dimensions/accuracy/) และต้องมีแหล่งที่เชื่อถือได้มาเทียบ
 
@@ -123,7 +123,7 @@ Integrity ยังมีข้อจำกัดอีกข้อ Key ที�
 
 ## ต่างจาก Dimension อื่นอย่างไร
 
-Integrity อยู่ใกล้ Completeness เพราะ Key ที่ว่างก็เป็นช่องว่างที่ควรมีค่า ตามที่ดูไปแล้วในหัวข้อ Key ที่ว่าง และอยู่ใกล้ Uniqueness เพราะ DMBOK2 ใส่ Row ซ้ำไว้ในคำอธิบายของ Integrity ด้วย (หนังสือ: DMBOK2 Table 29 หน้า 459) ถ้าเราเอา Row ที่ซ้ำไปนับใน [Uniqueness](/data-quality/dimensions/uniqueness/#วัดอย่างไร) แล้ว ก็อย่านับอีกรอบที่นี่ ไม่งั้น Scorecard จะนับ Row ชุดเดียวกันสองครั้ง สองกรณีต่างกันตรงที่ Integrity หา Key ที่ชี้ไปหาของที่ไม่มี ส่วน Uniqueness หา Key ที่โผล่มากเกินไป ใน Dataset ของเรา Orphan มี 30 Row ส่วน Order ที่ซ้ำเกินมามี 20 Row
+Integrity อยู่ใกล้ Completeness เพราะ Key ที่ว่างก็เป็นช่องว่างที่ควรมีค่า ตามที่ดูไปแล้วในหัวข้อ Key ที่ว่าง และอยู่ใกล้ Uniqueness เพราะ DMBOK2 ใส่ Row ซ้ำไว้ในคำอธิบายของ Integrity ด้วย (หนังสือ: DMBOK2 Table 29 หน้า 459) ถ้าเราเอา Row ที่ซ้ำไปนับใน [Uniqueness](/data-quality/dimensions/uniqueness/#วัดอย่างไร) แล้ว ก็อย่านับอีกรอบที่นี่ ไม่งั้น Scorecard จะนับ Row ชุดเดียวกันสองครั้ง สองกรณีต่างกันตรงที่ Integrity หา Key ที่ชี้ไปหาของที่ไม่มี ส่วน Uniqueness หา Key ที่โผล่มากเกินไป ในตารางของเรา Orphan มี 30 Row ส่วน Order ที่ซ้ำเกินมามี 20 Row
 
 Integrity กับ Consistency ก็ใช้ป้ายทับกันได้ ตัวอย่างของ Ten Steps ที่ว่า Order Date ต้องมาก่อน Ship Date อยู่ใต้ Referential Integrity ในหนังสือเล่มนั้น แต่เราจัดมันเป็น Consistency ในเส้นทางนี้ ดูรายละเอียดที่หน้า [Consistency](/data-quality/dimensions/consistency/)
 
@@ -148,7 +148,7 @@ Integrity กับ Consistency ก็ใช้ป้ายทับกันไ
 | Referential Integrity, ไม่มีช่องโหว่, Orphan และ Duplicate, ระดับ Orphan เป็นจำนวนดิบหรือเปอร์เซ็นต์ | หนังสือ: DMBOK2 Table 29 หน้า 459 |
 | data integrity fundamentals เป็น Dimension ที่กว้างกว่า, Referential Integrity เป็นหนึ่งแถว, Order Date ก่อน Ship Date | หนังสือ: Ten Steps บทที่ 4 หน้า 128 ถึง 135 |
 | 30 จาก 3,005 และ 20 จาก 2,553, `NOT IN` ได้ 30 แล้วได้ 0 เมื่อมี NULL, 15 + 30 = 45, Customer ที่ไม่มี Order มี 0 คน | รัน: `02_dimensions.py`, `13_dimension_pitfalls.py` |
-| Order 65 และ 344, Payment 2534 ถึง 2536 | รัน: Query บน Dataset เดียวกัน |
+| Order 65 และ 344, Payment 2534 ถึง 2536 | รัน: Query บนตารางชุดเดียวกัน |
 | ภาพบัตรยืมห้องสมุด ทิศทางของการตรวจ และตัวอย่าง Key ที่มีอยู่แต่ผิดตัว | ผู้เขียน |
 
 </Step>

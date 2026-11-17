@@ -1,15 +1,15 @@
 ---
 title: Completeness
-summary: Is everything that should be there actually there? Is every empty cell missing data? And if every row is filled in, is the table complete? This page answers those three questions with real rows from the example shop.
+summary: Is everything that should be there actually there? Is every empty cell missing data? And if every row is filled in, is the table complete? This page answers those three questions with real rows from the example shop, and with examples from several other kinds of business.
 facts:
-  - "Ran in 02_dimensions.py และ 13_dimension_pitfalls.py on DuckDB 2.0.0 and pandas 3.1.0 with synthetic data, and the 1,251 / 1,226 / 25 of shipped_ts and the 92.00% is asserted"
-  - "The definition follows DMBOK2 Table 29, page 458, and section 1.3.3, page 457, and default values Ten Steps chapter 4, pages 128 to 135"
-  - "The phone table and the copy with missing date rows are made up, because the dataset has no such cases"
-  - "The marketing team picture and the choice of what to explain first are the author's"
+  - "Ran in 02_dimensions.py and 13_dimension_pitfalls.py on DuckDB 2.0.0 and pandas 3.1.0 with synthetic data. The 1,251 / 1,226 / 25 of shipped_ts, the 92.00% / 96.74% / 89.00% of the email denominators and the numbers of every made-up table are asserted"
+  - "The definition follows DMBOK2 Table 29, page 458, and section 1.3.3, page 457, and default values follow Ten Steps chapter 4, pages 128 to 135"
+  - "The phone table, the patient table, the sensor table, the three-day table, the five-row table and the copy with missing date rows are made up, because our tables have no such cases. The numbers in these tables are run and asserted"
+  - "The marketing team picture, the receipts with a gap in the numbers, the examples from other businesses and the choice of what to explain first are the author's"
 order: 1
 stage: sprout
 format: steps
-updated: 2026-11-10
+updated: 2026-11-17
 ---
 
 import Step from '../../../../components/Step.astro';
@@ -29,34 +29,68 @@ Imagine the marketing team about to send a promotion by email to every customer.
 | 24 | (empty) | TH |
 | 30 | (empty) | TH |
 
-Customers 14, 24 and 30 have no email to send to. Data that should be there is missing, and that is exactly what completeness measures. DMBOK2 asks the same thing directly: is all the required data present? DAMA UK defines it as a ratio, the proportion of data stored against the potential for 100% (book: DMBOK2 Table 29, page 458, and section 1.3.3, page 457).
+Customers 14, 24 and 30 have no email to send to. Data that should be there is missing, and that is exactly what completeness measures.
 
-The whole table has 500 customers and 40 of them have an empty email, so 460 have one, which is 92%. We measure it with this query.
+DMBOK2 asks the same thing directly: is all the required data present? DAMA UK defines it as a ratio, the proportion of data stored against the potential for 100% (book: DMBOK2 Table 29, page 458, and section 1.3.3, page 457). The whole table has 500 customers and 40 of them have an empty email, so 460 have one, which is 92%. We measure it with this query.
 
 ```sql
 SELECT count(*) FILTER (WHERE email IS NULL), count(*) FROM customers;
 -- 40 of 500
 ```
 
-The 92% is a count at the column level. The book says completeness can be measured at three levels. At the column level we ask whether one field is filled in. At the record level we ask whether a row is filled in the way its status requires. At the dataset level we ask whether all the rows that should be in the table have arrived. All three levels have an example on this page (book: DMBOK2 Table 29, page 458).
+The query returns two numbers. `count(*) FILTER (WHERE email IS NULL)` counts only the rows where `email` is empty, and the second `count(*)` counts every row, to use as the denominator.
+
+The 92% is a count at the column level, which is only one of the three levels the book describes. We will see all three on this page (book: DMBOK2 Table 29, page 458).
+
+| Level | The question | Example on this page |
+|---|---|---|
+| Column | Is one field filled in? | `customers.email` is empty in 40 of 500 rows |
+| Row | Is a row filled in the way its status requires? | An order that is SHIPPED must have `shipped_ts` |
+| Table | Have all the rows that should be in this table arrived? | A day on which 24 of 30 orders went missing |
+
+The book calls the last two levels record and data set. On this page we call them row and table, because that is what we see in the tables.
 
 </Step>
 
 <Step>
 
-## An empty cell is not always a defect
+## Before we call an empty cell a defect, we need to know when the field should have a value
 
-Before we call an empty cell a defect, we should ask when the field should have a value. The book sorts the answers into three groups (book: DMBOK2 Table 29, page 458).
+An empty cell is not always wrong, so we first ask when the field should have a value. The book sorts the answers into three groups (book: DMBOK2 Table 29, page 458).
 
 | Group | Meaning | If the cell is empty | Example |
 |---|---|---|---|
 | Mandatory | Every row must have a value | a defect | `order_id` in `orders`. Without it we cannot tell which order the row is |
-| Conditional or optional | A value is required only when a condition holds, or it may be present or not | a defect only in rows where the condition holds. If it is truly optional, not a defect | `shipped_ts` is required when the status is SHIPPED. A phone number that the customer may leave blank is optional (our dataset has no such column) |
+| Conditional or optional | A value is required only when a condition holds, or it may be present or not | a defect only in rows where the condition holds. If it is truly optional, not a defect | `shipped_ts` is required when the status is SHIPPED. A phone number that the customer may leave blank is optional (our tables have no such column) |
 | Inapplicable | The field has no meaning for this row, so it must be empty | normal. A value would be the mistake | `shipped_ts` on an order that is still PLACED or was CANCELLED |
 
-An empty cell looks the same in every group and means something different in each. Empty in a mandatory column is a defect. Empty in an inapplicable column is correct. For the middle group we need the condition before we can judge.
+An empty cell looks the same in every group and means something different in each. Empty in a mandatory column is a defect, and empty in an inapplicable column is correct. For the middle group we need the condition before we can judge.
 
-`orders.shipped_ts` is the clearest example, because it sits in two groups at once, depending on the status of the order.
+A way of thinking that works for any table is to ask three questions in order.
+
+1. What situation is this row in? For example, is this order still waiting to ship, or has it shipped?
+2. In that situation, should this field have a value?
+3. If it should and the cell is empty, that is a defect. If it should not, the empty cell is already the right answer.
+
+Let us use the three questions on tables from other kinds of business.
+
+| Business | Column | Rows where the field must have a value | Rows where the field should be empty |
+|---|---|---|---|
+| Hospital | `discharge_date` | patients whose status is DISCHARGED | patients who are still in a bed (ADMITTED) |
+| Online shop | `shipping_address` | orders for physical goods | orders for an e-book |
+| Human resources | `resignation_date` | employees whose status is RESIGNED | employees who still work there |
+| Sign-up system | `company_name` | customers of type BUSINESS | customers who are private individuals |
+| Factory sensor | `error_code` | readings that failed (FAILED) | readings that succeeded |
+
+Every row of this table has a condition hidden in the status of the row. That is why a good rule writes the status into the rule itself. Otherwise we count the cells that should be empty as defects too.
+
+</Step>
+
+<Step>
+
+## A real example: `shipped_ts` is empty in 1,251 rows, and only 25 are wrong
+
+`orders.shipped_ts` is the clearest example in our tables, because it sits in two groups at once, depending on the status of the order.
 
 | status | rows | rows with `shipped_ts` | What is expected |
 |---|---:|---:|---|
@@ -73,7 +107,43 @@ FROM orders;
 -- 25 of 1,794
 ```
 
+This query looks like the previous one, with the condition `status = 'SHIPPED'` added to both numbers. The first number counts the orders that are SHIPPED but have an empty `shipped_ts`, and the second counts all SHIPPED orders to use as the denominator.
+
 Notice that this rule has the condition `status = 'SHIPPED'` written into it. A completeness score that does not say which group of rows it measures is a score nobody can interpret.
+
+</Step>
+
+<Step>
+
+## One empty cell can mean "none" or "unknown"
+
+Sometimes we already know that a field is conditional, and a single empty cell can still mean several things. Here is a small made-up table of 6 patients that we created to show this.
+
+| patient_id | allergy_status | allergies |
+|---:|---|---|
+| 1 | HAS | Penicillin |
+| 2 | NONE | (empty) |
+| 3 | HAS | (empty) |
+| 4 | NOT_ASKED | (empty) |
+| 5 | NONE | (empty) |
+| 6 | HAS | Latex |
+
+The `allergies` column is empty in 4 rows, and the four cells do not mean the same thing.
+
+- Patients 2 and 5 have the status NONE, which means someone asked and the patient said there are no allergies. These empty cells are correct.
+- Patient 3 has the status HAS, which means the patient said they have an allergy but nobody wrote down what it is. This is a defect, and a dangerous one.
+- Patient 4 has the status NOT_ASKED, which means nobody has asked yet. This empty cell says "we do not know yet", which is information we still have to collect, and it was not caused by a wrong entry.
+
+If the table had only the `allergies` column, we could not tell these three cases apart. A check that counts `IS NULL` would report 4 empty rows without knowing how many are really bad. With `allergy_status` next to it, we count 1 defect (run: `13_dimension_pitfalls.py`).
+
+```sql
+SELECT count(*) FILTER (WHERE allergies IS NULL AND allergy_status = 'HAS'),
+       count(*) FILTER (WHERE allergy_status = 'HAS')
+FROM patients;
+-- 1 of 3
+```
+
+When one empty cell can mean several things, it helps to keep another column that says what the emptiness means, and to let the rule refer to that column, just as the `shipped_ts` rule refers to the status.
 
 </Step>
 
@@ -81,7 +151,7 @@ Notice that this rule has the condition `status = 'SHIPPED'` written into it. A 
 
 ## A cell that is filled but holds no real data
 
-`IS NULL` finds only the cells that are truly empty. People who fill in forms often get past a required field by typing something into it. The phone table below is a small made-up table of 8 rows that we created to show this.
+`IS NULL` finds only the cells that are truly empty, and people who fill in forms often get past a required field by typing something into it. The phone table below is a small made-up table of 8 rows that we created to show this.
 
 | phone | Does the cell hold real data? | Does `IS NULL` see it? |
 |---|---|---|
@@ -96,6 +166,15 @@ Notice that this rule has the condition `status = 'SHIPPED'` written into it. A 
 
 Six cells in this table hold no real data, and `IS NULL` sees only one of them. A check that also looks for empty strings, blanks and placeholders such as `N/A`, `-` and `000-000-0000` finds all six (run: `13_dimension_pitfalls.py`).
 
+Placeholders do not appear only in text fields. People tend to pick a value that gets past the rule of that field, so the disguise differs by the type of the field.
+
+- Text fields often hold `N/A`, `-`, `none` or two spaces.
+- Number fields often hold `0`, `-1` or `9999`, which pass the rule "must be a number" with no trouble.
+- Date fields often hold `1900-01-01` or `1970-01-01`, the dates a system falls back on when there is nothing to put in.
+- Email fields often hold `a@a.com` or `test@test.com`, which look like a complete email and so pass even a rule that checks the format.
+
+(These four are common things to find. They are not in our tables.)
+
 Ten Steps advises us to look for default values, and for the habit of typing something into a required field just to get past it, such as a single period to finish saving the record. Some teams decide that a field holding only the default counts as not filled in. The easiest way to find these values is to look at the most frequent values in the column, as [lesson 3](/en/data-quality/profiling/#look-at-the-frequency-of-values-in-columns-with-only-a-few-values) teaches, because placeholders always appear at the top of the list (book: Ten Steps chapter 4, pages 128 to 135).
 
 </Step>
@@ -104,13 +183,46 @@ Ten Steps advises us to look for default values, and for the habit of typing som
 
 ## Every row is complete, but the table is not
 
-A column-level rule sees only the rows that have already arrived in the table. If a whole day of rows never loaded, the rows that did load are still fully filled in and the score is still 100%.
+Picture a pad of receipts from a shop, where the numbers jump from 1018 to 1025. Every receipt that is left can be read in full, with the item, the amount and the date all filled in, yet we know at once that 6 receipts are missing.
 
-Our dataset has no day with missing rows, so to show the idea we made a copy of `orders` and removed 4 of every 5 orders of 30 August. That day went from 30 orders to 6. A row-level check that asks whether `status` and `total_amount` have values passes 2,976 of 2,976 rows, because every row that remains is complete.
+A column-level or row-level rule is like someone who checks only whether each receipt is filled in. It sees only the rows that have already arrived in the table. If a whole day of rows never loaded, the rows that did load are still fully filled in and the score is still 100%.
 
-What tells us something is wrong is a comparison with what is normal on other days. This table receives 24.8 orders a day on average, and the number moves up and down by about 4.7 orders (the standard deviation). We say a day more than three times that amount below the average is unusual, which means a day with fewer than about 10.6 orders. The day with 6 orders is far below that line (run: `13_dimension_pitfalls.py`).
+**First example, a sensor with a known schedule.** Here is a made-up table for one temperature sensor that sends a reading once an hour, over three days.
 
-The book says a dataset-level measurement can be done in two ways. One is to compare with a source of record, such as the row count in the source system, which [lesson 8](/en/data-quality/reconciliation/#reconcile-with-row-counts-and-sums) teaches. The other is to compare with how full this table has been in the past, which the book calls its historical levels of population (book: DMBOK2 Table 29, page 458). The second way needs no source to compare with, but it has a cost: a day that is quiet for a real business reason, such as a long holiday, looks exactly like a day with missing rows.
+| day | Rows expected | Rows that arrived | Rows with every field filled |
+|---:|---:|---:|---:|
+| 1 | 24 | 24 | 24 |
+| 2 | 24 | 18 | 18 |
+| 3 | 24 | 24 | 24 |
+
+A row-level check that asks whether `temp_c` has a value passes 66 of 66 rows, because every row that arrived is complete. But the schedule says the sensor must send 24 readings a day, which is 72 rows in three days. We have 66 of 72, or 91.7%, and day 2 is missing its last 6 hours (run: `13_dimension_pitfalls.py`).
+
+**Second example, orders with no schedule.** Our tables have no day with missing rows, so to show the idea we made a copy of `orders` and removed 4 of every 5 orders of 30 August. That day went from 30 orders to 6. A row-level check that asks whether `status` and `total_amount` have values passes 2,976 of 2,976 rows, because every row that remains is complete.
+
+A shop does not receive exactly 24 orders every day the way the sensor sends 24 readings, so we have no schedule to compare with. What tells us something is wrong is a comparison with what is normal on other days. This table receives 24.8 orders a day on average, and the number moves up and down by about 4.7 orders (the standard deviation). We say a day more than three times that amount below the average is unusual, which means a day with fewer than about 10.6 orders. The day with 6 orders is far below that line (run: `13_dimension_pitfalls.py`).
+
+</Step>
+
+<Step>
+
+## A low row count can mean lost data, or a day when nothing really happened
+
+Comparing with the past tells us only that today has an unusually low number of rows. It does not tell us why. A day on which no order really happened is possible too, such as a long holiday when the shop is closed, and in the table it looks exactly like a day with missing rows. Here is a made-up table of three days, comparing the rows in the table with the orders that the source system recorded.
+
+| day | Rows in the table | Orders in the source system | Conclusion |
+|---|---:|---:|---|
+| a normal day | 25 | 25 | complete |
+| a day with lost rows | 6 | 30 | 24 rows are missing |
+| a long holiday | 0 | 0 | complete, because no order happened that day |
+
+If we look only at the past, the day with lost rows and the holiday are flagged in the same way. When we compare with the source system, the day with lost rows is missing 24 rows, while the holiday is missing nothing (run: `13_dimension_pitfalls.py`).
+
+The book says a table-level measurement can be done in two ways.
+
+- The first is to compare with a source of record, such as the row count in the source system, which [lesson 8](/en/data-quality/reconciliation/#reconcile-with-row-counts-and-sums) teaches.
+- The second is to compare with how full this table has been in the past, which the book calls its historical levels of population (book: DMBOK2 Table 29, page 458).
+
+The second way needs no source to compare with, but we have to accept that it cannot tell a day when data was lost from a day that was really quiet. If we use the second way, we should put the calendar of holidays into the rule too. Otherwise every long holiday becomes a false alarm.
 
 </Step>
 
@@ -118,7 +230,19 @@ The book says a dataset-level measurement can be done in two ways. One is to com
 
 ## The denominator changes the score
 
-A completeness score depends on what we divide by. `customers.email` is 92.00% complete out of 500 customers, but the rule that checks the format of emails uses 460 as its denominator, because the 40 empty emails were already counted here. We do not want one empty cell to fail two rules at once. Using a different denominator in each rule is fine, as long as each rule says what it divides by (the summary table in the lesson [Data Quality Dimensions](/en/data-quality/dimensions/#all-14-rules-together) shows the denominator of all 14 rules).
+A completeness score depends on what we divide by. `customers.email` is 92.00% complete out of 500 customers, because 40 emails are empty.
+
+Now take another rule, one that checks the format of an email, which must have an `@` and a dot after the domain name. How should the customers whose email is empty be treated in this rule? If we divide by 500, the 40 empty emails are counted as "format failed", because an empty cell has no `@`. If we divide by 460, we count only the emails that exist, which is what this rule should check (run: `13_dimension_pitfalls.py`).
+
+| Rule | Denominator | Rows that pass | Score |
+|---|---:|---:|---:|
+| Completeness of `email` | 500 | 460 | 92.00% |
+| Email format, divided by the emails that exist | 460 | 445 | 96.74% |
+| Email format, divided by all rows | 500 | 445 | 89.00% |
+
+In this table only 15 emails have the wrong format, but if we divide by 500 the score drops to 89.00%, because the 40 empty cells are counted as failures a second time, although completeness already caught them. The team would then see that email formats are in bad shape and chase the formats, when the bigger problem is that 40 emails are missing.
+
+So we let one empty cell fail one rule, and not two rules at once. Using a different denominator in each rule is fine, as long as each rule says what it divides by (the summary table in the lesson [Data Quality Dimensions](/en/data-quality/dimensions/#all-14-rules-together) shows the denominator of all 14 rules).
 
 </Step>
 
@@ -126,7 +250,30 @@ A completeness score depends on what we divide by. `customers.email` is 92.00% c
 
 ## Why look at completeness first
 
-The author of Ten Steps tells of a deduplication project they once worked on. The team picked a field they "knew" was essential for deciding whether two records belong to the same person, then tuned the algorithm over many rounds without getting good results. When they finally checked the fill rate, that field had a value in only 20% of the records. The algorithm was not at fault. The data it needed had never been there (book: Ten Steps chapter 3, pages 42 to 46). So if we are about to build logic that depends on a field, we check the completeness of that field first.
+The author of Ten Steps tells of a deduplication project they once worked on. The team picked a field they "knew" was essential for deciding whether two rows belong to the same person, then tuned the algorithm over many rounds without getting good results. When they finally checked the fill rate, that field had a value in only 20% of the rows.
+
+So the algorithm was not at fault. The field it needed to compare was empty in most rows, and there was nothing to compare from the start (book: Ten Steps chapter 3, pages 42 to 46).
+
+To picture it, here is a made-up example with only 5 rows, and an algorithm that decides two rows are the same person only if their phone numbers match.
+
+| id | name | phone |
+|---:|---|---|
+| 1 | Somchai | 0812345678 |
+| 2 | Somchay | (empty) |
+| 3 | Malee | (empty) |
+| 4 | Malee | (empty) |
+| 5 | Nida | (empty) |
+
+The phone number is filled in for 1 of 5 rows, or 20%. Five rows make 10 pairs, and no pair has a phone number on both sides to compare (run: `13_dimension_pitfalls.py`). We can see by eye that Somchai and Somchay are probably the same person, and so are the two Malees. An algorithm that relies on phone numbers will never match these pairs, however clever we make it.
+
+The step to take before tuning the algorithm is to check what percentage of the field it relies on is filled in.
+
+```sql
+SELECT count(phone) * 1.0 / count(*) FROM people;
+-- 0.2
+```
+
+`count(phone)` counts only the rows where `phone` is not empty, and `count(*)` counts every row, so dividing them gives the share that is really filled in. So if we are about to build logic that depends on a field, we check the completeness of that field first.
 
 </Step>
 
@@ -134,9 +281,30 @@ The author of Ten Steps tells of a deduplication project they once worked on. Th
 
 ## How it differs from the other dimensions
 
-Completeness and validity are separated by the question they ask. Customer 14 has no email at all, which is completeness. Customer 23 has an email, but it is `user23example.com` without the `@`, which is validity, and the [Validity page](/en/data-quality/dimensions/validity/) explains it further. In `orders`, an empty `customer_id` (order 344, for example) is completeness, while a `customer_id` of 9017 for a customer who does not exist (order 65) is integrity, which the [Integrity page](/en/data-quality/dimensions/integrity/) covers. Together those two groups make 45 orders that cannot be tied to a customer.
+Completeness is often confused with other dimensions, because many different problems look like "bad data". The table below takes the problems we met on this page and sorts each one into the dimension it belongs to.
 
-A field that is filled in can still be wrong. `birth_date` is filled in for all 500 customers, but customer 28 has a birth date of 2026-12-25, a day in the future, and completeness cannot see that at all.
+| What we see | Dimension | Why |
+|---|---|---|
+| Customer 14 has no email | Completeness | a field that should have a value is empty |
+| Order 344 has an empty `customer_id` | Completeness | a field that should have a value is empty |
+| Order 84 is SHIPPED but `shipped_ts` is empty | Completeness | a conditional field whose condition holds, yet it is empty |
+| Patient 3 has the status HAS but `allergies` is empty | Completeness | a conditional field whose condition holds, yet it is empty |
+| The sensor lost 6 hours on day 2 | Completeness at the table level | rows that should be there never arrived |
+| Customer 23 has the email `user23example.com` with no `@` | [Validity](/en/data-quality/dimensions/validity/) | there is a value, but its format is wrong |
+| Customer 28 was born on 2026-12-25, a day in the future | [Validity](/en/data-quality/dimensions/validity/) | there is a value, but it is outside the allowed range |
+| Order 65 has a `customer_id` of 9017, and no such customer exists | [Integrity](/en/data-quality/dimensions/integrity/) | there is a value in the right format, but it points at something that does not exist |
+| Order 267 appears in two rows that are identical in every field | [Uniqueness](/en/data-quality/dimensions/uniqueness/) | there are more rows than there should be |
+| Order 135 reached the warehouse four days late | [Timeliness](/en/data-quality/dimensions/timeliness/) | every field is filled in, but the data came late |
+
+Look at the rows for customer 23, customer 28 and order 65. All three have a value in every field, so completeness alone would give 100% although the data is wrong. When we meet a new problem and are not sure which dimension it belongs to, we can ask these questions in order.
+
+1. Is a field that should have a value empty? If so, that is completeness.
+2. Does the field have a value whose format or range is wrong? If so, that is validity.
+3. Does the field have a value in the right format that points at something that does not exist? If so, that is integrity.
+4. Are there more rows than there should be? If so, that is uniqueness.
+5. Is the data complete and correct but late? If so, that is timeliness.
+
+One problem can fit more than one question. An order with an empty `customer_id` cannot be tied to a customer, and neither can an order that points at customer 9017. Together the two groups make 45 rows that cannot be tied to a customer, but we should report them separately, because the fixes are different.
 
 Ten Steps does not treat completeness and validity as separate dimensions. They sit together in data integrity fundamentals, because one round of profiling finds both. The book also says that assessing and reporting are different things, so we may still report them separately (book: Ten Steps chapter 3, pages 42 to 46).
 
@@ -147,6 +315,7 @@ Ten Steps does not treat completeness and validity as separate dimensions. They 
 ## Check yourself
 
 - Pick one column in a table you own. Is it mandatory, conditional or inapplicable, and does the rule that checks it say so?
+- Is there a column whose empty cell can mean more than one thing, such as "none" and "unknown"? If so, what column would you add to tell the two cases apart?
 - Your pipeline loads 2% fewer rows today than yesterday, and every loaded row is fully populated. Which level of completeness has failed, and which check would have seen it?
 - Find a column where people type a placeholder to get past a required field. How would you count those placeholders?
 
@@ -162,8 +331,11 @@ Ten Steps does not treat completeness and validity as separate dimensions. They 
 | The proportion of data stored against the potential for 100% | book: DMBOK2 section 1.3.3, page 457 |
 | Default values and placeholders, completeness reported together with validity | book: Ten Steps chapter 4, pages 128 to 135 |
 | The 20% fill rate story, and completeness and validity in one dimension | book: Ten Steps chapter 3, pages 42 to 46 |
-| 1,251 / 1,226 / 25 for `shipped_ts`, the 8-row phone table, the copy with a gap (6 rows instead of 30, 2,976 of 2,976 rows pass, 24.8 and 4.7 on other days) | ran: `13_dimension_pitfalls.py`. The phone table and the copy are made up, because the dataset has no such cases |
-| Rows shown (customers 14, 24, 30, orders 84, 344, 65), 92.00% and 40 of 500, 15 NULL plus 30 orphans making 45 | ran: `02_dimensions.py`, `13_dimension_pitfalls.py` and queries on the same dataset |
-| The examples `order_id` and the phone number in the three-group table, the picture of the marketing team, and the choice of what to explain first | author |
+| 1,251 / 1,226 / 25 for `shipped_ts`, the 8-row phone table, the copy with a gap (6 rows instead of 30, 2,976 of 2,976 rows pass, 24.8 and 4.7 on other days) | ran: `13_dimension_pitfalls.py`. The phone table and the copy are made up, because our tables have no such cases |
+| The email denominators 500, 460 and 445, and the scores 92.00%, 96.74% and 89.00% | ran: `13_dimension_pitfalls.py` on the example tables |
+| The 6-row patient table (4 empty, 1 defect, 1 not asked, 2 correct), the 3-day sensor table (24, 18, 24, 66 of 66 pass, 66 of 72 complete), the three-day table against the source system, and the 5-row table (20% filled, 10 pairs, 0 comparable) | ran: `13_dimension_pitfalls.py`. All these tables are made up |
+| Rows shown (customers 14, 24, 30, orders 84, 344, 65), 92.00% and 40 of 500, 15 NULL plus 30 orphans making 45 | ran: `02_dimensions.py`, `13_dimension_pitfalls.py` and queries on the same tables |
+| Customers 23 and 28, orders 267 and 135 | ran: queries on the same tables, and the pages [Validity](/en/data-quality/dimensions/validity/), [Uniqueness](/en/data-quality/dimensions/uniqueness/) and [Timeliness](/en/data-quality/dimensions/timeliness/) |
+| The examples from several businesses (hospital, online shop, human resources, sign-up system, sensor), the four kinds of placeholder, the receipts with a gap in the numbers, the picture of the marketing team, the order of the five questions, and the choice of what to explain first | author |
 
 </Step>

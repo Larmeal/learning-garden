@@ -78,6 +78,76 @@ assert row_level[0] == row_level[1]
 assert n_gap < hist_mean - 3 * hist_sd
 expect("rows on the gap day, before and after", (n_orig, n_gap), (30, 6))
 
+# The denominator: the 40 empty emails fail completeness, so the format rule divides by the 460 emails that exist. With 500 as
+# the divisor the same 40 cells would also lower the format score.
+email_counts = con.execute(
+    f"SELECT count(*), count(email), count(*) FILTER (WHERE regexp_matches(email, '{EMAIL_OK}')) FROM customers"
+).fetchall()[0]
+n_cust, n_email, n_email_ok = email_counts
+print(f"  customers {n_cust}, with an email {n_email}, with a well formed email {n_email_ok}")
+print(f"  completeness {100 * n_email / n_cust:.2f}%, format over {n_email} emails {100 * n_email_ok / n_email:.2f}%, "
+      f"format over all {n_cust} rows {100 * n_email_ok / n_cust:.2f}%")
+expect("email counts", email_counts, (500, 460, 445))
+expect("the three scores",
+       (round(100 * n_email / n_cust, 2), round(100 * n_email_ok / n_email, 2), round(100 * n_email_ok / n_cust, 2)),
+       (92.0, 96.74, 89.0))
+
+# A tiny made-up patient table: an empty `allergies` cell means three different things, so the status column decides.
+patients = pd.DataFrame(
+    {
+        "patient_id": [1, 2, 3, 4, 5, 6],
+        "allergy_status": ["HAS", "NONE", "HAS", "NOT_ASKED", "NONE", "HAS"],
+        "allergies": ["Penicillin", None, None, None, None, "Latex"],
+    }
+)
+con.register("_patients", patients)
+patient_counts = con.execute(
+    """
+    SELECT count(*) FILTER (WHERE allergies IS NULL),
+           count(*) FILTER (WHERE allergies IS NULL AND allergy_status = 'HAS'),
+           count(*) FILTER (WHERE allergies IS NULL AND allergy_status = 'NOT_ASKED'),
+           count(*) FILTER (WHERE allergies IS NULL AND allergy_status = 'NONE'),
+           count(*) FILTER (WHERE allergy_status = 'HAS')
+    FROM _patients
+    """
+).fetchall()[0]
+print(f"  tiny patient table (6 rows): empty allergies {patient_counts[0]}, of which defect {patient_counts[1]}, "
+      f"never asked {patient_counts[2]}, correct {patient_counts[3]}")
+expect("empty allergies by status, and patients with an allergy", patient_counts, (4, 1, 1, 2, 3))
+
+# A tiny made-up sensor table: one reading per hour for three days, the second day lost six hours. Every row is complete.
+hours = [(d, h) for d in (1, 2, 3) for h in range(24) if not (d == 2 and h >= 18)]
+sensor = pd.DataFrame({"day": [d for d, _ in hours], "hour": [h for _, h in hours], "temp_c": [30.0] * len(hours)})
+con.register("_sensor", sensor)
+per_day = con.execute("SELECT day, count(*) FROM _sensor GROUP BY 1 ORDER BY 1").fetchall()
+sensor_row_level = con.execute("SELECT count(*) FILTER (WHERE temp_c IS NOT NULL), count(*) FROM _sensor").fetchall()[0]
+print(f"  tiny sensor table: readings per day {per_day}, row level {sensor_row_level[0]} of {sensor_row_level[1]}, "
+      f"against the schedule {sensor_row_level[1]} of {3 * 24} ({100 * sensor_row_level[1] / (3 * 24):.1f}%)")
+expect("sensor readings per day", per_day, [(1, 24), (2, 18), (3, 24)])
+expect("sensor row level and schedule", (sensor_row_level, 3 * 24), ((66, 66), 72))
+assert round(100 * 66 / 72, 1) == 91.7
+
+# A made-up table of three days: the same low count is a loss on one day and the truth on another.
+days = pd.DataFrame({"day": ["normal", "rows lost", "holiday"], "in_table": [25, 6, 0], "in_source": [25, 30, 0]})
+days["missing"] = days["in_source"] - days["in_table"]
+print(f"  tiny day table: missing rows per day {days['missing'].tolist()}")
+expect("only the lost day is missing rows", days["missing"].tolist(), [0, 24, 0])
+
+# A made-up deduplication input: the matching field is filled in one of five records, so no pair can be compared on it.
+people = pd.DataFrame(
+    {
+        "id": [1, 2, 3, 4, 5],
+        "name": ["Somchai", "Somchay", "Malee", "Malee", "Nida"],
+        "phone": ["0812345678", None, None, None, None],
+    }
+)
+fill = people["phone"].notna().mean()
+filled = people["phone"].notna().to_numpy()
+pairs = [(i, j) for i in range(5) for j in range(i + 1, 5)]
+comparable = sum(1 for i, j in pairs if filled[i] and filled[j])
+print(f"  tiny people table: phone filled {100 * fill:.0f}%, pairs {len(pairs)}, pairs where both have a phone {comparable}")
+expect("fill rate and comparable pairs", (round(100 * fill), len(pairs), comparable), (20, 10, 0))
+
 # ---- validity ---------------------------------------------------------------------------------------------------------
 section("validity: passing the rule says nothing about being right")
 
