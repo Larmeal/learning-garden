@@ -17,6 +17,7 @@ updated: 2026-11-15
 import Step from '../../../../components/Step.astro';
 import Callout from '../../../../components/Callout.astro';
 import Question from '../../../../components/Question';
+import IntegrateLab from '../../../../components/labs/git/IntegrateLab';
 
 <Step>
 
@@ -85,6 +86,10 @@ The text says which commit is the base, where the branch is, which commits there
 
 When the maintainer is happy, most websites let them choose how to combine. We imitate each with Git's own commands (ran), starting from the same situation, and look at the history of `main`.
 
+Play the picture below first. It runs all three from the same history, where `main` has M1 and M2 and `topic/search` has C1 and C2, so we can see which commits are new, which are copied and which are left behind. Then read the result of each way from the real commands.
+
+<IntegrateLab lang="en" client:visible />
+
 **Way one, a merge commit.** `git merge --no-ff` gives a commit with two parents.
 
 ```text
@@ -102,8 +107,9 @@ The contributor's commits are all there with their own ids, and `git log --first
 **Way two, squash.** `git merge --squash` and then `git commit` give one commit.
 
 ```text
-* 415c727 Add search (#1)
-* 622d93e M1 first version
+* a3c3bc3 Add search (#1)
+* 4631cb3 M2 main moves on meanwhile
+* 5b4eab7 M1 first version
 ```
 
 The contributor's commits did not come into the history of `main`. The files come out exactly as in way one, but the history is shorter. The thing to watch is that Git does not know the topic was merged, because the commits of the topic are not ancestors of `main`. So `git branch -r --merged main` does not count `origin/topic/search`, and we have to delete that branch ourselves.
@@ -111,10 +117,10 @@ The contributor's commits did not come into the history of `main`. The files com
 **Way three, rebase and then fast-forward.** The contributor rebases the topic onto the tip of `main` and force-pushes with `--force-with-lease`. The maintainer then merges with `--ff-only`.
 
 ```text
-* a84833d C2 finish search
-* f00631a C1 start search
-* f84005b M2 main moves on meanwhile
-* 795a716 M1 first version
+* c8ce798 C2 finish search
+* 9101455 C1 start search
+* 4631cb3 M2 main moves on meanwhile
+* 5b4eab7 M1 first version
 ```
 
 The history is a straight line, and the commits of the topic have new ids, as we learned in the rebase lesson. `--ff-only` works because the topic now continues exactly from the tip of `main`.

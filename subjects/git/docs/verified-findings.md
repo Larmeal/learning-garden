@@ -4,7 +4,7 @@ Every statement in a lesson is tagged **ran** (produced by an exercise in `code/
 **source** (read in the Git v2.56.1 source at `E:\Development\Project\open-source\git`, by file and function; the knowledge graph in
 `graphs/git-current/` is the map and the claims below were also checked with `grep`), **book** (chapter and the printed page where the section
 starts; `docs/sources.md` has the page offsets) or **author** (advice, framing or a guess, said so in the lesson).
-`code/verify.py` re-runs the 16 exercises (about 370 checks) and exits non-zero if one changes. The ids that the lessons print repeat on every
+`code/verify.py` re-runs the 17 exercises (431 checks) and exits non-zero if one changes. The ids that the lessons print repeat on every
 run because `gitlab.py` fixes the author, the clock and the configuration.
 
 | Lesson | Claim | Tag | Where |
@@ -77,6 +77,19 @@ run because `gitlab.py` fixes the author, the clock and the configuration.
 | patch-hook-submodule | `pre-commit`, `--no-verify`, `commit-msg`, hooks are not cloned, `core.hooksPath`, `pre-receive` rejects a push | ran | `14_patch_hook_submodule.py` |
 | patch-hook-submodule | `.gitmodules`, the `160000` entry, the pointer does not follow, an empty folder after clone, `submodule update --init`, `transport 'file' not allowed` | ran | `14_patch_hook_submodule.py` |
 | patch-hook-submodule | sending patches by real mail, `git subtree` | not run | VCWG ch. 13 p. 326, ch. 15 p. 364 (left out) |
+| team-workflow | the same start taken in three ways (merge commit, squash, rebase and fast-forward) gives one tree id; 5, 3 and 4 commits on main; 1, 0 and 0 merge commits; the old C1 and C2 stay in main only after a merge; `git branch -r --merged` says no after a squash | ran | `16_lab_data.py` section 1, `IntegrateLab` |
+| merge | a fast-forward ends with main on d1 and makes nothing; the real merge has parents m2 and k1; the base is d1 | ran | `16_lab_data.py` section 6, `MergeKindsLab` |
+| merge | changes on different lines merge alone; the same line stops with the markers; the two scenarios' texts | ran | `16_lab_data.py` section 6, `ConflictLab` |
+| merge | the way out `salad with egg and tuna` is the text exercise 04 commits | ran | `04_merge.py` |
+| history | the set of commits of each selector (`HEAD~2`, `HEAD~3`, `M^2`, `main..topic`, `topic..main`, `main...topic`, `^B main`, `--first-parent`, `feature`) on a history with a merge | ran | `16_lab_data.py` section 2, `RangesLab` |
+| finding-commits | for every possible first bad commit among 16 (2 to 16) the real `git bisect` needs at most 4 answers; the commits it tests when 11 is the culprit are 8, 12, 10, 11 | ran | `16_lab_data.py` section 3, `BisectLab` |
+| recovery | the reflog lines before the reset, after `reset --hard HEAD~2` and after `reset --hard HEAD@{1}`, with their ids | ran | `16_lab_data.py` section 4, `ReflogLab` |
+| refs-and-packs | for each of the 20 blobs: loose size, size in the pack, delta depth and base (V1 to V17 against V18, V18 and V19 against V20, V20 whole); 16,613 against 4,838 bytes, the same bytes as exercise 12 | ran | `16_lab_data.py` section 5, `PackLab` |
+| what-is-git | two commits make 4 and then 3 more objects, and b.txt is the same blob in both | ran | `16_lab_data.py` section 7, `SnapshotLab` |
+| index-diff-merge | the diff of each algorithm on the made-up pair (lines marked added and removed); patience 3 each, the others 2 | ran | `16_lab_data.py` section 8, `DiffLab` |
+| index-diff-merge | the one-line description of each algorithm shown by the lab | docs (not run) | Git `diff-options` documentation, summarised |
+| patch-hook-submodule | a pre-commit hook that exits 1 stops the commit and `--no-verify` skips it, with the hook's text and the two logs | ran | `16_lab_data.py` section 9, `HookLab` |
+| patch-hook-submodule | the gitlink `160000 commit <id>` for the library at L1 and later L2, `git status` ` M vendor/lib` after the pull, an empty folder after a plain clone | ran | `16_lab_data.py` section 10, `SubmoduleLab` |
 
 ## Not run, or not checked
 
@@ -84,3 +97,4 @@ run because `gitlab.py` fixes the author, the clock and the configuration.
 - Linux and macOS. Hooks run through the `sh` of Git for Windows. `dev`, `ino`, `uid`, `gid` in the index are 0 on this machine.
 - The reflog expiry difference above is reported as measured. It was not checked whether it is an upstream defect.
 - The figures of the two books were not seen, only their text and captions.
+- The animated labs (`IntegrateLab`, `MergeKindsLab`, `ConflictLab`, `RangesLab`, `BisectLab`, `ReflogLab`, `PackLab`, `SnapshotLab`, `DiffLab`, `HookLab`, `SubmoduleLab`) draw ids, sizes and outputs from `exercises/16_lab_data.py`; the positions, colours and the pace of the animations are the author's. No person watched them play from start to end; the key moments were looked at as screenshots.

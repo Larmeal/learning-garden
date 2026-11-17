@@ -19,6 +19,7 @@ parents = lambda repo, name: git(repo, "rev-list", "--parents", "-n", "1", name)
 
 def setup(tag: str):
     """A remote, a maintainer clone and a contributor clone that pushed a topic branch with two commits."""
+    reset_clock()  # every way of taking the topic in starts from the same clock, so M1, C1 and C2 get the same ids each time (exercise 16 does the same)
     origin = init(f"07_{tag}_origin.git", bare=True)
     url = origin.as_posix()
     maint = fresh(f"07_{tag}_maintainer")
@@ -60,6 +61,7 @@ check("git log --first-parent reads like a list of pull requests", git(maint, "l
 
 # ---- 3. squash: the topic becomes one new commit ----
 origin, maint, contrib = setup("squash")
+save(maint, "app.txt", "v1\nv2\n", "M2 main moves on meanwhile")
 git(maint, "fetch", "--quiet")
 git(maint, "merge", "--squash", "--quiet", "origin/topic/search")
 git(maint, "commit", "--quiet", "-m", "Add search (#1)")
