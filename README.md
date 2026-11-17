@@ -81,7 +81,7 @@ The lessons state numbers (row counts, query plans, file layouts, error messages
 | Great Expectations | uv | `uv sync`, then `uv run python 01_first_validation.py` |
 | Pydantic | uv | `uv sync`, then `uv run python verify.py` |
 | Pytest | uv | `uv sync`, then `uv run python verify.py` |
-| Git | **Git 2.56**, Python 3.12 or newer (standard library only) | `python verify.py` (or `uv run python verify.py`), about 1.5 minutes |
+| Git | **Git 2.56**, Python 3.12 or newer (standard library only) | `python verify.py` (or `uv run python verify.py`), about 3 minutes |
 | Apache Spark | uv, **JDK 17 or 21**, Linux, macOS or WSL | `uv sync`, then `uv run python exercises/01_architecture.py` or `uv run python verify.py` |
 | Apache Iceberg | uv, **JDK 17 or 21**, Linux, macOS or WSL | `bash setup.sh` once, then `uv run python exercises/01_first_table.py` or `uv run python verify.py` |
 
@@ -105,6 +105,7 @@ None of these are part of a build, so they never reach the published site.
 - **View | Edit** on a lesson page: edits that lesson's `.mdx` in the page layout and saves to the file. A save is refused, and the file left as it was, when the text does not compile, the frontmatter does not match the schema, or the page then fails to render. It only answers to `localhost`.
 - **Translation check**: the editor shows which units of a lesson the other language has not followed (`site/tools/translation-sync.mjs`).
 - **Notes** (speech bubble in the Astro dev toolbar): click a part of a page or select text, write what is wrong, and the note is saved to `.audit/comments.json` with where it points (the lesson file, the component, the viewport, the theme). The folder is created on the first note and is git-ignored because the repo is public. Code is in `site/dev-notes/`.
+- **Ask** (question mark in the Astro dev toolbar): highlight text on a lesson page and ask Claude what it means, with shortcut buttons for "what does it mean", "an example", "why" and "quiz me". The answer streams into a panel beside the page, in the style of the Claude Code chat: files that Claude reads show as cards you can open, code blocks have a Copy button, you can choose the model, drag the panel wider, move it to the other side, and it follows the site's light or dark theme. It starts the `claude` program of your own computer (install [Claude Code](https://code.claude.com/docs/en/overview) and log in once), so it uses your own Claude Code login, and without it the app says it cannot find `claude`. It stores no chat of its own: the ☰ button lists the sessions that Claude Code already keeps for this folder (`~/.claude/projects/`, which it only reads, apart from renaming), and you can open one, including a chat started in the VS Code extension, and carry on. You can rename a chat (double-click its name, or the pencil in the list): that adds a title line to its session file, which is what `/rename` does, so the new name shows in Claude Code too. Claude can read the repo but cannot edit a file or run a command, and the app switches itself off when the dev server is started with `--host`. Each question counts against your plan like any Claude Code use, and a new chat appears in your Claude Code history. Code is in `site/dev-ask/`.
 
 ## Deploy
 
