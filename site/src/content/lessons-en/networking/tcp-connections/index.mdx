@@ -1,0 +1,176 @@
+---
+title: A TCP connection from start to end
+summary: "TCP builds a connection with a three-step handshake that swaps sequence numbers and options, and closes it with four segments. The side that closes first has to wait in TIME-WAIT, and there are two ways a call to a server fails: an RST that answers at once, and silence, where the SYN is sent again and again."
+facts:
+  - "Ran for real in exercises/07_tcp_connections.py in network namespaces in WSL, with a client, a router and a server whose cables are delayed 10 milliseconds each way. Packets are captured at both ends and the states are read with the Linux ss command. The sequence numbers in the lesson count from each side's own random first number."
+  - "The 20 millisecond handshake and the SYN being sent again at 1, 2, 3, 4, 5 and 7 seconds are the behaviour of the Linux kernel used for the test (tcp_syn_linear_timeouts=4). Other systems have other timings. The structure of TCP cites TCP/IP Illustrated, 2nd edition, chapter 13, with page numbers."
+  - "Not run: simultaneous open, SYN cookies, TCP Fast Open, and the behaviour of operating systems other than Linux."
+order: 7
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [udp-dns]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import TcpHandshakeLab from '../../../../components/labs/networking/TcpHandshakeLab';
+import TcpCloseLab from '../../../../components/labs/networking/TcpCloseLab';
+
+<Step>
+
+## Why there is a handshake
+
+UDP can send data at once without asking anyone, but TCP makes a much heavier promise: the data we send will arrive complete, in order and without duplicates (book: TCPIP section 12.2, page 584). A promise like that needs a piece of memory on each side that records what has been sent, what has been received and what is awaited. That piece of memory is the connection, and before it can be used the two sides have to agree where to start.
+
+In the exercise we open one connection and capture every segment at the client (ran: `exercises/07_tcp_connections.py`). The sequence and acknowledgement numbers in the table count from each side's first number, because the real numbers are random and change on every run.
+
+```text
+time      direction         flags    seq  ack  data  window
+  0.0 ms  client -> server  SYN      0         0     64240
+ 20.2 ms  server -> client  SYN,ACK  0    1    0     65160
+ 30.3 ms  client -> server  ACK      1    1    0     63
+ 30.3 ms  client -> server  PSH,ACK  1    1    65    63
+ 40.4 ms  server -> client  ACK      1    66   0     64
+ 40.5 ms  server -> client  PSH,ACK  1    66   98    64
+```
+
+The first three lines are the handshake. Each side chooses its own starting number (the ISN, Initial Sequence Number), which is random so that old segments of an earlier connection that wander in do not get mixed up with a new one (book: TCPIP section 13.2, pages 595 to 602). The client sends a SYN with its number. The server answers with a SYN,ACK that carries the server's number and says "I got your SYN, next I wait for byte 1". Note that `ack=1` and not 0, because a SYN uses up one sequence number even though it carries no data. Then the client acknowledges again as the third step (ran).
+
+</Step>
+
+<Step>
+
+## The handshake with the real numbers
+
+Press play to watch the three steps, then the first data, and notice how long we have to wait from the start until the first request.
+
+<TcpHandshakeLab client:visible lang="en" />
+
+The lab shows three things. First, the time: the SYN,ACK comes back 20 milliseconds after the SYN, which is one round trip (the cable is set to 10 milliseconds each way), and the first data can go only after that. However fast the cable is, a new connection costs at least one round trip before any real data (ran). Second, ack=66 after a 65-byte request. An acknowledgement number is the next byte the receiver is waiting for, so 1 plus 65 is always 66 (ran). And third, the options in the SYN.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A client sends a SYN with sequence = 1000 (no data). What acknowledgement value should the server's SYN,ACK carry?"
+  options={['1000', '1001', '1002', 'The same as the server\'s own sequence']}
+  answer={1}
+  why="A SYN uses up one sequence number even with no data, so the receiver acknowledges that it has everything up to 1000 and waits for byte 1001. In the exercise a SYN at seq=0 (counted relatively) got ack=1, and a FIN uses one number in the same way (ran and book: TCPIP section 13.2, pages 595 to 602)."
+/>
+
+</Step>
+
+<Step>
+
+## The options the two sides agree in the SYN
+
+The SYN of the exercise carries options that the client would like to use, and the server accepts them in its own SYN,ACK (ran).
+
+```text
+SYN      mss=1460  sack_ok  timestamp  wscale=10
+SYN,ACK  mss=1460  sack_ok  timestamp  wscale=10
+```
+
+MSS is the largest amount of data per segment, which we met in [lesson 3](/en/networking/link-layer/#the-mtu-sets-the-size-of-a-tcp-segment). SACK (Selective Acknowledgement) lets the receiver say which pieces it has received beyond the continuous number, which will matter when packets are lost (book: TCPIP section 13.3, page 607). The timestamp is used to measure round trips. The window scale hides one fact: the Window field in a TCP header is only 16 bits wide, at most 65,535 bytes, which is too small for fast cables today. So this option says to multiply the Window field by 2 to the power 10, or 1024. After the handshake the later segments have a Window value of 63, which equals 64,512 bytes (book: TCPIP section 13.3, page 608). The reason these options appear only in the SYN is that they have to be agreed before the start, and the segments that follow carry only the timestamp in their header (ran).
+
+</Step>
+
+<Step>
+
+## Closing a connection takes four segments
+
+Closing is separate for each direction. One side sends a FIN, meaning "I have finished sending". The other side answers with an ACK and must send its own FIN when it is ready. In the exercise the server closes first (because the response said `Connection: close`) and the client follows in its own segment. Press play to see the four segments and the states each side goes through.
+
+<TcpCloseLab client:visible lang="en" />
+
+At the end, the side that sent the FIN first, the server, has to stay in `TIME-WAIT` for about 60 seconds. In the exercise the `ss -tano` command on the server shows this row right after the close, and the client has no socket left at all (ran).
+
+```text
+State      Recv-Q Send-Q  Local Address:Port  Peer Address:Port  Process
+TIME-WAIT  0      0       10.0.2.2:8080       10.0.1.2:50000     timer:(timewait,59sec,0)
+```
+
+About 14 seconds later the `timer` shows 45 seconds. There are two reasons it has to stay. First, if the last ACK is lost the client will send its FIN again, and the server must still remember this connection in order to answer. Second, old segments of this connection that are still wandering in the network must expire, or they would mix with a new connection that uses the same ports (book: TCPIP section 13.5, pages 620 to 624). This is worth knowing: a server that closes the connection first every time and takes thousands of requests per second will show a large number of sockets in this state, which is normal and not an error.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A server that always closes the connection first (like a response with Connection: close) shows a large number of sockets in TIME-WAIT. Which explanation is right?"
+  options={[
+    'It is an error, the server has to be restarted',
+    'It is normal: the side that sends the FIN first has to stay in TIME-WAIT for about 60 seconds, in case the last ACK is lost and so that old segments can expire',
+    'It is because the clients have not closed yet',
+    'It is because the server did not send an ACK',
+  ]}
+  answer={1}
+  why="TIME-WAIT is part of a correct close, and the side that closes first is the one that stays. In the exercise the server, which sent the FIN first, had a TIME-WAIT row with a timer of 59 seconds, while the client, which closed second, had no socket left (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Failing to reach a server happens in two ways
+
+If a client sends a SYN and the server does not accept in the usual way, there are two cases that look very different from the point of view of the program that is waiting.
+
+The first is that no program listens on that port. The server's kernel answers with an RST (reset) at once, and the client sees `Connection refused` within one round trip, which is good news in that we learn quickly (ran, book: TCPIP section 13.6, page 626).
+
+```text
+  0.0 ms  client  SYN
+ 10.1 ms  server  RST,ACK
+the program was told: refused
+```
+
+The second is worse. The server (or a firewall in front of it) drops the packet and says nothing at all. The client cannot tell what happened, so it sends the same SYN again when time is up. In the exercise, on this kernel, the SYN was sent again at 0, 1, 2, 3.1, 4.1, 5.1 and 7.1 seconds (ran). The gap is 1 second five times and then 2, because the kernel is set to `tcp_syn_linear_timeouts=4` to try more often at first. Other systems may start at 1, 2, 4 seconds. Our program then waits until its own timeout, which was 9 seconds (ran).
+
+Choose the three scenes in the lab above and compare them. This matters in real work. If calling a server gives `refused` very quickly, the server is there but nothing listens on that port. But if it gives a slow `timeout`, suspect a firewall or a router that drops packets (author).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We call a server and the connection hangs for several seconds before it times out, with no refused message at all. What is the most suspicious cause?"
+  options={[
+    'No program listens on that port',
+    'A firewall or a route drops the SYN silently, so nobody answers',
+    'A FIN flag was sent again',
+    'The server has already closed the connection',
+  ]}
+  answer={1}
+  why="If no program listens on the port, the server's kernel answers RST at once and we see refused in a fraction of a second. Silence until the timeout means the SYN never arrived or was dropped. In the exercise the same SYN was sent again seven times in 9 seconds without any answer (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The three-way handshake, SYN and FIN use one sequence number, ack is the next byte awaited | ran: `exercises/07_tcp_connections.py` and book: TCPIP section 13.2, pages 595 to 602 |
+| The first data can leave after 1 round trip (20 ms in the exercise) | ran: `exercises/07_tcp_connections.py` |
+| The options in the SYN (MSS, SACK, timestamp, window scale), and a window of 63 meaning 64,512 bytes | ran and book: TCPIP section 13.3, pages 606 to 609 |
+| The four segments of the close | ran and book: TCPIP section 13.5, pages 616 to 619 |
+| TIME-WAIT stays on the side that closed first for about 60 seconds, with two reasons | ran (timer 59 and 45 seconds) and book: TCPIP section 13.5, pages 620 to 624 |
+| A port nobody listens on answers RST,ACK at once | ran and book: TCPIP section 13.6, page 626 |
+| The SYN is sent again at 0, 1, 2, 3.1, 4.1, 5.1 and 7.1 seconds | ran (a Linux kernel with tcp_syn_linear_timeouts=4) |
+| A fast refused means the server is there but nobody listens, and a slow timeout suggests a firewall | author |
+| Simultaneous open, SYN cookies, TCP Fast Open | not run |
+
+</Step>

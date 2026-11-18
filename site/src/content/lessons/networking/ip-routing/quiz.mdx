@@ -1,0 +1,92 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 5 ข้อ เพื่อเช็กว่าเลือก Route ด้วย Longest Prefix ได้ อ่านผล Traceroute เป็น และเข้าใจว่า Fragment กับ Path MTU Discovery ต่างกันอย่างไร
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Router มี Route สามแถว 10.0.0.0/8 Via A, 10.0.4.0/24 Via B และ 0.0.0.0/0 Via C ปลายทาง 10.0.4.9 จะถูกส่งไปทางไหน?"
+  options={['A', 'B', 'C', 'ส่งไปทั้งสามทาง']}
+  answer={1}
+  why="ปลายทางตรงกับทั้ง /8 /24 และ Default (/0) Router เลือกแถวที่ Prefix ยาวที่สุด คือ /24 จึงส่งไป B ส่วน 10.9.9.9 จะตรงแค่ /8 และ Default จึงไปทาง A (รัน และหนังสือ: TCPIP หัวข้อ 5.4 หน้า 209)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Traceroute บอกที่อยู่ของ Router ตัวที่สองบนเส้นทางได้อย่างไร?"
+  options={[
+    'ถาม Router ทุกตัวผ่าน SNMP',
+    'ส่ง Packet ที่ TTL 2 ซึ่งหมดอายุที่ Router ตัวที่สอง และ Router ตอบ ICMP Time Exceeded มาพร้อมที่อยู่ของตัวเอง',
+    'อ่านตาราง Route จาก Server',
+    'ส่ง Packet ที่ TTL 255 แล้วนับว่าเหลือเท่าไร',
+  ]}
+  answer={1}
+  why="Traceroute ไม่ใช่โปรโตคอลพิเศษ มันคือ Packet ธรรมดาที่ TTL ค่อย ๆ เพิ่ม Router ที่ลด TTL ถึง 0 ทิ้ง Packet และส่ง ICMP Time Exceeded กลับ ซึ่งมีที่อยู่ของตัวเองเป็นต้นทาง (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Probe สุดท้ายของ Traceroute ที่ถึง Server ได้คำตอบกลับเป็น ICMP Port Unreachable ซึ่งไม่ใช่ Time Exceeded เหมือนตัวอื่น ทำไม?"
+  options={[
+    'Server ผิดปกติ',
+    'TTL พอสำหรับถึง Server แล้ว แต่ไม่มีโปรแกรมฟัง Port ที่ Probe ใช้ Server จึงตอบว่า Port นั้นไม่มี ซึ่ง Traceroute ถือเป็นสัญญาณว่าถึงปลายทางแล้ว',
+    'Router ตัวสุดท้ายแก้ TTL',
+    'Probe ถูกส่งซ้ำ',
+  ]}
+  answer={1}
+  why="Probe เป็น UDP ที่ส่งไปยัง Port ที่แทบไม่มีใครใช้ พอถึง Server จริง Kernel ของ Server ไม่เจอโปรแกรมฟังอยู่ จึงตอบ ICMP Port Unreachable (Type 3 Code 3) แทนที่จะเป็น Time Exceeded (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ธง DF ถูกเปิดไว้ และ Packet ยาว 1500 ไบต์ไปเจอสายที่ MTU 1400 จะเกิดอะไรขึ้น?"
+  options={[
+    'Router ตัดเป็นชิ้นแล้วส่งต่อ',
+    'Router ทิ้ง Packet และส่ง ICMP Type 3 Code 4 กลับพร้อม MTU ที่ใช้ได้ (1400)',
+    'Router บีบอัด Packet ให้เล็กลง',
+    'Packet ผ่านไปได้เพราะ MTU เป็นแค่คำแนะนำ',
+  ]}
+  answer={1}
+  why="DF ห้ามตัด Router จึงทำได้แค่ทิ้งและบอกต้นทางว่าสายถัดไปรับได้แค่ 1400 ผู้ส่งลดขนาดแล้วส่งใหม่ นี่คือ Path MTU Discovery แบบฝึกเห็นข้อความ Frag needed and DF set (Mtu = 1400) (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Packet ถูก Fragment ออกเป็นห้าชิ้นระหว่างทาง ใครเป็นคนประกอบกลับเป็นก้อนเดิม?"
+  options={[
+    'Router ตัวที่ตัดเป็นชิ้น',
+    'Router ตัวถัดไปบนเส้นทาง',
+    'ผู้รับปลายทางเท่านั้น โดยดู IP ID และ Offset',
+    'ผู้ส่งต้นทาง',
+  ]}
+  answer={2}
+  why="Router ระหว่างทางส่งต่อทีละชิ้นโดยไม่ประกอบ ผู้รับเก็บทุกชิ้นที่มี IP ID เดียวกัน แล้วเรียงตาม Offset ถ้าชิ้นใดหาย ผู้รับทิ้งทั้งก้อน (รัน และหนังสือ: TCPIP หัวข้อ 10.7 หน้า 488)"
+/>
+
+</Step>

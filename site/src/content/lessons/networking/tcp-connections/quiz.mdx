@@ -1,0 +1,92 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 5 ข้อ เพื่อเช็กว่าเข้าใจ Handshake ตัวเลข Sequence การปิด Connection และความต่างระหว่าง Refused กับ Timeout
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ลำดับ Segment ของ Handshake ที่ถูกต้องคือข้อไหน?"
+  options={[
+    'SYN, ACK, SYN,ACK',
+    'SYN, SYN,ACK, ACK',
+    'SYN,ACK, SYN, ACK',
+    'ACK, SYN, SYN,ACK',
+  ]}
+  answer={1}
+  why="Client ส่ง SYN, Server ตอบ SYN,ACK (ตอบรับ SYN และส่งเลขของตัวเอง) แล้ว Client ตอบ ACK ซึ่งแบบฝึกจับได้ตามลำดับนี้ (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Client ส่งข้อมูล 65 ไบต์ที่ Sequence = 1 Server ควรตอบ ACK ที่มี Acknowledgement เท่าไร?"
+  options={['65', '66', '67', '1']}
+  answer={1}
+  why="Acknowledgement คือไบต์ถัดไปที่ผู้รับรอ ได้รับไบต์ที่ 1 ถึง 65 แล้ว จึงรอไบต์ที่ 66 ตรงกับ Ack=66 ในแบบฝึก (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ทำไม Window Scale ถึงจำเป็น ทั้งที่ TCP Header มีช่อง Window อยู่แล้ว?"
+  options={[
+    'เพื่อเข้ารหัสข้อมูล',
+    'เพราะช่อง Window กว้างแค่ 16 บิต ใหญ่สุด 65,535 ไบต์ ซึ่งเล็กเกินไปสำหรับสายเร็ว จึงตกลงกันใน SYN ว่าให้คูณช่องนั้นด้วยตัวคูณ (2 ยกกำลัง 10 ในแบบฝึก)',
+    'เพราะ Window ต้องเปลี่ยนทุก Segment',
+    'เพราะ Router จำกัดขนาด Window',
+  ]}
+  answer={1}
+  why="ในแบบฝึก Segment หลัง Handshake มีค่า Window 63 ซึ่งคูณ 1024 ได้ 64,512 ไบต์ Option นี้ส่งได้เฉพาะใน SYN เพราะต้องตกลงกันก่อนเริ่ม (รัน และหนังสือ: TCPIP หัวข้อ 13.3 หน้า 608)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="การเรียกหา Server ได้ผล Refused ในเวลาเสี้ยววินาที และอีกครั้งหนึ่งได้ Timeout หลายวินาที สองกรณีนี้ต่างกันอย่างไรในแง่ของสิ่งที่เกิดบน Server?"
+  options={[
+    'Refused คือ Server ตอบ RST เพราะไม่มีโปรแกรมฟัง Port นั้น ส่วน Timeout คือไม่มีใครตอบเลย เช่นถูกไฟร์วอลล์ทิ้ง Packet',
+    'Refused คือ Server ปิดเครื่อง ส่วน Timeout คือ Server ช้า',
+    'ทั้งสองอย่างคือ Server ตอบ RST เหมือนกัน',
+    'Timeout คือโปรแกรมฟังอยู่แต่เต็ม',
+  ]}
+  answer={0}
+  why="RST ตอบทันทีจาก Kernel ของ Server ที่ไม่มีโปรแกรมฟัง จึงเห็น Refused เร็ว ส่วนความเงียบทำให้ Client ส่ง SYN ซ้ำจนครบ Timeout ของตัวเอง ในแบบฝึก 7 SYN ภายใน 9 วินาที (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ในการปิด Connection ปกติ ฝั่งไหนที่ต้องค้างอยู่ในสถานะ TIME-WAIT?"
+  options={[
+    'ฝั่งที่ส่ง FIN ก่อน',
+    'ฝั่งที่ส่ง FIN ทีหลัง',
+    'ทั้งสองฝั่ง',
+    'ไม่มีฝั่งไหน',
+  ]}
+  answer={0}
+  why="ฝั่งที่ปิดก่อน (Active Close) คือฝั่งที่ต้องรอ เผื่อ ACK สุดท้ายของมันหาย และเพื่อให้ Segment เก่าหมดอายุ ในแบบฝึก Server ที่ส่ง FIN ก่อน เห็น TIME-WAIT ส่วน Client ไม่เหลือ Socket (รัน)"
+/>
+
+</Step>

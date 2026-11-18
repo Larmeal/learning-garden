@@ -1,0 +1,199 @@
+---
+title: UDP and DNS
+summary: UDP sends single messages with no handshake and no promise that they arrive. DNS uses UDP to ask for the address of a domain name, walking from the root down by following the pointers of each server, and keeps answers in a cache for their TTL. We look at both in real packets.
+facts:
+  - "Ran for real in exercises/06_udp_dns.py. For UDP, six datagrams are sent to a server where an iptables rule drops every third. For DNS, a resolver, a root, a TLD and an authoritative server are small Python programs on a made-up domain .test, and the packets are captured on the resolver's cable."
+  - "Every server delays its answers by 20 milliseconds, so the 123 and 0 milliseconds are the numbers of this simulated network, not of the real internet. The structure of UDP and DNS cites TCP/IP Illustrated, 2nd edition, chapters 10 and 11, with page numbers."
+  - "Not run: DNS on the real internet, DNSSEC, DNS over TCP and over HTTPS, UDP with IPv6, and servers with many copies (anycast)."
+order: 6
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [nat-dhcp]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import UdpLab from '../../../../components/labs/networking/UdpLab';
+import DnsLab from '../../../../components/labs/networking/DnsLab';
+
+<Step>
+
+## UDP sends single messages with no guarantee
+
+The IP header has a Protocol field that says whether TCP or UDP is inside. We have not studied TCP yet, because UDP is much smaller, so we start with it. UDP is a transport layer that does only two things on top of IP. First, it says which program listening on which port the data is for. Second, it checks with a checksum that the data is not damaged. There is nothing else (book: TCPIP section 10.2, page 474).
+
+In the exercise a client sends six datagrams of 10, 20, 30, 40, 50 and 60 bytes to a server that has a rule to drop every third one that arrives (ran: `exercises/06_udp_dns.py`). Here is what the client captured.
+
+```text
+#  source port  destination port  length  checksum  frame bytes
+1  40000        9999              18      0x2667    52
+2  40000        9999              28      0xcbf7    62
+3  40000        9999              38      0x7188    72
+4  40000        9999              48      0x1719    82
+5  40000        9999              58      0xbca9    92
+6  40000        9999              68      0x623a    102
+```
+
+Three things to see. The first packet on the wire is already the data, with no handshake. The UDP header is only 8 bytes: the source port, the destination port, the length and the checksum, 2 bytes each. The length field is 8 plus the size of the data (10 bytes gives 18), and a frame is 14 (Ethernet) plus 20 (IP) plus 8 (UDP) plus the data. The checksum covers the data, the UDP header and a pseudo-header that borrows the source and destination IP addresses for the calculation. The exercise recomputed it for every datagram and got the sum `0xFFFF`, which means correct (ran, book: TCPIP section 10.3, page 475).
+
+</Step>
+
+<Step>
+
+## When a datagram is lost, nobody says anything
+
+Press play to see all six go out, and two get dropped.
+
+<UdpLab client:visible lang="en" />
+
+What the server really received (ran).
+
+| Datagram | Size received |
+|---|---|
+| msg1 | 10 bytes |
+| msg2 | 20 bytes |
+| msg4 | 40 bytes |
+| msg5 | 50 bytes |
+
+The server got 1, 2, 4 and 5, while 3 and 6 vanished. Meanwhile the client called `sendto` six times and it succeeded every time. No error, no message. The counter of the iptables rule on the server says two datagrams were dropped (ran). That is what "no guarantee" really means in UDP. If a datagram is lost, the sender cannot know from UDP itself. A program that needs everything has to build its own mechanism, such as a sequence number and resending when no answer comes.
+
+The other side of the coin is that what does arrive arrives as one piece of the size that was sent: 10, 20, 40 and 50 bytes, never merged or split. That differs from TCP, which we will see later.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Our program sends 100 UDP datagrams and every sendto call succeeds. How do we find out which ones really reached the destination?"
+  options={[
+    'Check the value sendto returns: if it succeeded, it arrived',
+    'UDP does not tell us. The program at the other end has to acknowledge (for example with sequence numbers and replies), and we resend ourselves',
+    'Wait for an ICMP error from a router every time a datagram is lost',
+    'Turn on a UDP option that resends automatically',
+  ]}
+  answer={1}
+  why="A successful sendto only means the kernel accepted the datagram to send. It does not say it arrived. In the exercise it succeeded six times while the server got four. UDP has no resending and nothing that says whether it arrived, so that is the program's job (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## DNS turns names into addresses, over UDP
+
+People type a name such as `www.example.test`, but IP needs an address. The system that translates is DNS (Domain Name System), a database spread over many servers. A domain name reads from right to left as a tree. The far right is the root (the final dot that is hidden), below it is the TLD, such as `.com` or, in the exercise, `.test`, then the owner's domain, and the name of a machine at the far left (book: TCPIP section 11.2, page 512). Each part of the tree has servers that look after it, called authoritative servers (book: TCPIP section 11.3, page 516).
+
+Most programs do not walk the tree themselves. They ask a resolver (the one that DHCP gave us the address of), "please find the final answer for me", and the resolver walks on their behalf and remembers the answer. The exercise builds all of it: a client, a resolver and three servers for the root, the TLD and `example.test`, on one cable. The client asks for `www.example.test` once and we capture the resolver's cable (ran).
+
+```text
+time    who talks to whom          flags           what
+0 ms    client -> resolver         RD=1 RA=0 AA=0  question
+20 ms   resolver -> root           RD=0 RA=0 AA=0  question
+41 ms   root -> resolver           RD=0 RA=0 AA=0  referral to a.nic.test
+61 ms   resolver -> TLD            RD=0 RA=0 AA=0  question
+81 ms   TLD -> resolver            RD=0 RA=0 AA=0  referral to ns1.example.test
+101 ms  resolver -> authoritative  RD=0 RA=0 AA=0  question
+122 ms  authoritative -> resolver  RD=0 RA=0 AA=1  answer A 10.0.2.50
+122 ms  resolver -> client         RD=1 RA=1 AA=0  answer A 10.0.2.50
+```
+
+The client asks once, but the resolver asks three times. The root does not answer, it points at the server of `test.` together with its address (called glue). The TLD does not answer either, it points on to the server of `example.test`. Only the last authoritative server answers for real (the AA flag). Press play to see the whole walk, and the second question that follows.
+
+<DnsLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## What is inside one DNS message
+
+The `RD` (Recursion Desired) flag set by the client means "please walk for me", and the `RA` (Recursion Available) flag in the resolver's answer means it does so. The resolver, when it asks the root, the TLD and the authoritative server, leaves RD off, because it is the one walking and is not asking anyone to walk for it (ran, book: TCPIP section 11.5, page 518). The query ID of each question and its answer is the same, which is how they are matched (ran).
+
+The answer from the authoritative server is 50 bytes: a 12-byte header, the name written out as `www.example.test` in 18 bytes, 2 bytes each for the type and the class, and 16 bytes of answer record. A name in the protocol is written as labels, each preceded by its length and ended with a 0, so `3www7example4test0`. Here DNS uses a neat space-saving trick. In the answer, the name of the record is not written again. There is only a pointer `0xC00C`, meaning "the same name as at byte 12", which is the name in the question. That leaves the answer record at 16 bytes instead of 34 (ran, book: TCPIP section 11.5, page 518).
+
+DNS uses UDP port 53, and the client uses a high source port that the system picks. The whole message fits in one datagram, which is why DNS chooses UDP: one question and one answer are not worth a TCP handshake (ran).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A resolver asks the root what www.example.test is. How does the root answer?"
+  options={[
+    'With the IP address of www.example.test, because the root knows every name',
+    'Not with an address, but by pointing at the server of test. together with its address (NS and glue)',
+    'Always with NXDOMAIN',
+    'It passes the question on to the TLD and answers on its behalf',
+  ]}
+  answer={1}
+  why="The root knows only where each TLD's servers are, not the data of the domains below. So it answers with the NS record of test. and the address of that server in the additional section (glue), and the resolver goes on to ask by itself. The answer has no AA flag, because it is not a final answer (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## The cache: the second question takes almost no time
+
+The first lookup took 123 milliseconds, because each of the three servers delays its answers by 20 milliseconds, and the first ARP with each of them costs another 20 (the delay applies to ARP as well). The resolver keeps the answer for the TTL that the authoritative server set, 300 seconds here. If we ask again within 300 seconds it can answer at once by itself (ran).
+
+| Question | Packets | TTL in the answer | Time by dig |
+|---|---|---|---|
+| First (not in the cache) | 8 | 300 | 123 ms |
+| Second (in the cache) | 2 | 298 | 0 ms |
+
+The second lookup has only two packets: the client asks and the resolver answers, and nobody else is disturbed. The TTL in the answer has dropped to 298 because two seconds have passed since it was stored (book: TCPIP section 11.4, page 517). That is why the designers of DNS built a cache in from the start. Without it the root servers would have to take every question of everyone in the world. It is also why, when we change the IP of a server, we have to wait for the old TTL to run out before the change shows everywhere (author).
+
+The exercise tried two special cases. The alias `api.example.test` is answered with a CNAME pointing at `www.example.test`, and the A record of the real name comes in the same answer, so one question is enough. And a name that does not exist gets rcode 3, `NXDOMAIN`, from the authoritative server, which the resolver passes on to the client (ran).
+
+```text
+$ dig @10.0.1.3 api.example.test A
+api.example.test.   300  IN  CNAME  www.example.test.
+www.example.test.   300  IN  A      10.0.2.50
+```
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We changed the IP of www.example.test on the authoritative server, but some people still see the old address even though the server answers correctly. What is the most likely cause?"
+  options={[
+    'Their resolver still holds the old answer in its cache until the TTL runs out',
+    'The root server has not been updated',
+    'UDP makes the message arrive slowly',
+    'The router has to be restarted',
+  ]}
+  answer={0}
+  why="A resolver keeps an answer for the TTL set by the owner of the domain (300 seconds in the exercise). During that time it answers from its cache without asking the authoritative server again. To make a change take effect quickly, the TTL has to be lowered some time before the change. The root is not involved, because it never stored the address of www (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The UDP header is 8 bytes, a frame is 14 + 20 + 8 + data, and the checksum covers a pseudo-header | ran: `exercises/06_udp_dns.py` and book: TCPIP section 10.2, page 474, section 10.3, page 475 |
+| A lost datagram is not reported to the sender, and messages arrive as pieces of the size sent | ran: `exercises/06_udp_dns.py` |
+| The resolver walks from the root through the TLD to the authoritative server with referrals and glue | ran and book: TCPIP section 11.3, page 516, section 11.5, page 518 |
+| The RD, RA and AA flags and the query ID | ran and book: TCPIP section 11.5, page 518 |
+| Names written as length-prefixed labels, and the pointer 0xC00C | ran and book: TCPIP section 11.5, page 518 |
+| The cache and the falling TTL, 123 ms against 0 ms | ran and book: TCPIP section 11.4, page 517 |
+| CNAME and NXDOMAIN | ran |
+| The wait after changing an IP depends on the TTL | author |
+| Real DNS on the internet, DNSSEC, DNS over TCP, DoH | not run |
+
+</Step>

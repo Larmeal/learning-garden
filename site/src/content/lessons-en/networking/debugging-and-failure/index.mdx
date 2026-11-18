@@ -1,0 +1,207 @@
+---
+title: When the Network Misbehaves, Where to Look First
+summary: Being slow and being unable to connect sound like one problem, but the error message and the time it takes say a lot about where the problem is. This lesson breaks the network in seven ways (nobody listening, a firewall that rejects, a firewall that drops, a router with no route, a cut cable, a lossy link), and shows what a program sees. It also splits a slow request into three phases to tell a slow network from a slow program.
+facts:
+  - "Ran for real in exercises/14_debugging.py in network namespaces in WSL. A client, a router and a server are in a line with 10 ms of delay each way (a 20 ms round trip). An HTTP request written by hand with Python sockets is timed phase by phase, and a connection to the server is tried under seven faults made with iptables, the router's routing table and tc netem. Each fault is tried once, except the lossy link, which is tried 20 times. The phase times are medians of 7 requests."
+  - "The result for the lossy link changes on every run, because netem drops packets at random. The exercise checks only that every attempt connects and that the slow ones are whole seconds slower."
+  - "Not run: TCP keepalive, a connection that dies silently after a long idle time, a NAT timeout, a DNS outage, a TLS handshake failure, and tools such as traceroute and dig in this lesson. The links to Spark, Iceberg and Git are a reading across other lessons of the garden, not a real network run."
+order: 14
+phase: E
+level: 4
+stage: sprout
+format: steps
+requires: [tcp-reliability, http]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import PhasesLab from '../../../../components/labs/networking/PhasesLab';
+import SymptomLab from '../../../../components/labs/networking/SymptomLab';
+
+<Step>
+
+## "Slow" has at least two causes
+
+When our program calls an API and it is slow, the first answer many people think of is that the network is slow. But two different things can be slow: the path of the packets, and the program at the other end. We can tell them apart by timing the request in three phases. **Connect** is the time `connect()` takes until the handshake is done. **Wait** is the time from sending the request until the first byte of the answer. **Transfer** is the rest, until all the data has arrived.
+
+In the exercise (ran: `exercises/14_debugging.py`) the path between client and server delays 10 ms each way, so the minimum of `ping` is exactly 20 ms. The server works for 50 ms per request and answers with 50 KB. We time 7 requests and take the median.
+
+| Case | Connect | Wait | Transfer | Total (ms) |
+|---|---|---|---|---|
+| normal | 20 | 71 | 40 | 131 |
+| slow network (100 each way) | 200 | 251 | 401 | 851 |
+| slow program (server works 300) | 20 | 321 | 40 | 381 |
+
+The numbers line up more neatly than one might expect. Connect is exactly one round trip, because the SYN goes and the SYN-ACK comes back. Wait is one more round trip plus the server's work (20 + 50 = 70). Transfer of 50 KB takes about 2 round trips, because slow start from the lesson on [congestion control](/en/networking/tcp-congestion/) sends the data in several flights, each larger than the one before (ran).
+
+Compare the two lower rows. If the network is slow, every phase grows together, and especially Connect, which has nothing to do with the program. If the program is slow, Connect stays at 20 and only Wait grows (ran). This is why a tool such as `curl -w`, which prints the time split into phases, is useful: it turns "slow" into numbers that point one way or the other (`curl -w` was not run in the exercise, we wrote the timer ourselves with Python, but the principle is the same, not run). Press play to watch the three bars grow on one time axis.
+
+<PhasesLab client:visible lang="en" />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A request has a Connect of 20 ms, the same as normal, but its Wait went from 70 to 320 ms. What is the most likely cause?"
+  options={[
+    'The cable between the client and the server got slower',
+    'The program on the server takes about 250 ms longer to work, because Connect (which has to cross the cable but does not wait for the program) is unchanged',
+    'DNS is slow',
+    'Packets were lost and retransmitted'
+  ]}
+  answer={1}
+  why="Connect is one round trip, so if it is unchanged the cable is as fast as before. The extra time is in Wait, which includes the server's work. In the exercise we made the server work 300 ms instead of 50, so Wait grew by about 250 and Connect did not move (ran). DNS happens before Connect, and this exercise did not measure it."
+/>
+
+</Step>
+
+<Step>
+
+## The error message tells who answered
+
+Now let us make the connection fail. We create the common faults one at a time, and let a small program connect to port 9000 of the server with a 3-second timeout (ran).
+
+| Fault | The program sees | Time (seconds) |
+|---|---|---|
+| a healthy service | connected | 0.0 |
+| nothing listening on the port | refused | 0.0 |
+| firewall REJECT with ICMP | refused | 0.0 |
+| firewall REJECT with RST | refused | 0.0 |
+| firewall DROP | timeout | 3.5 |
+| the router has no route to the server | unreachable | 0.0 |
+| cable cut (all packets lost) | timeout | 3.0 |
+
+This table teaches two things. First, an error that comes at once, whether refused or unreachable, means that somebody answered. So the packet got there and an answer came back, and most of the path is fine. Refused means the destination's kernel (or its firewall) answered with a RST, as in the lesson on [TCP connections](/en/networking/tcp-connections/). Unreachable comes from a router on the way that answered with an ICMP message saying it could not go on, which the book files under Destination Unreachable with different codes, such as Host Unreachable and Port Unreachable (book: TCP/IP Illustrated 2nd edition section 8.3.2 page 364).
+
+Second, some pairs cannot be told apart from the error message alone. In the exercise a firewall that REJECTS looked exactly like a port with nobody listening from the client's side (ran). To find out which one it is we have to look at the server, with `ss -ltn` for a program that listens, and at the firewall rules. The two timeout rows are the same kind of case, and we look at them next.
+
+</Step>
+
+<Step>
+
+## A timeout is silence
+
+Two faults give a timeout: a firewall DROP and a cut cable. From the program we cannot tell them apart, but if we know what a waiting connection looks like we begin to see an outline. While the program waited we ran `ss -tn state syn-sent` on the client and saw the connection to `10.0.2.2:9000` sitting in the SYN-SENT state (ran). That means the client has sent its SYN and has received nothing back.
+
+When we captured at the server's cable during those 3.5 seconds, the SYN arrived 4 times, at 0.0, 1.0, 2.0 and 3.1 seconds (ran). The client sends the SYN again about every second, as we saw about retransmitted SYNs in the lesson on [TCP connections](/en/networking/tcp-connections/). So with a firewall DROP the SYN really arrives at the server and is thrown away, while with a cut cable it never arrives. At the client they look exactly the same. The only thing that tells the two cases apart is a capture at the server (`tcpdump`). If we see the SYN and no answer, we look at the firewall rules. If we see no SYN at all, we walk back one hop at a time to see where the packet is lost.
+
+Press play in the lab that lets us choose among all seven faults. See where the first packet stops, and what the panel below says about what the program sees and what to look at next.
+
+<SymptomLab client:visible lang="en" />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A program cannot connect to a server and gets a timeout after waiting 3 seconds. Which next step gives the most information?"
+  options={[
+    'Decide that the server is down and restart it',
+    'Capture at the server with tcpdump to see whether the SYN arrives, because a timeout can come from a firewall that drops packets and from a cable that is cut, and the client cannot tell them apart',
+    'Make the program\'s timeout longer',
+    'Check whether DNS answers correctly, because a timeout means DNS is down'
+  ]}
+  answer={1}
+  why="In the exercise a firewall DROP gave a timeout of 3.5 seconds and a cut cable gave 3.0 seconds, and the client sees both the same way. The difference is at the server: in the first case 4 SYNs were captured, and in the second none. A longer timeout does not help, because the packet is not slow, nobody is answering (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## A lossy link gives no error, only sometimes slow
+
+The last fault is more dangerous than it looks. We let the link drop 40% of the client's outgoing packets and made 20 connections. All 20 connected, and not one gave an error (ran). But the times were not equal. Most connected at once, in 0.0 seconds, but some took 1 or 2 seconds, and an earlier run saw as much as 4 seconds. Every time was a whole number of seconds, because each SYN that is lost makes the client wait about another second before sending it again (ran). The numbers change on every run, because the packets are dropped at random.
+
+For somebody watching a dashboard, the service works, but the latency at the high percentiles is strangely a whole number of seconds. If you see a group of response times sitting at exactly 1, 2 or 3 seconds, that is the fingerprint of a retransmitted SYN, which is the author's observation from what ran (author). To look into it, use `ping` to see packet loss, or capture packets and look for repeated SYNs.
+
+</Step>
+
+<Step>
+
+## A silent connection may be dead and nobody knows
+
+One more thing that we did not run, but is worth knowing. The book says that newcomers to TCP/IP are often surprised that if nobody sends anything, no packet flows over an idle connection at all. There is no polling of any kind. So in theory a connection can stay up for hours or months, as long as neither host reboots. But the book also warns that this assumes something, namely that no router on the way keeps state about the connection, such as a NAT that may delete it after inactivity or lose it in a crash, and it says that on today's internet these are big assumptions (book: TCP/IP Illustrated 2nd edition section 17.1 page 793).
+
+We know the table of a NAT that forgets a translation from the lesson on [NAT](/en/networking/nat-dhcp/), and the containers in the lesson on [proxies and containers](/en/networking/proxies-and-containers/) use the same conntrack table. The book's answer is the keepalive mechanism, in which TCP sends probes at intervals to learn whether the peer is still there. When the probes get no answer the program gets an error such as "Connection timed out" or "Connection reset by peer" on its read (book: TCP/IP Illustrated 2nd edition section 17.1 page 796). In our exercise we did not run keepalive, and did not wait for a NAT to delete a translation, so this is from the book (not run). The author's practical conclusion is that a program that holds a connection for a long time (a connection pool to a database, for example) should have its own timeouts and keepalive at the program level, and not count on the network in the middle to remember the connection (author).
+
+</Step>
+
+<Step>
+
+## In the data work we do
+
+None of this belongs to the network alone. What we have above connects to several things we saw in other lessons of the garden. Everything in this step is a reading across those lessons, and no real network was run (not run).
+
+In Spark, when an executor is lost during a shuffle, a reduce task cannot read that executor's shuffle files and gets a `FetchFailedException`, as told in [shuffle files on disk](/en/spark/internals/#shuffle-files-on-disk). Seen with the eyes of this lesson, reading a shuffle file is a connection between two executors, which can meet both a refused (the program at the far end died) and a timeout (the computer at the far end went silent) just the same (author). In Iceberg, in the lesson on [reading](/en/iceberg/reading/#plan-which-files-to-open-before-reading), one query has to open many files. If those files sit in a distant object store, every request pays at least 2 round trips (Connect and Wait) as in the table above, which is one reason why reducing the number of files to open matters more than one would think (author, and Iceberg itself was not tried on an object store in that lesson).
+
+As for Git, in the lesson on [remotes](/en/git/remotes/#a-rejected-push) every remote is a folder on the same computer and never crossed a real network. So the rejected push in that lesson is about Git itself (fetch first) and not about the network. When you meet a `git push` that hangs or times out with a real remote, look at the table above, and remember that its HTTPS is HTTP over TLS over TCP, as we learned (author).
+
+</Step>
+
+<Step>
+
+## An order to try things in
+
+When a program cannot connect or is slow, we can put what ran into an order like this. The order is the author's opinion from the results above and the earlier lessons, and does not come from a book (author).
+
+1. Check whether the name turns into an address. If DNS is wrong or slow, everything after it is meaningless (see the lesson on [DNS](/en/networking/udp-dns/)).
+2. Check whether packets reach the destination with `ping`, and look at the route. If you get an unreachable error at once, look at the routing table of the router that answered (see the lesson on [routing](/en/networking/ip-routing/)).
+3. Try the real port and read the error. If refused, go to the destination and check whether the program is running. If timeout, capture at the destination.
+4. If it connects but is slow, split the time into Connect, Wait and Transfer and see which is long.
+5. If the message is about a certificate, see the lesson on [TLS](/en/networking/tls/).
+
+<Callout type="note" title="Tools we did not try in this lesson">
+
+The order above mentions `dig`, `traceroute` and `curl -w`, which are common tools, but our exercises wrote their own timer and their own resolver so that the numbers could be checked, and used the real `ping`, `ss` and `tcpdump`. The output of `dig`, `traceroute` and `curl -w` on a real network was not run (not run).
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A program always connects to a database, but a group of connection times sits at exactly 1.0, 2.0 and 3.0 seconds, and the rest are almost zero. What is the most suspicious cause?"
+  options={[
+    'The database is slow on some requests',
+    'Some SYN packets are lost and retransmitted after about a second each, for example on a lossy link',
+    'The DNS cache expired',
+    'The routing table is wrong'
+  ]}
+  answer={1}
+  why="In the exercise a link dropping 40% of packets made every connection succeed, but the times were whole seconds (1, 2, 4), because each lost SYN waits about a second to be sent again. Times that are exactly whole seconds are the fingerprint that tells it apart from a slow database, which would not land on round seconds (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The minimum of ping is 20 ms when the path delays 10 ms each way | ran: `exercises/14_debugging.py` |
+| Connect = 1 RTT, Wait = 1 RTT + the server's work, Transfer of 50 KB ≈ 2 RTT (normal 20 / 71 / 40) | ran |
+| A slow network lengthens every phase (200 / 251 / 401) and a slow program lengthens only Wait (20 / 321 / 40) | ran |
+| Nothing listening and a firewall REJECT (ICMP or RST) give refused at once | ran |
+| A firewall DROP gives a timeout of 3.5 s, the SYN reaches the server 4 times at 0.0, 1.0, 2.0, 3.1 s, the client is in SYN-SENT | ran |
+| A router with no route gives unreachable at once | ran |
+| A cut cable gives a timeout of 3.0 s, the same as DROP from the client's side | ran |
+| A lossy link at 40%: every connection succeeds, but sometimes with whole seconds of delay | ran (the numbers change every run) |
+| Destination Unreachable has codes such as Host Unreachable and Port Unreachable | book: TCP/IP Illustrated 2nd edition section 8.3.2 page 364 |
+| An idle connection carries no packets and the state in a NAT can disappear, keepalive can detect it | book: TCP/IP Illustrated 2nd edition section 17.1 pages 793 and 796 (not run) |
+| The order of things to try, have a timeout and keepalive in the program, whole-second times as the fingerprint of a repeated SYN | author |
+| The links to Spark, Iceberg and Git | author (no real network was run) |
+| Keepalive, a NAT timeout, a DNS outage, a TLS failure, dig, traceroute, curl -w | not run |
+
+</Step>

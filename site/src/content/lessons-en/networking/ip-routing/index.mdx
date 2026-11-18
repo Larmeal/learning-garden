@@ -1,0 +1,214 @@
+---
+title: Routers, TTL and the path of a packet
+summary: A router keeps a routing table, picks the most specific row for the destination, lowers the TTL by one and forwards. We see how traceroute works with nothing but the TTL, why a routing loop does not go on forever, and what happens when a packet is too big for one link.
+facts:
+  - "Ran for real in exercises/04_ip_routing.py with a client, three routers and a server in a line in network namespaces in WSL. Every cable is delayed by 5 milliseconds and packets are captured on every link."
+  - "The TTL, checksum, routing tables, traceroute output, fragments and ICMP messages in the lesson come from the real capture. The structure of the IP header, ICMP and fragmentation cites TCP/IP Illustrated, 2nd edition, chapters 5, 8, 10 and 13, with page numbers."
+  - "Not run: the protocols that routers use to exchange tables, such as OSPF and BGP (every route in the exercise is set by hand), and IPv6, where a router does not fragment."
+order: 4
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [link-layer]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import RoutingLab from '../../../../components/labs/networking/RoutingLab';
+import TracerouteLab from '../../../../components/labs/networking/TracerouteLab';
+import FragmentLab from '../../../../components/labs/networking/FragmentLab';
+
+<Step>
+
+## Each router decides alone, from its own table
+
+In [lesson 3](/en/networking/link-layer/) we saw frames travel inside one cable. Now we join several cables. The exercise builds a client, three routers (R1, R2 and R3) and a server in a line. Each neighbouring pair uses its own /24 network, with a router between each pair, and the client pings `10.0.4.2` (ran: `exercises/04_ip_routing.py`).
+
+A router does not know the whole path. It knows only its own table, which says "for a destination that starts like this, pass it to whom". The table of R1 looks like this.
+
+```text
+$ ip route          # on R1
+10.0.1.0/24 dev l0 proto kernel scope link src 10.0.1.2
+10.0.2.0/24 dev r0 proto kernel scope link src 10.0.2.1
+10.0.3.0/24 via 10.0.2.2 dev r0
+10.0.4.0/24 via 10.0.2.2 dev r0
+```
+
+The first two rows are networks R1 sits on, so they have no `via`. The last two say that networks further in should be passed to `10.0.2.2`, which is R2 (book: TCPIP section 5.4, page 208). Press play to see one packet cross all three, and how each router compares the destination with its own table.
+
+<RoutingLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## Lowering the TTL and recomputing the checksum
+
+The IPv4 header that a router reads has only a few fields in everyday use (book: TCPIP section 5.2, pages 183 to 186).
+
+| Field | What it is for |
+|---|---|
+| Version and IHL | the version (4) and the length of the header |
+| Total Length | the length of the whole packet |
+| Identification, Flags, Fragment Offset | used when a packet is cut into pieces (see the end of the lesson) |
+| TTL | the number of hops left, lowered by one at every router |
+| Protocol | what is inside (6 is TCP, 17 is UDP, 1 is ICMP) |
+| Header Checksum | checks that the header is not damaged |
+| Source and Destination | the source and destination addresses |
+
+In the exercise we send one ping and capture its packets on all four links. The numbers that change along the way are the TTL and the checksum (ran).
+
+| Link | TTL of the request | Checksum of the request | TTL of the reply |
+|---|---|---|---|
+| 1 (client to R1) | 64 | 0xed11 | 61 |
+| 2 (R1 to R2) | 63 | 0xee11 | 62 |
+| 3 (R2 to R3) | 62 | 0xef11 | 63 |
+| 4 (R3 to server) | 61 | 0xf011 | 64 |
+
+The request leaves the client with TTL 64 and loses one at every router. The reply, which starts at the server with 64, loses three as well, so the client sees `ttl=61` in the ping. The checksum changes on every link because it is computed over the whole header, and the TTL is inside it, so a router has to compute it again every time. The exercise computes the checksum of every captured header itself (the ones'-complement sum of the 20 bytes) and gets `0xFFFF` every time, which means every header passes the check (ran). The source address, the destination and the identification stay the same all the way.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A packet leaves the client with TTL 64 and crosses three routers to the server. What TTL does the server see, and what does the third router change in the IP header?"
+  options={[
+    'TTL 61, and the router changes both the TTL and the checksum',
+    'TTL 64, because routers do not change the IP header',
+    'TTL 61, and the router changes the source address',
+    'TTL 62, because the last router does not lower it',
+  ]}
+  answer={0}
+  why="Every router lowers the TTL by one, leaving 64 - 3 = 61, and since the TTL is inside the part the checksum covers, the router has to compute the checksum again. The source address is not touched (if it were, that would be NAT). The exercise captured 64, 63, 62, 61 on the four links (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## When several rows match, the most specific one wins
+
+Sometimes a destination matches more than one row of the table, for example both `10.0.4.0/24` and `10.0.4.2/32`. The router picks the row with the longest prefix, which is called the longest prefix match (book: TCPIP section 5.4, page 209). In the exercise we add the row `unreachable 10.0.4.2/32` on R1 and ask for the route to two addresses.
+
+```text
+$ ip route get 10.0.4.2          # matches both the /24 and the /32
+RTNETLINK answers: No route to host
+
+$ ip route get 10.0.4.3          # matches only the /24
+10.0.4.3 via 10.0.2.2 dev r0 src 10.0.2.1
+```
+
+`10.0.4.2` is handled by the more specific `/32` row even though the `/24` row covers it as well. `10.0.4.3` does not match the `/32`, so it still follows the `/24` row. And the client that pings `10.0.4.2` gets `Destination Host Unreachable` from R1 (ran). This rule is what lets us add an exception for one address without rebuilding the table, and it is why the routing tables of internet routers hold big and small rows mixed together.
+
+</Step>
+
+<Step>
+
+## Traceroute is ordinary packets with a rising TTL
+
+If a router drops a packet whose TTL has reached 0 and tells the sender with an ICMP Time Exceeded (book: TCPIP section 8.3, pages 361 to 364 and page 375), we can use that to ask the routers for their names one at a time. Send a packet with TTL 1 and the first router drops it and answers. Send another with TTL 2 and the second router answers, and so on until the destination. That is all of traceroute (book: TCPIP section 8.3, page 376).
+
+<TracerouteLab client:visible lang="en" />
+
+What the exercise printed (ran).
+
+```text
+TTL  answer from  ICMP              round trip
+1    10.0.1.2     time exceeded     10.2 ms
+2    10.0.2.2     time exceeded     20.3 ms
+3    10.0.3.2     time exceeded     30.5 ms
+4    10.0.4.2     port unreachable  40.5 ms
+```
+
+Three things to notice. The address in each answer is that of the interface the probe arrived on (R1 answers with `10.0.1.2`, the side facing the client), not another address of the router. The round trip grows by about 10 milliseconds per hop, which matches the 5 milliseconds per direction we configured. And the last probe, which reached the server, got not a Time Exceeded but an ICMP Port Unreachable, because nothing listens on the port used, which traceroute takes as the sign that it has arrived.
+
+</Step>
+
+<Step>
+
+## A routing loop is stopped by the TTL and nothing else
+
+If routes are set wrongly so that two routers point at each other for the same destination, a packet bounces between them. The exercise simulates this: `10.0.9.0/24` is set on R1 to go to R2 and on R2 to go back to R1, and then we ping with an initial TTL of 8. On the link between R1 and R2 we see the same request cross again and again, with the TTL lower by one each time (ran).
+
+```text
+TTL of each pass over this link: [7, 6, 5, 4, 3, 2, 1]
+then: ICMP time exceeded from 10.0.2.2
+```
+
+When the TTL reaches 0, whichever router holds the packet drops it and tells the source Time Exceeded. No other mechanism helps. This small counter matters a great deal, because without it a packet caught in a loop would go on forever and eat the bandwidth of those two cables (book: TCPIP section 5.2, page 184).
+
+</Step>
+
+<Step>
+
+## When a packet is too big for a link
+
+We know the MTU from [lesson 3](/en/networking/link-layer/#the-mtu-sets-the-size-of-a-tcp-segment). If a packet is bigger than the MTU of the link it is about to leave on, there are two ways. If the DF (Don't Fragment) flag is off, the router cuts the packet into pieces (fragments). If it is on, the router drops it and sends an ICMP message back. The exercise sets the MTU of the last link to 1400 and tries both.
+
+The first way: a ping with 3000 bytes of data (3008 with the ICMP header) is cut twice, first at the client for an MTU of 1500 (pieces of 1480, 1480 and 48 bytes) and again at the third router for an MTU of 1400. Press play to see where the second cut falls inside the pieces that were already cut.
+
+<FragmentLab client:visible lang="en" />
+
+On the last link we capture five fragments (ran).
+
+| IP id | Offset | Data | Flag |
+|---|---|---|---|
+| 14071 | 0 | 1376 | more fragments |
+| 14071 | 1376 | 104 | more fragments |
+| 14071 | 1480 | 1376 | more fragments |
+| 14071 | 2856 | 104 | more fragments |
+| 14071 | 2960 | 48 | last |
+
+Every piece carries the same IP id, so that the receiver knows they belong to one block, and the offset says where the piece sits in the original data (counted in multiples of 8 bytes). Only the receiver puts them back together, and the routers on the way do not. The client got the whole reply of 3008 bytes (ran, book: TCPIP section 10.7, pages 488 to 493). One thing to know: if a single piece is lost, the receiver has to drop the whole block, so fragmenting makes delivery less reliable when the link loses packets.
+
+The second way is to turn on DF (`ping -M do -s 1472`, which makes a packet of exactly 1500 bytes, the MTU of the first link). The third router, which cannot cut it, drops the packet and answers with ICMP Type 3 Code 4, "Fragmentation Needed", along with how much the next link can take (ran).
+
+```text
+From 10.0.3.2 icmp_seq=1 Frag needed and DF set (mtu = 1400)
+ICMP type 3 code 4 from 10.0.3.2, next-hop MTU field = 1400
+```
+
+That answer is the mechanism of path MTU discovery: the sender learns the size that really works along the whole path and shrinks its packets, with nobody cutting them into pieces. TCP mainly uses this way (book: TCPIP section 13.4, page 612).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Two routers are misconfigured to point at each other. What happens to a ping sent into them?"
+  options={[
+    'It loops forever, because the routers do not know they are looping',
+    'It bounces until the TTL reaches 0, then it is dropped and the source gets an ICMP Time Exceeded',
+    'The routers notice the loop and remove the route by themselves',
+    'The packet still reaches the destination through another matching row',
+  ]}
+  answer={1}
+  why="Each router follows its own table and does not know that the packet has been here before. The only thing that stops the loop is the TTL, which goes down by one each time. The exercise saw the same request cross the link again with TTL 7 down to 1 and then be dropped, and the ping printed Time to live exceeded (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A router lowers the TTL by one and recomputes the checksum (64, 63, 62, 61), and every header passes the check | ran: `exercises/04_ip_routing.py` and book: TCPIP section 5.2, pages 183 to 186 |
+| Connected rows and forwarding rows in the routing table | ran and book: TCPIP section 5.4, page 208 |
+| Longest prefix match | ran and book: TCPIP section 5.4, page 209 |
+| Traceroute uses the TTL with ICMP Time Exceeded and Port Unreachable | ran and book: TCPIP section 8.3, pages 361 to 364 and 375 to 376 |
+| A routing loop is stopped by the TTL | ran |
+| Fragmentation, and offsets in multiples of 8 | ran and book: TCPIP section 10.7, page 488 |
+| Path MTU discovery with ICMP Type 3 Code 4 | ran and book: TCPIP section 13.4, page 612 |
+| OSPF, BGP and IPv6 | not run |
+
+</Step>

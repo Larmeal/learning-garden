@@ -1,0 +1,193 @@
+---
+title: HTTP/1.1, HTTP/2 and QUIC
+summary: HTTP/1.1 answers one request at a time on a connection, so more connections are needed when we want several things at once. HTTP/2 cuts the conversation into frames that say which stream they belong to, and sends many requests on one connection. We read real frames from a capture, and look at QUIC packets, which do not run on TCP but on UDP.
+facts:
+  - "Ran for real in exercises/12_http.py in network namespaces in WSL. HTTP/1.1 uses Python's http.server and http.client, HTTP/2 uses the h2 library (4.4.1) without TLS, with prior knowledge, so that frames can be read straight from the capture, and QUIC uses the aioquic 1.3.0 library. These libraries are not in the repository and have to be installed with the command at the top of the exercise file."
+  - "For QUIC we sent a simple request of our own on QUIC streams. We did not run real HTTP/3, and the QUIC numbers are the behaviour of the aioquic library in that run, not a statement that every use of QUIC is like this."
+  - "The theory of HTTP/2 cites RFC 9113 (sections 1, 3.4, 4.1, 5, 5.2 and 6, which were opened and checked) and QUIC cites RFC 9000 (sections 2, 7, 14.1 and 17.2, which were opened and checked). This is not in the TCP/IP Illustrated book we use. Not run: real HTTP/3 (RFC 9114), streams blocking one another on TCP when a packet is lost (we tried to measure it, but the result was mixed up with the congestion control of the library we compared with, so we do not cite it), 0-RTT, connection migration and HTTP/2 over TLS."
+order: 12
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [tls]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import RequestsLab from '../../../../components/labs/networking/RequestsLab';
+import FramesLab from '../../../../components/labs/networking/FramesLab';
+
+<Step>
+
+## Six requests, and how many connections should we use
+
+A web page usually needs several things: HTML, styles, images. So what a client wants is not one request but many, and we want them to arrive together as much as possible. In [lesson 1](/en/networking/big-picture/) we saw that HTTP/1.1 is plain text. Its problem is that one connection answers one request at a time. The next request must wait for the answer to the one before, or the answers would be mixed up. So if a client wants several things at once, it has to open several connections, as RFC 9113 section 1 says: "HTTP/1.0 and HTTP/1.1 clients use multiple connections to a server to make concurrent requests".
+
+In the exercise (ran: `exercises/12_http.py`) the server needs 100 milliseconds for each request, the cable has a 20 millisecond round trip, and we ask for 6 things in four ways.
+
+| Way | Connections | Total time |
+|---|---|---|
+| HTTP/1.1, a new connection for every request, one after another | 6 (in turn) | about 857 milliseconds |
+| HTTP/1.1, one connection reused, one request at a time (keep-alive) | 1 | about 752 milliseconds |
+| HTTP/1.1, six connections at once | 6 | about 149 milliseconds |
+| HTTP/2, one connection, six requests at once | 1 | about 135 milliseconds |
+
+(The numbers wobble a little on every run.) The first row costs about 140 milliseconds per request: 20 for the TCP handshake, 20 for the round trip and 100 of work by the server. The second saves the handshake, so each request takes 120 milliseconds, and the times at which the requests finish are exactly 120 milliseconds apart, because each waits for the one before. The third is much faster because all six run together, but it has to open six connections and do the handshake of each. The last is HTTP/2, which gets a result like the third using one connection (ran). Press play in the lab to see the bars of all four ways on one time axis.
+
+<RequestsLab client:visible lang="en" />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="HTTP/1.1 on one reused (keep-alive) connection sends six requests that each need 100 milliseconds at the server. About how long in all with a round trip of 20 milliseconds (not counting the first handshake)?"
+  options={['About 120 milliseconds, because they are done together', 'About 720 milliseconds, because each takes 100 plus 20 and waits for the one before', 'About 100 milliseconds', 'About 1,000 milliseconds']}
+  answer={1}
+  why="HTTP/1.1 answers one request at a time on a connection, so they go one after another: 6 times (100 + 20) is 720 milliseconds, plus 20 for the first handshake makes about 740 to 750, which matches the exercise (752). To overlap them we need several connections, or HTTP/2 (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## HTTP/2: cut into frames that carry a stream label
+
+HTTP/2 solves this by changing how things are written onto the cable. Instead of text one after another it cuts the conversation into frames. Every frame starts with a 9-byte header that holds the length, the type, flags and a stream number (RFC 9113 section 4.1). A request and its answer together form one **stream**, and many streams can be on one connection at the same time, because each frame says by itself whom it belongs to (RFC 9113 section 5).
+
+We captured the packets of the HTTP/2 connection in the exercise and cut them into frames ourselves from the bytes (ran). It was without TLS, which meant nothing had to be decrypted. The client sent these frames.
+
+```text
+SETTINGS        stream 0   42
+SETTINGS        stream 0   6
+WINDOW_UPDATE   stream 0   4
+HEADERS         stream 1   17   END_STREAM
+HEADERS         stream 3   8    END_STREAM
+HEADERS         stream 5   8    END_STREAM
+HEADERS         stream 7   8    END_STREAM
+HEADERS         stream 9   8    END_STREAM
+HEADERS         stream 11  8    END_STREAM
+```
+
+Before the first frame there is a 24-byte preface `PRI * HTTP/2.0` (RFC 9113 section 3.4). Among these frame types, SETTINGS is for configuration, WINDOW_UPDATE opens room to receive data (flow control like the TCP window, but per stream), and HEADERS carries a request (RFC 9113 sections 5.2 and 6). The six requests run as streams 1, 3, 5, 7, 9 and 11, because the client uses odd numbers, and each ends with END_STREAM because a GET has no body.
+
+The sizes are interesting. The first request is 17 bytes, but the other five are only 8, because HTTP/2 compresses headers with HPACK, which remembers headers it has already sent in a table that both sides hold the same, and sends a short index instead (ran, RFC 9113 section 4.3). The server side shows the same: the first answer's HEADERS is 6 bytes and the rest are 2 bytes each.
+
+```text
+HEADERS  stream 1   6
+DATA     stream 1   1000  END_STREAM
+HEADERS  stream 3   2
+DATA     stream 3   1000  END_STREAM
+...       (up to stream 11)
+```
+
+Press play in the lab to see all the frames in the single TCP byte stream, coloured by stream.
+
+<FramesLab client:visible lang="en" />
+
+All six answers arrived within 5 milliseconds of each other, which the exercise checks (ran). Two things are worth noticing about HTTP/2. The first is that it still runs on a single TCP connection. The RFC says so directly: "TCP head-of-line blocking is not addressed by this protocol" (RFC 9113 section 1). If a packet is lost, TCP does not give the data after the hole to the program until the resend arrives, which affects every stream on that connection. We tried to measure that too, but the result was mixed up with the congestion control of the library we compared with, so we do not cite it in this lesson (not run). The second is that everything that makes HTTP/2 fast comes from being on one connection, which is why the TCP handshake and the TLS handshake have to be paid only once for all the requests.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="On a single HTTP/2 connection three things are requested at once. What stream numbers does the client use when it starts them, and how does the server know which piece of data belongs to which request?"
+  options={[
+    'Numbers 1, 2, 3, and the server guesses from the order',
+    'Odd numbers 1, 3, 5, and every frame has a 9-byte header that names its stream',
+    'A different port for each request',
+    'A different connection for each request'
+  ]}
+  answer={1}
+  why="In the exercise the client used streams 1, 3, 5, 7, 9 and 11, and every frame starts with a 9-byte header giving the length, the type, flags and the stream number. The receiver can therefore separate the data into streams by itself, without relying on the order of the requests (ran, RFC 9113 sections 4.1 and 5)."
+/>
+
+</Step>
+
+<Step>
+
+## QUIC: moved onto UDP, with TLS built in
+
+QUIC solves the problem that HTTP/2 left behind by not using TCP at all. It builds its own connection on UDP, which we know from [lesson 6](/en/networking/udp-dns/) as just single datagrams with no guarantee. So QUIC builds its own guarantees, ordering and congestion control on top of UDP, and merges the TLS 1.3 handshake into the handshake of the connection itself (RFC 9000 sections 1 and 7). What matters is that QUIC streams are independent of each other. RFC 9000 section 2 says: "QUIC does not provide any means of ensuring ordering between bytes on different streams". That differs from HTTP/2 over TCP, where all the streams are one byte stream. It is why HTTP/3 (RFC 9114), which is HTTP over QUIC, is meant to let a lost packet affect only the stream it belongs to. This part is theory from the RFCs and we did not measure it.
+
+What we could measure is real QUIC packets (ran), captured at the client when it opened a connection to a server at a round trip of 100 milliseconds.
+
+```text
+time    from    UDP payload  first byte  version
+0 ms    client  1200         0xca        0x00000001
+88 ms   server  1200         0xc4        0x00000001
+148 ms  client  1200         0xc5        0x00000001
+149 ms  client  40           0x55        short header
+199 ms  server  224          0x5f        short header
+```
+
+Three things to notice. The first packet from the client is exactly 1200 bytes, an Initial packet of QUIC version 1, which the client has to pad to this size, according to section 14.1 of RFC 9000 (the reason the author understands is to stop the server being used to amplify an attack, but we did not read that part of the RFC). Second, the connection starts with long-header packets (the top bit of the first byte is 1) and then switches to short headers for data (RFC 9000 section 17.2). And last, the word `GET` and the content of the answer never appear on the wire, because QUIC always encrypts everything (ran).
+
+</Step>
+
+<Step>
+
+## What was measured: QUIC was not faster than the theory says
+
+At a round trip of 100 milliseconds, the time from starting to connect to the first byte of the response (ran).
+
+| Kind | Ready | First byte | Round trips |
+|---|---|---|---|
+| Plain TCP with HTTP/1.1 | - | 203 ms | 2.0 |
+| TCP + TLS 1.3 with HTTP/1.1 | 205 ms | 305 ms | 3.0 |
+| QUIC (aioquic 1.3.0) | 201 ms | 302 ms | 3.0 |
+
+In theory QUIC should cost one round trip less than TCP + TLS, because it merges the key agreement into the handshake of the connection (RFC 9000 section 7). But in this run they came out the same. The QUIC connection was ready after 2 round trips and received the response at 3 round trips, like TCP + TLS 1.3, as the exercise confirms. So we must be careful. We do not know the cause (it may be the behaviour of the aioquic library or our configuration). The result says only "in this run, with this library". It does not say how fast or slow QUIC is in general, and we did not try 0-RTT, which in theory lets data go in the very first packet of a repeated connection (not run).
+
+<Callout type="note" title="What can and cannot be read from this result">
+
+What is certain is that QUIC is a protocol on UDP that is fully encrypted, begins with a datagram of 1200 bytes, and uses separate streams that are independent of one another. The claims that QUIC is faster because of one round trip less of handshake, or because a lost packet does not block the others, are statements for which we have no evidence from our own run, so we can cite them only from the RFCs (author).
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="In our exercise, how did the time to the first byte of the response over QUIC compare with TCP + TLS 1.3 at a round trip of 100 milliseconds?"
+  options={[
+    'QUIC was one round trip faster (about 200 milliseconds), as the theory always says',
+    'The same, about 300 milliseconds (3 round trips) in this run with this library, so we cannot conclude from our data that QUIC is faster',
+    'QUIC was twice as slow',
+    'It could not be measured because UDP has no handshake'
+  ]}
+  answer={1}
+  why="At 100 milliseconds TCP + TLS 1.3 took 305 ms and QUIC (aioquic 1.3.0) took 302 ms, both 3 round trips, which differs from what RFC 9000 describes. We do not know why, so we report what was measured and do not claim an advantage we did not see (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| HTTP/1.1 needs several connections when requests are wanted at once | RFC 9113 section 1 |
+| Six requests: a new connection every time 857 ms, keep-alive 752 ms, six connections 149 ms, HTTP/2 135 ms | ran: `exercises/12_http.py` (the numbers wobble a little on each run) |
+| HTTP/2 frames: a 9-byte header, a 24-byte preface, odd stream numbers for the client, HEADERS, DATA, SETTINGS, WINDOW_UPDATE | ran and RFC 9113 sections 3.4, 4.1, 5 and 6 |
+| HPACK makes a repeated request 8 bytes instead of 17 | ran and RFC 9113 section 4.3 |
+| HTTP/2 still runs on TCP and does not fix TCP head-of-line blocking | RFC 9113 section 1 (our measurement of this is not cited) |
+| QUIC: over UDP, a first datagram of 1200 bytes, Initial version 1, long header then short header, fully encrypted | ran and RFC 9000 sections 14.1 and 17.2 |
+| QUIC streams have no ordering between them, and HTTP/3 relies on that | RFC 9000 section 2 and RFC 9114 (not run) |
+| QUIC took 3 round trips, the same as TCP + TLS 1.3 (302 against 305 ms), in this run with aioquic 1.3.0 | ran (cause unknown) |
+| Theory says QUIC should cost one round trip less | RFC 9000 section 7 (it differs from what we measured) |
+| Real HTTP/3, streams blocking each other when a packet is lost, 0-RTT, connection migration, HTTP/2 over TLS | not run |
+
+</Step>

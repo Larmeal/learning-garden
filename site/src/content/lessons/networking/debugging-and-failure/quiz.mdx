@@ -1,0 +1,97 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 5 ข้อ เพื่อเช็กว่าแยกความช้าของ Network ออกจากความช้าของโปรแกรมได้ อ่านข้อความ Error ของการต่อ Connection เป็น และรู้ว่า Timeout ต้องไปดูที่ไหนต่อ
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เวลา Connect ของคำขอหนึ่งเพิ่มจาก 20 เป็น 200 มิลลิวินาที พร้อมกับ Wait และ Transfer ที่ยาวขึ้นตามกัน นี่บอกอะไร?"
+  options={[
+    'โปรแกรมที่ Server ช้าลง',
+    'เส้นทางของ Packet ช้าลง (RTT ใหญ่ขึ้น) เพราะ Connect เป็นแค่การจับมือที่ไม่ต้องรอโปรแกรม แล้วทุกช่วงยาวตามกัน',
+    'DNS ช้า',
+    'Server ส่งข้อมูลเยอะขึ้น'
+  ]}
+  answer={1}
+  why="ในแบบฝึก เมื่อหน่วงสายทิศละ 100 มิลลิวินาที Connect กลายเป็น 200 Wait 251 และ Transfer 401 ทุกช่วงโตตาม RTT (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เทียบ Firewall ที่ REJECT กับ Server ที่ไม่มีโปรแกรม Listen จากฝั่ง Client อย่างเดียว ข้อไหนถูก?"
+  options={[
+    'แยกได้ทันที เพราะ Error ต่างกัน',
+    'แยกไม่ได้ ทั้งสองได้ Refused ทันที ต้องไปดูที่ Server ว่ามีโปรแกรม Listen ไหม และดูกฎ Firewall',
+    'แยกได้จากเวลาที่ใช้ เพราะ Firewall ช้ากว่า',
+    'แยกไม่ได้ เพราะทั้งสองให้ timeout'
+  ]}
+  answer={1}
+  why="ในแบบฝึก ทั้งไม่มีโปรแกรม Listen และ Firewall REJECT (ทั้งแบบ ICMP และ RST) ให้ Refused ใน 0.0 วินาที จากฝั่ง Client เหมือนกันหมด (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Firewall DROP กับสายขาด ให้ผลต่างกันอย่างไรที่ Server?"
+  options={[
+    'ไม่ต่างกัน ทั้งสองไม่มี Packet มาถึง Server',
+    'Firewall DROP ทำให้ SYN มาถึง Server (จับได้ 4 ตัวใน 3.5 วินาที) แต่ไม่มีคำตอบ ส่วนสายขาดจะไม่เห็น SYN เลย',
+    'Firewall DROP ให้ Refused ส่วนสายขาดให้ timeout',
+    'สายขาดทำให้ Server รีสตาร์ท'
+  ]}
+  answer={1}
+  why="ที่ Client ทั้งสองเป็น Timeout เหมือนกัน (3.5 และ 3.0 วินาที) ที่ต่างคือฝั่ง Server จับ SYN ได้ในกรณี DROP ที่เวลา 0.0, 1.0, 2.0 และ 3.1 วินาที ในกรณีสายขาดไม่มีอะไรมาถึง (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Client ส่ง SYN ไป Server ที่ถูก DROP แล้วรอ ระหว่างนั้นเห็นสถานะ SYN-SENT ใน ss ข้อไหนอธิบายสถานะนั้นถูก?"
+  options={[
+    'Server รับ SYN แล้ว กำลังเตรียม SYN-ACK',
+    'Client ส่ง SYN ไปแล้วและยังไม่ได้อะไรกลับมา จึงรอและส่งซ้ำทุกราว 1 วินาที',
+    'Connection สร้างเสร็จแล้ว',
+    'Client ถูกปฏิเสธ'
+  ]}
+  answer={1}
+  why="SYN-SENT คือสถานะของฝั่งที่ส่ง SYN ไปแล้วและรอ SYN-ACK ในแบบฝึกเห็นบรรทัดของ 10.0.2.2:9000 ค้างอยู่ และ SYN ซ้ำที่ 1.0, 2.0 และ 3.1 วินาที (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Connection Pool ไปหา Database ใช้ได้ดีตลอดวัน แต่หลังไม่มีคนใช้ครึ่งคืนแล้ว คำขอแรกของเช้าค้างนานแล้วล้ม ข้อไหนเป็นสมมติฐานที่เข้ากับหนังสือที่สุด?"
+  options={[
+    'DNS ของ Database ล่ม',
+    'Connection ที่ว่างไม่มี Packet วิ่ง จึงอาจมีตัวกลางอย่าง NAT ลบสถานะทิ้งไปแล้วโดยไม่มีใครบอก ควรมี Timeout และ Keepalive ในโปรแกรมเอง',
+    'TCP ปิด Connection ให้เองหลังว่างหนึ่งชั่วโมงเสมอ',
+    'Database ทำงานช้าในตอนเช้า'
+  ]}
+  answer={1}
+  why="หนังสือเล่าว่าไม่มีข้อมูลวิ่งข้ามการเชื่อมต่อที่ว่างเลย และข้อสันนิษฐานว่าตัวกลางไม่เก็บสถานะเป็นข้อสันนิษฐานที่ใหญ่ ซึ่งเป็นสมมติฐานที่เข้ากับอาการ แต่ในแบบฝึกเราไม่ได้ทดลองเรื่องนี้ (หนังสือ: TCP/IP Illustrated ฉบับที่ 2 หัวข้อ 17.1 หน้า 793, ไม่ได้รัน)"
+/>
+
+</Step>

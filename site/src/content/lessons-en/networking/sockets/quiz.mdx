@@ -1,0 +1,102 @@
+---
+title: Check your understanding
+summary: Five questions to check that you understand byte streams, the listen queue, ephemeral ports and SO_REUSEADDR.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="When a program calls recv on a TCP socket, which is true?"
+  options={[
+    'It always gets exactly one message that the sender wrote',
+    'It gets the bytes that are in the buffer at that moment, no more than it asked for, which may be part of a message or several messages joined',
+    'It gets exactly one segment',
+    'It is blocked until the sender calls close'
+  ]}
+  answer={1}
+  why="TCP is a byte stream with no message boundaries. In the exercise 5 bytes were written three times but recv(100) returned 15 bytes in one go, and recv(4) returned 4, 4, 4, 3 straight through the middle of the messages (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A protocol running on TCP must send messages that the receiver can tell apart. Which method works?"
+  options={[
+    'Send each message with a separate send call and the receiver can tell them apart itself',
+    'Put a length in front of each message, or end it with a delimiter that does not occur in the content, and let the receiver read in a loop until it has a whole message',
+    'Close the connection after every message and only then',
+    'Use a different port for each message'
+  ]}
+  answer={1}
+  why="A length prefix or a delimiter is what HTTP uses (the headers end with a blank line and the body gives its length) and many other protocols (author). The receiver keeps reading bytes until it has a whole message and then splits. Separate sends do not help, because the receiver may get them joined together or cut in half (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A server calls listen(2) and never calls accept. What does the 4th client that tries to connect see on the Linux we tested?"
+  options={[
+    'connected at once, like the first three',
+    'refused at once',
+    'Nothing comes back. The kernel sends the SYN again when its timer runs out, and the program sees a timeout',
+    'A window of 0'
+  ]}
+  answer={2}
+  why="The queue is full (Linux accepts the backlog plus one, which is three), and the kernel just ignores the SYN and sends no RST. At the client that is silence, with the SYN sent again about a second apart until the program's own timeout (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A program opens short connections to the same API tens of thousands of times a minute, and starts to get the error Cannot assign requested address on the client. What is the most likely cause?"
+  options={[
+    'The server is down',
+    'The ephemeral ports for that destination have run out, because many connections are lingering in TIME-WAIT',
+    'DNS is wrong',
+    'The server\'s window is 0'
+  ]}
+  answer={1}
+  why="EADDRNOTAVAIL happens in connect, before a SYN is sent, when the kernel cannot find a free source port for that destination. The exercise saw it when the port range was cut to three numbers. In real systems it is usually many sockets in TIME-WAIT, and it is fixed with a connection pool or keep-alive, so as not to open a new connection every time (ran and author)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="What does SO_REUSEADDR do for a server that is restarted?"
+  options={[
+    'It lets the server accept more connections',
+    'It allows bind on a port that is still the local port of a connection in TIME-WAIT',
+    'It turns off timeouts',
+    'It turns on Nagle'
+  ]}
+  answer={1}
+  why="Without SO_REUSEADDR the bind on the same port failed with EADDRINUSE, because the connection that was closed first was still in TIME-WAIT, and with the option set, bind succeeded (ran and book: TCPIP section 13.5, page 620)."
+/>
+
+</Step>

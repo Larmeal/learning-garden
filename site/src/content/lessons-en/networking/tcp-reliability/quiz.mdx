@@ -1,0 +1,102 @@
+---
+title: Check your understanding
+summary: Five questions to check that you can tell the timer from fast retransmit, understand SACK, and know what Nagle and the window do.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="In which situation does TCP have to wait for the timer before it can resend, while the others can be repaired quickly with duplicate ACKs?"
+  options={[
+    'Segment 3 of 30 is lost but the others arrive',
+    'The last segment of a transfer is lost and nothing follows for the receiver to answer',
+    'Segment 10 of 50 is lost',
+    'One ACK is lost but the next ACK arrives'
+  ]}
+  answer={1}
+  why="Duplicate ACKs come from later segments arriving and making the receiver repeat itself. If the lost segment is the last one, nothing follows, the receiver has nothing to answer, and the sender has only the timer. In the exercise the single segment took over 1 second, while a segment lost in the middle was repaired in about 24 milliseconds (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="What does SACK let the sender do that a plain ACK cannot?"
+  options={[
+    'Always send twice as fast',
+    'Know which ranges the receiver already has after the hole, so it resends only the lost segment and not the ones that arrived',
+    'Encrypt the ACK',
+    'Ask the receiver for a bigger window'
+  ]}
+  answer={1}
+  why="A cumulative ACK can only say the continuous bytes received. SACK adds the ranges already received after the hole. In the exercise the sender saw that the hole was 1,448 bytes, exactly one segment, and resent only segment 3 (ran and book: TCPIP section 14.6, pages 671 to 676)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A program writes 10 bytes five times in a row. With the default TCP settings (Nagle on), how many segments leave and of what size?"
+  options={[
+    'Five, of 10 bytes each',
+    'Two: 10 bytes, then 40 bytes, the second leaving when the ACK of the first returns',
+    'One of 50 bytes',
+    'Four'
+  ]}
+  answer={1}
+  why="Nagle lets the first go at once and holds the rest together until the ACK of the first arrives. In the exercise that was 10 and then 40, 20 milliseconds apart. With TCP_NODELAY it would be five segments of 10 bytes (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The receiver announces a window of 0 because its program has not read yet. If the ACK announcing that the window has opened is lost, why do the two sides not wait for ever?"
+  options={[
+    'The receiver keeps repeating the ACK by itself',
+    'The sender sends empty probes now and then and the receiver answers with its latest window, so the sender learns it has opened',
+    'A router tells the sender',
+    'The connection is closed automatically'
+  ]}
+  answer={1}
+  why="The sender has a persist timer and sends empty segments now and then to ask, with growing gaps. The receiver answers with its current window, and if it has opened the sender continues. In the exercise the probes were at 396, 892 and 1856 milliseconds (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We turn on TCP_NODELAY in a program that writes small pieces often. What must we accept in return?"
+  options={[
+    'The data may not arrive complete',
+    'The data arrives sooner because nothing waits, but each segment carries 66 bytes of headers, so more is spent on headers',
+    'The receiver\'s window becomes 0',
+    'The handshake gets slower'
+  ]}
+  answer={1}
+  why="NODELAY does not lose data and the guarantee is the same, but every write becomes a segment of its own. In the exercise 50 bytes used 330 bytes of headers, against 132 bytes with Nagle on (ran and calculated)."
+/>
+
+</Step>

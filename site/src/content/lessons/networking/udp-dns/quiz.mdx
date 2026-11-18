@@ -1,0 +1,92 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 5 ข้อ เพื่อเช็กว่าเข้าใจว่า UDP รับประกันอะไรบ้าง DNS เดินหาคำตอบอย่างไร และ Cache กับ TTL ทำงานอย่างไร
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="UDP Datagram ที่มีข้อมูล 100 ไบต์ ถูกใส่ใน Frame ของ Ethernet จะมีขนาด Frame กี่ไบต์ (ไม่นับ FCS)?"
+  options={['108', '128', '142', '162']}
+  answer={2}
+  why="Frame = Ethernet 14 + IP 20 + UDP 8 + ข้อมูล 100 = 142 ไบต์ ตรงกับสูตรที่แบบฝึกยืนยัน (Datagram 10 ไบต์ได้ 52 ไบต์) ส่วน 128 ลืม Ethernet และ 108 มีแต่ UDP กับข้อมูล (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ข้อไหนเป็นสิ่งที่ UDP ไม่ทำ?"
+  options={[
+    'ระบุ Port ของโปรแกรมปลายทาง',
+    'ตรวจ Checksum ของข้อมูล',
+    'ส่งซ้ำเมื่อ Datagram หาย',
+    'รักษาขอบเขตของแต่ละข้อความ',
+  ]}
+  answer={2}
+  why="UDP ระบุ Port, ตรวจ Checksum และส่งทีละข้อความให้ครบขอบเขต แต่ไม่ส่งซ้ำ ไม่เรียงลำดับ และไม่บอกผู้ส่งว่าหาย ในแบบฝึกส่งหกอัน ถึงสี่อัน (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Resolver ถามหา www.example.test ครั้งแรกแล้วไม่มีอะไรใน Cache ลำดับ Server ที่ Resolver ถามคือข้อไหน?"
+  options={[
+    'Authoritative ของ example.test โดยตรง',
+    'Root, TLD (test.), แล้ว Authoritative ของ example.test',
+    'TLD, Root, แล้ว Authoritative',
+    'ถามทุก Server พร้อมกัน',
+  ]}
+  answer={1}
+  why="Resolver ไม่รู้ล่วงหน้าว่า example.test อยู่ที่ไหน มันเริ่มที่ Root ซึ่งรู้ที่อยู่ล่วงหน้า แล้วตามคำชี้ทางลงมาทีละระดับ เป็นการถามสามครั้งต่อเนื่องกัน (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราเรียก Dig ถามชื่อเดิมซ้ำสองครั้งติดกัน ครั้งที่สองเร็วกว่ามาก และ TTL ในคำตอบน้อยกว่าครั้งแรก เกิดอะไรขึ้น?"
+  options={[
+    'Authoritative Server เร็วขึ้น',
+    'Resolver ตอบจาก Cache ที่จำไว้ และ TTL ที่เหลือลดลงตามเวลาที่ผ่านไป',
+    'UDP ใช้เส้นทางที่เร็วกว่า',
+    'Client เก็บคำตอบไว้เอง',
+  ]}
+  answer={1}
+  why="Resolver จำคำตอบไว้และลด TTL ตามเวลาที่ผ่านไป ครั้งที่สองจึงไม่มี Packet ไปถึง Root, TLD หรือ Authoritative เลย ในแบบฝึก 8 Packet กลายเป็น 2 และเวลา 123 มิลลิวินาทีเหลือ 0 (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ธง AA (Authoritative Answer) ในข้อความ DNS บอกอะไร?"
+  options={[
+    'คำตอบนี้มาจากเจ้าของข้อมูลของโดเมนนั้นโดยตรง ไม่ใช่จาก Cache หรือคำชี้ทาง',
+    'Server นี้รับทำ Recursion',
+    'คำตอบถูกเข้ารหัส',
+    'ข้อความนี้ใหญ่เกิน UDP',
+  ]}
+  answer={0}
+  why="AA ตั้งโดย Server ที่ถือข้อมูลของโซนนั้นเอง ในแบบฝึกมีแค่ Authoritative ของ example.test ที่ตั้ง AA ส่วน Root และ TLD ตอบเป็นคำชี้ทาง (Referral) จึงไม่มี AA ส่วนการรับทำ Recursion คือธง RA (รัน)"
+/>
+
+</Step>

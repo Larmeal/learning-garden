@@ -1,0 +1,102 @@
+---
+title: Check your understanding
+summary: Five questions to check that you can tell a slow network from a slow program, read the error of a failed connection, and know where to look next after a timeout.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The Connect time of a request grows from 20 to 200 ms, and Wait and Transfer grow with it. What does that say?"
+  options={[
+    'The program on the server got slower',
+    'The path of the packets got slower (a bigger round trip), because Connect is only the handshake and does not wait for the program, and every phase grows with it',
+    'DNS is slow',
+    'The server sends more data'
+  ]}
+  answer={1}
+  why="In the exercise, with 100 ms of delay each way, Connect became 200, Wait 251 and Transfer 401. Every phase grew with the round trip (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Comparing a firewall that REJECTS with a server where nothing listens, from the client alone, which statement is right?"
+  options={[
+    'They can be told apart at once, because the errors differ',
+    'They cannot. Both give refused at once, and we must look at the server to see whether a program listens and what the firewall rules are',
+    'They can be told apart by time, because the firewall is slower',
+    'They cannot, because both give a timeout'
+  ]}
+  answer={1}
+  why="In the exercise both nothing listening and a firewall REJECT (with ICMP and with RST) gave refused in 0.0 seconds, the same from the client's side (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="How do a firewall DROP and a cut cable differ at the server?"
+  options={[
+    'They do not, in both cases no packet arrives at the server',
+    'With a firewall DROP the SYN arrives at the server (4 were captured in 3.5 seconds) with no answer, and with a cut cable no SYN is seen at all',
+    'A firewall DROP gives refused and a cut cable gives a timeout',
+    'A cut cable makes the server restart'
+  ]}
+  answer={1}
+  why="At the client both are a timeout (3.5 and 3.0 seconds). The difference is at the server, which captured SYNs at 0.0, 1.0, 2.0 and 3.1 seconds in the DROP case, and nothing arrived in the cut-cable case (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A client sent a SYN to a server that drops it, and while waiting it shows SYN-SENT in ss. What does that state mean?"
+  options={[
+    'The server received the SYN and is preparing a SYN-ACK',
+    'The client has sent a SYN and received nothing back, so it waits and sends again about every second',
+    'The connection is established',
+    'The client was refused'
+  ]}
+  answer={1}
+  why="SYN-SENT is the state of the side that has sent a SYN and waits for the SYN-ACK. In the exercise the line for 10.0.2.2:9000 stayed there, and the SYN was sent again at 1.0, 2.0 and 3.1 seconds (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A connection pool to a database works all day, but after half a night with no use the first request of the morning hangs and then fails. Which hypothesis fits the book best?"
+  options={[
+    'The database\'s DNS is down',
+    'An idle connection carries no packets, so a device in the middle such as a NAT may have deleted its state without telling anyone. The program should have its own timeouts and keepalive',
+    'TCP always closes a connection by itself after an hour idle',
+    'The database is slow in the morning'
+  ]}
+  answer={1}
+  why="The book says that no data flows over an idle connection, and that the assumption that no middle device keeps state is a big one. That fits the symptom, but we did not try it in the exercise (book: TCP/IP Illustrated 2nd edition section 17.1 page 793, not run)."
+/>
+
+</Step>

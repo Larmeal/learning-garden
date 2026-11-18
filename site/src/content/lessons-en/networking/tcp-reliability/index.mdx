@@ -1,0 +1,208 @@
+---
+title: TCP resends, waits and cannot keep up
+summary: When a packet is lost TCP can resend in two ways. The first waits for a timer, which is slow and doubles each time. The second uses duplicate ACKs and SACK and repairs within one round trip. We also see Nagle, which waits to join small writes, and the window, which a receiver uses to tell the sender to stop when it cannot keep up.
+facts:
+  - "Ran for real in exercises/08_tcp_reliability.py in network namespaces in WSL, with a client, a router and a server whose cables are delayed 10 milliseconds each way (a 20 millisecond round trip, checked with ping). The router drops chosen segments with iptables rules, and packets are captured at the client."
+  - "The resend times, segment sizes and window values are the behaviour of the Linux kernel used for the test, and other systems differ. In the run used to write this lesson the fast retransmit happened 24 milliseconds after the first send (measured, and it varies a little from run to run). The theory cites TCP/IP Illustrated, 2nd edition, chapters 14 and 15, with page numbers."
+  - "Not run: delayed ACK as a topic of its own, silly window syndrome, reordering, RACK and TLP, which this kernel has but which we did not test separately."
+order: 8
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [tcp-connections]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import RetransmitLab from '../../../../components/labs/networking/RetransmitLab';
+import NagleLab from '../../../../components/labs/networking/NagleLab';
+import WindowLab from '../../../../components/labs/networking/WindowLab';
+
+<Step>
+
+## A packet is lost, and how does TCP know?
+
+In [lesson 7](/en/networking/tcp-connections/) we saw TCP build a connection that promises the data will arrive complete, but the cable underneath makes no such promise. A router can drop a packet when its queue is full, and a cable can have interference. In this lesson we see how TCP turns an unreliable network into a reliable one, in three parts: resending, waiting to join data, and a receiver telling the sender to stop.
+
+Loss has to be split into two cases, because TCP finds out about it in different ways. In the first, a segment is lost and nothing follows. The receiver has nothing to answer, so the sender has only a timer to rely on. In the second, a segment is lost in the middle and the next segments still arrive, so the receiver sees the hole and can tell the sender at once. In the exercise we try both, on a cable delayed 10 milliseconds each way, which `ping` measures as a 20 millisecond round trip (ran: `exercises/08_tcp_reliability.py`).
+
+</Step>
+
+<Step>
+
+## The first case: one segment lost, so wait for the timer
+
+The client sends 100 bytes while the router drops every segment of that size, and we remove the rule after 0.95 seconds. We capture at the client (ran).
+
+```text
+time (ms)  seq  bytes
+30         1    100    first send
+276        1    100    again
+524        1    100    again
+1032       1    100    again (it arrives)
+gaps: 246, 248 and 492 milliseconds
+```
+
+The same segment (the same seq) is sent four times. The first gap is about 246 milliseconds, nearly twelve times the 20 millisecond round trip of the cable. TCP does not know how fast the cable is in the first fraction of a second. It measures the round trip from the ACKs it receives and sets a timer called the RTO (Retransmission Timeout) well above that (book: TCPIP section 14.3, page 651). The figure of 246 milliseconds belongs to the kernel used for the test, which probably has a minimum RTO, but the exercise did not check that (author). The gap before the fourth send is double. When the timer runs out with no answer, TCP doubles the RTO each time, called exponential back-off, so as not to pile onto a network that may be in trouble (book: TCPIP section 14.3, page 655 and section 14.4, page 665). The result is that 100 bytes take over a second, where the cable normally needs 10 milliseconds.
+
+The second case shows that such waiting is not always necessary. Choose the situations in the lab below to compare them.
+
+<RetransmitLab client:visible lang="en" />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="TCP sends a segment and gets no ACK. When the timer runs out TCP sends it again. What should the next timer be?"
+  options={[
+    'The same, because the round trip of the cable has not changed',
+    'Twice as long (exponential back-off), so as not to pile onto a congested network',
+    'Half as long, because it must hurry',
+    'Cancelled, and it resends at once again and again'
+  ]}
+  answer={1}
+  why="If packets are lost because the network is congested, resending often makes it worse. So TCP doubles the timer every time it resends. In the exercise the gaps between sends were 246, 248 and then 492 milliseconds, which is double (ran and book: TCPIP section 14.3, page 655)."
+/>
+
+</Step>
+
+<Step>
+
+## The second case: lost in the middle, repaired in one round trip
+
+If a segment is lost in the middle, the receiver still gets the segments after it. It sends an ACK every time data arrives, but the ACK number is the next byte wanted, which stays at the hole, so the ACKs repeat. These are called duplicate ACKs. A sender that gets three duplicate ACKs decides the segment is lost and sends it again at once, without waiting for the timer. This is called fast retransmit (book: TCPIP section 14.5, pages 667 to 669).
+
+In the exercise the client sends 43,440 bytes, which is 30 segments of 1,448 bytes, and the router drops only the third segment (ran).
+
+```text
+Segment 3 (relative seq 2896) sent at 20.3 ms and again at 44.7 ms
+The server's ACK stuck at 2897 a total of 19 times
+The first SACK block covers 4345 to 5793, then grows to 7241, 8689 ... one segment at a time
+```
+
+The repair finished about 24 milliseconds after the first send, roughly one round trip, not hundreds of milliseconds as in the last case. This is where SACK (Selective Acknowledgement), which we saw as an option in the SYN of [lesson 7](/en/networking/tcp-connections/#the-options-the-two-sides-agree-in-the-syn), works. A plain ACK can only say "I have everything continuous up to this byte", while SACK adds "and I also have this range". So the sender sees that the hole is just segment 3 (the range 2896 to 4344) and resends only that one, with no need to send segments 4 to 10 again (book: TCPIP section 14.6, pages 671 to 676). When segment 3 arrives, a single ACK jumps to the last byte received (ran).
+
+In the run used to write this lesson segment 3 was sent exactly twice, but across several runs we saw that on some the kernel sent it once more and the receiver answered with a special SACK block saying it received a duplicate (D-SACK, book: TCPIP section 14.7, page 677). That is a Linux mechanism outside this lesson. The number the lab shows is two, as in the recorded run.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The client sends segments 1 to 6 and segment 3 is lost on the way. The receiver still gets 4, 5 and 6. How does the receiver answer after getting segments 4, 5 and 6?"
+  options={[
+    'An ACK asking for segment 7, because it has received up to 6',
+    'The same ACK again, still asking for segment 3 each time, with a SACK saying segments 4, 5 and 6 have already arrived',
+    'Nothing, until segment 3 comes',
+    'An ACK asking for segment 4'
+  ]}
+  answer={1}
+  why="A cumulative ACK can only say the continuous bytes received, so it stays at segment 3. SACK says the ranges received after the hole. The sender sees three duplicate ACKs and learns from SACK that the hole is only segment 3, so it resends only that one. The exercise captured the ACK stuck at one position 19 times, with a SACK that grew one segment at a time (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Nagle: wait to join small writes into a bigger block
+
+The next topic is not about loss but is also about waiting. Suppose a program writes short pieces one after another, say 10 bytes each. If every write became one segment, every 10 bytes would carry 66 bytes of headers (Ethernet 14 plus IP 20 plus TCP 32, which we measured in [lesson 1](/en/networking/big-picture/)), which is very wasteful. The Nagle algorithm solves it with one rule: if data has been sent and not yet acknowledged, new small data waits to be joined together (book: TCPIP section 15.4, page 696).
+
+We write 10 bytes five times, 1 millisecond apart, in two ways: the default, and with `TCP_NODELAY`, which turns Nagle off (ran).
+
+| Mode | Segments on the wire |
+|---|---|
+| Nagle (the default) | 10 bytes, then 40 bytes (20 milliseconds apart) |
+| `TCP_NODELAY` | five of 10 bytes, about 1 millisecond apart |
+
+Switch between the two modes in the lab and watch the counters. The data is the same, 50 bytes, but Nagle uses two segments (132 bytes of headers) and NODELAY uses five (330 bytes of headers, with the real data only about 13% of what is sent) (calculated from 66 bytes of headers per segment).
+
+<NagleLab client:visible lang="en" />
+
+The price of Nagle is a wait of up to one round trip, which does not matter for sending a file but is bad for programs that must answer quickly, such as games or typing one character at a time across a network. Such programs turn on `TCP_NODELAY` (book: TCPIP section 15.4, page 700). The exercise checks the joining, but not the effect of the delayed ACK on the receiving side, which the book treats as another topic working alongside it (book: TCPIP section 15.3, page 695). That part was not run.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A chat program writes short messages one line at a time over TCP, and users complain that the server answers about one round trip late for some messages. What should be suspected first?"
+  options={[
+    'A router dropping packets',
+    'Nagle is waiting for the ACK of earlier data before sending the small message that remains, and TCP_NODELAY should be tried',
+    'The receiver\'s window is 0',
+    'DNS is slow'
+  ]}
+  answer={1}
+  why="Nagle holds back small data until the data already sent is acknowledged. In the exercise the remaining 40 bytes left after one round trip of 20 milliseconds. Turning on TCP_NODELAY makes every write leave at once, at the price of carrying more headers (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## The window: the receiver tells the sender to slow down, or stop
+
+The last topic is a receiver that cannot keep up. Data that TCP receives is kept in a buffer until the program calls `recv` to read it. If the program reads slowly the buffer fills, and the receiver has to tell the sender to stop. It does so with the Window field in every ACK, which means "I still have this many bytes of room", and the sender must not send more than that. This mechanism is called flow control (book: TCPIP section 15.5, pages 700 to 703).
+
+In the exercise we let the receiver set a small buffer (8 KB) and let its program sleep for 2 seconds before the first read, while the sender tries to send 200,000 bytes (ran).
+
+```text
+Window announced by the receiver: 7,240 -> 5,792 -> 2,896 -> 0 at ~140 ms
+The sender's probes: 396, 892 and 1856 ms (gaps of 496 and 964)
+The window opens again at ~2033 ms and the sender continues within a few milliseconds
+All 200,000 bytes took 2.3 seconds, of which 2 were waiting for the receiver
+```
+
+Press play to see the window shrink to 0, the sender stop, and the sender go on again the moment the receiver reads.
+
+<WindowLab client:visible lang="en" />
+
+Notice the probes. When the window is 0 the sender can send nothing, but if it only waited and the ACK announcing that the window had opened were lost, both sides would wait for ever. So the sender has a timer like the one for resending (the persist timer) and sends empty segments now and then to ask. In the exercise they were 496 and then 964 milliseconds apart, which doubles in the same way as the back-off for resending (book: TCPIP section 15.5, pages 708 to 711). In this connection the window starts at 7,240 bytes and the SYN,ACK has no window scale (wscale=0), so the numbers in the ACKs can be read directly in bytes with no multiplying, unlike in [lesson 7](/en/networking/tcp-connections/#the-options-the-two-sides-agree-in-the-syn) (ran).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The receiver announces a window of 0. What does the sender do?"
+  options={[
+    'Keeps sending data, trusting that the receiver will read in time',
+    'Stops sending data and sends empty segments now and then (with growing gaps) until the window opens',
+    'Closes the connection at once',
+    'Sends all the data again from the start'
+  ]}
+  answer={1}
+  why="The window is the room the receiver has left. At 0 anything more would just be dropped, so the sender stops and sends probes now and then, in case the ACK announcing that the window opened was lost. In the exercise the probes were 496 and then 964 milliseconds apart, and the sender went on within 15 milliseconds after the window opened (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A single lost segment is sent again when the timer runs out, with gaps of 246, 248 and 492 milliseconds | ran: `exercises/08_tcp_reliability.py` and book: TCPIP section 14.3, pages 651 and 655 and section 14.4, page 665 |
+| Three duplicate ACKs make the sender resend at once (fast retransmit), repairing in 1 RTT | ran and book: TCPIP section 14.5, pages 667 to 669 |
+| SACK says the ranges received after the hole, so only the lost segment is resent | ran and book: TCPIP section 14.6, pages 671 to 676 |
+| The Linux kernel sometimes resends once more and answers with a D-SACK | author (seen in some runs, only the part recorded in the lesson was checked) |
+| Nagle sends 10 and 40 bytes, NODELAY sends five of 10 bytes | ran and book: TCPIP section 15.4, pages 696 and 700 |
+| A header of 66 bytes per segment makes NODELAY spend 330 bytes of headers on 50 bytes of data | calculated from the run ([lesson 1](/en/networking/big-picture/)) |
+| The window falls to 0, the sender stops, probes 496 and 964 milliseconds apart, then continues once the window opens | ran and book: TCPIP section 15.5, pages 700 to 711 |
+| Delayed ACK, silly window syndrome, RACK, TLP | not run |
+
+</Step>

@@ -1,0 +1,192 @@
+---
+title: IP addresses, subnets and CIDR
+summary: An IP address is a 32-bit number, and the prefix says which bits belong to the network and which to the computer. We see how the prefix alone decides whether a destination is a neighbour we can reach directly or one we hand to the router.
+facts:
+  - "Ran for real in exercises/02_ip_addresses.py, both the arithmetic with Python's ipaddress and the questions put to the Linux kernel in WSL (ip route get) for 8 prefix lengths and 5 destinations. The kernel's answer matches the arithmetic in every cell."
+  - "The table of prefix sizes, subnetting and route aggregation come from the run. The history of classful addressing and the special-use ranges cite TCP/IP Illustrated, 2nd edition, chapter 2, with page numbers."
+  - "The range 100.64.0.0/10 is not in that book (it came later). The exercise only checks that it is neither private nor global, and what carriers use it for is the author's knowledge. Not run: real address allocation from an internet provider, and IPv6 beyond the basic arithmetic."
+order: 2
+phase: A
+level: 1
+stage: sprout
+format: steps
+requires: [big-picture]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import CidrLab from '../../../../components/labs/networking/CidrLab';
+
+<Step>
+
+## One question: is the destination on our side?
+
+In [lesson 1](/en/networking/big-picture/) the client asked ARP about the router before sending its SYN, even though the real destination was another server. The reason is that before sending any packet the client must decide whether the destination is on its own network (send directly) or outside it (hand it to the router). Here is what the client's kernel says in the exercise (ran: `exercises/02_ip_addresses.py`).
+
+```text
+$ ip route
+default via 10.0.1.1 dev c0
+10.0.1.0/24 dev c0 proto kernel scope link src 10.0.1.2
+
+$ ip route get 10.0.1.77
+10.0.1.77 dev c0 src 10.0.1.2
+
+$ ip route get 10.0.2.2
+10.0.2.2 via 10.0.1.1 dev c0 src 10.0.1.2
+```
+
+The line `10.0.1.0/24 dev c0` says that every address starting with `10.0.1.` is on our own cable `c0` and can be reached directly. The line `default via 10.0.1.1` says that everything else goes to `10.0.1.1`, the router. So `ip route get` answers "directly" for `10.0.1.77` but `via 10.0.1.1` for `10.0.2.2`.
+
+The `/24` in that line decides everything. Let us see how.
+
+</Step>
+
+<Step>
+
+## An IP address is a 32-bit number
+
+The IPv4 address we write as `10.0.1.2` is really one 32-bit integer, written as four bytes to make it easier to read (ran).
+
+```text
+10.0.1.2  =  167772418  =  0x0A000102
+          =  00001010 00000000 00000001 00000010
+```
+
+When a router reads the destination from the IP header, this 32-bit number is what it sees, and the question it asks next is "which bits say which network, and which bits say which computer on that network?" The answer is the prefix length, the number after the `/`, which says how many leading bits belong to the network.
+
+For `10.0.1.2/24` the first 24 bits are the network and the last 8 are the host. If we AND the address with the mask (24 ones followed by 8 zeros) we get the address of the network, and if we turn every host bit into 1 we get the broadcast address (ran).
+
+| | Address | Bits |
+|---|---|---|
+| Our address | 10.0.1.2 | 00001010 00000000 00000001 00000010 |
+| Mask /24 | 255.255.255.0 | 11111111 11111111 11111111 00000000 |
+| Address AND mask | 10.0.1.0 | 00001010 00000000 00000001 00000000 |
+| Broadcast (all host bits 1) | 10.0.1.255 | 00001010 00000000 00000001 11111111 |
+
+A /24 holds 256 addresses, but only 254 can be used for computers, because the first (`10.0.1.0`) is the name of the network and the last (`10.0.1.255`) is the broadcast that reaches everyone on the network at once (ran, book: TCPIP section 2.3.3, page 39 and section 2.3.5, page 42).
+
+</Step>
+
+<Step>
+
+## Slide the boundary and see who is a neighbour
+
+Press play and watch the dashed line that splits network from host slide from /8 to /30. Under our address there are three destinations. A green bit is one that matches ours, and an orange bit is the first one that differs, which, if it is left of the boundary, means the destination is no longer a neighbour.
+
+<CidrLab client:visible lang="en" />
+
+The lab shows one rule. If every bit of the destination to the left of the boundary matches ours, the destination is on our network and we ARP for it directly. If even one bit differs, we ARP for the router instead. The interesting case is `10.0.2.2`, a neighbour at /22 but not at /23, because /23 stops at `10.0.1.255` (ran).
+
+To be sure the picture is not just our own arithmetic, the exercise sets the client's prefix to each value in turn and asks the real kernel with `ip route get` about 5 destinations. The kernel's answer agrees with the rule in every cell (ran).
+
+| Prefix | Our network | 10.0.1.77 | 10.0.1.200 | 10.0.2.2 | 10.0.3.9 | 10.1.0.5 |
+|---|---|---|---|---|---|---|
+| /8 | 10.0.0.0/8 | direct | direct | direct | direct | direct |
+| /16 | 10.0.0.0/16 | direct | direct | direct | direct | via router |
+| /22 | 10.0.0.0/22 | direct | direct | direct | direct | via router |
+| /23 | 10.0.0.0/23 | direct | direct | via router | via router | via router |
+| /24 | 10.0.1.0/24 | direct | direct | via router | via router | via router |
+| /25 | 10.0.1.0/25 | direct | via router | via router | via router | via router |
+| /26 | 10.0.1.0/26 | via router | via router | via router | via router | via router |
+| /30 | 10.0.1.0/30 | via router | via router | via router | via router | via router |
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A computer is configured as 10.0.1.2/26. Will it send a packet to 10.0.1.77 directly, or through the router?"
+  options={[
+    'Directly, because both start with 10.0.1',
+    'Through the router, because /26 cuts the network into blocks of 64 and 77 is in the next block after 10.0.1.0 to 10.0.1.63',
+    'Through the router, because 77 is an odd number',
+    'Directly, because the prefix is longer than /24',
+  ]}
+  answer={1}
+  why="/26 means the first 26 bits are the network, which leaves 6 host bits (64 addresses). The network of 10.0.1.2 is 10.0.1.0 to 10.0.1.63, while 10.0.1.77 falls in the block 10.0.1.64 to 10.0.1.127, a different network. The kernel's answer in the table above agrees: /26 goes through the router (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Cutting a network up, and joining networks together
+
+The prefix lets us cut a big network into smaller pieces as needed. For example, `10.0.0.0/22` splits into exactly four /24 networks, and a /24 can be cut into four blocks of 64 addresses each with /26. Subnets of different sizes inside the same network are called VLSM (ran, book: TCPIP section 2.3.4, page 41).
+
+Going the other way, when several neighbouring networks sit behind the same router, a router further away does not have to remember each one. It keeps a single bigger entry. This is called aggregation (ran).
+
+```text
+10.0.0.0/24, 10.0.1.0/24, 10.0.2.0/24, 10.0.3.0/24   ->   10.0.0.0/22
+10.0.0.0/24, 10.0.2.0/24                              ->   cannot be joined (not neighbours)
+```
+
+The whole internet uses aggregation like this, so that the routing tables of the big routers do not have to hold millions of separate networks. The way of thinking is called CIDR (Classless Inter-Domain Routing), which replaced the old Class A, B and C scheme where the prefix was tied to the first number (book: TCPIP section 2.4, pages 46 to 49, and the classful table on page 36).
+
+<Callout type="note" title="What is left of the old classes">
+
+In the exercise, under the old rules `10.0.1.2` would be a Class A address with a /8 mask, yet we use /24 freely, because CIDR no longer looks at the first number. The Class A, B, C, D, E table is only useful when reading old documents, or when someone still says "Class C" to mean a /24 (ran, book: TCPIP section 2.3.1, page 34).
+
+</Callout>
+
+</Step>
+
+<Step>
+
+## Special addresses you meet often
+
+Some ranges are set aside for particular jobs. We should know them, because we see them in configuration almost every day (book: TCPIP section 2.5, pages 50 to 51).
+
+| Range | What it is for |
+|---|---|
+| `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` | Private addresses. Usable inside a company or a home, not routed on the internet, so they need NAT first |
+| `127.0.0.0/8` | Loopback, talking to ourselves. The whole range never leaves the computer |
+| `169.254.0.0/16` | Link-local. A computer gives one to itself when it finds no DHCP server, and it works on one cable only |
+| `224.0.0.0/4` | Multicast, sending to a group of computers that have signed up |
+| `100.64.0.0/10` | Shared address space that carriers use to stack several layers of NAT (carrier-grade NAT) |
+
+Two small details were confirmed by the exercise. The private range `172.16.0.0/12` covers only `172.16` to `172.31`, so `172.32.x.x` is a public address. And on Linux the whole of `127.0.0.0/8` is loopback: a ping to `127.0.0.2` is answered at once without any cable (ran).
+
+IPv6 follows the same principle, but an address is 128 bits long and is written with runs of zeros squeezed into `::` (for example `2001:db8::1`). A normal network is a /64: the first 64 bits are the network and the other 64 say which device it is (ran, book: TCPIP section 2.3.6, page 43).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Is the address 172.32.4.5 a private address?"
+  options={[
+    'Yes, because it starts with 172',
+    'No, the private range of 172 is only 172.16.0.0 to 172.31.255.255 (172.16.0.0/12)',
+    'Yes, because 172 is in Class B',
+    'No, because the only private addresses are 10.x.x.x',
+  ]}
+  answer={1}
+  why="/12 means the first 12 bits must match 172.16. In binary 16 is 0001 0000, and the 12 bits include the first four bits of the second octet, which covers exactly 16 to 31. 172.32 falls outside. If we write a firewall rule thinking every 172 address is private, we may open access to some public addresses without knowing (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| An IPv4 address is a 32-bit number, and the network address and broadcast come from the mask | ran: `exercises/02_ip_addresses.py` and book: TCPIP section 2.3.3, page 39, section 2.3.5, page 42 |
+| The sizes of prefixes (/8 to /32) and the number of hosts | ran: `exercises/02_ip_addresses.py` |
+| The kernel chooses "direct" or "via router" by whether the destination is inside the prefix's network (8 prefixes, 5 destinations) | ran: `exercises/02_ip_addresses.py` |
+| VLSM and aggregation | ran and book: TCPIP section 2.3.4, page 41, section 2.4, page 46 |
+| The old classful system | book: TCPIP section 2.3.1, page 34 and the table on page 36 |
+| Private, loopback, link-local and multicast addresses | book: TCPIP section 2.5, pages 50 to 51, and ran |
+| 100.64.0.0/10 is neither private nor global | ran: `exercises/02_ip_addresses.py` |
+| 100.64.0.0/10 is used by carriers for stacked NAT | author (not in this book) |
+| IPv6 squeezed with `::` and /64 | ran and book: TCPIP section 2.3.6, page 43 |
+
+</Step>

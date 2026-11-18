@@ -1,0 +1,193 @@
+---
+title: Socket ที่โปรแกรมเมอร์เห็น
+summary: โปรแกรมคุยกับ TCP ผ่าน Socket และสิ่งที่เห็นต่างจากที่คิด เช่น TCP ไม่มีขอบเขตข้อความ Listen มีคิวที่เต็มได้และทำให้ Connect ค้างเฉย ๆ Port ฝั่ง Client มีให้ใช้จำกัด และ Bind ซ้ำหลังปิดไม่ได้ถ้าไม่ตั้ง SO_REUSEADDR เราลองทุกอย่างบน Linux จริง
+facts:
+  - "รันจริงใน exercises/10_sockets.py ใน Network Namespace ของ WSL ด้วยโปรแกรม Python เล็ก ๆ ที่เรียก Socket API ตรง ๆ (linux/_sock_tools.py) สายหน่วงทิศละ 10 มิลลิวินาที ตรวจสถานะด้วย ss และตัวนับของ Kernel ด้วย nstat จับ Packet ด้วย tcpdump"
+  - "พฤติกรรมของ Backlog (รับได้ Backlog บวกหนึ่ง) ช่วง Ephemeral Port และข้อความ Error เป็นของ Linux Kernel ที่ใช้ทดสอบ ระบบอื่นต่างกัน ส่วนหลักการของ Socket, Backlog, Ephemeral Port และ SO_REUSEADDR อ้างหนังสือ TCP/IP Illustrated ฉบับที่ 2 บทที่ 1, 12 และ 13 พร้อมเลขหน้า"
+  - "ที่ไม่ได้รัน คือ Socket แบบ Non-blocking, select หรือ epoll, Unix Domain Socket, การทำงานบน Windows และ macOS และ UDP Socket ที่ Connect"
+order: 10
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [tcp-congestion]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import StreamLab from '../../../../components/labs/networking/StreamLab';
+import BacklogLab from '../../../../components/labs/networking/BacklogLab';
+
+<Step>
+
+## Socket คือประตูที่โปรแกรมใช้เข้าหา TCP
+
+[บท 7](/networking/tcp-connections/) ถึง [9](/networking/tcp-congestion/) เราเห็น TCP จากข้างล่าง คือ Segment, ACK และ Window ตอนนี้ขึ้นมาดูจากข้างบน ว่าโปรแกรมของเราเห็นอะไร เวลาเขียน `requests.get(...)` หรือ `psycopg.connect(...)` ข้างล่างสุดคือ **Socket** ซึ่งเป็นชุดฟังก์ชันของระบบปฏิบัติการ (Berkeley Sockets API) ที่โปรแกรมเรียกเพื่อสร้างช่องทางไปหา TCP ของ Kernel (หนังสือ: TCPIP หัวข้อ 1.5.3 หน้า 22) ฝั่ง Server เรียก `socket`, `bind`, `listen` แล้ววนเรียก `accept` ส่วนฝั่ง Client เรียก `socket` กับ `connect` จากนั้นทั้งสองฝั่งใช้ `send` กับ `recv` และจบด้วย `close`
+
+บทนี้ไม่ได้สอนเขียนโปรแกรม Socket แต่เราจะดูสี่เรื่องที่คนเขียนโปรแกรมเจอจริง และมักงงเมื่อเจอครั้งแรก ทุกเรื่องรันบน Linux จริงด้วยโปรแกรม Python เล็ก ๆ ที่เรียก API เหล่านี้ตรง ๆ (รัน: `exercises/10_sockets.py`)
+
+</Step>
+
+<Step>
+
+## เรื่องที่ 1: TCP ให้สายไบต์ ไม่ใช่ข้อความ
+
+ลองให้ Client เขียนข้อมูลสั้น ๆ สามครั้ง คือ `aaaaa`, `bbbbb` และ `ccccc` ห่างกัน 1 มิลลิวินาที ในขณะที่ Server หลับไป 0.6 วินาทีก่อนเริ่มอ่าน แล้วเรียก `recv(100)` ผลที่ได้ (รัน)
+
+```text
+recv(100) ได้: ['aaaaabbbbbccccc']  ขนาด [15]
+```
+
+สามครั้งที่เขียน กลายเป็นหนึ่งครั้งที่อ่าน ได้ครบ 15 ไบต์ในก้อนเดียว และถ้าสงสัยว่าบนสายมันถูกรวมเป็นก้อนเดียวหรือเปล่า เราจับ Packet ที่ฝั่ง Server แล้วเห็นเป็นสาม Segment ขนาด 5 ไบต์ (เราตั้ง `TCP_NODELAY` ที่ผู้ส่ง จึงไม่มี Nagle มารวมให้) การรวมเกิดใน Buffer ของ Socket ฝั่งผู้รับ ไม่ใช่ในเครือข่าย (รัน) เมื่อเปลี่ยนเป็น `recv(4)` กับข้อมูลชุดเดียวกัน ได้ `[4, 4, 4, 3]` คือถูกตัดทุก 4 ไบต์ ผ่านกลางข้อความได้เลย
+
+กดเล่น แล้วสลับสองแบบอ่านใน Lab เพื่อเห็นว่าการเขียนสามครั้งกับการอ่านที่กี่ครั้งก็ได้ ไม่เกี่ยวกัน
+
+<StreamLab client:visible />
+
+หนังสือเรียกบริการแบบนี้ของ TCP ว่า Byte Stream คือส่งสายไบต์ที่ไม่มีเครื่องหมายแบ่งข้อความ (หนังสือ: TCPIP หัวข้อ 12.2 หน้า 585 ถึง 588) ต่างจาก UDP ใน[บท 6](/networking/udp-dns/) ที่ Datagram มาเป็นก้อนตามที่ส่ง ดังนั้นถ้าโปรแกรมของเราต้องการ "ข้อความ" ก็ต้องกำหนดเองว่าข้อความหนึ่งอันจบตรงไหน เช่นขึ้นต้นด้วยความยาว หรือจบด้วยตัวคั่น HTTP ใช้ทั้งสองแบบ คือ Header จบด้วยบรรทัดว่าง และ Body บอกความยาวใน `Content-Length` (Request ใน[บท 1](/networking/big-picture/) จบด้วยบรรทัดว่างตามกฎนี้)
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="โปรแกรมหนึ่งเรียก Send ส่งข้อความ JSON สองข้อความติดกันผ่าน TCP ฝั่งรับเรียก Recv(4096) หนึ่งครั้ง จะได้อะไร?"
+  options={[
+    'ข้อความแรกอย่างเดียว เพราะ Recv หนึ่งครั้งได้ข้อความหนึ่งอัน',
+    'อาจได้ข้อความแรกครบ ครบทั้งสอง หรือข้อความแรกบางส่วน ขึ้นกับว่ามีข้อมูลอยู่ใน Buffer เท่าไรตอนเรียก จึงต้องมีวิธีแบ่งข้อความเอง',
+    'ได้ทั้งสองข้อความเสมอ เพราะ TCP รวมให้',
+    'ได้ Error เพราะส่งสองครั้ง'
+  ]}
+  answer={1}
+  why="TCP ไม่เก็บขอบเขตของการ Send ไบต์ทั้งหมดต่อกันเป็นสายเดียวใน Buffer ฝั่งรับ แล้ว Recv เอาไปเท่าที่มีและเท่าที่ขอ ในแบบฝึก Send สามครั้งกลายเป็น Recv ครั้งเดียว 15 ไบต์ และ Recv(4) ตัดข้อความกลางคัน ถึงต้องมีความยาวนำหน้าหรือตัวคั่น (รัน)"
+/>
+
+</Step>
+
+<Step>
+
+## เรื่องที่ 2: Listen มีคิว และเมื่อเต็มก็แค่เงียบ
+
+เมื่อ Server เรียก `listen(n)` ตัวเลข n คือขนาดคิวของ Connection ที่ Kernel จับมือเสร็จแล้ว แต่โปรแกรมของเรายังไม่ได้เรียก `accept` มารับไป ในระหว่างที่คิวมีที่ Kernel ตอบ SYN และรับ ACK แทนโปรแกรมเอง ฝั่ง Client เห็นว่า `connect` สำเร็จแล้ว ทั้งที่โปรแกรมของ Server ยังไม่รู้เรื่อง ข้อมูลที่ส่งมาก็ถูกเก็บไว้ให้ (หนังสือ: TCPIP หัวข้อ 13.7 หน้า 636 ถึง 637) แล้วถ้าคิวเต็มล่ะ ทดลองด้วย Server ที่เรียก `listen(2)` แล้วไม่เรียก `accept` เลย ให้ Client เปิด Connection หกตัวติดกัน (ตั้ง Timeout 1.5 วินาที) (รัน)
+
+| Connection | ผล | เวลา |
+|---|---|---|
+| 1 | Connected | 0.02 วินาที |
+| 2 | Connected | 0.02 วินาที |
+| 3 | Connected | 0.02 วินาที |
+| 4 | Timeout | 1.5 วินาที |
+| 5 | Timeout | 1.5 วินาที |
+| 6 | Timeout | 1.5 วินาที |
+
+`listen(2)` รับได้สามตัว คือ Backlog บวกหนึ่งบน Linux (ตามที่วัดได้) ตัวที่ 4 เป็นต้นไป ไม่ได้ `refused` เหมือนกรณี Port ที่ไม่มีใครฟังใน[บท 7](/networking/tcp-connections/) มันเงียบหมด `ss` ที่ Server บอกตรงตัว (รัน)
+
+```text
+LISTEN 3  2  0.0.0.0:9600       # Recv-Q 3: เข้าคิวรออยู่สามตัว  Send-Q 2: Backlog ที่ขอไว้
+```
+
+เมื่อจับ Packet ฝั่ง Client เห็น SYN ของตัวที่ 4 ถูกส่งซ้ำที่ 0.06, 1.07, 2.10, 3.12 และ 4.15 วินาที ซึ่งคือ Timer ที่เราเห็นใน[บท 7](/networking/tcp-connections/) ทำงาน และ Kernel นับ SYN ที่เมินไปว่า `ListenOverflows` เท่ากับ 10 (รัน) ตัวนับนี้อ่านได้ด้วย `nstat` จึงควรเปิดดูเป็นอย่างแรกเมื่อมีคนบ่นว่า "ต่อ Server ไม่ติดเป็นพัก ๆ" เพราะ Backlog ที่ต่ำเกินไปเป็นสาเหตุเงียบ ๆ ได้ เมื่อโปรแกรมของ Server เรียก `accept` ไม่ทันภายใต้โหลดสูง (ผู้เขียน)
+
+ตำราบอกว่าค่า Backlog สูงสุดที่ระบบยอมให้ตั้งคือ `net.core.somaxconn` (ค่าเริ่มต้น 128 ในตำรา) และ Backlog ไม่ได้จำกัดจำนวน Connection ที่เปิดอยู่พร้อมกันทั้งหมด จำกัดเฉพาะที่ยังรอ `accept` (หนังสือ: TCPIP หัวข้อ 13.7 หน้า 636 ถึง 637)
+
+<BacklogLab client:visible />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Client ต่อ Server ตัวหนึ่งไม่ติดเป็นพัก ๆ ได้ผลเป็น Timeout ช้า ๆ ไม่ใช่ Refused และ Server ทำงานปกติ ใช้ CPU ไม่เยอะ ตัวนับของ Kernel ตัวไหนน่าตรวจเป็นอย่างแรก?"
+  options={[
+    'จำนวน Segment ที่ส่งซ้ำของ Client',
+    'ListenOverflows และ ListenDrops ที่บอกว่า SYN ถูกเมินเพราะคิวรอ Accept เต็ม (ดูด้วย ss และ Nstat)',
+    'ขนาด Window ของ Client',
+    'ค่า TTL ของ Packet'
+  ]}
+  answer={1}
+  why="ถ้าคิวของ Listen เต็ม Kernel เมิน SYN โดยไม่ตอบอะไร Client จึงเห็นแค่ความเงียบแล้ว Timeout (ไม่ใช่ Refused ที่มาจาก Port ที่ไม่มีใครฟัง) ในแบบฝึก ss บอก Recv-Q 3 จาก Send-Q 2 และ ListenOverflows เท่ากับ 10 สาเหตุจริงคือโปรแกรมเรียก Accept ไม่ทัน หรือ Backlog เล็กไป (รัน)"
+/>
+
+</Step>
+
+<Step>
+
+## เรื่องที่ 3: Port ฝั่ง Client มีให้ใช้จำกัด
+
+Client ที่ไม่ได้ `bind` ก่อน `connect` ได้ Port ต้นทางจาก Kernel ซึ่งเป็น Port ชั่วคราว (Ephemeral Port) เรารู้จักมันตั้งแต่[บท 1](/networking/big-picture/) ว่าเป็นเลขสูง ๆ ที่ระบบเลือกให้ (หนังสือ: TCPIP หัวข้อ 1.3.3 หน้า 18) ช่วงที่ Linux ตัวนี้ใช้คือ 32768 ถึง 60999 หรือ 28,232 เลข ซึ่งเป็นค่าเริ่มต้นที่อ่านได้ด้วย `sysctl net.ipv4.ip_local_port_range` ตัวอย่างสามเลขที่ได้ตอนเปิดสาม Connection คือ 41012, 41018 และ 41024 (รัน)
+
+เมื่อ Port ในช่วงหมด จะเกิดอะไรขึ้น แบบฝึกลดช่วงเหลือ 40000 ถึง 40002 แล้วเปิด Connection ห้าตัวไปที่ Server ตัวเดิมและ Port เดิม (รัน)
+
+| Connection | Port ต้นทาง หรือ Error |
+|---|---|
+| 1 | 40000 |
+| 2 | 40001 |
+| 3 | EADDRNOTAVAIL, Cannot assign requested address |
+| 4 | EADDRNOTAVAIL |
+| 5 | EADDRNOTAVAIL |
+
+ได้แค่สองตัวจากสามเลขในช่วงนี้ ตัวถัดมาล้มทันทีด้วย `EADDRNOTAVAIL` ข้อสังเกตจากแบบฝึกคือ Kernel ยอมให้ใช้เพียงสองเลขของช่วงสามเลข เราไม่ได้ตรวจว่าเพราะอะไร และไม่เดาสาเหตุ จุดที่ควรรู้คือ Error นี้เกิดตอนเรียก `connect` ก่อนส่ง SYN ไปด้วยซ้ำ ในระบบจริงที่เปิด Connection สั้น ๆ จำนวนมากไปที่ Server ตัวเดียว (เช่น Proxy หรือ Job ที่เรียก API) จะเจอเมื่อ Port ถูกกินโดย Connection ที่ค้างอยู่ใน TIME-WAIT ของ[บท 7](/networking/tcp-connections/) ซึ่งกลับมาเป็นเรื่องเดียวกัน (ผู้เขียน)
+
+ส่วนนี้ยังเป็นขีดจำกัดต่อปลายทาง เพราะ Connection หนึ่งสายถูกระบุด้วยเลขสี่ตัวตามที่เราเห็นใน[บท 1](/networking/big-picture/) Port ต้นทาง 28,232 เลขใช้ได้ต่อหนึ่งคู่ที่อยู่และ Port ของ Server ถ้าไปคนละ Server เลขเดิมก็ใช้ซ้ำได้ (ผู้เขียน จาก[บท 1](/networking/big-picture/))
+
+</Step>
+
+<Step>
+
+## เรื่องที่ 4: Bind ซ้ำไม่ได้ ทั้งที่ไม่มีใครใช้
+
+เรื่องสุดท้ายเป็นอาการที่คนเขียน Server เจอแน่ ๆ คือปิดโปรแกรมแล้วเปิดใหม่ทันที ได้ `Address already in use` ทั้งที่ไม่มีโปรแกรมไหนใช้ Port นั้นอยู่ เราทำซ้ำได้ ให้ Server รับ Connection หนึ่งสาย ปิดฝั่งตัวเองก่อน แล้วปิด Socket ที่ฟังอยู่ จากนั้น `bind` Port เดิมทันที (รัน)
+
+```text
+ไม่ตั้ง SO_REUSEADDR: EADDRINUSE (Address already in use)
+ตั้ง SO_REUSEADDR:    ok
+```
+
+สาเหตุคือ Connection ที่ปิดก่อนยังค้างอยู่ในสถานะ TIME-WAIT ซึ่งเราเรียนใน[บท 7](/networking/tcp-connections/) และมี Port ของ Server เป็น Port ฝั่งตัวเอง แบบฝึกเห็นว่า `ss` แสดงแถวนี้ (`127.0.0.1:9400`) ในสถานะนั้นจริง (รัน) ตามกฎที่หนังสือบอกว่า Port ที่เป็น Local Port ของ Endpoint ใน 2MSL Wait ห้ามนำมาใช้ใหม่ และ `SO_REUSEADDR` คือตัวเลือกของ Socket API ที่ผ่อนกฎข้อนี้ได้ (หนังสือ: TCPIP หัวข้อ 13.5 หน้า 620) ทุกโปรแกรม Server จริงจึงตั้งตัวเลือกนี้ก่อน `bind` เกือบทุกตัว (ผู้เขียน)
+
+<Callout type="note" title="สี่เรื่องนี้เป็นพฤติกรรมที่ตั้งใจ">
+
+ทั้งหมดเป็นพฤติกรรมที่ตั้งใจให้เป็น Byte Stream ที่ไม่มีขอบเขต คิวที่จำกัด Port ที่จำกัด และ TIME-WAIT ที่กันของเก่ามาปน การรู้ว่าอยู่ตรงไหนเป็นประโยชน์เวลาเห็นอาการแปลก ๆ ในระบบจริง ซึ่งเป็นเนื้อหาของบทสุดท้ายของ Subject นี้ (ผู้เขียน)
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Server รีสตาร์ทแล้วขึ้น Address already in use ทั้งที่ไม่มีโปรแกรมใดใช้ Port นั้นอยู่ เกิดจากอะไร และแก้อย่างไร?"
+  options={[
+    'Port ถูกจองโดยโปรแกรมอื่น ต้องเปลี่ยน Port',
+    'Connection ที่ Server ปิดก่อนยังอยู่ในสถานะ TIME-WAIT ที่ถือ Port นั้นอยู่ ตั้ง SO_REUSEADDR ก่อน bind',
+    'ไฟร์วอลล์บล็อก Port',
+    'Kernel ต้องรีบูต'
+  ]}
+  answer={1}
+  why="ในแบบฝึก ไม่ตั้ง SO_REUSEADDR ได้ EADDRINUSE และตั้งแล้ว Bind สำเร็จ ทั้งสองครั้งไม่มีโปรแกรมใดฟังอยู่ที่ Port เลย สิ่งที่ถือ Port คือ Connection ใน TIME-WAIT ที่ ss แสดง ไม่ใช่โปรแกรมอื่น (รัน)"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Socket API: `socket`, `bind`, `listen`, `accept`, `connect`, `send`, `recv`, `close` | หนังสือ: TCPIP หัวข้อ 1.5.3 หน้า 22 |
+| สามการเขียน 5 ไบต์เป็นหนึ่งการอ่าน 15 ไบต์ บนสายเป็นสาม Segment และ Recv(4) ได้ 4, 4, 4, 3 | รัน: `exercises/10_sockets.py` และหนังสือ: TCPIP หัวข้อ 12.2 หน้า 585 ถึง 588 |
+| คิวของ Listen: จับมือเสร็จแล้วรอ Accept, Kernel ตอบแทนโปรแกรม | รัน และหนังสือ: TCPIP หัวข้อ 13.7 หน้า 636 ถึง 637 |
+| `listen(2)` รับได้สามตัว, ตัวที่ 4 ขึ้นไปเงียบ, SYN ส่งซ้ำห่างราว 1 วินาที, ListenOverflows 10 | รัน (พฤติกรรม Linux ที่ใช้ทดสอบ) |
+| Backlog สูงสุดคือ Somaxconn และไม่จำกัดจำนวน Connection ทั้งหมด | หนังสือ: TCPIP หัวข้อ 13.7 หน้า 636 ถึง 637 |
+| Ephemeral Port ช่วงเริ่มต้น 32768 ถึง 60999 และเมื่อหมดได้ EADDRNOTAVAIL | รัน และหนังสือ: TCPIP หัวข้อ 1.3.3 หน้า 18 (แนวคิด) |
+| ใช้ Port ได้เพียง 2 จาก 3 เลขในช่วงเล็ก | รัน (ไม่ได้ตรวจสาเหตุ) |
+| Bind ซ้ำไม่ได้หลังปิด เพราะ TIME-WAIT และ SO_REUSEADDR ผ่อนกฎ | รัน และหนังสือ: TCPIP หัวข้อ 13.5 หน้า 620 |
+| Server จริงเกือบทุกตัวตั้ง SO_REUSEADDR และ Backlog ต่ำเกินไปเป็นสาเหตุเงียบ ๆ ของปัญหา | ผู้เขียน |
+| Non-blocking, Select, Epoll, Unix Domain Socket, Windows และ macOS | ไม่ได้รัน |
+
+</Step>

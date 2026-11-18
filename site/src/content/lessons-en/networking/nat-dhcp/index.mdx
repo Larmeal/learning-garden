@@ -1,0 +1,171 @@
+---
+title: DHCP, NAT and firewalls
+summary: A computer that has just been plugged in gets its IP address from DHCP in four messages. NAT lets many computers with private addresses reach the internet through one address, because the router remembers one row per connection, and a firewall that remembers connections lets in only the answers, not whoever starts talking from outside.
+facts:
+  - "Ran for real in exercises/05_nat_dhcp.py in network namespaces in WSL. NAT is the Linux iptables MASQUERADE rule. Two clients sit behind one router, packets are captured at the server and at both clients, and the router's conntrack table is read."
+  - "DHCP uses the real Linux dhclient talking to a small DHCP server written in Python for the exercise (linux/_dhcpd.py), not a production server. That server always answers by broadcast."
+  - "The port the router gives the second client is chosen by the kernel, so it differs on every run. The structure of DHCP, NAT and firewalls cites TCP/IP Illustrated, 2nd edition, chapters 6 and 7. Not run: NAT traversal (STUN, hole punching), IPv6 NAT and the firewall of a real home router."
+order: 5
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [ip-routing]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import DhcpLab from '../../../../components/labs/networking/DhcpLab';
+import NatLab from '../../../../components/labs/networking/NatLab';
+
+<Step>
+
+## How does a computer with no address ask for one?
+
+Everything we have learned so far assumed that a computer already has an IP address, but just after being plugged in it has none. So how can it talk to anyone when it has no source address to put in a packet? The answer is DHCP (Dynamic Host Configuration Protocol), which solves the problem with two pairs of broadcast messages (book: TCPIP section 6.2, page 234).
+
+In the exercise we let the real Linux `dhclient`, in a simulated computer with no address, ask a small DHCP server of our own for one, and capture everything on the client side (ran: `exercises/05_nat_dhcp.py`).
+
+```text
+time      from           to                   message    address given
+0.00 ms   0.0.0.0:68     255.255.255.255:67   DISCOVER   0.0.0.0
+0.14 ms   10.0.1.1:67    255.255.255.255:68   OFFER      10.0.1.100
+0.31 ms   0.0.0.0:68     255.255.255.255:67   REQUEST    0.0.0.0
+0.39 ms   10.0.1.1:67    255.255.255.255:68   ACK        10.0.1.100
+```
+
+The first two messages tell the whole story. The client sends from `0.0.0.0` because it has no address, and to `255.255.255.255` (broadcast) because it does not know where the server is (the Ethernet frame goes to `ff:ff:ff:ff:ff:ff` too). The server answers by broadcast as well, because the client has no address to send to directly. Press play to see what each message holds.
+
+<DhcpLab client:visible lang="en" />
+
+The fields worth noticing in these messages are the following (ran). All four belong to one transaction: they have the same xid and name the client by its MAC address in `chaddr`. The OFFER proposes `10.0.1.100` with the other things this network needs: the subnet mask `255.255.255.0`, the router `10.0.1.1`, the DNS server `10.0.1.1` and a lease of 3600 seconds. The REQUEST names the server whose offer the client accepts, in case several servers offered, and the options part of every message starts with the special number `63825363` (the magic cookie) that says this is DHCP (book: TCPIP section 6.2, pages 238 to 239).
+
+After the ACK, `dhclient` hands every value to the system, which in the exercise is `new_ip_address=10.0.1.100`, `new_subnet_mask=255.255.255.0`, `new_routers=10.0.1.1` and `new_dhcp_lease_time=3600` (ran). That is where the address we never typed comes from when we join the Wi-Fi at home.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Why is a DHCP DISCOVER sent from 0.0.0.0 to 255.255.255.255?"
+  options={[
+    'Because the client has no IP address yet, so it puts 0.0.0.0 as the source, and it does not know where the DHCP server is, so it reaches everyone on the cable with a broadcast',
+    'Because DHCP always uses this special address, even when the client already has one',
+    'Because a router has to see this message first',
+    'Because 255.255.255.255 is the address of the DHCP server',
+  ]}
+  answer={0}
+  why="DHCP is a chicken-and-egg problem: it has to send a message to get an address while it has none. So it uses 0.0.0.0 as the source and a broadcast as the destination, so that a server whose location it does not know can hear it. The exercise captured the frame going to ff:ff:ff:ff:ff:ff as well, and routers do not forward broadcasts across networks, so the server must be on the same cable or there must be a relay (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## NAT lets private addresses reach the internet
+
+From [lesson 2](/en/networking/ip-addresses/#special-addresses-you-meet-often) we know that `10.0.0.0/8`, `172.16.0.0/12` and `192.168.0.0/16` are private addresses, which routers on the internet will not forward. So how can a computer at home with such an address open a web page? The answer is NAT (Network Address Translation): the router that is the way out rewrites the source address into its own public address (book: TCPIP section 7.3, pages 303 to 306).
+
+The exercise puts two clients behind one router (`10.0.1.2` and `10.0.3.2`), sets up NAT with a single rule, and has both send a request to the same server from the same source port 50000. What does the server see (ran)?
+
+| Case | Address the server sees | Port the server sees | The real one is |
+|---|---|---|---|
+| No NAT | 10.0.1.2 | 50000 | 10.0.1.2:50000 |
+| NAT, client 1 | 10.0.2.1 | 50000 | 10.0.1.2:50000 |
+| NAT, client 2 | 10.0.2.1 | 28861 | 10.0.3.2:50000 |
+
+With NAT the server sees both clients as `10.0.2.1`, which is the router itself. The first client keeps port 50000, but the second client, which also chose 50000, would collide (the server would see two connections identical in every character). So the router changes the port of the second one to another number (28861 in the run used to write this lesson, and it differs on every run). This translation of both the address and the port is called NAPT or PAT, and it is the form used in almost every home (book: TCPIP section 7.3, page 305).
+
+<NatLab client:visible lang="en" />
+
+The router remembers every translation in a table that conntrack shows, one row per connection. Each row has two halves: what the client sent and what the server will answer (ran).
+
+```text
+src=10.0.1.2 dst=10.0.2.2 sport=50000 dport=8080   src=10.0.2.2 dst=10.0.2.1 sport=8080 dport=50000
+src=10.0.3.2 dst=10.0.2.2 sport=50000 dport=8080   src=10.0.2.2 dst=10.0.2.1 sport=8080 dport=28861
+```
+
+When the server answers `10.0.2.1:28861`, the router looks up this row, finds that it belongs to `10.0.3.2:50000` and changes the destination before passing it on. The exercise compares the packet that client 2 received with the one the server sent, which confirms the change is undone, and the TCP sequence numbers are the same on both sides, so the router touched only the address and the port, not the data.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Two clients behind NAT open connections to the same server with the same source port (50000). How does the router solve the problem that the server could not tell them apart?"
+  options={[
+    'It refuses the second connection',
+    'It changes the source port of the second connection to another free number and writes that into its table',
+    'It sends both connections down one cable as a single connection',
+    'It makes the second client use another port itself',
+  ]}
+  answer={1}
+  why="When the packets cross the router, the source address of both becomes the same (10.0.2.1), and if the port were the same too, the server could not separate the two connections. So the router picks a new port for the second one and records the translated pair. In the exercise the server saw port 28861 instead of 50000 and answered there. The client never knew (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## The outside cannot start a conversation, and a firewall that remembers
+
+A row in the NAT table appears only when the inside sends out first, which is a natural limit. If the server tries to open a connection to `10.0.2.1:50000` by itself, the router has no matching row (the existing row requires the source `10.0.2.2:8080`) and nothing listens on that port, so it is refused at once (`refused`) in the exercise (ran). That is why a computer behind NAT at home cannot be reached from outside unless port forwarding was set up (book: TCPIP section 7.3, page 303). Making two clients behind two different NATs talk directly needs special techniques called NAT traversal, which we did not run (book: TCPIP section 7.4, page 316).
+
+Another thing that works alongside it is a stateful firewall, which remembers the connections that are open and allows only packets that are answers to them (book: TCPIP section 7.2, page 300). The exercise sets up rules like these in the router (ran).
+
+```text
+-P FORWARD DROP
+-A FORWARD -i rc -j ACCEPT
+-A FORWARD -o rc -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+```
+
+The first line makes the default drop. The second lets everything coming in from the client side through, and the third lets out towards the client side only packets that belong to an existing connection. What we see is that the client can fetch the web page (a 98-byte response comes back) as usual, but the server that tries to open a new connection to the client (`10.0.1.2:9000`) gets no answer until it times out, and the router's counter says that at least one packet was dropped by the default policy (it was 2 in the run used to write this lesson, because the SYN was sent again).
+
+<Callout type="note" title="NAT is not a firewall">
+
+The feeling that "being behind NAT is safe" comes from a side effect of the table above, not from NAT being meant to protect. If the router has another rule that lets packets in, NAT does not hold them back. A firewall is a separate set of rules that should be written out clearly (author).
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A server tries to open a connection to a client that sits behind a router with NAT and a stateful firewall. What happens?"
+  options={[
+    'It gets through, because the router forwards everything',
+    'It is dropped or refused, because it matches no row of the connections that the inside opened first',
+    'The router answers on behalf of the client',
+    'The router opens a connection to the client by itself',
+  ]}
+  answer={1}
+  why="The NAT table and the firewall's table are made by the inside sending out first. A packet that starts from outside matches no row, so it is refused (if sent to the router itself) or dropped (if sent through to the client). The exercise saw both refused and timeout (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| DHCP uses DISCOVER, OFFER, REQUEST and ACK, and DISCOVER goes from 0.0.0.0 to 255.255.255.255 | ran: `exercises/05_nat_dhcp.py` and book: TCPIP section 6.2, pages 234 to 239 |
+| What OFFER and ACK carry (mask, router, DNS, lease) and the magic cookie | ran and book: TCPIP section 6.2, pages 238 to 239 |
+| NAT changes the source to the router's address, and PAT changes a port that collides | ran and book: TCPIP section 7.3, pages 303 to 306 |
+| The router keeps a row per connection (conntrack) and translates the way back | ran |
+| The outside cannot start a conversation (refused) | ran and book: TCPIP section 7.3, page 303 |
+| A stateful firewall and the counter of default drops | ran and book: TCPIP section 7.2, page 300 |
+| NAT traversal, IPv6 NAT and the firewall of a real router | not run (book: TCPIP section 7.4, page 316) |
+| NAT is not a firewall | author |
+
+</Step>

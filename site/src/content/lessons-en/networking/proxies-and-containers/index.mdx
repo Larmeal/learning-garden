@@ -1,0 +1,251 @@
+---
+title: Proxies, Load Balancers and Container Networks
+summary: A container in the services we use every day is one network namespace joined to a bridge by a veth cable. This lesson builds that on one host and looks at it. A published port is one DNAT rule, a connection-level load balancer made of iptables behaves differently from a request-level reverse proxy, and each does something different when a backend dies.
+facts:
+  - "Ran for real in exercises/13_proxies_containers.py in network namespaces in WSL. One host has a bridge br0 (10.244.0.1) joined to two containers, which are network namespaces with veth cables. Layer 4 uses an iptables rule (DNAT with nth), and layer 7 uses a small reverse proxy written for the exercise with Python's asyncio, short teaching code and not HAProxy or Nginx."
+  - "Not run: Docker, Kubernetes, CNI plugins, kube-proxy, IPVS, overlay networks across hosts, cloud load balancers, and a backend that dies without answering (in the exercise the process dies and the kernel still answers with RST, so we got ECONNREFUSED. A whole computer going dark would give a timeout instead). The theory of kube-proxy comes from the book Networking and Kubernetes and was not run."
+order: 13
+phase: E
+level: 4
+stage: sprout
+format: steps
+requires: [nat-dhcp, sockets]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ContainerNetLab from '../../../../components/labs/networking/ContainerNetLab';
+import BalancerLab from '../../../../components/labs/networking/BalancerLab';
+
+<Step>
+
+## A container is a network namespace plugged into a bridge
+
+When we run `docker run`, we do not get any new piece of network hardware. What Docker does is ask the Linux kernel to build a tiny network for each container, and that takes a few short commands that we can type ourselves. The book Networking and Kubernetes lists ten steps, from creating a network namespace and a veth pair (a virtual cable with two ends), through moving one end into the new namespace and giving it an address, to plugging the other end into a bridge (book: Networking and Kubernetes chapter 3 page 106, in the section "Setting Up Namespaces").
+
+Let us follow them. In the exercise (ran: `exercises/13_proxies_containers.py`) we build one host with a bridge `br0` at `10.244.0.1/24`, and two "containers", k1 and k2. Each is a network namespace with one veth cable plugged into the bridge. Asking the bridge about its ports shows two.
+
+```text
+341: vh1@br0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 master br0 state forwarding
+342: vh2@br0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 master br0 state forwarding
+```
+
+Inside k1 we find a very small computer. It has one network card, `eth0`, with address `10.244.0.2/24`, and a default route through `10.244.0.1`, which is the bridge.
+
+```text
+default via 10.244.0.1 dev eth0
+10.244.0.0/24 dev eth0 proto kernel scope link src 10.244.0.2
+```
+
+Notice that this table looks exactly like the routing tables we saw in [lesson 4](/en/networking/ip-routing/). So a container uses the same rules of IP and Ethernet that we already know. The only difference is that its network card is virtual (ran).
+
+</Step>
+
+<Step>
+
+## Containers talk over the bridge without a router
+
+k1 pings k2 (`10.244.0.3`). Every packet arrives, and the TTL that comes back is 64 (ran). That tells us something important. From [lesson 4](/en/networking/ip-routing/) we know that every router lowers the TTL by one when it forwards. If the TTL is still 64, the value it was sent with, the packet crossed no router at all. It travelled at layer 2 only.
+
+The reason is that k1 and k2 are in the same subnet, `10.244.0.0/24`, so k1 can ask for the MAC of k2 with ARP directly. The neighbour table of k1 then has the line `10.244.0.3 lladdr ... REACHABLE` (ran). The bridge acts as the switch we saw in [lesson 3](/en/networking/link-layer/): it looks at the destination MAC and sends the frame out of the right port.
+
+This answers a question people often have when they use Docker Compose: why can two containers on the same network talk to each other with no setup? They are just two computers plugged into the same switch. The fact that the name `k2` turns into an address is the job of an internal DNS that Docker adds, which we did not try in this exercise (not run).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A ping from k1 to k2 on the same bridge gets TTL 64, the same value it was sent with. Which explanation is right?"
+  options={[
+    'The bridge is a router that does not lower the TTL',
+    'The packet crossed no router, because k1 and k2 are in the same subnet, so it travelled at layer 2 through the bridge that acts as a switch',
+    'Linux does not lower the TTL of packets in a virtual network',
+    'k2 sets the TTL to 64 by itself'
+  ]}
+  answer={1}
+  why="A router lowers the TTL by one every time it forwards, but nothing does that at layer 2. k1 asks for the MAC of k2 with ARP and sends a frame to the bridge, which picks the port from the destination MAC. What ran gave ttl=64 and a neighbour table with 10.244.0.3 (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Going out: the host rewrites the source address
+
+Now let k1 call the outside server at `10.0.2.2`. The address `10.244.0.2` of k1 is private and valid only in the bridge's subnet, so k1 sends the packet to its gateway, the host, and the host forwards it like any router. What is added is one iptables rule.
+
+```text
+iptables -t nat -A POSTROUTING -s 10.244.0.0/24 ! -o br0 -j MASQUERADE
+```
+
+The rule says that a packet that comes from `10.244.0.0/24` and is about to leave through anything other than `br0` gets its source address overwritten with the address of the outgoing link. The book says that in Kubernetes this lets a pod use the address of its node even though the pod has a private address of its own (book: Networking and Kubernetes chapter 2, page 74).
+
+In the exercise we captured packets at the server and found that the source address of the SYN was `10.0.2.1`, the address of the host. The server never saw `10.244.0.2` at all (ran). The host remembered the translation in its conntrack table, in one entry that holds both views.
+
+```text
+tcp ... src=10.244.0.2 dst=10.0.2.2 sport=36632 dport=8080
+        src=10.0.2.2   dst=10.0.2.1 sport=8080  dport=36632
+```
+
+The first line is what k1 sent, and the second is what the server answers, addressed to `10.0.2.1`. When the answer comes back, the host looks up the table, turns the destination back into `10.244.0.2` and sends it into the bridge. This is the same NAT as the home router in [lesson 5](/en/networking/nat-dhcp/).
+
+One thing does not match what people often believe. We tend to think that without NAT a container cannot reach the outside. In our exercise the call also succeeded before we added the MASQUERADE rule, because the server in the exercise has a default route that points back at the host (ran). On a real network that does not know the subnet `10.244.0.0/24` the answer could not come back, and the rule is what makes it work, but we did not try that (not run). What the exercise confirms is that NAT makes the outside server see the host's address instead of the container's.
+
+</Step>
+
+<Step>
+
+## Coming in: a published port is a DNAT rule
+
+Now the other direction. If we want people outside to call k1, what `docker run -p 8080:80` does is add a DNAT rule on the host.
+
+```text
+iptables -t nat -A PREROUTING -d 10.0.1.1/32 -p tcp --dport 8080 -j DNAT --to-destination 10.244.0.2:80
+```
+
+This rule works on packets that have just arrived (PREROUTING). If the destination is `10.0.1.1:8080`, it rewrites the destination to `10.244.0.2:80`, and routing then decides what to do from the new address. In the exercise we captured the client's SYN in two places. On the client's cable it is `10.0.1.2 → 10.0.1.1:8080`, and on the host's bridge it is `10.0.1.2 → 10.244.0.2:80`. The source is not touched (ran), and the answer really came from k1.
+
+Press play and switch between the three trips. They differ only in where an address is rewritten: nowhere (container to container), the source on the way out (MASQUERADE), and the destination on the way in (DNAT).
+
+<ContainerNetLab client:visible lang="en" />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A client outside calls 10.0.1.1:8080 and gets an answer from k1, which listens on port 80. Which statement describes best what happens at the host?"
+  options={[
+    'The host opens a new connection to k1 and copies the answer back',
+    'A DNAT rule rewrites the destination of the packet to 10.244.0.2:80 and leaves the source as the same client, and conntrack remembers it to translate the way back',
+    'The client connects straight into k1 through the veth cable',
+    'The bridge translates the port number from 8080 to 80'
+  ]}
+  answer={1}
+  why="In the exercise the SYN on the client's cable was 10.0.1.2 → 10.0.1.1:8080 and on the bridge it was 10.0.1.2 → 10.244.0.2:80, with the same source. The host did not open a new connection, it only changed the destination address. The thing that does open its own connection is the reverse proxy in the next steps (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## A connection-level load balancer: an address no computer owns
+
+Suppose k1 and k2 offer the same service. How can a client use one address and be spread over both? The way Kubernetes does it in kube-proxy's iptables mode is to add several DNAT rules that pick a backend by proportion. The book calls this technique connection fan-out, and its example uses `--mode random --probability 0.5` in the first rule so that not every connection lands on the first backend (book: Networking and Kubernetes chapter 2, page 74).
+
+In the exercise we use `--mode nth --every 2` instead of random so that the result alternates exactly and can be checked with an assert (ran).
+
+```text
+-A PREROUTING -d 10.96.0.10/32 -p tcp --dport 80 -m statistic --mode nth --every 2 --packet 0 -j DNAT --to-destination 10.244.0.2:80
+-A PREROUTING -d 10.96.0.10/32 -p tcp --dport 80 -j DNAT --to-destination 10.244.0.3:80
+```
+
+The address `10.96.0.10` is owned by no computer. It exists only inside these two rules (ran). Let a client send 8 requests, each on a new connection, and see who answers. The result is `k1, k2, k1, k2, k1, k2, k1, k2`, exactly alternating (ran). But when the client sends 8 requests on one connection, all of them go to k1 (ran).
+
+The reason is that a DNAT rule decides once, at the SYN, and conntrack remembers the choice for the whole life of the connection. What this kind of load balancer sees is connections, not requests, and it does not even know that the traffic inside is HTTP. The book warns about this too. DNAT fan-out has no feedback about the load of a backend, and it always sends every request on one connection to the same backend. Its example is gRPC, which reuses an HTTP/2 connection, so after new replicas are added the old clients stay stuck to the first two (book: Networking and Kubernetes chapter 2 page 75, chapter 4 page 162).
+
+There is one more thing to know. The backend sees the real address of the client. In the exercise k2, which answered the request, reported its peer as `10.0.1.2` and there was no X-Forwarded-For header at all (ran), because the load balancer only changed the destination address of the packet and did not touch the data inside.
+
+</Step>
+
+<Step>
+
+## A reverse proxy: opens its own connection and balances requests
+
+The other way is to leave the packet addresses alone and let a program accept the client's connection, read the HTTP request, and open its own connection to a backend. That is what Nginx, HAProxy and Envoy do. We wrote a small reverse proxy with Python's `asyncio` and ran it on the host at port 9000. It takes a request, picks a backend in turn, adds an `X-Forwarded-For` header and sends the answer back (ran).
+
+The difference from the above is easy to see. Send 8 requests on one connection through the proxy and the answers still alternate `k1, k2, k1, k2, ...`, because the proxy reads requests and picks a backend again for each one (ran). This is balancing at layer 7, and it solves the gRPC problem above, since a proxy understands that HTTP/2 carries many requests on one cable (our proxy speaks HTTP/1.1 only, so we did not try real HTTP/2, not run).
+
+The price is that the backend no longer sees the real client, because the connection that reaches it belongs to the proxy. In the exercise the backend reported its peer as `10.244.0.1`, the bridge address on the host that the proxy used to connect out. The real client address `10.0.1.2` survives only in the `X-Forwarded-For` header that the proxy added (ran). This is why backend programs need to know they sit behind a proxy and read the address from this header, and why they should trust the header only when it comes from our own proxy, since a client can send a fake one itself (author).
+
+Press play to switch between layer 4 and layer 7 and watch the panel below answer who the backend thinks is calling.
+
+<BalancerLab client:visible lang="en" />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A gRPC service has two replicas behind an iptables load balancer. An existing client keeps an HTTP/2 connection open, and then we scale to four replicas. What happens to that client?"
+  options={[
+    'Its new requests are spread over all four at once, because iptables alternates them',
+    'It stays stuck to the first two, because the DNAT rule decided once at the SYN and every request on that connection goes to the same backend',
+    'The connection is cut and reconnected automatically',
+    'It is sent to the newest backend'
+  ]}
+  answer={1}
+  why="In the exercise all 8 requests on one connection through iptables went to k1, and the alternating happens only with new connections. The book gives gRPC as the example of this problem and suggests client-side load balancing, reconnecting from time to time, or a request-level proxy (ran, book: Networking and Kubernetes chapter 2 page 75)."
+/>
+
+</Step>
+
+<Step>
+
+## When a backend dies, who finds out
+
+We finish with one of the most important experiments. We kill the process of k2 and send 8 new requests, each on a new connection.
+
+```text
+Layer 4 (iptables): k1, ECONNREFUSED, k1, ECONNREFUSED, k1, ECONNREFUSED, k1, ECONNREFUSED
+Layer 7 (proxy):    k1, k1, k1, k1, k1, k1, k1, k1
+```
+
+The load balancer made of iptables rules has no idea that k2 is dead. It keeps sending every second connection there, and the client gets the refusal (ECONNREFUSED) straight back. The proxy noticed that the connection was refused and tried the next backend for the same request, so all 8 requests were answered (ran). The client never learns that a backend is down.
+
+A word of caution. What we tried is the simplest kind of death. The process was killed, but the namespace is still there, so a RST comes back at once. If a whole computer lost power or a cable were cut, the backend would be silent, and the client would wait for a timeout and for SYN retransmissions as we know from the lesson on [TCP connections](/en/networking/tcp-connections/), which takes much longer. We did not run that case (not run). Our proxy is also short code that only tries the next backend when a connection is refused. A real proxy has health checks and much more careful timeouts, and in Kubernetes this is handled by readiness probes that take a pod that is not ready out of the rules, which we did not try (not run).
+
+<Callout type="note" title="Which one to choose">
+
+Layer 4 runs inside the kernel, so it is fast and simple, and the backend sees the real client, but it can balance only connections and does not know when a backend is dead. Layer 7 understands HTTP, so it can balance requests, try another backend and add headers, but it needs a program to accept and open extra connections, and the backend must read the client's address from a header. Real systems often use the two together. This is the author's reading of the results above, and we did not measure the speed of one against the other (author).
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="One backend behind the service dies quietly (its process is killed). Which answer matches the result that ran?"
+  options={[
+    'Both iptables and a reverse proxy always detect it and avoid the dead backend by themselves',
+    'iptables still sends every second connection to the dead backend and the client gets ECONNREFUSED, while the reverse proxy in the exercise tries the next one and all 8 requests are answered',
+    'Both make every request fail',
+    'The client knows at once that the backend died and picks another'
+  ]}
+  answer={1}
+  why="What ran: layer 4 gave k1 alternating with ECONNREFUSED, four times each, and layer 7 gave k1 all 8 times. Remember that the proxy in the exercise was written to try the next backend when refused, and a proxy without that setting will not, and the case of a backend that dies silently as a whole computer was not tried (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A container is a namespace + veth + bridge, in ten steps | book: Networking and Kubernetes chapter 3 page 106, and ran: `exercises/13_proxies_containers.py` (a bridge with two ports in the forwarding state, k1 has eth0 10.244.0.2/24 and a default route via 10.244.0.1) |
+| Two containers on one bridge talk at layer 2: TTL 64, ARP | ran |
+| MASQUERADE: the outside server sees 10.0.2.1 and never 10.244.0.2, and there is a conntrack entry | ran, and book: Networking and Kubernetes chapter 2 page 74 |
+| The call to the outside also succeeded before the MASQUERADE rule in the exercise, because the server has a way back | ran (the case of a real network with no way back was not tried) |
+| A published port is a DNAT rule: the SYN is 10.0.1.1:8080 on the cable and 10.244.0.2:80 on the bridge, with the same source | ran |
+| A connection-level load balancer with iptables: an address with no owner, 8 new connections alternate k1 k2, 8 requests on one connection all go to k1, the backend sees the real client | ran, and book: Networking and Kubernetes chapter 2 pages 74 and 75, chapter 4 page 162 (the book uses random, and the exercise uses nth so that the result is exact) |
+| A request-level reverse proxy: alternates backends even on one connection, the backend sees peer 10.244.0.1 and X-Forwarded-For 10.0.1.2 | ran (a proxy written with asyncio for the exercise) |
+| A backend dies: layer 4 gets ECONNREFUSED on every second connection, the proxy in the exercise tries the next one and gets all 8 | ran |
+| kube-proxy userspace mode runs a web server that terminates connections and proxies them, and iptables mode is connection fan-out | book: Networking and Kubernetes chapter 4 page 162 (not run) |
+| Trust X-Forwarded-For only when it comes from our own proxy | author |
+| Docker, Kubernetes, CNI, IPVS, overlay across hosts, cloud load balancers, real health checks, a backend that dies silently as a whole computer | not run |
+
+</Step>

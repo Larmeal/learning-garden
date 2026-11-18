@@ -1,0 +1,92 @@
+---
+title: Check your understanding
+summary: Five questions to check that you understand cwnd, slow start, AIMD, the BDP and bufferbloat.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A cable of 100 Mbit/s with a round trip of 40 milliseconds. What is its bandwidth-delay product?"
+  options={['50,000 bytes', '500,000 bytes', '4,000,000 bytes', '100,000 bytes']}
+  answer={1}
+  why="The BDP is the speed times the round trip. 100 Mbit/s is 12.5 million bytes per second, times 0.04 seconds, which is 500,000 bytes. In the exercise 8 Mbit/s times 20 milliseconds gave 20,000 bytes. If the sender's cwnd is lower than this, the cable goes idle (ran and calculated)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="What does TCP (a Reno-style algorithm) use as its main signal that a bottleneck in the middle is full?"
+  options={[
+    'The router sends a message saying it is full',
+    'A packet is dropped (seen through duplicate ACKs or the timer)',
+    'A round trip that has grown by 10 percent',
+    'The receiver announces a window of 0'
+  ]}
+  answer={1}
+  why="Reno does not look at the round trip, and a router sends no message. The signal it has is a dropped packet, which the sender learns about through the resending mechanisms of [lesson 8](/en/networking/tcp-reliability/). In the exercise ssthresh was set to half of cwnd after every drop (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="After the first loss Reno's cwnd is cut to half and then grows by 1 segment per round trip. If cwnd is 17 after the cut and the round trip is 40 milliseconds, about how long until it is back at 34?"
+  options={['About 0.04 seconds', 'About 0.7 seconds', 'About 5 seconds', 'It never gets back']}
+  answer={1}
+  why="It has to grow by 17 segments at 1 per round trip, which takes 17 round trips of 40 milliseconds each, 0.68 seconds, matching the spacing of the sawtooth in the exercise, 0.7 seconds (ran and calculated)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Why does making a router's queue 30 times the BDP not make a big file transfer faster?"
+  options={[
+    'Because a big queue makes packets disappear',
+    'Because the bottleneck is already sending at full speed in both cases, and the data beyond that only waits in the queue, it does not arrive sooner',
+    'Because TCP does not use the queue',
+    'Because the receiver cannot keep up'
+  ]}
+  answer={1}
+  why="If the bottleneck always has data waiting to be sent, the completion time depends on the speed of the bottleneck and not the size of the queue. The exercise delivered 3 MB in 3.13 seconds with both the 30 KB and the 600 KB queue, but the mean round trip differed from 39 to 476 milliseconds (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="At home one person is downloading a big file and someone else's video meeting stutters, even though the meeting uses very little data. What is the most likely cause?"
+  options={[
+    'The video meeting uses UDP, which is slower',
+    'The home router has too big a queue. The download fills it, and every packet, including those of the meeting, waits a long time in it (bufferbloat)',
+    'DNS is down',
+    'The provider is cutting the signal'
+  ]}
+  answer={1}
+  why="Everyone's packets join the same queue at the bottleneck. A TCP download fills it, and a meeting that sends little waits just as long. In the exercise a ping, which sends almost no data, rose from 20 to 619 milliseconds (ran)."
+/>
+
+</Step>

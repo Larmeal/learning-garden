@@ -1,0 +1,102 @@
+---
+title: Check your understanding
+summary: Five questions to check that you understand why HTTP/1.1 opens several connections, the frames and streams of HTTP/2, and what we do and do not know about QUIC.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Why does a browser using HTTP/1.1 open several connections to the same server?"
+  options={[
+    'For safety',
+    'Because one connection answers one request at a time, so several are opened to let several requests run at once',
+    'Because TCP limits a connection to 64 KB',
+    'Because DNS gives several addresses'
+  ]}
+  answer={1}
+  why="HTTP/1.1 needs the answers in the order of the requests. In the exercise six requests on one connection took 752 ms, and six connections at once took 149 ms (ran, RFC 9113 section 1)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="What does HTTP/2 change compared with HTTP/1.1?"
+  options={[
+    'It changes from text to frames with a header that names the stream, so several requests can share one connection at once',
+    'It stops using TCP and uses UDP',
+    'It always encrypts the data',
+    'It makes packets stop being lost'
+  ]}
+  answer={0}
+  why="HTTP/2 still runs on TCP (in the exercise the frames are in the TCP byte stream), and encryption is the job of TLS, which the exercise ran without. What makes it possible is the frame with a 9-byte header giving the stream number (ran, RFC 9113)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The HEADERS frames of the second to sixth requests in the exercise are shorter than the first (8 against 17 bytes). Why?"
+  options={[
+    'The server sent them in short form',
+    'HPACK remembers headers it has sent before in a table that both sides hold, and sends a short index',
+    'The client sent less because its window shrank',
+    'TCP compressed them'
+  ]}
+  answer={1}
+  why="HPACK is the header compression of HTTP/2. It uses a table that both sides build in the same way, so a repeated header is sent as a pointer. In the exercise the server's HEADERS also shrank to 2 bytes in the later answers (ran, RFC 9113 section 4.3)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Which of these can we confirm from our own run about QUIC?"
+  options={[
+    'QUIC is always one round trip faster than TCP + TLS 1.3',
+    'QUIC runs on UDP, starts with a datagram of 1200 bytes, and no content of the request or answer can be read on the wire',
+    'A lost packet does not affect the other streams of QUIC',
+    'QUIC can always use 0-RTT'
+  ]}
+  answer={1}
+  why="For the last three we have no evidence from a run. QUIC's time in this run equalled TCP + TLS 1.3 (302 against 305 ms), and stream blocking and 0-RTT were not run. Only the second was checked from the capture (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="According to RFC 9113, what problem does HTTP/2 still have that HTTP/3 is meant to fix?"
+  options={[
+    'HTTP/2 sends text',
+    'HTTP/2 runs on one TCP connection, so if one packet is lost TCP does not give the data after it to the program until the resend arrives, which affects every stream',
+    'HTTP/2 cannot use more than one connection',
+    'HTTP/2 has no header compression'
+  ]}
+  answer={1}
+  why="RFC 9113 section 1 says TCP head-of-line blocking is not addressed by HTTP/2. HTTP/3 on QUIC uses streams with no ordering between them (RFC 9000 section 2). Our attempt to measure this was not successful, so this is a statement from the RFC (not run)."
+/>
+
+</Step>

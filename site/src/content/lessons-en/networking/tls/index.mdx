@@ -1,0 +1,209 @@
+---
+title: How TLS makes an ordinary cable safe
+summary: TLS runs on top of TCP, encrypts the data and proves that we are talking to the real server. We capture the handshake of TLS 1.3 and 1.2 on a real cable, see that 1.3 hides the certificate and saves a round trip, see what can still be read on the wire, and read the error message of each way a certificate can fail.
+facts:
+  - "Ran for real in exercises/11_tls.py in network namespaces in WSL, with Python ssl on both sides (OpenSSL 3.0.2) and cables delayed 10 milliseconds each way. The certificates and the two certificate authorities (CAs) were made on the spot with Python cryptography, so the authorities in the lesson are made up and not real ones on the internet."
+  - "The messages of TLS 1.3 after the ServerHello are encrypted. We see only their size and order, so what each record is, is inferred from its size and not decrypted. The rules of TLS 1.3 cite RFC 8446 (sections 1.2, 2, 4.1.2, 4.2.8 and 4.4.2, which were opened and checked), and TLS 1.2 cites TCP/IP Illustrated, 2nd edition, chapter 18, pages 877 to 890 (this book has no TLS 1.3)."
+  - "Not run: session resumption (the Python 3.10 here obtained a ticket but did not reuse it, and we did not look for why), 0-RTT, client certificates (mTLS), certificate transparency, revocation (CRL, OCSP), ALPN and Encrypted Client Hello."
+order: 11
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [sockets]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import TlsLab from '../../../../components/labs/networking/TlsLab';
+
+<Step>
+
+## The problem of a cable that everyone can listen to
+
+All the HTTP we have captured so far was plain text. In [lesson 1](/en/networking/big-picture/) we could read `GET /hello.txt` straight out of the packet, which means anyone along the way, a router, the Wi-Fi we are on, or our internet provider, can read and change the data. TLS (Transport Layer Security) is what makes that stop being a problem. It does two things on top of the TCP we already have. First, it encrypts the data. Second, it proves that the server is the one we meant to talk to (book: TCPIP section 18.9.1, page 877).
+
+In the exercise we build a small world with two certificate authorities, Garden Test CA and Other Test CA, and four certificates for the server: a valid one, one with the wrong name, an expired one, and one issued by the other authority. A client and a server using Python `ssl` talk across cables delayed 10 milliseconds each way, and we capture packets at the client (ran: `exercises/11_tls.py`). Since everything is made on the computer, these authorities do not exist on the real internet.
+
+</Step>
+
+<Step>
+
+## The handshake on a real cable
+
+The client starts with the usual TCP handshake, and then the first data it sends is the **ClientHello**, which is still fully readable. We decoded it from the packet (ran, RFC: RFC 8446 section 4.1.2).
+
+```text
+server name (SNI): garden.test
+versions offered:  TLS 1.3 (0x0304), TLS 1.2 (0x0303)
+key share:         x25519, 32 bytes
+cipher suites:     18
+the ClientHello is 512 bytes long, in a record of 517 bytes
+```
+
+Three things are interesting. The name the client wants to talk to (SNI) is sent readable, because a server that holds several names must know which certificate to choose (book: TCPIP section 18.9.1, page 887). Anyone watching the cable knows which site we are visiting, even if not what we do there. Second, the key share: numbers for the key exchange, sent in the very first message, which is why TLS 1.3 can agree on a key so quickly. And last, the version field in the record header says `0x0301` although 1.3 is offered. It is a value put there so that old boxes in the middle are not confused, and the real version is in the `supported_versions` extension (ran, RFC 8446 section 4.1.2).
+
+The server answers with a **ServerHello**, which is still readable, and from here on everything is encrypted (ran). In TLS 1.3 "all handshake messages after the ServerHello are now encrypted", as RFC 8446 section 1.2 says. We see this on the real wire.
+
+| Server record | Type seen on the wire | Size |
+|---|---|---|
+| 1 | handshake (ServerHello) | 122 |
+| 2 | change_cipher_spec | 1 |
+| 3 to 7 | application_data | 23, 410, 96, 69, 250 |
+| 8 to 9 | application_data | 250, 89 |
+
+Every record after the ServerHello has the type `application_data`, like real data. A watcher cannot tell which one is the certificate and which is the application's data. The `change_cipher_spec` is a leftover so that old boxes in the middle understand. We can guess from the sizes that the 410-byte record is probably the certificate and the two 250-byte records probably session tickets, but that is the author's inference and we did not decrypt anything. What we can confirm is two things: the text `GET /hello` and `hello, garden` never appear on the wire, and the name `garden` appears only in the ClientHello going up, not in a single byte coming down (ran).
+
+TLS 1.2 is different. When we captured a 1.2 handshake in the same exercise, the server's records were ServerHello, Certificate (390 bytes), ServerKeyExchange, ServerHelloDone and NewSessionTicket, all plain, up to the change_cipher_spec, and only then encrypted (ran, book: TCPIP section 18.9.1, pages 881 to 888). A watcher can see the certificate, and so who the server is.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Someone watches the packets between a client and a server on a cable that uses TLS 1.3. What can they read from the handshake?"
+  options={[
+    'Everything, including the certificate and the request',
+    'The whole ClientHello (including the server name the client asks for) and the ServerHello. The rest is encrypted records, of which only the size is seen',
+    'Nothing, not even the server name',
+    'Only the certificate'
+  ]}
+  answer={1}
+  why="The ClientHello and the ServerHello are still plain, because no key has been agreed yet, but everything after that (certificate, finished, request, response) is encrypted. In the exercise the name garden.test was seen in the ClientHello only, and the content of the request and the response was nowhere on the wire (ran, RFC 8446 section 1.2)."
+/>
+
+</Step>
+
+<Step>
+
+## How many round trips before data can go
+
+Press play in the lab and switch between TLS 1.3 and TLS 1.2 to see the order of messages, the round trips that pass, and what a watcher sees in each message.
+
+<TlsLab client:visible lang="en" />
+
+The numbers measured in the exercise, with a round trip of 20 milliseconds on the cable, counted from the start of `connect` to the first byte of the response (ran).
+
+| Kind | Time (about, ±2 ms between runs) | Round trips |
+|---|---|---|
+| Plain HTTP | 42 ms | 2.1 |
+| TLS 1.3 | 64 ms | 3.2 |
+| TLS 1.2 | 84 ms | 4.2 |
+| TLS 1.3 when the client does not set `TCP_NODELAY` | 84 ms | 4.2 |
+
+Plain HTTP takes two round trips, one for TCP's handshake and one for the request and response. TLS 1.3 adds one, because the ClientHello brings a key share in the first message, so the server answers with everything the client needs in a single go. TLS 1.2 adds two, because the client has to wait for the ServerHello before it sends its part of the key exchange (book: TCPIP section 18.9.1, pages 881 to 888, RFC 8446 section 2). If there are thousands of new connections, the one round trip that is saved means a great deal.
+
+The last row is something we did not expect. At first the exercise got 84 milliseconds with TLS 1.3 when it should have been 64. The cause is Nagle from [lesson 8](/en/networking/tcp-reliability/#nagle-wait-to-join-small-writes-into-a-bigger-block). The client's Finished is a small message that has not yet been acknowledged when the program writes the request right after it, so Nagle held the request back until the Finished was acknowledged, which took one more round trip. With `TCP_NODELAY` set it came back to 64. If our program writes sockets itself, it should set this option when it wants the first request to leave at once. It is a good example of how Nagle in [lesson 8](/en/networking/tcp-reliability/) comes back to affect TLS in this lesson (ran).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A cable has a round trip of 50 milliseconds. We open a new connection to a server with TLS 1.3 instead of plain HTTP. About how much longer do we wait for the first byte of the response?"
+  options={['About 25 milliseconds', 'About 50 milliseconds (one round trip)', 'About 100 milliseconds (two round trips)', 'No longer']}
+  answer={1}
+  why="TLS 1.3 adds one round trip to plain HTTP. In the exercise plain HTTP took 42 ms and TLS 1.3 took 64 ms, an extra 22 ms, which equals the 20 ms round trip. With a round trip of 50 ms it would add about 50 ms (ran and calculated). TLS 1.2 would add two round trips."
+/>
+
+</Step>
+
+<Step>
+
+## What the client checks before it believes the server
+
+Encryption alone is not enough. If we talk in perfect secrecy with the wrong party, there is no use in it. So TLS has the server send a certificate to prove its identity, a document that says "this public key belongs to the name garden.test" and carries the signature of an authority that we (or our operating system) already trust (book: TCPIP section 18.9.1, page 871 and RFC 8446 section 4.4.2). Our valid certificate looks like this (ran).
+
+```text
+subject  garden.test
+issuer   Garden Test CA
+SAN      DNS garden.test, IP 10.0.2.2
+```
+
+The client checks three things: that the chain of signatures leads up to an authority it trusts, that the name we connected to is in the certificate's list of names (SAN), and that the certificate has not expired. We tested each by letting different servers use a differently wrong certificate and looking at the message the client reports (ran).
+
+| Case | The message from the client |
+|---|---|
+| A certificate for another name | Hostname mismatch, certificate is not valid for 'garden.test' |
+| An expired certificate | certificate has expired |
+| A certificate issued by an authority we do not trust | unable to get local issuer certificate |
+| We trust the wrong authority (the wrong CA file) | unable to get local issuer certificate |
+| A valid certificate, but we ask for another name | Hostname mismatch, certificate is not valid for 'other.test' |
+
+All five fail after TCP has connected (the TCP `connect` time was normal, about 22 milliseconds). TCP does not care about these things. Only TLS does. One observation worth keeping is about the third and fourth rows. The message "unable to get local issuer certificate" often makes people think the certificate is bad. In fact the certificate may be fine, and the problem is that our side does not have that authority in its trusted list, for example when we use a certificate from the company's internal CA on a computer where that CA has not been installed. And setting "do not check the certificate" to make it pass throws half the benefit of TLS away, leaving only the encryption, which does not stop someone from pretending to be the server (book: TCPIP section 18.9.1, page 877, on anonymous connections being exposed to MITM).
+
+`openssl s_client` gives the same result. Given the right authority, it checks the chain at depth 1 (the authority) and 0 (the server), and prints `verify return:1` for both (ran).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A client gets the message unable to get local issuer certificate when connecting to a server with a new certificate. Which is the most direct cause?"
+  options={[
+    'The certificate has expired',
+    'The name in the certificate does not match the name we connected to',
+    'The client does not have the certificate authority (CA) that signed this certificate in its list of trusted ones, so it cannot follow the chain of signatures up to one it trusts',
+    'TCP could not connect'
+  ]}
+  answer={2}
+  why="This message means the chain of signatures could not be followed up to a trusted issuer. In the exercise it happened both when the server used a certificate issued by another CA and when we pointed at the wrong CA file. Expiry and a wrong name have their own messages, certificate has expired and Hostname mismatch, and TCP had connected already (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## What TLS does not do
+
+TLS does not hide everything. From the exercise we already know that the server name in the ClientHello is still readable, the size and timing of the records are visible, and the destination IP address is in the IP header all the time (ran). A watcher therefore knows who we talk to, though not what about. There are newer extensions that hide the name, but we did not try them (not run). And TLS protects the journey between two ends. If the server itself is broken into, or a proxy in the middle decrypts for us, the data is read at that point, which is why in the later lessons of this subject we come back to what a load balancer in the middle does with TLS (author).
+
+Two more topics that this lesson skips, but that working people meet for certain, are revoking a certificate that has leaked (CRL and OCSP) and the fact that a client can also have a certificate for the server to check (mTLS). Neither was run.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Which is true about what TLS 1.3 protects?"
+  options={[
+    'It hides the server\'s IP address from a watcher',
+    'It encrypts everything after the ServerHello (the certificate included), but the destination IP address and the server name in the ClientHello (SNI) are still seen on the wire',
+    'It stops the internet provider from seeing that we have a connection',
+    'It protects the data on a server that has been broken into'
+  ]}
+  answer={1}
+  why="The IP header has to be readable for routers to forward the packet, and the ClientHello holds the server name in plain. In the exercise garden.test was seen in it. What is hidden is the content, and in 1.3 the certificate too. TLS protects the path between the ends, not the server itself (ran, RFC 8446 section 1.2)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| TLS gives encryption and authentication on top of TCP, and anonymous connections are exposed to MITM | book: TCPIP section 18.9.1, page 877 |
+| The ClientHello is readable: SNI, versions, an x25519 key share of 32 bytes, 18 cipher suites, record version 0x0301 | ran: `exercises/11_tls.py` and RFC 8446 sections 4.1.2 and 4.2.8 |
+| The handshake messages after the ServerHello in TLS 1.3 are all encrypted, and the certificate and request are not seen on the wire | ran and RFC 8446 sections 1.2 and 2 |
+| The 410-byte record is the certificate and the two 250-byte records are tickets | author (inferred from the sizes, not decrypted) |
+| TLS 1.2 sends the certificate (390 bytes) in plain | ran and book: TCPIP section 18.9.1, pages 881 to 888 |
+| TLS 1.3 takes 3 round trips (64 ms), TLS 1.2 takes 4 (84 ms), plain HTTP takes 2 (42 ms) | ran and RFC 8446 section 2 |
+| Nagle makes TLS 1.3 take one more round trip (84 ms) when TCP_NODELAY is not set | ran (a review of [lesson 8](/en/networking/tcp-reliability/)) |
+| A client checks the chain of signatures, the name in the SAN and the expiry date, with the error message of each case | ran and book: TCPIP section 18.9.1, page 871 and RFC 8446 section 4.4.2 |
+| The server name in the ClientHello and the destination IP are still seen on the wire | ran |
+| TLS does not protect a server that has been broken into, and a proxy that decrypts sees the data | author |
+| Session resumption, 0-RTT, mTLS, CRL and OCSP, ALPN, ECH | not run |
+
+</Step>

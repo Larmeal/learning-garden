@@ -1,0 +1,65 @@
+# Networking: overview
+
+The subject teaches networking to a developer or data engineer: what happens between `requests.get(url)` and the answer, layer by layer, with a picture at every step. The
+list of lessons follows the table of contents of TCP/IP Illustrated Volume 1, 2nd edition (Fall and Stevens) for the protocols, Networking and Kubernetes (Strong and Lancey)
+for containers and Kubernetes, and Networking All-in-One For Dummies (Lowe) for the plain-language pictures. HTTP/2, HTTP/3, QUIC and TLS 1.3 are not in those books, so they
+are read from the RFCs (8446, 9113, 9114, 9000, 9001) and each such claim says so.
+
+The owner's request (2026-11-18): "animation เยอะ ๆ, มีรูปอธิบายในทุก steps". Every lesson therefore has two or more clock labs (a packet is a dot that travels, headers stack on it, queues
+and windows fill and drain), and every number in a lab comes from an exercise that ran on a real network stack (Linux network namespaces in WSL), not from a guess.
+
+## Lessons
+
+| # | Slug | Phase | Source of the topic |
+|---|---|---|---|
+| 1 | `big-picture` | A | TCPIP ch. 1 (layering, encapsulation, ports), AIO book 1 and 2 |
+| 2 | `ip-addresses` | A | TCPIP ch. 2 (classful, subnets, CIDR, special use) |
+| 3 | `link-layer` | A | TCPIP ch. 3 (Ethernet, switches, MTU), ch. 4 (ARP) |
+| 4 | `ip-routing` | B | TCPIP ch. 5 (IP header, forwarding), ch. 8 (ICMP, traceroute) |
+| 5 | `nat-dhcp` | B | TCPIP ch. 6 (DHCP), ch. 7 (firewalls, NAT) |
+| 6 | `udp-dns` | B | TCPIP ch. 10 (UDP, fragmentation), ch. 11 (DNS) |
+| 7 | `tcp-connections` | C | TCPIP ch. 12, 13 (header, handshake, states, reset) |
+| 8 | `tcp-reliability` | C | TCPIP ch. 14 (timeout, retransmission), ch. 15 (window, Nagle) |
+| 9 | `tcp-congestion` | C | TCPIP ch. 16 (slow start, congestion avoidance, bufferbloat) |
+| 10 | `sockets` | D | TCPIP ch. 1.5, 13.7 (server operation), the Linux socket API |
+| 11 | `tls` | D | TCPIP ch. 18 (TLS), RFC 8446 |
+| 12 | `http` | D | RFC 9112, 9113, 9114, 9000 |
+| 13 | `proxies-and-containers` | E | NK ch. 2 to 5 (Linux networking, containers, Kubernetes), AIO |
+| 14 | `debugging-and-failure` | E | TCPIP ch. 8 and 17, the tools, links back to Spark, Git and Iceberg |
+
+## How it is checked
+
+`code/verify.py` runs the exercises in `code/exercises/`. The ones that need a real network stack (every one except the pure ones) call `netlab.wsl()`, which runs a script of
+`code/linux/` as root in WSL (Ubuntu). A script builds a lab out of network namespaces and veth pairs (client, router, server), changes it with `tc netem` or `iptables`, and
+captures with `tcpdump -w`. The exercise then reads the capture with `struct` (no scapy) and asserts what the lesson prints. Needs `wsl -u root` without a password.
+
+## Left out on purpose
+
+Router and switch configuration (Cisco style, covered by Network Warrior), Wi-Fi and PPP in detail (TCPIP ch. 3.5 and 3.6 are described, not run), IPv6 neighbour discovery
+beyond a mention, mobile IP, multicast routing, BGP and OSPF (not run: no router software here).
+
+## Progress (update while building)
+
+See the end of this file.
+
+### Progress log
+
+- 2026-11-18: plan, `netlab.py`, `wire.py`, `linux/topo.py`, lab kit `components/labs/networking/nw.tsx` (+ `nw-` CSS at the end of global.css), subject JSON.
+  Lesson 1 `big-picture` done (exercise 01, PacketJourneyLab, Thai, English, quiz).
+- Printed page of TCPIP 2nd edition = PDF page minus 39 (checked on PDF 48 = page 9, 51 = 12, 56 = 17). The text of that PDF is only readable with PyMuPDF (`pdftotext` shifts capitals),
+  a clean dump with page markers is made by the script in the Claude scratchpad (`dump.py`), not kept in the repo.
+- Tips: write files with the Write tool (a bash heredoc turned `\n` inside Python strings into real newlines twice); WSL root works (`wsl.exe -u root`), no sudo password.
+  `lab-steps.py --out` needs a Windows path (`C:/...`), a Git Bash `/c/...` path creates `E:\c\...`.
+- 2026-11-18 (later): lessons 2 to 7 done (exercises 02 to 07 pass, labs CidrLab, SwitchLab, ArpLab, RoutingLab, TracerouteLab, FragmentLab, NatLab, DhcpLab, UdpLab, DnsLab, TcpHandshakeLab, TcpCloseLab; Thai, English, quiz each).
+  Still to build: 8 tcp-reliability, 9 tcp-congestion, 10 sockets, 11 tls, 12 http, 13 proxies-and-containers, 14 debugging-and-failure; then docs (sources, verified-findings), subject facts, CLAUDE.md, CHANGELOG, `check:refs` (links to lessons are still plain words in lessons 1, 3, 7: "บทต่อ ๆ ไป", "บทที่พูดถึง IP", "จากบทเรียนเรื่องที่อยู่", "ที่เราเรียนมาจากบทที่แล้ว"), `npm run build`, sync, crawl, lab audit.
+- Lessons of `lab-steps.py` clicks only work after hydration: use the scratchpad `shots.py` pattern (scroll the figure into view, wait 1.5 s, then click or move the scrub bar).
+- tcpdump needs about 0.3 s after "listening" and 0.5 s before it is stopped (`topo.Capture` does both), otherwise a short exchange is missing from the file.
+- Write tool writes CRLF files; a `.sh` or anything executed by Linux must be generated by Python with LF.
+- 2026-11-18 (end): all 14 lessons built, Thai and English, each with a quiz and a `facts` list. Lessons 8 to 14 added exercises 08 to 14, and the labs RetransmitLab, NagleLab, WindowLab,
+  CongestionLab, StreamLab, BacklogLab, TlsLab, RequestsLab, FramesLab, BalancerLab, ContainerNetLab, PhasesLab and SymptomLab (26 labs in all). `docs/sources.md` and `docs/verified-findings.md`
+  (generated from the source table of each English lesson) are written. `code/verify.py` re-runs the exercises.
+- Class names of the lab kit start with `nw-` (the first version used `nl-` and collided with the `nl-cell` of Spark's NullLogicLab, which left boxes unpainted).
+- Lesson 13 finding: in the exercise the call from a container to the outside also worked before the MASQUERADE rule (the outside server has a route back), so the lesson says NAT hides the container
+  address, and says it did not try a network with no way back. Lesson 7 finding kept in lesson 14: SYN retransmissions on this kernel were about 1 s apart at least for the first four tries.
+- Gaps (see `sources.md`): Network Warrior, Networking All-in-One For Dummies and TCP/IP Illustrated 1st edition are not cited by any lesson. Not run: real internet, Wi-Fi, Kubernetes itself, CNI, IPVS,
+  keepalive, NAT timeouts, DNS outages, TLS failures, HTTP/3 over a real server, Linux on bare metal (only WSL2 was used), macOS and Windows networking.

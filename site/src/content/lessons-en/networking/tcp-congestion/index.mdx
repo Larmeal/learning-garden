@@ -1,0 +1,191 @@
+---
+title: How TCP learns how fast to send
+summary: A TCP sender does not know how much the path can take, so it grows cwnd until a packet is dropped and then halves it. That gives a sawtooth that fills the bottleneck. We also see that a long queue at the bottleneck does not make anything faster, but makes everyone who shares the cable wait more than half a second.
+facts:
+  - "Ran for real in exercises/09_tcp_congestion.py in network namespaces in WSL. 3 MB are sent across an 8 Mbit/s bottleneck on the router (tbf with a queue), with an idle round trip of 20 milliseconds, using Reno set only inside the namespaces. cwnd, ssthresh and the round trip are read from ss -ti of the client every 12 milliseconds."
+  - "The default of this Linux is CUBIC, but only Reno was measured, because it is the algorithm of the textbook and shows the sawtooth most clearly. So we did not confirm that CUBIC or BBR behave as this lesson describes. Every number is from this simulated network, not from the real internet."
+  - "The theory cites TCP/IP Illustrated, 2nd edition, chapter 16, with page numbers. Not run: ECN, AQM (such as CoDel), BBR, CUBIC and several users competing for one cable."
+order: 9
+phase: C
+level: 4
+stage: sprout
+format: steps
+requires: [tcp-reliability]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import CongestionLab from '../../../../components/labs/networking/CongestionLab';
+
+<Step>
+
+## The sender does not know how much the path can take
+
+In [lesson 8](/en/networking/tcp-reliability/) the receiver used the window to tell the sender how much it could take. But between the two computers there are many cables, routers and queues that the receiver does not know and cannot speak for. If the sender sent as much as the receiver could take without caring about what lies in between, a bottleneck somewhere would fill and drop packets, and then everyone would resend, which fills it even more. In the worst case a network becomes so slow that it is unusable, which the book calls congestion collapse, and so every TCP has to have its own way of controlling congestion (book: TCPIP section 16.1, page 728).
+
+So TCP gives the sender one more number of its own, **cwnd** (the congestion window), the largest number of segments that may be in the cable without having been acknowledged. The sender may send no more than the smaller of the receiver's window and its own cwnd. The question is what cwnd should be. The sender cannot know directly, so it tries: it increases until packets start to be dropped, which is the only signal a router can send back, and then it reduces.
+
+The exercise builds a controlled situation. The router has an 8 Mbit/s bottleneck with a queue, and all the cables are delayed so that the idle round trip is 20 milliseconds. The sender sends 3 MB. We read its cwnd every 12 milliseconds with `ss -ti` (ran: `exercises/09_tcp_congestion.py`). We use Reno, the algorithm of the textbook, set only inside the namespaces. The default of this Linux is CUBIC, and we did not measure that.
+
+Before reading the results we need one number. The **bandwidth-delay product** (BDP) is the speed times the round trip, and it is the amount of data that has to be in flight to fill the cable exactly. Here 8 Mbit/s times 20 milliseconds is 20,000 bytes, about 13.8 segments. With less than this in flight the cable sits idle, and with more, the excess has to wait in the queue (book: TCPIP section 16.1, page 730).
+
+</Step>
+
+<Step>
+
+## Slow start: begin low and double every round trip
+
+A new connection knows nothing, so TCP starts with a cwnd of 10 segments and increases it every time an ACK comes back. Each ACK received opens room for two more segments, so cwnd doubles every round trip. It is called "slow", but the growth is exponential, and it is slow only compared with sending at full speed from the start (book: TCPIP section 16.2, pages 731 to 733 and page 738 for the initial window). The cwnd values read at the start of the exercise (short queue) were these (ran).
+
+```text
+cwnd (segments): 10, 20, 40, 50, 58, 61, 53, 34 ...
+```
+
+10, then 20, then 40 is doubling each round trip. After that the numbers grow more slowly and turn back, because a loss has happened. Throughout this time `ssthresh`, the line at which TCP changes how it grows when cwnd reaches it, is still so high that it has no effect.
+
+Slow start ends when one thing happens: the first lost packet. In the exercise cwnd reached 61 segments before the router dropped a packet. Reno then sets `ssthresh` to half of cwnd at that moment (33) and cuts cwnd (ran, book: TCPIP section 16.2, pages 733 to 736). The figure of 61 is more than the cable and the queue can really take (the BDP of 14 segments plus the 30 KB queue, about 21 segments, in all 35 segments). That is because slow start doubles every round trip, so it shoots past the limit before the ACK that says a packet was dropped can come back.
+
+</Step>
+
+<Step>
+
+## Congestion avoidance: add one, cut by half
+
+After a loss cwnd starts lower than before and TCP changes how it grows, from doubling to adding 1 segment per round trip. This is called congestion avoidance, or additive increase. When another loss comes it cuts to half, called multiplicative decrease, and the two together are AIMD (book: TCPIP section 16.2, page 735). In the exercise, the longest climb of cwnd after the first loss was this (ran).
+
+```text
+cwnd: 16 -> 33 segments in 0.66 seconds
+mean round trip during that climb: 39 milliseconds
+that is 0.99 segments per round trip
+```
+
+0.99 is "about one per round trip", as the book says. The climb goes up to about 33 segments, which is what the cable can take (the BDP plus a 30 KB queue gives about 34). Then the queue is full, a packet is dropped, and cwnd is cut to 17, which is half, and climbs again. That makes a sawtooth that repeats every 0.7 seconds for the whole transfer (ran).
+
+```text
+time (s): cwnd before the cut -> after
+0.18   60 -> 32      (slow start overshoot)
+0.39   33 -> 16
+1.10   34 -> 17
+1.82   33 -> 17
+2.53   33 -> 17
+```
+
+The peaks are always at 33 to 34 segments, and the throughput measured between 0.8 and 2.0 seconds is 7.66 Mbit/s of the 8 Mbit/s bottleneck, almost full (the missing part is headers). Nobody told TCP this rate in advance. The number arises by itself, from trying and failing round after round.
+
+Press play in the lab below with "short queue, 30 KB" chosen and watch the cwnd line, the bar that shows data on the wire against data waiting in the queue, and the round trip, all together.
+
+<CongestionLab client:visible lang="en" />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Which number tells us TCP is in slow start and not in congestion avoidance?"
+  options={[
+    'cwnd doubles every round trip (10, 20, 40) and ssthresh is still very high',
+    'cwnd grows by 1 segment per round trip',
+    'cwnd is cut to half',
+    'The round trip is higher than at the start'
+  ]}
+  answer={0}
+  why="Slow start is exponential growth until the first loss or until ssthresh is reached. In the exercise cwnd went 10, 20, 40 at the start, and ssthresh was still so high that it did not matter. Growing by 1 per round trip is congestion avoidance, and cutting to half is the reaction to a loss (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## A long queue at the bottleneck does not make things faster
+
+The second experiment changes only the size of the queue at the bottleneck, from 30 KB to 600 KB. Everything else is the same. We send the same 3 MB and let a `ping` from another program measure the round trip at the same time.
+
+At first we tend to think a bigger queue is better, because then no packet really has to be dropped. In fact slow start keeps raising cwnd until the big queue is filled. In the exercise cwnd reached about 800 segments before there was a drop, against 61 with the short queue, and when the drop came it dropped 412 packets at once, against 40 (ran). Meanwhile the data beyond the BDP waited in the queue, which changed the round trip a great deal.
+
+| | Lowest round trip | Mean round trip | Highest round trip |
+|---|---|---|---|
+| 30 KB queue | 23 ms | 39 ms | 49 ms |
+| 600 KB queue | 23 ms | 476 ms | 621 ms |
+| `ping` from another program, 600 KB queue | 20 ms | 372 ms | 619 ms |
+
+A 600 KB queue at 8 Mbit/s is 600 milliseconds of data waiting, so a packet that joins the end of the queue waits almost 0.6 seconds before it can leave. A `ping` that sends almost nothing is held up by the same queue, from 20 to 619 milliseconds (ran). As for the time it takes, the 3 MB were delivered in the same time, 3.13 seconds in both cases (ran). The bottleneck was fully used in both cases, so the big queue gained nothing, except a delay about 12 times higher for everyone who uses this cable. This phenomenon is called **bufferbloat**. The book says the problem is not found in all network equipment, but the concern is equipment at the edge that has too much buffer, and it suggests several ways to deal with it, such as sizing the buffer dynamically (book: TCPIP section 16.10, pages 781 to 782). There are also methods for a router to drop or mark packets before the queue is full, called active queue management and ECN (book: TCPIP section 16.11, pages 782 to 785), which we did not try.
+
+Switch the lab to "long queue, 600 KB" and watch the orange bar, the data waiting in the queue, grow until it overflows its axis, and the round trip that follows.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A network administrator sees that a router drops many packets, and increases its queue from 30 KB to 600 KB. What is the most likely result?"
+  options={[
+    'Files are sent almost ten times faster because no packet is dropped',
+    'Files take the same time because the bottleneck is already full, but the round trip of everyone using the cable shoots up several tens of times (bufferbloat)',
+    'Nothing changes',
+    'TCP can no longer use slow start'
+  ]}
+  answer={1}
+  why="The 8 Mbit/s bottleneck is fully used in both cases, so the exercise delivered 3 MB in 3.13 seconds both times. But the long queue lets slow start go further and the data waits in the queue, so the mean round trip went from 39 to 476 milliseconds, and the ping of another program suffered too. A dropped packet is not the problem. It is how TCP learns to slow down (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## How big should the buffer be: the BDP is the number to know
+
+From the numbers of the exercise we can see the idea that the sender needs at least a BDP of data in flight to keep the cable full. With less, the cable goes idle. In the exercise cwnd after halving was 17 segments, still more than the BDP of 13.8, so the sawtooth never left the cable empty, and the throughput stayed near full (ran). That is the effect of AIMD cutting only to half. If cwnd were cut much lower, the sender could not use the whole cable. The book says the right window is near the BDP, neither too big nor too small (book: TCPIP section 16.1, page 730). As for the router's buffer, the author observes from the exercise that the 30 KB queue, near the BDP of 20 KB, gave the same completion time as the 600 KB queue, which is 30 times the BDP, but with much less delay (author, not a rule from the book).
+
+Real networks have things this small example does not: many users competing for one cable, which TCP is designed to share about equally with the same AIMD rule (book: TCPIP section 16.7, page 768), and modern algorithms such as CUBIC and BBR that change how to add and how to cut for paths with a large BDP, which this lesson does not cover (book: TCPIP section 16.8, pages 772 to 777).
+
+<Callout type="note" title="These numbers are Reno on a simulated cable">
+
+Every number in this lesson, such as the 61 segments at the end of slow start or the 33 segments at the cut, depends on the settings of the simulated network and on Reno. With CUBIC, the default of this Linux, the shape of the curve would differ (it cuts to about 70%, not 50%), but we did not measure that in this lesson, so we do not confirm it (author).
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Which best explains why, in the exercise, cwnd at the end of slow start was higher than the cable and queue could take (61 segments when they can take about 35)?"
+  options={[
+    'TCP calculated wrongly',
+    'Slow start doubles every round trip, so it shoots past the limit before the ACK that says a packet was dropped gets back to the sender',
+    'The router did not drop a packet',
+    'The receiver announced too big a window'
+  ]}
+  answer={1}
+  why="The sender learns of a drop one round trip late, because it has to wait for the duplicate ACKs to come back. Meanwhile it keeps doubling, so it overshoots by about a factor of two. This is still an advantage of starting small: starting with a big cwnd would overflow the queue much worse (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| Congestion collapse, and BDP = speed x round trip, which is 20,000 bytes in the exercise | ran: `exercises/09_tcp_congestion.py` and book: TCPIP section 16.1, pages 728 and 730 |
+| Slow start: cwnd begins at 10 and doubles every round trip | ran and book: TCPIP section 16.2, pages 731 to 733 and 738 |
+| The first loss makes ssthresh half of cwnd (61 to 33) | ran and book: TCPIP section 16.2, pages 733 to 736 |
+| Add 1 per round trip (measured 0.99) and cut by half (AIMD) make a sawtooth that peaks at 33 to 34 segments | ran and book: TCPIP section 16.2, page 735 |
+| Throughput 7.66 of 8 Mbit/s | ran |
+| The long queue: a big loss (412 against 40), mean round trip 476 against 39 milliseconds, finished at the same 3.13 seconds | ran |
+| Bufferbloat happens in equipment with too much buffer | ran (the phenomenon) and book: TCPIP section 16.10, pages 781 to 782 |
+| AQM and ECN | book: TCPIP section 16.11, pages 782 to 785 (not run) |
+| The right window is near the BDP | book: TCPIP section 16.1, page 730 |
+| The 30 KB queue (near the BDP) beats the 600 KB queue on delay | ran and author (an observation, not a rule from the book) |
+| CUBIC, BBR and several users competing | not run (book: TCPIP section 16.7, page 768, section 16.8, pages 772 to 777) |
+
+</Step>

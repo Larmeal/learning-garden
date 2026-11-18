@@ -1,0 +1,97 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 5 ข้อ เพื่อเช็กว่าเข้าใจสิ่งที่เห็นบนสายตอน TLS Handshake จำนวนรอบเวลา และการตรวจ Certificate
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="TLS 1.3 ต่างจาก TLS 1.2 อย่างไรในแง่ของจำนวนรอบเวลาก่อนส่งข้อมูลจริงได้ (นับต่อจาก Handshake ของ TCP)?"
+  options={[
+    'เท่ากัน',
+    '1.3 ใช้หนึ่งรอบเวลา และ 1.2 ใช้สองรอบเวลา เพราะ 1.3 ส่ง Key Share มาใน ClientHello ตั้งแต่ข้อความแรก',
+    '1.3 ใช้สองรอบเวลา และ 1.2 ใช้หนึ่ง',
+    '1.3 ไม่ต้องใช้เลย'
+  ]}
+  answer={1}
+  why="ในแบบฝึก HTTP ธรรมดาได้ Byte แรกที่ 42 ms TLS 1.3 ที่ 64 ms และ TLS 1.2 ที่ 84 ms (RTT 20 ms) ต่างกันหนึ่งและสองรอบเวลาตามลำดับ (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ข้อไหนที่เห็นได้บนสายแม้ใช้ TLS 1.3?"
+  options={[
+    'เนื้อหา HTTP Request',
+    'Certificate ของ Server',
+    'ชื่อ Server ที่ขอใน ClientHello (SNI) และที่อยู่ IP ปลายทาง',
+    'รหัสผ่านที่ผู้ใช้พิมพ์'
+  ]}
+  answer={2}
+  why="ClientHello ส่งก่อนมีกุญแจ ชื่อ Server จึงอ่านได้ และ Router ต้องอ่าน IP Header เพื่อส่งต่อ Certificate ใน TLS 1.3 เข้ารหัสหลัง ServerHello ส่วนเนื้อหากับรหัสผ่านเป็นข้อมูลที่ถูกเข้ารหัส (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="โปรแกรมเปิด TLS Connection แล้วเขียน Request ทันทีหลัง Handshake เสร็จ แต่เวลาจริงช้ากว่าที่คิดไว้หนึ่งรอบเวลา สิ่งที่น่าตรวจก่อนคืออะไร?"
+  options={[
+    'Certificate หมดอายุ',
+    'Nagle ที่กั๊ก Request ไว้จนกว่า Finished ที่ส่งไปก่อนหน้าจะได้ ACK ลองตั้ง TCP_NODELAY',
+    'DNS ช้า',
+    'Window ของ Server เป็น 0'
+  ]}
+  answer={1}
+  why="Finished ของ Client เป็นข้อความเล็กที่ยังไม่ได้ ACK ตอนเขียน Request Nagle จึงรอ ในแบบฝึก TLS 1.3 ได้ 84 ms เมื่อไม่ตั้ง TCP_NODELAY และ 64 ms เมื่อตั้ง (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Client ขึ้น Hostname Mismatch ทั้งที่ Certificate ของ Server ออกโดย CA ที่เราเชื่อถือและยังไม่หมดอายุ สาเหตุคืออะไร?"
+  options={[
+    'CA ไม่ได้อยู่ในรายการที่เชื่อถือ',
+    'ชื่อที่เราต่อไป (เช่น other.test) ไม่อยู่ในรายการชื่อ (SAN) ของ Certificate',
+    'TCP ต่อไม่ติด',
+    'Certificate ยังไม่ถึงวันเริ่มใช้งาน'
+  ]}
+  answer={1}
+  why="Client ตรวจชื่อแยกจากการตรวจสายลายเซ็นและวันหมดอายุ ในแบบฝึก ใบที่ถูกต้องของ garden.test ก็ยังโดนปฏิเสธเมื่อเราขอชื่อ other.test (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เพื่อนแก้ปัญหา Certificate Error ในโปรแกรมด้วยการตั้งให้ไม่ตรวจ Certificate เลย จะเกิดอะไรขึ้น?"
+  options={[
+    'ไม่มีผลอะไร การเข้ารหัสยังเหมือนเดิม',
+    'ข้อมูลยังเข้ารหัส แต่เราไม่รู้ว่ากำลังคุยกับ Server ตัวจริงหรือตัวปลอม จึงโดนคนกลางปลอมตัวได้ (MITM)',
+    'ข้อมูลไม่เข้ารหัสอีกต่อไป',
+    'TCP ต่อไม่ติด'
+  ]}
+  answer={1}
+  why="การเข้ารหัสกับการพิสูจน์ตัวตนเป็นสองเรื่อง การไม่ตรวจ Certificate ทิ้งอย่างหลังไป ซึ่งหนังสือชี้ว่าการเชื่อมแบบไม่ระบุตัวตนเสี่ยงต่อ MITM (หนังสือ: TCPIP หัวข้อ 18.9.1 หน้า 877)"
+/>
+
+</Step>

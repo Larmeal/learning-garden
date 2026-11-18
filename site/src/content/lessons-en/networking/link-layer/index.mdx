@@ -1,0 +1,168 @@
+---
+title: Ethernet, switches and ARP
+summary: On one cable, computers talk by MAC address. We look at what an Ethernet frame holds, how a switch learns who is on which port, how ARP finds a MAC from an IP, and why the MTU sets the size of a TCP segment.
+facts:
+  - "Ran for real in exercises/03_link_layer.py with three simulated computers joined by a switch (a Linux bridge) in network namespaces in WSL. All three are captured at once, so we see which frame each one really received."
+  - "The MAC table the switch learned comes from a real bridge fdb show. The structure of Ethernet, learning bridges, ARP and MSS cite TCP/IP Illustrated, 2nd edition, chapters 3, 4 and 13, with page numbers."
+  - "Not run: Wi-Fi, VLANs, spanning tree and a hardware switch, which has tables of a different size and expiry time."
+order: 3
+phase: A
+level: 2
+stage: sprout
+format: steps
+requires: [ip-addresses]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import SwitchLab from '../../../../components/labs/networking/SwitchLab';
+import ArpLab from '../../../../components/labs/networking/ArpLab';
+
+<Step>
+
+## On one cable, everything is addressed by MAC
+
+An IP address says which computer, but the cable itself does not know IP. It knows only the MAC address, a 48-bit number that belongs to each network card. So an Ethernet frame starts with a 14-byte header of three fields: the destination MAC (6 bytes), the source MAC (6 bytes) and a Type (2 bytes) that says what is inside (ran: `exercises/03_link_layer.py`, book: TCPIP section 3.2, pages 80 and 86).
+
+The Type used for IPv4 is `0x0800`. A value above 1536 means a type, while a smaller one is read as a length, an old design that is still there.
+
+Two bits in the first byte of a MAC address are worth knowing. The lowest bit is the group bit: 0 means the frame is for one computer and 1 means broadcast or multicast. The address `ff:ff:ff:ff:ff:ff`, with every bit 1, therefore means everyone on the cable. The next bit says the address was set locally and not by the card's maker. The simulated computers in the exercise use addresses starting with `02`, which has this bit on (ran).
+
+</Step>
+
+<Step>
+
+## A switch that learns by itself
+
+Suppose three computers (a, b, c) are plugged into one switch. When a sends a frame to b, the switch must decide which cable to use. It is not configured beforehand, it uses a table that fills by itself. Every time a frame arrives, the switch notes the source MAC against the port the frame came in on. For the destination, if it is in the table the frame goes out of that one port, and if not, a copy goes out of every port except the one it came in on. This is called flooding (book: TCPIP section 3.4, pages 98 to 100).
+
+Let us check it. In the exercise a pings b twice, on a switch that has just started and never saw any frame, while all three of a, b and c are captured (ran).
+
+| Frame | Sent by | Seen by |
+|---|---|---|
+| Echo request 1 | a | a, b, **c** |
+| Echo reply 1 | b | a, b |
+| Echo request 2 | a | a, b |
+| Echo reply 2 | b | a, b |
+
+c saw only the first frame, which was not for it at all. Press play to see what happens in the switch's table each time.
+
+<SwitchLab client:visible lang="en" />
+
+At the end of the experiment the real `bridge fdb show` lists two rows: a on `p1` and b on `p2`. There is no row for c, because c never sent a frame (ran).
+
+```text
+02:00:00:00:00:0a dev p1 master br0
+02:00:00:00:00:0b dev p2 master br0
+```
+
+<Callout type="note" title="A real switch has more details">
+
+The rows of a switch table expire if no frame from that address arrives for a long time, and a switch that supports VLANs keeps one table per VLAN. This exercise uses a Linux bridge, which follows the same principle, but a hardware switch was not tested.
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The switch has just started and a sends a frame to b for the first time. Will c, plugged into another port, see this frame?"
+  options={[
+    'No, because the frame is for b',
+    'Yes, because the switch does not yet know which port b is on, so it floods every port',
+    'Yes, because a switch always sends every frame to every port',
+    'Only if c turns on listening mode',
+  ]}
+  answer={1}
+  why="The switch table is empty. It knows only where a is (it just noted that from this very frame) but has never seen a frame from b, so it has to send a copy to every port. In the exercise c saw the first echo request, but after b replied the switch knew both and c saw nothing more. 'Always every port' describes an old hub, not a switch (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## ARP finds a MAC from an IP
+
+One problem remains. a knows the IP of c, `10.0.1.4`, but a frame needs a destination MAC. So a asks everyone on the cable with ARP (Address Resolution Protocol): "who holds 10.0.1.4? please tell me your MAC". It is a frame sent to `ff:ff:ff:ff:ff:ff`, so everyone hears it, but only the owner answers, and it answers straight to a (book: TCPIP section 4.2, pages 166 to 169).
+
+<ArpLab client:visible lang="en" />
+
+Here is what the exercise captured (ran).
+
+```text
+ARP request: 02:00:00:00:00:0a -> ff:ff:ff:ff:ff:ff   who has 10.0.1.4? tell 10.0.1.2
+ARP reply:   02:00:00:00:00:0c -> 02:00:00:00:00:0a   10.0.1.4 is at 02:00:00:00:00:0c
+```
+
+The request carries a's own IP and MAC so that c can answer without asking back. The target MAC field inside ARP is all zeros because that is what is being asked (book: TCPIP section 4.4, page 170). b is not the owner and sees only the request, not the reply, because the reply is unicast and the switch already knows where a is.
+
+a writes the answer into its neighbour cache, which `ip neigh` shows. Once the row exists, later frames can go out as unicast straight away (book: TCPIP section 4.3, page 169). Each ARP frame captured is 42 bytes: 14 of Ethernet and 28 of ARP (ran).
+
+```text
+$ ip neigh      # on a
+10.0.1.4 lladdr 02:00:00:00:00:0c REACHABLE
+```
+
+Compared with [lesson 1](/en/networking/big-picture/), the ARP that the client sent for the router is the same thing, except that the question was the MAC of `10.0.1.1` and not of the final server.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="In the exercise a sends an ARP request for 10.0.1.4. What does b, on the same cable, see?"
+  options={[
+    'Both the request and the reply',
+    'Only the request (it was broadcast) and not the reply (it was unicast to a)',
+    'Nothing at all',
+    'Only the reply',
+  ]}
+  answer={1}
+  why="The request goes to ff:ff:ff:ff:ff:ff and the switch has to pass it to every port, so b receives it, but b does not own 10.0.1.4 and does not answer. The reply goes straight to a's MAC, and since the switch already knows which port a is on, it does not send a copy to b (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## The MTU sets the size of a TCP segment
+
+An Ethernet frame can carry only a limited amount. The most data one frame can hold is called the MTU (Maximum Transmission Unit), normally 1500 bytes. The number counts from the IP header onward, so it is the largest IP packet there can be (book: TCPIP section 3.8, page 148).
+
+TCP needs to know this number so that it does not cut the data into pieces too big for one frame. The two sides tell each other during the handshake in an option called MSS (Maximum Segment Size), which counts only TCP data, not the TCP and IP headers (book: TCPIP section 13.3.1, page 606). In the exercise we open two connections, the first with an MTU of 1500 and the second after setting the MTU of both sides to 1400.
+
+| Packet | MTU at the time | MSS announced |
+|---|---|---|
+| SYN from a | 1500 | 1460 |
+| SYN, ACK from b | 1500 | 1460 |
+| SYN from a | 1400 | 1360 |
+| SYN, ACK from b | 1400 | 1360 |
+
+The MSS is the MTU minus 40 bytes, a 20-byte IP header plus a 20-byte TCP header (ran). That is why a tunnel or VPN that lowers the MTU often makes us adjust the MSS too, otherwise packets that are too big get fragmented or dropped. We come back to fragmenting packets in the lesson about IP.
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| An Ethernet header is 14 bytes with a destination MAC, a source MAC and a Type | ran: `exercises/03_link_layer.py` and book: TCPIP section 3.2, pages 80 and 86 |
+| The group bit and the locally-set bit | ran: `exercises/03_link_layer.py` |
+| A switch floods a frame whose destination it has not seen, then uses one port after learning | ran: `exercises/03_link_layer.py` and book: TCPIP section 3.4, pages 98 to 100 |
+| The table the switch learned (a on p1, b on p2) | ran: `exercises/03_link_layer.py` |
+| An ARP request is broadcast and the reply is unicast, 42 bytes | ran and book: TCPIP section 4.2, page 166, section 4.4, page 170 |
+| The neighbour cache | ran and book: TCPIP section 4.3, page 169 |
+| MSS equals MTU minus 40 | ran and book: TCPIP section 13.3.1, page 606 |
+| A tunnel or VPN with a lower MTU needs the MSS adjusted | author |
+| Wi-Fi, VLANs, spanning tree | not run |
+
+</Step>

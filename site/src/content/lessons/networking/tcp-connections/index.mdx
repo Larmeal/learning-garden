@@ -1,0 +1,173 @@
+---
+title: TCP Connection ตั้งแต่เริ่มจนจบ
+summary: TCP สร้าง Connection ด้วย Handshake สามจังหวะที่แลกเลข Sequence และ Option กัน ปิดด้วยสี่ Segment ฝั่งที่ปิดก่อนต้องค้างใน TIME-WAIT และมีสองอย่างที่บอกว่าเรียกหา Server ไม่สำเร็จ คือ RST ที่ตอบกลับทันที กับความเงียบที่ทำให้ SYN ถูกส่งซ้ำ
+facts:
+  - "รันจริงใน exercises/07_tcp_connections.py ใน Network Namespace ของ WSL ด้วย Client, Router และ Server ที่หน่วงสายไว้ทิศละ 10 มิลลิวินาที จับ Packet ทั้งสองฝั่งและอ่านสถานะด้วยคำสั่ง ss ของ Linux ตัวเลข Sequence ในบทนับจากเลขเริ่มต้นสุ่มของแต่ละฝั่ง"
+  - "เลขเวลา 20 มิลลิวินาทีของ Handshake และการส่ง SYN ซ้ำที่ 1, 2, 3, 4, 5 และ 7 วินาที เป็นพฤติกรรมของ Kernel Linux ที่ใช้ทดสอบ (ตั้ง tcp_syn_linear_timeouts=4) ระบบอื่นมีช่วงเวลาที่ต่างออกไป ส่วนโครงสร้างของ TCP อ้างหนังสือ TCP/IP Illustrated ฉบับที่ 2 บทที่ 13 พร้อมเลขหน้า"
+  - "ที่ไม่ได้รัน คือ Connection ที่เปิดพร้อมกันสองฝั่ง (Simultaneous Open), SYN Cookie, TCP Fast Open และพฤติกรรมของระบบปฏิบัติการอื่นนอกจาก Linux"
+order: 7
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [udp-dns]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import TcpHandshakeLab from '../../../../components/labs/networking/TcpHandshakeLab';
+import TcpCloseLab from '../../../../components/labs/networking/TcpCloseLab';
+
+<Step>
+
+## ทำไมต้องมี Handshake
+
+UDP ส่งข้อมูลได้เลยโดยไม่ถามใคร แต่ TCP ให้สัญญาที่หนักกว่ามาก คือข้อมูลที่ส่งจะถึงครบ เรียงลำดับ และไม่ซ้ำ (หนังสือ: TCPIP หัวข้อ 12.2 หน้า 584) การให้สัญญาแบบนี้ต้องมีความจำฝั่งละหนึ่งก้อน ที่จดว่าส่งอะไรไปแล้ว ได้รับอะไรมาแล้ว และกำลังรออะไรอยู่ ก้อนความจำนี้คือ Connection และก่อนจะใช้มันได้ ทั้งสองฝั่งต้องตกลงกันเรื่องจุดเริ่ม
+
+ในแบบฝึก เราเปิด Connection หนึ่งสายแล้วจับ Segment ทุกอันที่ฝั่ง Client (รัน: `exercises/07_tcp_connections.py`) ตัวเลข Sequence และ Acknowledgement ในตารางนับจากเลขเริ่มต้นของแต่ละฝั่ง เพราะเลขจริงเป็นเลขสุ่มที่เปลี่ยนทุกรอบ
+
+```text
+เวลา      ทิศทาง            ธง       seq  ack  ข้อมูล  Window
+  0.0 ms  client -> server  SYN      0         0       64240
+ 20.2 ms  server -> client  SYN,ACK  0    1    0       65160
+ 30.3 ms  client -> server  ACK      1    1    0       63
+ 30.3 ms  client -> server  PSH,ACK  1    1    65      63
+ 40.4 ms  server -> client  ACK      1    66   0       64
+ 40.5 ms  server -> client  PSH,ACK  1    66   98      64
+```
+
+สามบรรทัดแรกคือ Handshake ทั้งสองฝั่งแต่ละฝั่งเลือกเลขเริ่มต้นของตัวเอง (ISN, Initial Sequence Number) ซึ่งสุ่ม เพื่อไม่ให้ Segment เก่าของ Connection ก่อนหน้าที่หลงมาปะปนกับ Connection ใหม่ (หนังสือ: TCPIP หัวข้อ 13.2 หน้า 595 ถึง 602) Client ส่ง SYN ที่มีเลขของตัวเอง Server ตอบ SYN,ACK ที่มีเลขของ Server และบอกว่า "ได้รับ SYN ของคุณแล้ว ต่อไปฉันรอไบต์ที่ 1" สังเกตว่า `ack=1` ไม่ใช่ 0 เพราะ SYN ใช้เลข Sequence ไปหนึ่งตัว แม้จะไม่มีข้อมูลสักไบต์ แล้ว Client ตอบ ACK อีกครั้งเป็นจังหวะที่สาม (รัน)
+
+</Step>
+
+<Step>
+
+## ดู Handshake ตามตัวเลขจริง
+
+กดเล่นเพื่อดูสามจังหวะ แล้วดูข้อมูลชุดแรก และสังเกตว่าตั้งแต่เริ่มจนถึง Request ตัวแรก ต้องรอไปนานเท่าไร
+
+<TcpHandshakeLab client:visible />
+
+มีสามเรื่องที่ Lab นี้พาให้เห็น เรื่องแรกคือเวลา SYN,ACK กลับมาหลัง SYN ไป 20 มิลลิวินาที ตรงกับหนึ่งรอบเวลา (ตั้งสายไว้ทิศละ 10 มิลลิวินาที) และข้อมูลตัวแรกออกได้หลังจากนั้น ไม่ว่าสายจะเร็วเท่าไร Connection ใหม่หนึ่งสายก็เสียอย่างน้อยหนึ่งรอบเวลาก่อนส่งข้อมูลจริง (รัน) เรื่องที่สองคือ Ack=66 หลัง Request 65 ไบต์ ตัวเลข Acknowledgement คือไบต์ถัดไปที่ผู้รับรอ จึงเป็น 1 บวก 65 เท่ากับ 66 เสมอ (รัน) และเรื่องที่สามคือ Option ใน SYN
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Client ส่ง SYN ที่ Sequence = 1000 (ไม่มีข้อมูล) Server ควรตอบ SYN,ACK ด้วยค่า Acknowledgement เท่าไร?"
+  options={['1000', '1001', '1002', 'เท่ากับ Sequence ของ Server']}
+  answer={1}
+  why="SYN ใช้เลข Sequence ไปหนึ่งตัวแม้ไม่มีข้อมูล ผู้รับจึงตอบรับว่าได้ถึง 1000 และรอไบต์ที่ 1001 ในแบบฝึก SYN ที่ Seq=0 (นับสัมพัทธ์) ได้ Ack=1 และ FIN ก็ใช้เลขหนึ่งตัวเหมือนกัน (รัน และหนังสือ: TCPIP หัวข้อ 13.2 หน้า 595 ถึง 602)"
+/>
+
+</Step>
+
+<Step>
+
+## Option ที่สองฝั่งตกลงกันใน SYN
+
+ใน SYN ของแบบฝึกมี Option ที่ Client บอกว่าอยากใช้ และ Server ตอบรับในตัวของมัน (รัน)
+
+```text
+SYN      mss=1460  sack_ok  timestamp  wscale=10
+SYN,ACK  mss=1460  sack_ok  timestamp  wscale=10
+```
+
+MSS คือขนาดข้อมูลสูงสุดต่อ Segment ที่เราเรียนมาใน[บท 3](/networking/link-layer/#mtu-กำหนดขนาด-segment-ของ-tcp) SACK (Selective Acknowledgement) ให้ผู้รับบอกได้ว่าได้รับชิ้นไหนบ้างนอกเหนือจากเลขต่อเนื่อง ซึ่งเราจะเห็นประโยชน์ตอนที่ Packet หาย (หนังสือ: TCPIP หัวข้อ 13.3 หน้า 607) Timestamp ใช้วัดเวลาไปกลับ ส่วน Window Scale ซ่อนความจริงข้อหนึ่งไว้ ช่อง Window ใน TCP Header กว้างแค่ 16 บิต ใหญ่สุดได้ 65,535 ไบต์ ซึ่งเล็กเกินไปสำหรับสายเร็วสมัยนี้ Option นี้จึงบอกว่าให้คูณช่อง Window ด้วย 2 ยกกำลัง 10 หรือ 1024 เมื่อ Handshake จบ Segment ที่ตามมามีค่า Window เป็น 63 ซึ่งเท่ากับ 64,512 ไบต์ (หนังสือ: TCPIP หัวข้อ 13.3 หน้า 608) เหตุผลที่ Option เหล่านี้อยู่ใน SYN เท่านั้น เพราะต้องตกลงกันก่อนเริ่ม และ Segment ที่ตามมามีแค่ Timestamp ใน Header (รัน)
+
+</Step>
+
+<Step>
+
+## การปิด Connection ใช้สี่ Segment
+
+การปิดแยกเป็นสองทิศ ฝั่งหนึ่งส่ง FIN แปลว่า "ฉันส่งหมดแล้ว" อีกฝั่งตอบ ACK แล้วต้องส่ง FIN ของตัวเองด้วยเมื่อพร้อม ในแบบฝึก Server ปิดก่อน (เพราะ Response บอก `Connection: close`) แล้ว Client ปิดตามหลังใน Segment ของตัวเอง กดเล่นดูสี่ Segment และสถานะที่แต่ละฝั่งผ่าน
+
+<TcpCloseLab client:visible />
+
+ที่ปลายทาง ฝั่งที่ส่ง FIN ก่อนคือ Server ต้องค้างใน `TIME-WAIT` อีกราว 60 วินาที ในแบบฝึก คำสั่ง `ss -tano` ที่ Server เห็นแถวนี้ทันทีที่ปิด และ Client ไม่มี Socket เหลือเลย (รัน)
+
+```text
+State      Recv-Q Send-Q  Local Address:Port  Peer Address:Port  Process
+TIME-WAIT  0      0       10.0.2.2:8080       10.0.1.2:50000     timer:(timewait,59sec,0)
+```
+
+อีกประมาณ 14 วินาทีต่อมา `timer` เหลือ 45 วินาที เหตุผลที่ต้องค้าง มีสองข้อ ข้อแรกคือถ้า ACK สุดท้ายหายไป Client จะส่ง FIN ซ้ำ และ Server ต้องยังจำ Connection นี้ได้เพื่อตอบ ข้อที่สองคือ Segment เก่าของ Connection นี้ที่ยังวนอยู่ในเครือข่ายต้องหมดอายุก่อน ไม่เช่นนั้นจะไปปนกับ Connection ใหม่ที่ใช้ Port เดิม (หนังสือ: TCPIP หัวข้อ 13.5 หน้า 620 ถึง 624) นี่เป็นเรื่องที่ควรรู้ เมื่อ Server ที่ปิด Connection ก่อนทุกครั้งรับคำขอหลายพันต่อวินาที จะเห็น Socket ในสถานะนี้เป็นจำนวนมาก ซึ่งปกติและไม่ใช่ข้อผิดพลาด
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Server ที่ปิด Connection ก่อนทุกครั้ง (เหมือนใน Response แบบ Connection: Close) จะเห็น Socket สถานะ TIME-WAIT เป็นจำนวนมาก ข้อไหนอธิบายถูก?"
+  options={[
+    'เป็นข้อผิดพลาด ต้องรีสตาร์ท Server',
+    'เป็นเรื่องปกติ ฝั่งที่ส่ง FIN ก่อนต้องค้าง TIME-WAIT ราว 60 วินาที เผื่อ ACK สุดท้ายหายและเพื่อให้ Segment เก่าหมดอายุ',
+    'เป็นเพราะ Client ยังไม่ปิด',
+    'เป็นเพราะ Server ไม่ได้ตอบ ACK',
+  ]}
+  answer={1}
+  why="TIME-WAIT เป็นส่วนหนึ่งของการปิดที่ถูกต้อง ฝั่งที่ปิดก่อนจะเป็นฝั่งที่ค้าง ในแบบฝึก Server ที่ส่ง FIN ก่อนมีแถว TIME-WAIT พร้อม Timer 59 วินาที ส่วน Client ที่ปิดทีหลังไม่เหลือ Socket เลย (รัน)"
+/>
+
+</Step>
+
+<Step>
+
+## เรียกหา Server ไม่สำเร็จ มีสองแบบ
+
+ถ้า Client ส่ง SYN ไปแล้ว Server ไม่ตอบรับตามปกติ มีสองกรณีที่ต่างกันมากในมุมของโปรแกรมที่รออยู่
+
+กรณีแรกคือ Port นั้นไม่มีโปรแกรมฟัง Kernel ของ Server ตอบ RST (Reset) ทันที Client เห็นผลเป็น `Connection refused` ในเวลาหนึ่งรอบเวลา ซึ่งเป็นข่าวดีในแง่ที่รู้เรื่องเร็ว (รัน, หนังสือ: TCPIP หัวข้อ 13.6 หน้า 626)
+
+```text
+  0.0 ms  client  SYN
+ 10.1 ms  server  RST,ACK
+the program was told: refused
+```
+
+กรณีที่สองแย่กว่า คือ Server (หรือไฟร์วอลล์ที่อยู่หน้ามัน) ทิ้ง Packet ไปเฉย ๆ ไม่ตอบอะไรเลย Client ไม่รู้ว่าเกิดอะไรขึ้น จึงส่ง SYN ตัวเดิมซ้ำเมื่อเวลาครบ ในแบบฝึกที่ Kernel ตัวนี้ SYN ถูกส่งซ้ำที่ 0, 1, 2, 3.1, 4.1, 5.1 และ 7.1 วินาที (รัน) ช่วงห่างเป็น 1 วินาทีห้าครั้ง แล้วเพิ่มเป็น 2 เพราะ Kernel ตั้ง `tcp_syn_linear_timeouts=4` ให้ลองถี่ก่อน ระบบอื่นอาจเริ่มที่ 1, 2, 4 วินาที โปรแกรมของเราก็ต้องรอจนหมด Timeout ของตัวเองซึ่งตั้งไว้ 9 วินาที (รัน)
+
+เลือกฉากทั้งสามใน Lab ข้างบน แล้วเทียบกัน เรื่องนี้ใช้งานจริงบ่อย ถ้าเรียกหา Server แล้วได้ `refused` เร็วมาก แปลว่า Server อยู่ แต่ไม่มีโปรแกรมฟังที่ Port นั้น แต่ถ้าได้ `timeout` ช้า ๆ ให้สงสัยไฟร์วอลล์หรือ Router ที่ทิ้ง Packet (ผู้เขียน)
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราเรียกหา Server ตัวหนึ่ง แล้ว Connection ค้างไปหลายวินาทีก่อนจะ Timeout ไม่มีข้อความ Refused เลย สิ่งที่น่าสงสัยที่สุดคืออะไร?"
+  options={[
+    'Port นั้นไม่มีโปรแกรมฟังอยู่',
+    'มีไฟร์วอลล์หรือเส้นทางที่ทิ้ง SYN ไปเฉย ๆ จึงไม่มีใครตอบ',
+    'ธง FIN ถูกส่งซ้ำ',
+    'Server ปิด Connection ไปแล้ว',
+  ]}
+  answer={1}
+  why="ถ้า Port ไม่มีโปรแกรมฟัง Kernel ของ Server จะตอบ RST ทันที เห็นเป็น Refused ในเสี้ยววินาที ส่วนความเงียบจนต้องรอ Timeout แปลว่า SYN ไปไม่ถึง หรือถูกทิ้ง ในแบบฝึก SYN ตัวเดิมถูกส่งซ้ำเจ็ดครั้งใน 9 วินาที โดยไม่มีคำตอบใดเลย (รัน)"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Handshake สามจังหวะ, SYN และ FIN ใช้เลข Sequence หนึ่งตัว, Ack เป็นไบต์ถัดไปที่รอ | รัน: `exercises/07_tcp_connections.py` และหนังสือ: TCPIP หัวข้อ 13.2 หน้า 595 ถึง 602 |
+| ข้อมูลตัวแรกออกได้หลัง 1 รอบเวลา (20 ms ในแบบฝึก) | รัน: `exercises/07_tcp_connections.py` |
+| Option ใน SYN (MSS, SACK, Timestamp, Window Scale) และ Window 63 เท่ากับ 64,512 ไบต์ | รัน และหนังสือ: TCPIP หัวข้อ 13.3 หน้า 606 ถึง 609 |
+| สี่ Segment ของการปิด | รัน และหนังสือ: TCPIP หัวข้อ 13.5 หน้า 616 ถึง 619 |
+| TIME-WAIT ค้างที่ฝั่งปิดก่อน ราว 60 วินาที และเหตุผลสองข้อ | รัน (Timer 59 และ 45 วินาที) และหนังสือ: TCPIP หัวข้อ 13.5 หน้า 620 ถึง 624 |
+| Port ที่ไม่มีใครฟังตอบ RST,ACK ทันที | รัน และหนังสือ: TCPIP หัวข้อ 13.6 หน้า 626 |
+| SYN ถูกส่งซ้ำที่ 0, 1, 2, 3.1, 4.1, 5.1, 7.1 วินาที | รัน (Kernel Linux ที่ตั้ง tcp_syn_linear_timeouts=4) |
+| Refused เร็ว แปลว่า Server อยู่แต่ไม่มีคนฟัง และ Timeout ช้า ให้สงสัยไฟร์วอลล์ | ผู้เขียน |
+| Simultaneous Open, SYN Cookie, TCP Fast Open | ไม่ได้รัน |
+
+</Step>

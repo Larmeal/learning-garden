@@ -1,0 +1,97 @@
+---
+title: Check your understanding
+summary: Five questions to check that you understand the handshake, sequence numbers, closing a connection and the difference between refused and timeout.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Which is the correct order of segments in the handshake?"
+  options={[
+    'SYN, ACK, SYN,ACK',
+    'SYN, SYN,ACK, ACK',
+    'SYN,ACK, SYN, ACK',
+    'ACK, SYN, SYN,ACK',
+  ]}
+  answer={1}
+  why="The client sends a SYN, the server answers SYN,ACK (acknowledging the SYN and sending its own number) and the client answers ACK. The exercise captured exactly this order (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A client sends 65 bytes of data at sequence = 1. What acknowledgement should the server's ACK carry?"
+  options={['65', '66', '67', '1']}
+  answer={1}
+  why="An acknowledgement is the next byte the receiver waits for. It has received bytes 1 to 65, so it waits for byte 66, which matches ack=66 in the exercise (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Why is the window scale needed when the TCP header already has a Window field?"
+  options={[
+    'To encrypt the data',
+    'Because the Window field is only 16 bits wide, at most 65,535 bytes, which is too small for fast cables, so the two sides agree in the SYN to multiply that field by a factor (2 to the power 10 in the exercise)',
+    'Because the window has to change on every segment',
+    'Because routers limit the window size',
+  ]}
+  answer={1}
+  why="In the exercise the segments after the handshake had a Window value of 63, which times 1024 is 64,512 bytes. This option can only be sent in the SYN, because it has to be agreed before the start (ran and book: TCPIP section 13.3, page 608)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Calling a server gave refused within a fraction of a second once, and a timeout after several seconds another time. How do the two cases differ in what happened at the server?"
+  options={[
+    'refused is the server answering RST because no program listens on that port, while timeout is nobody answering at all, for example a firewall dropping the packets',
+    'refused is the server being switched off, while timeout is the server being slow',
+    'Both are the server answering RST in the same way',
+    'timeout is a program that listens but is full',
+  ]}
+  answer={0}
+  why="An RST comes at once from the kernel of a server with nothing listening, so refused is fast. Silence makes the client send the SYN again until its own timeout. In the exercise that was 7 SYNs in 9 seconds (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="In a normal close, which side has to stay in the TIME-WAIT state?"
+  options={[
+    'The side that sends its FIN first',
+    'The side that sends its FIN second',
+    'Both sides',
+    'Neither side',
+  ]}
+  answer={0}
+  why="The side that closes first (the active close) is the one that has to wait, in case its last ACK is lost and so that old segments expire. In the exercise the server, which sent the FIN first, showed TIME-WAIT, and the client had no socket left (ran)."
+/>
+
+</Step>

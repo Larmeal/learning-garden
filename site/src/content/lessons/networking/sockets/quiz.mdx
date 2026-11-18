@@ -1,0 +1,97 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 5 ข้อ เพื่อเช็กว่าเข้าใจ Byte Stream, คิวของ Listen, Ephemeral Port และ SO_REUSEADDR
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เมื่อโปรแกรมเรียก Recv ผ่าน TCP Socket ข้อไหนเป็นจริง?"
+  options={[
+    'ได้ข้อความที่ผู้ส่งเขียนไว้ครบหนึ่งข้อความเสมอ',
+    'ได้ไบต์เท่าที่มีใน Buffer ณ ตอนนั้นและไม่เกินที่ขอ ซึ่งอาจเป็นส่วนหนึ่งของข้อความหรือหลายข้อความต่อกัน',
+    'ได้หนึ่ง Segment พอดี',
+    'ถูกบล็อกจนกว่าผู้ส่งจะ close'
+  ]}
+  answer={1}
+  why="TCP เป็น Byte Stream ไม่มีขอบเขตข้อความ ในแบบฝึกเขียน 5 ไบต์สามครั้งแต่ Recv(100) ได้ 15 ไบต์ครั้งเดียว และ Recv(4) ได้ 4, 4, 4, 3 ข้ามกลางข้อความ (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="โปรโตคอลที่วิ่งบน TCP ต้องส่งข้อความที่ผู้รับแยกออกได้ วิธีไหนใช้ได้?"
+  options={[
+    'ส่งแต่ละข้อความด้วยการ Send คนละครั้ง ผู้รับก็แยกได้เอง',
+    'ใส่ความยาวนำหน้าข้อความ หรือปิดท้ายด้วยตัวคั่นที่ไม่ปรากฏในเนื้อหา แล้วผู้รับอ่านวนจนครบ',
+    'ปิด Connection หลังทุกข้อความเท่านั้น',
+    'ใช้ Port คนละเลขต่อข้อความ'
+  ]}
+  answer={1}
+  why="ความยาวนำหน้าหรือตัวคั่นคือสิ่งที่ HTTP ใช้ (Header จบด้วยบรรทัดว่าง Body บอกความยาว) และโปรโตคอลอื่นอีกมาก (ผู้เขียน) ผู้รับอ่านไบต์มาเรื่อย ๆ จนครบข้อความแล้วค่อยแยก การ Send แยกกันไม่ช่วย เพราะผู้รับอาจได้รวมกันหรือแยกครึ่ง (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Server เรียก Listen(2) แล้วไม่ได้เรียก Accept เลย Client ตัวที่ 4 ที่พยายามต่อเข้ามาจะเห็นอะไรบน Linux ที่ทดสอบ?"
+  options={[
+    'เชื่อมต่อสำเร็จทันทีเหมือนสามตัวแรก',
+    'ถูกปฏิเสธทันที (Refused)',
+    'ไม่มีอะไรตอบกลับ Kernel ส่ง SYN ซ้ำเมื่อ Timer หมด และโปรแกรมเห็น timeout',
+    'ได้ Window เป็น 0'
+  ]}
+  answer={2}
+  why="คิวเต็มแล้ว (Linux รับ Backlog บวกหนึ่ง คือสามตัว) Kernel เมิน SYN เฉย ๆ ไม่ส่ง RST ผลที่ฝั่ง Client คือเงียบ แล้วส่ง SYN ซ้ำห่างกันราว 1 วินาที จนโปรแกรมหมดเวลาเอง (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="โปรแกรมหนึ่งเปิด Connection สั้น ๆ ไปหา API ตัวเดิมเป็นหมื่นครั้งต่อนาที แล้วเริ่มได้ Error Cannot assign requested address ที่ฝั่ง Client สาเหตุที่น่าจะเป็นที่สุดคืออะไร?"
+  options={[
+    'Server ล่ม',
+    'Ephemeral Port สำหรับปลายทางนั้นหมด เพราะมี Connection ค้างใน TIME-WAIT เป็นจำนวนมาก',
+    'DNS ผิด',
+    'Window ของ Server เป็น 0'
+  ]}
+  answer={1}
+  why="EADDRNOTAVAIL เกิดตอน Connect ก่อนส่ง SYN เมื่อ Kernel หา Port ต้นทางที่ว่างสำหรับปลายทางนั้นไม่ได้ ในแบบฝึกเห็นเมื่อลดช่วง Port เหลือสามเลข ในระบบจริงมักเกิดจาก TIME-WAIT เป็นจำนวนมาก แก้ได้ด้วย Connection Pool หรือ Keep-alive เพื่อไม่ต้องเปิดใหม่ทุกครั้ง (รัน และผู้เขียน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="SO_REUSEADDR ทำหน้าที่อะไรกับ Server ที่รีสตาร์ท?"
+  options={[
+    'ทำให้ Server รับ Connection ได้มากขึ้น',
+    'อนุญาตให้ Bind Port ที่ยังเป็น Local Port ของ Connection ใน TIME-WAIT ได้',
+    'ปิดการ Timeout',
+    'เปิด Nagle'
+  ]}
+  answer={1}
+  why="ไม่มี SO_REUSEADDR ตัว Bind ที่ Port เดิมล้มด้วย EADDRINUSE เพราะ Connection ที่ปิดก่อนยังค้างใน TIME-WAIT และตั้งตัวเลือกนี้แล้ว Bind ผ่าน (รัน และหนังสือ: TCPIP หัวข้อ 13.5 หน้า 620)"
+/>
+
+</Step>

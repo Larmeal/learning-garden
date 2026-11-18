@@ -1,0 +1,97 @@
+---
+title: Check your understanding
+summary: Five questions to check that you can pick a route by longest prefix, read a traceroute, and tell fragmentation from path MTU discovery.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A router has three routes: 10.0.0.0/8 via A, 10.0.4.0/24 via B and 0.0.0.0/0 via C. Which way does a destination of 10.0.4.9 go?"
+  options={['A', 'B', 'C', 'All three']}
+  answer={1}
+  why="The destination matches the /8, the /24 and the default (/0). The router picks the row with the longest prefix, the /24, so it goes to B. 10.9.9.9 would match only the /8 and the default and would go to A (ran and book: TCPIP section 5.4, page 209)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="How does traceroute learn the address of the second router on the path?"
+  options={[
+    'It asks every router over SNMP',
+    'It sends a packet with TTL 2, which expires at the second router, and that router answers with an ICMP Time Exceeded carrying its own address',
+    'It reads the routing table from the server',
+    'It sends a packet with TTL 255 and counts what is left',
+  ]}
+  answer={1}
+  why="Traceroute is not a special protocol. It is ordinary packets with a rising TTL. The router that lowers the TTL to 0 drops the packet and sends back an ICMP Time Exceeded whose source is its own address (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The last traceroute probe, the one that reaches the server, is answered with an ICMP Port Unreachable instead of a Time Exceeded like the others. Why?"
+  options={[
+    'The server is faulty',
+    'The TTL is enough to reach the server, but nothing listens on the port the probe uses, so the server says the port does not exist, which traceroute takes as the sign that it has arrived',
+    'The last router changed the TTL',
+    'The probe was sent twice',
+  ]}
+  answer={1}
+  why="The probe is UDP to a port that almost nobody uses. When it reaches the real server, the server's kernel finds no program listening and answers ICMP Port Unreachable (Type 3 Code 3) instead of Time Exceeded (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The DF flag is on, and a packet of 1500 bytes meets a link with an MTU of 1400. What happens?"
+  options={[
+    'The router cuts it into pieces and forwards them',
+    'The router drops the packet and sends back ICMP Type 3 Code 4 with the MTU that works (1400)',
+    'The router compresses the packet',
+    'The packet goes through, because the MTU is only a suggestion',
+  ]}
+  answer={1}
+  why="DF forbids cutting, so all the router can do is drop the packet and tell the source that the next link takes only 1400. The sender lowers the size and sends again. This is path MTU discovery. The exercise saw the message Frag needed and DF set (mtu = 1400) (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A packet was fragmented into five pieces on the way. Who puts them back together?"
+  options={[
+    'The router that cut it',
+    'The next router on the path',
+    'Only the destination, using the IP id and the offsets',
+    'The original sender',
+  ]}
+  answer={2}
+  why="The routers on the way forward the pieces one by one without putting them together. The receiver collects every piece with the same IP id and orders them by offset. If any piece is lost, the receiver drops the whole block (ran and book: TCPIP section 10.7, page 488)."
+/>
+
+</Step>

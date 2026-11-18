@@ -1,0 +1,179 @@
+---
+title: How one request travels
+summary: We open a request that crossed a real network and read it byte by byte, to see how three layers of headers wrap it, what a router changes, and which numbers tell a packet which program it is for.
+facts:
+  - "Ran for real in exercises/01_big_picture.py: a client, a router and a server built as Linux network namespaces in WSL, with tcpdump capturing on both sides of the router."
+  - "The header sizes, MAC addresses, TTL and ports in the lesson come from the real capture. The client and the server are small Python programs written for the exercise, not a real web server."
+  - "The layers and encapsulation cite TCP/IP Illustrated, 2nd edition, chapter 1, with page numbers. Not run: the real internet and the hardware of cables and devices."
+order: 1
+phase: A
+level: 1
+stage: sprout
+format: steps
+requires: []
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import PacketJourneyLab from '../../../../components/labs/networking/PacketJourneyLab';
+
+<Step>
+
+## Open one request and look inside
+
+When we call `requests.get("http://garden.test/hello.txt")` it looks as if the text floats to the server by itself, but a lot happens on the way. To see it, we build a small network in Linux: a client, a router and a server in a line (each is its own network namespace, with a virtual cable between them). The client sends a request to the server while `tcpdump` captures every packet that crosses the cable (ran: `exercises/01_big_picture.py`).
+
+The request is 65 bytes of plain text. With the line endings written out, it looks like this.
+
+```text
+GET /hello.txt HTTP/1.1\r\n
+Host: garden.test\r\n
+Connection: close\r\n
+\r\n
+```
+
+On the client side we capture ten packets of this connection.
+
+| # | Direction | Type | Frame size |
+|---|---|---|---|
+| 1 | client to server | SYN | 74 bytes |
+| 2 | server to client | SYN, ACK | 74 bytes |
+| 3 | client to server | ACK | 66 bytes |
+| 4 | client to server | PSH, ACK (the request is in this one) | 131 bytes |
+| 5 | server to client | ACK | 66 bytes |
+| 6 | server to client | PSH, ACK (the response is in this one) | 164 bytes |
+| 7 | client to server | ACK | 66 bytes |
+| 8 | server to client | FIN, ACK | 66 bytes |
+| 9 | client to server | FIN, ACK | 66 bytes |
+| 10 | server to client | ACK | 66 bytes |
+
+We meant to send only two pieces of text (a request and a response), yet ten packets appeared. The rest is TCP's work: agreeing before sending (the first three packets), acknowledging what arrived, and closing the connection cleanly. Before the first packet there are also two ARP frames, where the client asks "who is 10.0.1.1?" and the router answers with its MAC address. We will go through each of these in the lessons that follow. For now, remember that 65 bytes of text do not travel alone.
+
+</Step>
+
+<Step>
+
+## A packet is a box wrapped in several layers
+
+Think of sending a parcel across a city. The thing we want to send is the HTTP message. We put it in a box labelled with the department it is for (TCP and the port number), then wrap that box in another one labelled with the address of the building (IP). When it goes on a truck, each driver adds a new delivery slip that says only "from this depot to the next depot" (Ethernet). The slip is valid for that one leg. At the depot it is torn off and a new one is written for the next leg, and the boxes inside are never opened.
+
+A real packet does the same. We measured each layer in the packet that the client sent out.
+
+| Layer | Header added | Size | What identifies things at this layer |
+|---|---|---|---|
+| Application | the HTTP text | 65 bytes | URL, HTTP headers |
+| Transport | TCP | 32 bytes | port (50000 to 8080) |
+| Network | IP | 20 bytes | IP address (10.0.1.2 to 10.0.2.2) |
+| Link | Ethernet | 14 bytes | MAC address |
+| Whole frame | | 131 bytes | |
+
+The TCP header here is 32 bytes because 20 bytes are always there and Linux adds 12 bytes of options to record timestamps (ran, book: TCPIP section 1.2.2, page 10).
+
+How does each layer know what is inside it? Each header has a field that says so. The Type field of Ethernet is `0x0800`, which means IPv4 inside. The Protocol field of IP is `6`, which means TCP inside. The destination port of TCP is `8080`, which picks the program that is listening on that port. Choosing the next layer down the stack like this is called demultiplexing (ran, book: TCPIP section 1.3.2, page 16).
+
+</Step>
+
+<Step>
+
+## Watch one packet from wrapping to unwrapping
+
+Press play and watch how the headers are added at the client, one layer at a time, and what is thrown away and rebuilt at the router. The table under the packet compares the fields on the sending side and the receiving side. Green cells are the same the whole way, blue cells are the ones the router changed.
+
+<PacketJourneyLab client:visible lang="en" />
+
+Two things to notice. First, the IP addresses and ports never change, because they say who is talking to whom, which is a matter for the two ends. Second, the MAC addresses and the TTL change at every router, because a MAC address only says who sends and who receives on this one cable, and TTL counts how many legs the packet has crossed (ran).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A packet crosses one router in this lesson. Which of these does the router change?"
+  options={[
+    'The Ethernet source and destination, and the TTL',
+    'The IP source and destination, and the port',
+    'Only the HTTP text',
+    'Nothing, the router just passes it on',
+  ]}
+  answer={0}
+  why="The router reads the destination from the IP header to pick the outgoing cable, then builds a new frame for that cable. So both MAC addresses change and the TTL goes down by one. The IP addresses, the ports and the HTTP text are not touched. If the source IP address were changed at a router, that would be NAT, a special case we look at later (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Four layers and what each is responsible for
+
+The four layers in the picture are the shape of the TCP/IP protocol suite (book: TCPIP section 1.3.1, page 13). Many networking texts also describe the seven-layer OSI model, which splits Link into cable and frame and splits Application into three layers (book: AIO Book 2 chapter 1, page 80). In practice four layers are enough to explain everything we capture.
+
+| Layer | Job | Identified by | Who reads this header |
+|---|---|---|---|
+| Application | the meaning of the message (HTTP, DNS, TLS) | URL, domain name | the program at the end |
+| Transport | get the data to the right program (TCP, UDP) | port | the two computers at the ends |
+| Network | reach the right computer across many networks (IP) | IP address | the destination and every router on the way |
+| Link | cross one cable to the neighbour (Ethernet) | MAC address | the two computers at the ends of that cable |
+
+Each layer talks only to the same layer on the other side. The TCP of the client talks to the TCP of the server, and the router does not know TCP at all (it does not look). This idea is called the end-to-end argument: what needs to understand the data, such as ordering and resending, belongs at the two ends, not in the network in the middle. The middle only forwards, as simply and quickly as it can (book: TCPIP section 1.1.2, page 6). It also explains why the router in the lab touches only Ethernet and the TTL.
+
+</Step>
+
+<Step>
+
+## A port and one connection
+
+In the exercise the client opens two connections to the same server on port 8080. The first uses source port 50000 and the second 50001. The server can tell them apart because one connection is identified by four numbers together: source IP, source port, destination IP and destination port (ran, book: TCPIP section 1.3.3, page 17).
+
+```text
+('10.0.1.2', 50000, '10.0.2.2', 8080)
+('10.0.1.2', 50001, '10.0.2.2', 8080)
+```
+
+In a real program we usually do not choose the source port. The operating system picks a free one. The exercise sets 50000 itself only so that the numbers it prints are the same on every run. Each connection still has its own handshake and its own sequence numbers, and the client asks ARP only once, because the second connection reuses the router's MAC address it already remembers.
+
+<Callout type="note" title="Port numbers come in groups">
+
+The server-side ports that people know are usually low numbers, such as 80 for HTTP and 443 for HTTPS. The client-side ports that the system picks are high numbers in a temporary (ephemeral) range. We come back to how wide that range is, and what happens when it runs out, in the lesson about sockets.
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We open two browser tabs to the same website (one server, port 443). How does the server tell the two connections apart?"
+  options={[
+    'By the different source ports (the four numbers together are never the same)',
+    'By the MAC address of each tab',
+    'By the different HTTP text',
+    'It cannot, it has to wait for the first tab to finish',
+  ]}
+  answer={0}
+  why="A connection is identified by source IP, source port, destination IP and destination port together. Both tabs have the same source IP, but the operating system gives them different source ports, so they are two separate connections. A MAC address is used on one cable only, and a server accepts many connections at once (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A 65-byte request becomes ten TCP packets plus two ARP frames | ran: `exercises/01_big_picture.py` |
+| Ethernet 14, IP 20, TCP 32 and HTTP 65 bytes make a 131-byte frame | ran: `exercises/01_big_picture.py` |
+| IP addresses, ports and data are the same on both sides of the router, while MAC addresses and TTL change | ran: `exercises/01_big_picture.py` |
+| Type 0x0800, Protocol 6 and the destination port pick the next layer | ran and book: TCPIP section 1.3.2, page 16 |
+| One connection is identified by four numbers | ran and book: TCPIP section 1.3.3, page 17 |
+| Four TCP/IP layers, and the comparison with seven OSI layers | book: TCPIP section 1.3.1, page 13; AIO Book 2 chapter 1, page 80 |
+| The end-to-end argument | book: TCPIP section 1.1.2, page 6 |
+| The picture of a parcel and delivery slips | author |
+
+</Step>

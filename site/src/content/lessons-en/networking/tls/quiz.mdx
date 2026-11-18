@@ -1,0 +1,102 @@
+---
+title: Check your understanding
+summary: Five questions to check that you understand what is seen on the wire during a TLS handshake, the number of round trips, and the checking of a certificate.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="How does TLS 1.3 differ from TLS 1.2 in the number of round trips before real data can go (counted after TCP's handshake)?"
+  options={[
+    'They are the same',
+    '1.3 takes one round trip and 1.2 takes two, because 1.3 sends a key share in the ClientHello, in the first message',
+    '1.3 takes two and 1.2 takes one',
+    '1.3 needs none'
+  ]}
+  answer={1}
+  why="In the exercise plain HTTP got its first byte at 42 ms, TLS 1.3 at 64 ms and TLS 1.2 at 84 ms (round trip 20 ms), which is one and two round trips more (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Which of these can still be seen on the wire even with TLS 1.3?"
+  options={[
+    'The content of the HTTP request',
+    'The server\'s certificate',
+    'The server name asked for in the ClientHello (SNI) and the destination IP address',
+    'The password the user typed'
+  ]}
+  answer={2}
+  why="The ClientHello is sent before there is a key, so the server name is readable, and a router has to read the IP header to forward the packet. The certificate in TLS 1.3 is encrypted after the ServerHello. The content and the password are encrypted data (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A program opens a TLS connection and writes its request right after the handshake, but the real time is one round trip longer than expected. What should be checked first?"
+  options={[
+    'The certificate has expired',
+    'Nagle, which holds the request back until the Finished sent before it is acknowledged. Try setting TCP_NODELAY',
+    'DNS is slow',
+    'The server\'s window is 0'
+  ]}
+  answer={1}
+  why="The client's Finished is a small message that has not yet been acknowledged when the request is written, so Nagle waits. In the exercise TLS 1.3 took 84 ms without TCP_NODELAY and 64 ms with it (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A client reports Hostname mismatch although the server's certificate was issued by a CA we trust and has not expired. What is the cause?"
+  options={[
+    'The CA is not in the trusted list',
+    'The name we connected to (for example other.test) is not in the certificate\'s list of names (SAN)',
+    'TCP could not connect',
+    'The certificate is not yet valid'
+  ]}
+  answer={1}
+  why="The client checks the name separately from the chain of signatures and the expiry date. In the exercise even the valid certificate for garden.test was refused when we asked for the name other.test (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A colleague fixes a certificate error in a program by turning off certificate checking altogether. What is the consequence?"
+  options={[
+    'Nothing, the encryption is the same',
+    'The data is still encrypted, but we do not know whether we are talking to the real server or a fake, so someone in the middle can impersonate it (MITM)',
+    'The data is no longer encrypted',
+    'TCP cannot connect'
+  ]}
+  answer={1}
+  why="Encryption and authentication are two separate things. Not checking the certificate throws away the second, and the book points out that an anonymous connection is exposed to MITM (book: TCPIP section 18.9.1, page 877)."
+/>
+
+</Step>

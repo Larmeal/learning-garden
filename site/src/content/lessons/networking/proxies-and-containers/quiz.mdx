@@ -1,0 +1,97 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 5 ข้อ เพื่อเช็กว่าเข้าใจ Container Network, MASQUERADE กับ DNAT, Load Balancer ระดับ Connection กับระดับคำขอ และผลเมื่อ Backend ตาย
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Container สองตัวบน Bridge เดียวกัน (10.244.0.0/24) ส่ง Packet หากัน Packet ผ่านอะไรบ้าง?"
+  options={[
+    'ผ่าน Router บน Host เพราะ Container ทุกตัวต้องใช้ Gateway',
+    'ผ่านเฉพาะ Bridge ที่ทำหน้าที่เป็น Switch โดยไม่มี Router จึงไม่ลด TTL',
+    'ผ่าน Iptables ทุกครั้งเพื่อแปลที่อยู่',
+    'ผ่านอินเทอร์เน็ตแล้ววนกลับมา'
+  ]}
+  answer={1}
+  why="ที่อยู่ปลายทางอยู่ในซับเน็ตเดียวกัน จึงใช้ ARP หา MAC แล้วส่ง Frame ผ่าน Bridge ได้เลย ในแบบฝึก Ping ได้ TTL 64 เท่าตอนส่ง (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Container ที่ใช้ที่อยู่ 10.244.0.2 เรียก Server ข้างนอก Server เห็นที่อยู่ต้นทางเป็นอะไร และอะไรทำให้เป็นอย่างนั้น?"
+  options={[
+    '10.244.0.2 เพราะ Packet ไม่ถูกแก้ระหว่างทาง',
+    '10.0.2.1 ซึ่งเป็นที่อยู่ของ Host เพราะกฎ MASQUERADE เขียนที่อยู่ต้นทางทับตอนออก และ Conntrack จำไว้เพื่อแปลงขากลับ',
+    '10.244.0.1 ซึ่งเป็นที่อยู่ของ Bridge',
+    'ที่อยู่ของ Client ที่เรียก Container'
+  ]}
+  answer={1}
+  why="ในแบบฝึก SYN ที่จับได้ฝั่ง Server มีต้นทางเป็น 10.0.2.1 และไม่มี 10.244.0.2 เลย Host จดการแปลงไว้ใน Conntrack แบบเดียวกับ NAT Router (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Docker Run -p 8080:80 ทำอะไรกับ Host ในเชิง Network?"
+  options={[
+    'เพิ่มกฎ DNAT ที่เปลี่ยนปลายทาง Host:8080 เป็น Container:80 โดยไม่แตะที่อยู่ต้นทาง',
+    'เปิดโปรแกรม Proxy ที่รับ Connection แล้วเปิดใหม่ไปหา Container ทุกครั้ง',
+    'ย้าย Container ไปอยู่ในซับเน็ตเดียวกับ Client',
+    'แปลงที่อยู่ต้นทางของ Client ให้เป็นที่อยู่ของ Container'
+  ]}
+  answer={0}
+  why="ในแบบฝึก Port ที่ Publish คือกฎ Iptables เพียงข้อเดียวที่ PREROUTING SYN บนสายของ Client เป็น 10.0.1.1:8080 และที่ Bridge เป็น 10.244.0.2:80 ต้นทางเท่าเดิม (รัน) Docker จริงอาจใช้โปรแกรม Proxy ในบางโหมด ซึ่งเราไม่ได้ลอง (ไม่ได้รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Client ใช้ Connection เดียว ส่ง 8 คำขอผ่าน Load Balancer แบบ Iptables DNAT กับผ่าน Reverse Proxy ระดับ HTTP ผลต่างกันอย่างไร?"
+  options={[
+    'Iptables สลับ Backend ทุกคำขอ ส่วน Proxy ส่งไปตัวเดียว',
+    'Iptables ส่งทั้ง 8 คำขอไป Backend เดียว เพราะตัดสินใจตอน SYN ส่วน Proxy สลับ Backend ตามคำขอ',
+    'ทั้งสองแบบสลับตามคำขอเหมือนกัน',
+    'ทั้งสองแบบส่งไป Backend เดียวเหมือนกัน'
+  ]}
+  answer={1}
+  why="ผลที่รัน: Iptables ได้ k1 ทั้ง 8 ส่วน Proxy ได้ k1 k2 สลับกันตามคำขอ ผลของ Iptables ตรงกับที่หนังสือเตือนไว้เรื่อง gRPC และ HTTP/2 ที่ใช้ Connection เดิมซ้ำ (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Backend ถูกวางไว้หลัง Reverse Proxy แล้วอยากรู้ที่อยู่ของ Client ตัวจริง ควรทำอย่างไร?"
+  options={[
+    'ใช้ที่อยู่ของเพียร์ที่ Socket เพราะเป็นที่อยู่ของ Client เสมอ',
+    'อ่านหัวข้อ X-Forwarded-For ที่ Proxy ของเราเติมให้ และเชื่อเฉพาะเมื่อมาจาก Proxy ที่เราควบคุม',
+    'ไม่ทำอะไร เพราะ Proxy ส่งที่อยู่ Client มาเป็นต้นทางของ Packet',
+    'เปิด Tcpdump ที่ Backend แล้วดูที่อยู่ Client'
+  ]}
+  answer={1}
+  why="ในแบบฝึก Backend เห็นเพียร์เป็น 10.244.0.1 ซึ่งเป็นของ Proxy ส่วน 10.0.1.2 ของ Client อยู่ในหัวข้อ X-Forwarded-For เท่านั้น (รัน) ข้อควรระวังเรื่อง Client ปลอมหัวข้อนี้เป็นความเห็นของผู้เขียน (ผู้เขียน)"
+/>
+
+</Step>

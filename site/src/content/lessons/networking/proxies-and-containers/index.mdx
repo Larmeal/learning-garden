@@ -1,0 +1,247 @@
+---
+title: Proxy, Load Balancer และ Container Network
+summary: Container ในบริการที่เราใช้อยู่ทุกวัน คือ Network Namespace หนึ่งใบที่ต่อกับ Bridge ผ่านสาย Veth บทนี้ลองสร้างเองใน Host เดียว แล้วดูว่า Port ที่ Publish คือกฎ DNAT ข้อเดียว Load Balancer ระดับ Connection จาก Iptables กับ Reverse Proxy ระดับคำขอต่างกันอย่างไร และเมื่อ Backend ตัวหนึ่งตายแล้วแต่ละแบบทำอะไร
+facts:
+  - "รันจริงใน exercises/13_proxies_containers.py ใน Network Namespace ของ WSL โดย Host หนึ่งตัวมี Bridge br0 (10.244.0.1) ต่อ Container สองตัวที่เป็น Network Namespace กับสาย veth ฝั่ง Layer 4 ใช้กฎ iptables (DNAT แบบ nth) ฝั่ง Layer 7 ใช้ Reverse Proxy ที่เขียนเองด้วย asyncio ของ Python ซึ่งเป็นโค้ดสั้น ๆ สำหรับสอน ไม่ใช่ HAProxy หรือ Nginx"
+  - "ที่ไม่ได้รัน คือ Docker, Kubernetes, CNI Plugin, kube-proxy, IPVS, Overlay Network ข้าม Host, Load Balancer ของ Cloud และ Backend ที่ตายแบบไม่ตอบเลย (Backend ในแบบฝึกตายแล้ว Kernel ยังตอบ RST จึงได้ ECONNREFUSED ถ้าคอมพิวเตอร์ดับทั้งเครื่องจะเป็น Timeout แทน) ทฤษฎีเรื่อง kube-proxy มาจากหนังสือ Networking and Kubernetes ไม่ได้รัน"
+order: 13
+phase: E
+level: 4
+stage: sprout
+format: steps
+requires: [nat-dhcp, sockets]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ContainerNetLab from '../../../../components/labs/networking/ContainerNetLab';
+import BalancerLab from '../../../../components/labs/networking/BalancerLab';
+
+<Step>
+
+## Container ก็คือ Network Namespace ที่ต่อสายเข้า Bridge
+
+ตอนเรารัน `docker run` เราไม่ได้อุปกรณ์ Network ชิ้นใหม่มาเลย สิ่งที่ Docker ทำคือสั่ง Kernel ของ Linux ให้ทำเครือข่ายเล็ก ๆ ให้ Container แต่ละตัว ซึ่งทำได้ด้วยคำสั่งสั้น ๆ ที่เราพิมพ์เองได้ หนังสือ Networking and Kubernetes ไล่ขั้นตอนไว้สิบข้อ ตั้งแต่สร้าง Network Namespace, สร้าง Veth Pair (สายเสมือนที่มีสองปลาย), ย้ายปลายหนึ่งเข้า Namespace ใหม่, ตั้งที่อยู่, ไปจนถึงต่อปลายที่เหลือเข้ากับ Bridge (หนังสือ: Networking and Kubernetes บทที่ 3 หน้า 106 ซึ่งมีหัวข้อ Setting Up Namespaces)
+
+เรามาลองทำตามกัน ในแบบฝึก (รัน: `exercises/13_proxies_containers.py`) เราสร้าง Host หนึ่งตัวที่มี Bridge ชื่อ `br0` ที่อยู่ `10.244.0.1/24` แล้วสร้าง "Container" สองตัวคือ k1 กับ k2 แต่ละตัวเป็น Network Namespace ที่มีสาย Veth เส้นเดียวต่อเข้า Bridge พอสั่งดู Bridge จะเห็นสองพอร์ต
+
+```text
+341: vh1@br0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 master br0 state forwarding
+342: vh2@br0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 master br0 state forwarding
+```
+
+ถ้าเข้าไปดูข้างใน k1 จะเห็นคอมพิวเตอร์ที่เล็กมาก มีการ์ดเครือข่ายใบเดียวชื่อ `eth0` ที่อยู่ `10.244.0.2/24` และมี Default Route ผ่าน `10.244.0.1` ซึ่งก็คือ Bridge นั่นเอง
+
+```text
+default via 10.244.0.1 dev eth0
+10.244.0.0/24 dev eth0 proto kernel scope link src 10.244.0.2
+```
+
+สังเกตว่าตารางนี้หน้าตาเหมือนตาราง Routing ที่เราเห็นใน[บท 4](/networking/ip-routing/) ทุกอย่าง ดังนั้นสิ่งที่ Container ใช้ก็คือกฎเดิมของ IP และ Ethernet ที่เรารู้อยู่แล้ว ต่างกันแค่การ์ดเครือข่ายเป็นของเสมือน (รัน)
+
+</Step>
+
+<Step>
+
+## Container คุยกันผ่าน Bridge โดยไม่ผ่าน Router
+
+k1 ส่ง Ping ไปหา k2 (`10.244.0.3`) ผลคือถึงครบทุกตัว และค่า TTL ที่ได้กลับมาเป็น 64 (รัน) ค่านี้บอกเรื่องสำคัญข้อหนึ่ง จาก[บท 4](/networking/ip-routing/) เรารู้ว่า Router ทุกตัวลด TTL ลงหนึ่งตอนส่งต่อ ถ้า TTL ยังเป็น 64 เท่าตอนส่ง แปลว่า Packet ไม่ได้ข้าม Router เลย มันวิ่งอยู่ใน Layer 2 อย่างเดียว
+
+เหตุผลคือ k1 กับ k2 อยู่ในซับเน็ต `10.244.0.0/24` เดียวกัน k1 จึงถาม MAC ของ k2 ด้วย ARP ได้เลย ตาราง Neighbour ของ k1 จึงมีบรรทัด `10.244.0.3 lladdr ... REACHABLE` (รัน) แล้ว Bridge ทำหน้าที่เป็น Switch ที่เราเห็นใน[บท 3](/networking/link-layer/) คือดู MAC ปลายทางแล้วส่งออกพอร์ตที่ถูกต้อง
+
+เรื่องนี้ตอบคำถามที่คนมักสงสัยตอนใช้ Docker Compose ว่า ทำไม Container สองตัวในเครือข่ายเดียวกันคุยกันได้โดยไม่ต้องตั้งอะไรเลย ก็เพราะมันเป็นแค่คอมพิวเตอร์สองตัวที่เสียบ Switch ตัวเดียวกัน ส่วนเรื่องที่ชื่อ `k2` ถูกแปลงเป็นที่อยู่ได้ เป็นหน้าที่ของ DNS ภายในที่ Docker ใส่ให้ ซึ่งเราไม่ได้ลองในแบบฝึกนี้ (ไม่ได้รัน)
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Ping จาก k1 ไป k2 ใน Bridge เดียวกันได้ TTL เท่ากับ 64 เท่าตอนส่ง ข้อไหนอธิบายได้ถูกต้อง?"
+  options={[
+    'Bridge เป็น Router ที่ไม่ลดค่า TTL',
+    'Packet ไม่ได้ผ่าน Router เลย เพราะ k1 กับ k2 อยู่ในซับเน็ตเดียวกัน จึงส่งถึงกันที่ Layer 2 ผ่าน Bridge ที่ทำหน้าที่เป็น Switch',
+    'Linux ไม่ลด TTL ของ Packet ในเครือข่ายเสมือน',
+    'k2 ตั้งค่า TTL ให้เป็น 64 เอง'
+  ]}
+  answer={1}
+  why="Router ลด TTL ลงหนึ่งทุกครั้งที่ส่งต่อ แต่ใน Layer 2 ไม่มีการลด k1 ถาม MAC ของ k2 ด้วย ARP แล้วส่ง Frame ไปที่ Bridge ซึ่งเลือกพอร์ตจาก MAC ปลายทาง ผลที่รันได้คือ TTL เท่ากับ 64 และ Neighbour Table มี 10.244.0.3 (รัน)"
+/>
+
+</Step>
+
+<Step>
+
+## ออกไปข้างนอก: Host แก้ที่อยู่ต้นทางให้
+
+ทีนี้ให้ k1 เรียก Server ข้างนอกที่ `10.0.2.2` ที่อยู่ `10.244.0.2` ของ k1 เป็นที่อยู่ส่วนตัวที่ใช้ได้แค่ในซับเน็ตของ Bridge ดังนั้น k1 จึงส่ง Packet ไปให้ Gateway คือ Host แล้ว Host ส่งต่อเหมือน Router ทั่วไป สิ่งที่เพิ่มเข้ามาคือกฎข้อเดียวของ Iptables
+
+```text
+iptables -t nat -A POSTROUTING -s 10.244.0.0/24 ! -o br0 -j MASQUERADE
+```
+
+กฎนี้บอกว่า Packet ที่มาจาก `10.244.0.0/24` และกำลังจะออกทางอื่นที่ไม่ใช่ `br0` ให้เขียนที่อยู่ต้นทางทับเป็นที่อยู่ของสายขาออก หนังสือเล่าไว้ว่าใน Kubernetes เรื่องนี้ทำให้ Pod ใช้ที่อยู่ของ Node ได้ ทั้งที่ Pod มีที่อยู่ส่วนตัวของตัวเอง (หนังสือ: Networking and Kubernetes บทที่ 2 หน้า 74)
+
+ในแบบฝึกเราจับ Packet ที่ฝั่ง Server และพบว่าที่อยู่ต้นทางของ SYN คือ `10.0.2.1` ซึ่งเป็นที่อยู่ของ Host Server ไม่เคยเห็น `10.244.0.2` เลยสักตัว (รัน) Host จำการแปลงนี้ไว้ในตาราง Conntrack ด้วยบรรทัดเดียวที่มีทั้งสองมุมมอง
+
+```text
+tcp ... src=10.244.0.2 dst=10.0.2.2 sport=36632 dport=8080
+        src=10.0.2.2   dst=10.0.2.1 sport=8080  dport=36632
+```
+
+บรรทัดแรกคือสิ่งที่ k1 ส่ง บรรทัดที่สองคือสิ่งที่ Server ตอบ ซึ่งจ่าหน้าไปที่ `10.0.2.1` พอคำตอบกลับมา Host เปิดตาราง แปลงปลายทางกลับเป็น `10.244.0.2` แล้วส่งเข้า Bridge ทั้งหมดนี้คือ NAT แบบเดียวกับที่ Router บ้านเราใช้ใน[บท 5](/networking/nat-dhcp/) เลย
+
+มีข้อสังเกตที่ตรงกับความเข้าใจที่คนมักมี คือเรามักเชื่อว่าต้องมี NAT ไม่งั้น Container ออกไปข้างนอกไม่ได้ แต่ในแบบฝึกของเรา การเรียกก่อนเพิ่มกฎ MASQUERADE ก็สำเร็จเหมือนกัน เพราะ Server ในแบบฝึกมี Default Route ที่ชี้กลับมาที่ Host (รัน) ส่วนในเครือข่ายจริงที่ไม่รู้จักซับเน็ต `10.244.0.0/24` คำตอบจะกลับมาไม่ได้ และกฎนี้ก็เป็นสิ่งที่ทำให้ใช้งานได้ ซึ่งเราไม่ได้ลองเอง (ไม่ได้รัน) สิ่งที่แบบฝึกยืนยันได้คือ NAT ทำให้ Server ข้างนอกเห็นที่อยู่ของ Host แทนที่อยู่ของ Container
+
+</Step>
+
+<Step>
+
+## เข้ามาข้างใน: Port ที่ Publish คือกฎ DNAT
+
+ขากลับกันบ้าง ถ้าเราอยากให้คนข้างนอกเรียก k1 ได้ สิ่งที่ `docker run -p 8080:80` ทำคือเพิ่มกฎ DNAT ที่ Host
+
+```text
+iptables -t nat -A PREROUTING -d 10.0.1.1/32 -p tcp --dport 8080 -j DNAT --to-destination 10.244.0.2:80
+```
+
+กฎนี้ทำงานกับ Packet ที่เพิ่งเข้ามา (PREROUTING) ถ้าปลายทางคือ `10.0.1.1:8080` ให้เขียนปลายทางใหม่เป็น `10.244.0.2:80` แล้ว Routing ตัดสินใจต่อจากที่อยู่ใหม่ ในแบบฝึกเราจับ SYN ของ Client สองที่ ที่สายของ Client เป็น `10.0.1.2 → 10.0.1.1:8080` ส่วนที่ Bridge ของ Host เป็น `10.0.1.2 → 10.244.0.2:80` ต้นทางไม่ถูกแตะเลย (รัน) คำตอบมาจาก k1 จริง
+
+กดเล่น Lab แล้วสลับสามเส้นทางดู จะเห็นว่าทั้งสามเส้นทางต่างกันแค่จุดที่ที่อยู่ถูกเขียนใหม่ คือไม่มีเลย (Container ถึง Container), ที่อยู่ต้นทางตอนออก (MASQUERADE) และที่อยู่ปลายทางตอนเข้า (DNAT)
+
+<ContainerNetLab client:visible />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Client ข้างนอกเรียก 10.0.1.1:8080 แล้วได้คำตอบจาก k1 ที่ Listen พอร์ต 80 ข้อไหนอธิบายสิ่งที่เกิดขึ้นที่ Host ได้ถูกที่สุด?"
+  options={[
+    'Host เปิด Connection ใหม่ไปหา k1 แล้วคัดลอกคำตอบกลับ',
+    'กฎ DNAT เขียนที่อยู่ปลายทางของ Packet เป็น 10.244.0.2:80 โดยต้นทางยังเป็น Client เดิม แล้ว Conntrack จำไว้เพื่อแปลงขากลับ',
+    'Client ต่อตรงเข้า k1 ผ่านสาย veth',
+    'Bridge แปลงเลข Port จาก 8080 เป็น 80'
+  ]}
+  answer={1}
+  why="ในแบบฝึก SYN บนสายของ Client เป็น 10.0.1.2 → 10.0.1.1:8080 และบน Bridge เป็น 10.0.1.2 → 10.244.0.2:80 ต้นทางเท่าเดิม Host ไม่ได้เปิด Connection ใหม่ มันแค่เปลี่ยนที่อยู่ปลายทาง ส่วนที่ Host เปิด Connection ใหม่ของตัวเองคือ Reverse Proxy ที่จะเห็นในหัวข้อถัดไป (รัน)"
+/>
+
+</Step>
+
+<Step>
+
+## Load Balancer ระดับ Connection: ที่อยู่ที่ไม่มีคอมพิวเตอร์ตัวไหนเป็นเจ้าของ
+
+ถ้าเรามี k1 กับ k2 ที่ให้บริการเหมือนกัน เราจะให้ Client ใช้ที่อยู่เดียว แล้วกระจายไปทั้งสองตัวได้อย่างไร วิธีที่ Kubernetes ใช้ใน `kube-proxy` โหมด Iptables คือเพิ่มกฎ DNAT หลายข้อ ที่เลือก Backend ตามสัดส่วน หนังสืออธิบายว่าเทคนิคนี้เรียกว่า Connection Fan-out และเขียนตัวอย่างโดยใช้ `--mode random --probability 0.5` ในกฎแรก เพื่อไม่ให้ทุก Connection ไปลงที่ Backend แรก (หนังสือ: Networking and Kubernetes บทที่ 2 หน้า 74)
+
+ในแบบฝึกเราใช้ `--mode nth --every 2` แทน Random เพื่อให้ผลสลับกันตรง ๆ และตรวจด้วย Assert ได้ (รัน)
+
+```text
+-A PREROUTING -d 10.96.0.10/32 -p tcp --dport 80 -m statistic --mode nth --every 2 --packet 0 -j DNAT --to-destination 10.244.0.2:80
+-A PREROUTING -d 10.96.0.10/32 -p tcp --dport 80 -j DNAT --to-destination 10.244.0.3:80
+```
+
+ที่อยู่ `10.96.0.10` ไม่มีคอมพิวเตอร์ตัวไหนเป็นเจ้าของ มันมีอยู่แค่ในกฎสองข้อนี้ (รัน) ลองดูว่า Client ส่ง 8 คำขอ โดยเปิด Connection ใหม่ทุกคำขอ ใครเป็นคนตอบ ผลคือ `k1, k2, k1, k2, k1, k2, k1, k2` สลับกันพอดี (รัน) แต่ถ้า Client ใช้ Connection เดียวส่ง 8 คำขอ ทุกคำขอไปที่ k1 หมด (รัน)
+
+เหตุผลคือกฎ DNAT ตัดสินใจครั้งเดียวตอน SYN แล้ว Conntrack จำไว้ตลอดอายุ Connection สิ่งที่ Load Balancer แบบนี้เห็นคือ Connection ไม่ใช่คำขอ ข้างในมันไม่รู้ด้วยซ้ำว่าเป็น HTTP หนังสือก็เตือนเรื่องนี้ไว้ว่า DNAT Fan-out ไม่มี Feedback เรื่องภาระของ Backend และจะส่งคำขอทั้งหมดบน Connection เดียวไป Backend เดิมเสมอ ตัวอย่างที่หนังสือยกคือ gRPC ที่ใช้ Connection HTTP/2 ซ้ำ ทำให้เมื่อเพิ่ม Replica ใหม่ Client เดิมก็ยังติดอยู่กับสองตัวแรก (หนังสือ: Networking and Kubernetes บทที่ 2 หน้า 75, บทที่ 4 หน้า 162)
+
+อีกเรื่องที่ควรรู้คือ Backend เห็นที่อยู่ของ Client ตัวจริง ในแบบฝึก k2 ที่ตอบคำขอรายงานว่าเพียร์คือ `10.0.1.2` และไม่มีหัวข้อ X-Forwarded-For เลย (รัน) เพราะ Load Balancer แค่เปลี่ยนที่อยู่ปลายทางของ Packet ไม่ได้แตะข้อมูลข้างใน
+
+</Step>
+
+<Step>
+
+## Reverse Proxy: เปิด Connection ใหม่เอง และกระจายระดับคำขอ
+
+อีกแบบคือไม่แก้ที่อยู่ของ Packet แต่ให้โปรแกรมตัวหนึ่งรับ Connection ของ Client ไว้เอง อ่านคำขอ HTTP แล้วเปิด Connection ของมันเองไปหา Backend ซึ่งก็คือสิ่งที่ Nginx, HAProxy และ Envoy ทำ เราเขียน Reverse Proxy เล็ก ๆ ด้วย `asyncio` ของ Python รันที่ Host พอร์ต 9000 ให้รับคำขอ เลือก Backend แบบหมุนเวียนทีละคำขอ เติมหัวข้อ `X-Forwarded-For` แล้วส่งคำตอบกลับ (รัน)
+
+ผลต่างจากข้างบนเห็นได้ชัด ส่ง 8 คำขอบน Connection เดียวผ่าน Proxy คำตอบยังสลับ `k1, k2, k1, k2, ...` เพราะ Proxy อ่านเป็นคำขอและเลือก Backend ใหม่ทุกครั้ง (รัน) นี่คือการกระจายระดับ Layer 7 ซึ่งแก้ปัญหา gRPC ข้างบนได้ เพราะ Proxy เข้าใจว่า HTTP/2 มีหลายคำขอบนสายเดียว (ตัว Proxy ของเราเป็น HTTP/1.1 ไม่ได้ลอง HTTP/2 จริง ไม่ได้รัน)
+
+ราคาที่ต้องจ่ายคือ Backend ไม่เห็น Client ตัวจริงอีกต่อไป เพราะ Connection ที่มาถึง Backend เป็นของ Proxy ในแบบฝึก Backend รายงานว่าเพียร์คือ `10.244.0.1` ซึ่งเป็นที่อยู่ของ Bridge บน Host ที่ Proxy ใช้ต่อออกมา ส่วนที่อยู่ของ Client ตัวจริง `10.0.1.2` หลงเหลืออยู่แค่ในหัวข้อ `X-Forwarded-For` ที่ Proxy เพิ่มให้ (รัน) นี่คือเหตุผลที่โปรแกรม Backend ต้องรู้ว่าตัวเองอยู่หลัง Proxy และอ่านที่อยู่จากหัวข้อนี้ และต้องเชื่อหัวข้อนี้เฉพาะเมื่อมาจาก Proxy ของเราเอง เพราะ Client จะส่งหัวข้อปลอมมาเองก็ได้ (ผู้เขียน)
+
+กด Lab เพื่อสลับระหว่าง Layer 4 กับ Layer 7 และดูว่าแผงด้านล่างตอบว่า Backend เห็นใครเป็นคนเรียก
+
+<BalancerLab client:visible />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="บริการ gRPC สองตัวหลังบริการที่ใช้ Load Balancer แบบ Iptables Client เดิมเปิด Connection HTTP/2 ค้างไว้ แล้วเรา Scale เพิ่มเป็นสี่ตัว Client เดิมจะเป็นอย่างไร?"
+  options={[
+    'คำขอใหม่ถูกกระจายไปทั้งสี่ตัวทันทีเพราะ Iptables สลับให้',
+    'ยังติดอยู่กับสองตัวแรก เพราะกฎ DNAT ตัดสินใจตอน SYN ครั้งเดียว คำขอทั้งหมดบน Connection เดิมไป Backend เดิม',
+    'Connection ถูกตัดแล้วต่อใหม่อัตโนมัติ',
+    'ถูกส่งไป Backend ตัวที่ใหม่ที่สุด'
+  ]}
+  answer={1}
+  why="ในแบบฝึก 8 คำขอบน Connection เดียวผ่าน Iptables ไปที่ k1 หมดทั้ง 8 ส่วนการสลับเกิดกับ Connection ใหม่ หนังสือยกตัวอย่าง gRPC ที่เจอปัญหานี้ และแนะนำให้ใช้ Client-side Load Balancing หรือให้ปิดแล้วต่อใหม่เป็นระยะ หรือใช้ Proxy ระดับคำขอ (รัน, หนังสือ: Networking and Kubernetes บทที่ 2 หน้า 75)"
+/>
+
+</Step>
+
+<Step>
+
+## Backend ตายแล้วใครรู้
+
+ปิดท้ายด้วยการทดลองที่สำคัญที่สุดข้อหนึ่ง เราฆ่าโปรเซสของ k2 แล้วส่ง 8 คำขอใหม่ เปิด Connection ใหม่ทุกคำขอ
+
+```text
+Layer 4 (iptables): k1, ECONNREFUSED, k1, ECONNREFUSED, k1, ECONNREFUSED, k1, ECONNREFUSED
+Layer 7 (Proxy):    k1, k1, k1, k1, k1, k1, k1, k1
+```
+
+Load Balancer ที่เป็นกฎ Iptables ไม่รู้เลยว่า k2 ตายแล้ว มันยังส่ง Connection ทุกข้อที่สองไปที่นั่น และ Client ได้ปฏิเสธการเชื่อมต่อ (ECONNREFUSED) กลับมาตรง ๆ ส่วน Proxy สังเกตเห็นว่า Connection ถูกปฏิเสธ จึงลอง Backend ตัวถัดไปให้เองในคำขอเดียวกัน ทั้ง 8 คำขอได้คำตอบ (รัน) ฝั่ง Client จึงไม่รู้เลยว่ามี Backend ตัวหนึ่งตายอยู่
+
+ข้อควรระวังคือสิ่งที่เราทดลองเป็นการตายแบบง่ายที่สุด โปรเซสถูกฆ่า แต่ Namespace ยังอยู่ จึงมี RST ตอบกลับมาทันที ถ้าคอมพิวเตอร์ดับหรือสายขาดจริง Backend จะเงียบ Client ต้องรอ Timeout และ SYN ส่งซ้ำตามที่เรารู้จากบท[การเชื่อมต่อ TCP](/networking/tcp-connections/) ซึ่งนานกว่ามาก ผลของกรณีนั้นเราไม่ได้รัน (ไม่ได้รัน) และ Proxy ในแบบฝึกก็เป็นโค้ดสั้น ๆ ที่ลองต่อ Backend ตัวถัดไปเมื่อถูกปฏิเสธเท่านั้น Proxy ตัวจริงมี Health Check และ Timeout ที่ละเอียดกว่านี้มาก ส่วนใน Kubernetes เรื่องนี้ถูกจัดการด้วย Readiness Probe ที่เอา Pod ที่ยังไม่พร้อมออกจากกฎ ซึ่งเราไม่ได้ทดลอง (ไม่ได้รัน)
+
+<Callout type="note" title="ควรเลือกแบบไหน">
+
+Layer 4 ทำงานในระดับ Kernel จึงเร็วและเรียบง่าย Backend เห็น Client ตัวจริง แต่กระจายได้เฉพาะระดับ Connection และไม่รู้ว่า Backend ตาย ส่วน Layer 7 รู้จัก HTTP จึงกระจายระดับคำขอได้ ลองตัวถัดไปได้ เติมหัวข้อได้ แต่ต้องมีโปรแกรมคอยรับและเปิด Connection เพิ่ม และ Backend ต้องอ่านที่อยู่ Client จากหัวข้อ ในระบบจริงสองแบบมักใช้ต่อกัน เป็นการเลือกของผู้เขียนเองจากผลข้างต้น ไม่ได้วัดความเร็วเทียบกัน (ผู้เขียน)
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Backend ตัวหนึ่งหลังบริการตายเงียบ ๆ (โปรเซสถูกฆ่า) คำตอบไหนตรงกับผลที่รันได้?"
+  options={[
+    'ทั้ง Iptables และ Reverse Proxy ตรวจจับแล้วเลี่ยง Backend ที่ตายเองเสมอ',
+    'Iptables ยังส่งทุก Connection ที่สองไปหา Backend ที่ตาย Client ได้ ECONNREFUSED ส่วน Reverse Proxy ในแบบฝึกลองตัวถัดไปให้ ได้คำตอบครบ 8 คำขอ',
+    'ทั้งสองแบบทำให้ทุกคำขอล้มเหลว',
+    'Client รู้ตัวทันทีว่า Backend ตายและเลือกตัวอื่นเอง'
+  ]}
+  answer={1}
+  why="ผลที่รัน: Layer 4 ได้ k1 สลับ ECONNREFUSED อย่างละ 4 ครั้ง ส่วน Layer 7 ได้ k1 ครบ 8 ครั้ง ข้อควรจำคือ Proxy ในแบบฝึกเขียนให้ลองตัวถัดไปเมื่อถูกปฏิเสธ Proxy ที่ไม่ได้ตั้งค่านี้ก็ไม่ทำ และกรณี Backend ตายเงียบทั้งเครื่องไม่ได้ทดลอง (รัน)"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Container คือ Namespace + Veth + Bridge ตามสิบขั้นตอน | หนังสือ: Networking and Kubernetes บทที่ 3 หน้า 106 และรัน: `exercises/13_proxies_containers.py` (Bridge สองพอร์ตใน State Forwarding, k1 มี eth0 10.244.0.2/24 กับ Default Route ผ่าน 10.244.0.1) |
+| Container สองตัวบน Bridge เดียวกันคุยกันที่ Layer 2: TTL 64, ARP | รัน |
+| MASQUERADE: Server ข้างนอกเห็น 10.0.2.1 ไม่เห็น 10.244.0.2 และมีรายการ Conntrack | รัน และหนังสือ: Networking and Kubernetes บทที่ 2 หน้า 74 |
+| การเรียกออกข้างนอกสำเร็จก่อนเพิ่มกฎ MASQUERADE ด้วยในแบบฝึก เพราะ Server มีเส้นทางกลับ | รัน (ไม่ได้ลองกรณีเครือข่ายจริงที่ไม่มีเส้นทางกลับ) |
+| Port ที่ Publish คือกฎ DNAT: SYN ที่สายเป็น 10.0.1.1:8080 และที่ Bridge เป็น 10.244.0.2:80 ต้นทางเดิม | รัน |
+| Load Balancer ระดับ Connection ด้วย Iptables: ที่อยู่เสมือนที่ไม่มีเจ้าของ, 8 Connection ใหม่สลับ k1 k2, 8 คำขอบน Connection เดียวไป k1 หมด, Backend เห็น Client ตัวจริง | รัน และหนังสือ: Networking and Kubernetes บทที่ 2 หน้า 74 และ 75, บทที่ 4 หน้า 162 (หนังสือใช้ Random ส่วนแบบฝึกใช้ Nth เพื่อให้ผลแน่นอน) |
+| Reverse Proxy ระดับคำขอ: สลับ Backend แม้บน Connection เดียว, Backend เห็นเพียร์เป็น 10.244.0.1 และ X-Forwarded-For เป็น 10.0.1.2 | รัน (Proxy ที่เขียนเองด้วย Asyncio) |
+| Backend ตาย: Layer 4 ได้ ECONNREFUSED ทุก Connection ที่สอง, Proxy ในแบบฝึกลองตัวถัดไปได้ครบ 8 | รัน |
+| `kube-proxy` โหมด Userspace ใช้เว็บเซิร์ฟเวอร์ รับ Connection แล้ว Proxy ต่อ ส่วนโหมด Iptables เป็น Connection Fan-out | หนังสือ: Networking and Kubernetes บทที่ 4 หน้า 162 (ไม่ได้รัน) |
+| ควรเชื่อ X-Forwarded-For เมื่อมาจาก Proxy ของเราเองเท่านั้น | ผู้เขียน |
+| Docker, Kubernetes, CNI, IPVS, Overlay ข้าม Host, Load Balancer ของ Cloud, Health Check จริง, Backend ที่ตายเงียบทั้งเครื่อง | ไม่ได้รัน |
+
+</Step>

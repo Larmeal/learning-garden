@@ -1,0 +1,196 @@
+---
+title: What a programmer sees through a socket
+summary: A program talks to TCP through a socket, and what it sees differs from what we might expect. TCP has no message boundaries, listen has a queue that can fill and make connect just hang, the client's ports are limited, and binding again after a close fails unless SO_REUSEADDR is set. We try all of it on real Linux.
+facts:
+  - "Ran for real in exercises/10_sockets.py in network namespaces in WSL, with small Python programs that call the socket API directly (linux/_sock_tools.py). The cables are delayed 10 milliseconds each way, the state is checked with ss and the kernel's counters with nstat, and packets are captured with tcpdump."
+  - "The behaviour of the backlog (it accepts the backlog plus one), the range of ephemeral ports and the error messages belong to the Linux kernel used for the test, and other systems differ. The principles of sockets, the backlog, ephemeral ports and SO_REUSEADDR cite TCP/IP Illustrated, 2nd edition, chapters 1, 12 and 13, with page numbers."
+  - "Not run: non-blocking sockets, select or epoll, Unix domain sockets, Windows and macOS, and UDP sockets that connect."
+order: 10
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [tcp-congestion]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import StreamLab from '../../../../components/labs/networking/StreamLab';
+import BacklogLab from '../../../../components/labs/networking/BacklogLab';
+
+<Step>
+
+## A socket is the door a program uses to reach TCP
+
+In [lesson 7](/en/networking/tcp-connections/) to [lesson 9](/en/networking/tcp-congestion/) we saw TCP from below: segments, ACKs and windows. Now we look from above, at what our program sees. When we write `requests.get(...)` or `psycopg.connect(...)`, what lies at the very bottom is a **socket**, a set of functions of the operating system (the Berkeley sockets API) that a program calls to create a channel to the kernel's TCP (book: TCPIP section 1.5.3, page 22). A server calls `socket`, `bind`, `listen` and then calls `accept` in a loop. A client calls `socket` and `connect`. After that both sides use `send` and `recv` and finish with `close`.
+
+This lesson does not teach socket programming, but it looks at four things that programmers really run into and are often puzzled by the first time. All of them are run on real Linux with small Python programs that call these APIs directly (ran: `exercises/10_sockets.py`).
+
+</Step>
+
+<Step>
+
+## Thing 1: TCP gives a stream of bytes, not messages
+
+Let the client write three short pieces of data, `aaaaa`, `bbbbb` and `ccccc`, 1 millisecond apart, while the server sleeps for 0.6 seconds before it starts to read, and then calls `recv(100)`. The result (ran).
+
+```text
+recv(100) returned: ['aaaaabbbbbccccc']  sizes [15]
+```
+
+Three writes became one read, with all 15 bytes in one block. If we wonder whether they were merged on the wire, we captured the packets at the server and saw three segments of 5 bytes (we set `TCP_NODELAY` on the sender, so Nagle did not join them). The merging happened in the receiving socket's buffer, not in the network (ran). With `recv(4)` on the same data we get `[4, 4, 4, 3]`, cut every 4 bytes, straight through the middle of the messages.
+
+Press play and switch between the two ways of reading in the lab to see that three writes and however many reads have nothing to do with each other.
+
+<StreamLab client:visible lang="en" />
+
+This is what "byte stream" means, the service of TCP as the book describes it: a run of bytes with no marks between messages (book: TCPIP section 12.2, pages 585 to 588). It differs from UDP in [lesson 6](/en/networking/udp-dns/), where a datagram arrives as one piece of the size sent. So if our program wants "messages", it has to decide for itself where one ends, for example by putting a length first or ending with a delimiter. HTTP uses both: the headers end with a blank line, and the body gives its length in `Content-Length` (the request in [lesson 1](/en/networking/big-picture/) ends with a blank line by this rule).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A program calls send twice to send two JSON messages one after the other over TCP. The receiver calls recv(4096) once. What does it get?"
+  options={[
+    'Only the first message, because one recv returns one message',
+    'It may get the first message whole, both, or part of the first, depending on how much is in the buffer when it calls, so messages have to be split by the program itself',
+    'Always both messages, because TCP joins them',
+    'An error, because it was sent twice'
+  ]}
+  answer={1}
+  why="TCP does not keep the boundaries of the sends. It puts all the bytes in one run in the receiving buffer, and recv takes as much as is there and as much as was asked. In the exercise three sends became one recv of 15 bytes, and recv(4) cut the messages in the middle, which is why a length prefix or a delimiter is needed (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Thing 2: listen has a queue, and when it is full there is only silence
+
+When a server calls `listen(n)`, the number n is the size of a queue of connections that the kernel has finished the handshake for but that our program has not yet taken with `accept`. While the queue has room, the kernel answers the SYN and takes the ACK on the program's behalf. The client sees `connect` succeed even though the server's program does not yet know. Data that arrives is kept for it (book: TCPIP section 13.7, pages 636 to 637). And when the queue is full? We try a server that calls `listen(2)` and never calls `accept`, and let a client open six connections one after another (with a timeout of 1.5 seconds) (ran).
+
+| Connection | Result | Time |
+|---|---|---|
+| 1 | connected | 0.02 seconds |
+| 2 | connected | 0.02 seconds |
+| 3 | connected | 0.02 seconds |
+| 4 | timeout | 1.5 seconds |
+| 5 | timeout | 1.5 seconds |
+| 6 | timeout | 1.5 seconds |
+
+`listen(2)` accepts three, the backlog plus one on Linux (as measured). The fourth and later ones are not `refused`, as with the port nobody listens on in [lesson 7](/en/networking/tcp-connections/). They get only silence. `ss` on the server says so exactly (ran).
+
+```text
+LISTEN 3  2  0.0.0.0:9600       # Recv-Q 3: three waiting in the queue   Send-Q 2: the backlog that was asked for
+```
+
+In the client's capture, the SYN of the fourth connection was sent again at 0.06, 1.07, 2.10, 3.12 and 4.15 seconds, which is the timer we saw in [lesson 7](/en/networking/tcp-connections/) at work, and the kernel counted the SYNs it ignored as `ListenOverflows` equal to 10 (ran). This counter can be read with `nstat`, so it is the first thing to look at when someone complains "sometimes cannot connect to the server", because a backlog that is too low can be a silent cause when the server's program cannot call `accept` fast enough under heavy load (author).
+
+The book says the largest backlog the system allows is `net.core.somaxconn` (default 128 in the book), and that the backlog does not limit the total number of open connections, only those still waiting for `accept` (book: TCPIP section 13.7, pages 636 to 637).
+
+<BacklogLab client:visible lang="en" />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A client cannot connect to a server from time to time, getting a slow timeout and not refused. The server works normally and is not using much CPU. Which kernel counter should be checked first?"
+  options={[
+    'The number of segments the client resent',
+    'ListenOverflows and ListenDrops, which say that SYNs were ignored because the queue waiting for accept was full (look with ss and nstat)',
+    'The size of the client\'s window',
+    'The TTL of the packets'
+  ]}
+  answer={1}
+  why="If the listen queue is full the kernel ignores the SYN without answering, so the client sees only silence and then a timeout (not the refused that comes from a port nobody listens on). In the exercise ss showed Recv-Q 3 of Send-Q 2 and ListenOverflows was 10. The real cause is a program that calls accept too slowly, or a backlog that is too small (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Thing 3: the client's ports are limited
+
+A client that does not `bind` before `connect` gets its source port from the kernel, a temporary (ephemeral) port. We know it from [lesson 1](/en/networking/big-picture/) as a high number that the system picks (book: TCPIP section 1.3.3, page 18). The range this Linux uses is 32768 to 60999, or 28,232 numbers, the default that can be read with `sysctl net.ipv4.ip_local_port_range`. Three numbers we got when opening three connections were 41012, 41018 and 41024 (ran).
+
+What happens when the ports in the range run out? The exercise cut the range to 40000 to 40002 and opened five connections to the same server and port (ran).
+
+| Connection | Source port or error |
+|---|---|
+| 1 | 40000 |
+| 2 | 40001 |
+| 3 | EADDRNOTAVAIL, Cannot assign requested address |
+| 4 | EADDRNOTAVAIL |
+| 5 | EADDRNOTAVAIL |
+
+Only two of the three numbers in this range were given out, and the next one failed at once with `EADDRNOTAVAIL`. What the exercise shows is that the kernel allowed only two of the three numbers of the range. We did not check why and we do not guess. The point worth knowing is that this error happens when `connect` is called, before any SYN is even sent. In a real system that opens many short connections to one server (a proxy, or a job calling an API) it appears when ports are eaten up by connections lingering in the TIME-WAIT of [lesson 7](/en/networking/tcp-connections/), which brings us back to the same topic (author).
+
+This is also a limit per destination, because a connection is identified by four numbers, as we saw in [lesson 1](/en/networking/big-picture/). The 28,232 source ports are available for each pair of server address and port, and for a different server the same numbers can be used again (author, from [lesson 1](/en/networking/big-picture/)).
+
+</Step>
+
+<Step>
+
+## Thing 4: bind fails again although nobody uses the port
+
+The last one is a symptom every server writer meets: stop the program and start it again at once, and get `Address already in use` even though no program is using that port. We can reproduce it. Let the server take one connection, close its own side first, close the listening socket, and then `bind` the same port at once (ran).
+
+```text
+without SO_REUSEADDR: EADDRINUSE (Address already in use)
+with SO_REUSEADDR:    ok
+```
+
+The cause is that the connection that was closed first is still in the TIME-WAIT state of [lesson 7](/en/networking/tcp-connections/), and it has the server's port as its local port. The exercise saw that `ss` showed this row (`127.0.0.1:9400`) in that state (ran). By the rule the book gives, a port that is the local port of an endpoint in the 2MSL wait must not be used again, and `SO_REUSEADDR` is the option of the sockets API that relaxes that rule (book: TCPIP section 13.5, page 620). That is why nearly every real server sets this option before `bind` (author).
+
+<Callout type="note" title="These four things are intended behaviour">
+
+All of it is intended: a byte stream with no boundaries, a limited queue, limited ports, and a TIME-WAIT that keeps old segments from mixing in. Knowing where each one sits helps when we see strange symptoms in a real system, which is the subject of the last lesson of this subject (author).
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A server is restarted and fails with Address already in use even though no program is using that port. What causes it, and how is it fixed?"
+  options={[
+    'Another program has reserved the port, so change the port',
+    'A connection the server closed first is still in TIME-WAIT and holds the port. Set SO_REUSEADDR before bind',
+    'A firewall is blocking the port',
+    'The kernel has to be rebooted'
+  ]}
+  answer={1}
+  why="In the exercise, without SO_REUSEADDR we got EADDRINUSE, and with it bind succeeded, and in neither case was any program listening on the port. What holds the port is the connection in TIME-WAIT that ss shows, not another program (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The socket API: socket, bind, listen, accept, connect, send, recv, close | book: TCPIP section 1.5.3, page 22 |
+| Three writes of 5 bytes became one read of 15 bytes, on the wire three segments, and recv(4) gave 4, 4, 4, 3 | ran: `exercises/10_sockets.py` and book: TCPIP section 12.2, pages 585 to 588 |
+| The queue of listen: finished handshakes waiting for accept, the kernel answering on the program's behalf | ran and book: TCPIP section 13.7, pages 636 to 637 |
+| listen(2) accepts three, the fourth onwards get silence, the SYN is sent again about a second apart, ListenOverflows 10 | ran (the behaviour of the Linux used for the test) |
+| The largest backlog is somaxconn, and it does not limit all connections | book: TCPIP section 13.7, pages 636 to 637 |
+| The default ephemeral range 32768 to 60999, and EADDRNOTAVAIL when it runs out | ran and book: TCPIP section 1.3.3, page 18 (the idea) |
+| Only 2 of the 3 numbers of a small range could be used | ran (the cause was not checked) |
+| bind fails after a close because of TIME-WAIT, and SO_REUSEADDR relaxes the rule | ran and book: TCPIP section 13.5, page 620 |
+| Nearly every real server sets SO_REUSEADDR, and too low a backlog is a silent cause of trouble | author |
+| Non-blocking sockets, select, epoll, Unix domain sockets, Windows and macOS | not run |
+
+</Step>

@@ -1,0 +1,102 @@
+---
+title: Check your understanding
+summary: Five questions to check that you understand container networks, MASQUERADE and DNAT, connection-level and request-level load balancers, and what happens when a backend dies.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Two containers on the same bridge (10.244.0.0/24) send packets to each other. What do the packets pass through?"
+  options={[
+    'The router on the host, because every container must use a gateway',
+    'Only the bridge, which acts as a switch, with no router, so the TTL is not lowered',
+    'iptables every time, to translate the addresses',
+    'The internet and back'
+  ]}
+  answer={1}
+  why="The destination is in the same subnet, so ARP finds the MAC and the frame goes through the bridge directly. In the exercise ping got TTL 64, the value it was sent with (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A container with address 10.244.0.2 calls an outside server. What source address does the server see, and what causes it?"
+  options={[
+    '10.244.0.2, because the packet is not changed on the way',
+    '10.0.2.1, the host\'s address, because the MASQUERADE rule overwrites the source on the way out and conntrack remembers it to translate the way back',
+    '10.244.0.1, the address of the bridge',
+    'The address of the client that called the container'
+  ]}
+  answer={1}
+  why="In the exercise the SYN captured at the server had source 10.0.2.1 and never 10.244.0.2. The host kept the translation in conntrack, the same way as a NAT router (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="In network terms, what does docker run -p 8080:80 do to the host?"
+  options={[
+    'Adds a DNAT rule that changes the destination host:8080 to the container:80 without touching the source address',
+    'Starts a proxy program that accepts the connection and opens a new one to the container every time',
+    'Moves the container into the same subnet as the client',
+    'Rewrites the client\'s source address to the container\'s address'
+  ]}
+  answer={0}
+  why="In the exercise a published port was one iptables rule at PREROUTING. The SYN on the client's cable was 10.0.1.1:8080 and on the bridge 10.244.0.2:80, with the same source (ran). Real Docker may use a proxy program in some modes, which we did not try (not run)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A client sends 8 requests on one connection, once through an iptables DNAT load balancer and once through an HTTP reverse proxy. How do the results differ?"
+  options={[
+    'iptables alternates the backend on every request, and the proxy sends everything to one',
+    'iptables sends all 8 to one backend, because it decides at the SYN, while the proxy alternates backends by request',
+    'Both alternate by request',
+    'Both send everything to one backend'
+  ]}
+  answer={1}
+  why="What ran: iptables gave k1 all 8 times and the proxy gave k1 and k2 alternating by request. The iptables result matches what the book warns about for gRPC and HTTP/2, which reuse one connection (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A backend sits behind a reverse proxy and wants the real address of the client. What should it do?"
+  options={[
+    'Use the peer address of the socket, because it is always the client',
+    'Read the X-Forwarded-For header that our proxy adds, and trust it only when it comes from a proxy we control',
+    'Nothing, because the proxy passes the client address as the source of the packet',
+    'Run tcpdump on the backend and read the client address'
+  ]}
+  answer={1}
+  why="In the exercise the backend saw the peer 10.244.0.1, which is the proxy's, and the client's 10.0.1.2 was only in the X-Forwarded-For header (ran). The warning that a client can forge this header is the author's opinion (author)."
+/>
+
+</Step>
