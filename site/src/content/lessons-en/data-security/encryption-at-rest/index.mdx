@@ -1,0 +1,139 @@
+---
+title: Encrypting stored data, and envelope encryption
+summary: We encrypt field by field with AES-GCM tied to the row id, compare random encryption with deterministic encryption to see which is searchable and which leaks frequencies, and then look at envelope encryption, where rotating a key rewrites 180 bytes in place of 92.5 million, and deleting one key deletes a whole table, backups included, and what encryption cannot help with.
+facts:
+  - "Run in exercises/07_encryption.py with cryptography 47.0.0 (real AES-GCM and AES-SIV): 37 bytes per value, a ciphertext moved to another row is caught with InvalidTag, AES-SIV gives 7 different ciphertexts for 7 diagnoses, rotating the master key rewrites 180 bytes, deleting a data key makes the table and its backup unreadable, and an injection makes the app decrypt all 300 values."
+  - "The row counts (100,000 / 2,000,000 / 400,000) used to work out 92,500,000 bytes are the author's example, and those rows were not really encrypted. Everything else ran for real on 300 rows."
+  - "Not run: a real KMS or HSM, how keys are stored and handed out, and product grade searchable encryption. The question of key rotation cites Practical Data Privacy chapter 10 page 265."
+order: 7
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [privacy-budget]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import EnvelopeLab from '../../../../components/labs/data-security/EnvelopeLab';
+
+<Step>
+
+## Encrypt field by field
+
+Two lessons ago we dealt with data that leaves the company. This lesson comes back to the data we hold ourselves. Suppose the national id numbers of customers are in a table. The first question people ask is: if the disk or a backup leaks, who can read it? Encrypting data at rest answers this.
+
+We encrypt only the sensitive field, with the AES-GCM that we know from Application Security, using the row id as the associated data of each value (run: `exercises/07_encryption.py`).
+
+```python
+def enc(pid, value):
+    nonce = os.urandom(12)
+    return nonce + gcm.encrypt(nonce, value.encode(), str(pid).encode())
+```
+
+The function draws a fresh 12 byte nonce each time, encrypts the value, and gives the row id as associated data. A 9 character number becomes 37 bytes: nonce 12, text 9 and tag 16. Every value decrypts again when the right row id is used.
+
+What is the associated data for? Try copying the ciphertext of row 2 into row 1. Decryption fails with `InvalidTag`, because the tag covers the row id too. Somebody who can write to the disk but has no key cannot swap values between rows. And encrypting the same value twice gives different results (different nonces), so nobody can see which rows hold equal values.
+
+</Step>
+
+<Step>
+
+## Random encryption, or encryption you can search
+
+Random encryption is very good, but it cannot be searched. To know how many rows have the same diagnosis, every row has to be decrypted first. The usual way out is **deterministic encryption**, where the same value always gives the same ciphertext. The exercise uses AES-SIV.
+
+The result: the diagnosis column has 7 values and there are exactly 7 different ciphertexts, so an "equals" condition can be used to search the encrypted data. But the price is that equality is visible. An attacker who has the table and knows roughly which illness is common counts the frequency of the ciphertexts and guesses which ciphertext is which illness. The exercise checks that the most frequent ciphertext belongs to flu, which is the most common illness in the table (frequency analysis). Random encryption of the same column gives 300 different values for all 300 rows.
+
+Choose by what has to be done. If no search is needed, use the random kind. If searching by exact value is needed, use deterministic encryption on a column with very many different values (such as an id number), and do not use it on a column with few values like a diagnosis. That last point is the author's opinion from the result, not from the book.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A team encrypts the diagnosis column with AES-SIV so that it can be searched. An attacker who stole the table knows that flu is the most common illness. What can he do?"
+  options={['Nothing, because the data is encrypted with a key', 'Count which ciphertext repeats most and guess that it is flu (frequency analysis). The same value gives the same ciphertext, so the structure of the data leaks', 'Decrypt everything at once']}
+  answer={1}
+  why="Deterministic encryption trades searchability for leaking which rows are equal. The exercise sees exactly 7 ciphertexts for 7 illnesses, and the most frequent one belongs to the most common illness. The attacker needs no key."
+/>
+
+</Step>
+
+<Step>
+
+## One key for everything is a problem
+
+If we use one key for all the tables and want to rotate it (change to a new one by policy or because we suspect it leaked), we have to decrypt and encrypt every row again. The author's example has three tables of 100,000, 2,000,000 and 400,000 rows, 2,500,000 values of 37 bytes each, so 92,500,000 bytes must be rewritten, although the real data has not changed at all (book: Practical Data Privacy chapter 10 page 265 mentions key rotation among the frequently asked questions).
+
+The fix is **envelope encryption** in two levels. Each table has a **data key (DEK)** of its own, used to encrypt the rows of that table. Then a **master key (KEK)**, which lives in a KMS or an HSM, wraps each DEK. What is stored beside the data is the wrapped DEK, 60 bytes long (nonce 12, key 32, tag 16). Press through the steps in the lab below.
+
+<EnvelopeLab client:visible lang="en" />
+
+Step four is where the benefit is. When the master key is rotated we unwrap the three DEKs with the old key and wrap them again with the new one: 180 bytes are rewritten, and the 2,500,000 rows are not touched. The exercise checks that the DEKs are unchanged and the rows still decrypt, and that the old master key can unwrap nothing any more.
+
+</Step>
+
+<Step>
+
+## Delete a key to delete data
+
+There is a second benefit that is less visible. When a request comes to delete data, we have several copies: the database, replicas, and a backup tape that cannot be edited. If a table was encrypted with a DEK of its own, deleting that DEK of 32 bytes makes every copy of the table unreadable. This is called **crypto-shredding**.
+
+The exercise shows it for real. It makes a key store with the DEK of the table `customers`, encrypts 300 rows, and keeps a copy as a backup while the key still exists. The rows in the table and in the backup read normally. After the key is deleted from the key store, neither can be read at all, because there is no key to ask for, and trying another key does not decrypt the backup either (`InvalidTag`).
+
+One thing to think about: the technique works when the DEK is separate for each group of data that we want to delete together. If we have to delete one person from a table of 2,000,000 rows, there is no DEK per person to delete. Another way is needed, which we discuss in the lesson on the life of data.
+
+</Step>
+
+<Step>
+
+## What encrypting the disk does not help with
+
+This kind of encryption protects a disk, a backup and a tape that leak. It does not protect against commands run in the name of the app, because the app has to hold the key to decrypt data for use. The exercise keeps 300 encrypted rows in SQLite and writes a function standing for the app, which takes a WHERE condition and decrypts every row returned. That is a place where an attacker can inject SQL, as in the lesson on injection in Application Security.
+
+A normal query `pid = 1` returns one decrypted value. But when the attacker sends `pid = 1 OR 1 = 1`, the app decrypts all 300 values for him. Encrypting the disk did nothing in this case. The author concludes that encrypting stored data is one layer of defence and there have to be others, namely limiting who can read what, which [the next lesson](/en/data-security/access-masking/) covers.
+
+<Callout type="note" title="What was not run">
+
+A real KMS or HSM was not run, so the policy on who may call the master key was not tested. Encrypting the whole database file (transparent data encryption) was not tested, and neither was searching in a way that does not leak frequencies (searchable encryption).
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A database encrypts every value on the disk, but the app has an SQL injection hole. The attacker sends the condition OR 1 = 1. What happens?"
+  options={['Safe, because the data on the disk is encrypted', 'The app decrypts every row the query returns, because the app holds the key. Encrypting the disk does not guard against this (the exercise gets all 300 values)', 'The attacker gets only ciphertext']}
+  answer={1}
+  why="Encrypting the disk guards against whoever gets the files, not against a command the app runs itself. In the exercise a normal query returns 1 value and an injected one returns all 300 decrypted values. There must be other layers too, from fixing the hole to limiting permissions."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A 9 character value becomes 37 bytes (nonce 12, text 9, tag 16) and decrypts with the right row id | ran: `exercises/07_encryption.py` |
+| Moving the ciphertext of row 2 into row 1 is caught with InvalidTag, and encrypting the same value twice gives different results | ran: `exercises/07_encryption.py` |
+| AES-SIV gives 7 different ciphertexts for 7 diagnoses, the most frequent belongs to flu; random encryption gives 300 different values | ran: `exercises/07_encryption.py` |
+| A wrapped DEK is 60 bytes, and the master key unwraps the DEKs | ran: `exercises/07_encryption.py` |
+| Rotating the master key rewrites 180 bytes; encrypting every row again would be 92,500,000 bytes (from the author's example row counts); the old master key can unwrap nothing | ran: `exercises/07_encryption.py` |
+| After the DEK of a table is deleted the table and its backup are unreadable, and another key cannot decrypt either | ran: `exercises/07_encryption.py` |
+| The condition OR 1 = 1 makes the app decrypt all 300 values | ran: `exercises/07_encryption.py` |
+| Key rotation is a common question in real work | book: Practical Data Privacy chapter 10 page 265 |
+| The opinion on choosing random or deterministic by the variety of values | author |
+| KMS, HSM, transparent data encryption and searchable encryption | not run |
+
+</Step>

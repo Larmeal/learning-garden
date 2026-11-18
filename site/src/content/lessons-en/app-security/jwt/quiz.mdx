@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Four questions to check what a JWT protects and what it does not, and what a good verifier has to do.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="A team puts each user's national id number into the payload of a JWT, thinking it is safe because the token is signed. Which is right?"
+  options={['Safe, because the signature stops others reading it', 'Not safe: the payload is not encrypted, so anyone who gets the token can read it. A signature stops changes only', 'Safe if the secret is long enough']}
+  answer={1}
+  why="A signature guarantees that nothing is changed, not that anything is secret. The exercise proves that anyone can read sub and role without a key. If something must stay secret, encrypt it or leave it out."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A careful verifier has a token whose signature is right and whose exp has not passed, but whose aud names another API. What should it do?"
+  options={['Accept it, because the signature is right', 'Refuse it (wrong audience), because this token was issued for another API and not for this one', 'Accept it but write a log line']}
+  answer={1}
+  why="The signature says only that our own server issued the token, not who it was issued for. Without checking aud, a token for a low risk API could be used on a high risk one. The exercise checks all three claims, exp, aud and iss, and each has its own refusal message."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Why does letting the server decide the list of accepted algorithms stop both alg none and algorithm confusion?"
+  options={['Because the algorithms on the list are faster', 'Because the attacker can no longer choose how his own token is checked. A token whose alg is not on the list is refused before the signature is looked at', 'Because the token is encrypted']}
+  answer={1}
+  why="Both flaws use the fact that the verifier reads alg from the token. If the verifier itself decides that only HS256 (or only RS256) is allowed, a token with alg none, or any other kind, is refused at once. The exercise got the message algorithm ... is not allowed in both cases."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We want logging out to make a token stop working at once. Which is true?"
+  options={['A plain JWT already does that', 'We must add a place to keep state (such as a revocation list) or make tokens live very briefly, which gives up the convenience of remembering nothing', 'It is impossible with any kind of token']}
+  answer={1}
+  why="A token that is checked only by its signature and exp cannot know that the user logged out. The exercise adds a revocation list and then the token is refused, but the list has to be looked up on every request. A session cookie that holds an id on the server can be revoked at once, because the server remembers the state itself."
+/>
+
+</Step>

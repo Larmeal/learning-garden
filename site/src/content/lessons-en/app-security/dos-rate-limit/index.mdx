@@ -1,0 +1,126 @@
+---
+title: Being flooded, and rate limits
+summary: You do not need to break in to keep other people out. We look at a regex that doubles its work with every letter, a function that lets anyone ask for unlimited rows, and an account lock that an attacker uses to lock the owner out. Then we compare a token bucket with fixed and sliding windows, and see how many days a rate limit adds to guessing a six digit PIN.
+facts:
+  - "Run in exercises/12_dos_rate_limit.py: the number of steps of (a+)+$ counted with a matcher written for the lesson, and the real re module timed (4 more letters took 16 times as long), a token bucket, a fixed and a sliding window, and an account lock."
+  - "The CPU speed of 10 million steps a second in the lab is an example. A distributed attack (DDoS) was not run, because it needs many computers and a real network."
+  - "The book is Web Application Security chapters 14 and 26."
+order: 12
+phase: D
+level: 2
+stage: sprout
+format: steps
+requires: [supply-chain-secrets]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ReDosLab from '../../../../components/labs/app-security/ReDosLab';
+import RateLimitLab from '../../../../components/labs/app-security/RateLimitLab';
+
+<Step>
+
+## A short text that hangs the CPU
+
+Mr. A uses a regex to check the format of text from users. One looks like this: `(a+)+$`. It seems harmless to read, yet when we feed it a string of many `a` followed by a `b`, which makes the match fail at the very end, an engine that works by backtracking has to try every way of splitting the `a` letters into groups before it gives up. The exercise writes a small matcher that does the same and counts how often it works. The result: n = 1 takes 2 steps, n = 2 takes 4, and **every letter added doubles the work exactly**. At 20 letters it takes 1,048,576 steps, while a plain pattern that walks once takes 21 (book: Web Application Security chapter 14 page 162 on ReDoS).
+
+This is not only theory. The exercise also timed Python's real `re`, and going from 18 to 22 letters took about 16 times as long, exactly what four doublings predict. The single-walk pattern on 100,000 letters finished in under a second.
+
+Slide the number of letters in the lab below and see the line of the nested pattern shoot up until it leaves the chart, and at n = 30 it needs more than a billion steps. Then switch on the length limit of 24 and see that a longer request is refused before the regex starts to work at all.
+
+<ReDosLab client:visible lang="en" />
+
+There are two ways to protect against it. One is to rewrite the pattern so it does not nest repetition. The other, usable at once, is to limit the length of the text before it goes into the regex. The exercise confirms that a limit of 64 characters cuts off a ten thousand character text, whatever the attacker sends (book: Web Application Security chapter 26 page 270).
+
+</Step>
+
+<Step>
+
+## Work that a user can order without limit
+
+ReDoS is only one shape. In the first lesson there was a search function that took `limit` from the user and had the database do as much work as asked. Asking for 10,000,000 rows works. The attacker has to send nothing special, only ask for expensive things in large amounts. The book calls this logical DoS (book: Web Application Security chapter 14 page 164). The fix is the same as before: the server sets the ceiling (100 in the first lesson). And if the thing that is expensive is the number of requests, a rate limit is needed.
+
+An attack from many sources at once (DDoS), which needs a large network and defence at the network layer, was not run in this lesson (book: Web Application Security chapter 14 page 167).
+
+</Step>
+
+<Step>
+
+## Rate limiting: the token bucket, and windows
+
+The most widely used method is the **token bucket**. Picture a bucket that holds 5 tokens. Every request must take one token, and if the bucket is empty the request is refused. The bucket is refilled at one token a second. What the exercise asserts: 8 requests at the same moment, the first five pass and the last three are refused. Three seconds later three tokens are back, and of four new requests three pass and one is refused. A request every second for ever is never refused, because that equals the refill rate. And with ten requests a second for ten seconds, about 15 pass (the 5 saved up plus one a second).
+
+The good property is that a real user who clicks quickly for a short while is allowed, while nobody may keep going faster than the rate we set.
+
+The other way is to count requests over a period, for example 10 per 60 seconds. If we count in fixed minutes (a **fixed window**), there is a gap at the edge: an attacker sends 10 requests at second 55 and 10 more at second 61, in different minutes, and all 20 pass within six seconds. A **sliding window**, which looks back 60 seconds from the present each time, lets only 10 through in the same stretch. The exercise asserts both numbers.
+
+Choose all three methods in the lab below and press play. See that the bucket lets the first burst through and then refuses, that the fixed window lets all 20 through across the edge at second 60, and that the sliding window stops at 10.
+
+<RateLimitLab client:visible lang="en" />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="An API limits to 10 requests a minute with a fixed window. An attacker sends 10 requests at second 55 and 10 at second 61. How many pass, and what happens with a sliding window?"
+  options={['Only 10 pass with both', 'The fixed window lets all 20 through because they are in different windows, while the sliding window lets only 10, because it always counts back over 60 seconds', 'The sliding window lets all 20 through and the fixed window lets 10']}
+  answer={1}
+  why="The exercise asserts both numbers. A fixed window resets its counter when the next minute starts, so around the edge it lets through twice the limit in a short time. A sliding window that always looks back has no edge to use. The price is that it has to keep the times of recent requests."
+/>
+
+</Step>
+
+<Step>
+
+## The account lock that turns into a weapon
+
+A common defence against password guessing is to lock the account after some number of wrong attempts, which has a side effect. The exercise simulates a lock after three wrong attempts. The attacker sends three wrong passwords under Ann's name. When Ann arrives with the right password she is locked out too. The result is `wrong, wrong, wrong, locked`. The attacker does not need the password to stop the owner using the account (and can do the same to every account at once).
+
+The alternatives are to limit the rate per IP and per account separately, to delay by more with every wrong attempt instead of locking for good, or to lock only briefly. Every way involves a trade-off. The exercise shows only that a simple lock is a new hole in itself.
+
+What remains is how much a rate limit protects against guessing. The exercise works out that a six digit PIN has 1,000,000 possibilities. At 5 tries a minute it takes 138.9 days to go through them all (on average half of that, 69.4 days). But with no rate limit, and an attacker who holds a SHA-256 hash of the PIN, at the speed we measured in the lesson on passwords a million guesses take under a second. That last number depends on the computer that ran it.
+
+<Callout type="note" title="What was not run">
+
+Distributed attacks (DDoS), CDNs and WAFs, limiting at a reverse proxy, and sharing counters between several servers are not part of this exercise.
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A team locks an account after three wrong passwords to stop guessing. Which side effect must be considered?"
+  options={['There is no side effect', 'An attacker can send three wrong passwords under anyone\'s name and lock the owner out even though the owner has the right password (denial of service against one person)', 'It makes passwords easier to guess']}
+  answer={1}
+  why="The exercise simulates this rule. The result is wrong, wrong, wrong and then locked, even though Ann types the right password. A better defence limits the rate per IP and per account, or uses a delay in place of a permanent lock."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| `(a+)+$` doubles its work with every letter (2, 4, ... 1,048,576 at n = 20), and `a+$` takes 21 steps | ran: `exercises/12_dos_rate_limit.py` |
+| The real `re` is about 16 times slower with four more letters, and `a+$` finishes in under a second at 100,000 letters | ran: `exercises/12_dos_rate_limit.py` |
+| ReDoS, and defending by limiting length before the regex | book: Web Application Security chapter 14 page 162 and chapter 26 page 270 |
+| Logical DoS and DDoS | book: Web Application Security chapter 14 pages 164 and 167 (not run) |
+| Token bucket: 8 requests at once pass 5, and three seconds later 3 of 4 new ones pass | ran: `exercises/12_dos_rate_limit.py` |
+| A fixed window lets all 20 through at the edge, and a sliding window lets 10 | ran: `exercises/12_dos_rate_limit.py` |
+| A lock lets an attacker lock the owner out | ran: `exercises/12_dos_rate_limit.py` |
+| A six digit PIN at 5 a minute takes 138.9 days | ran: `exercises/12_dos_rate_limit.py` |
+| The CPU speed in the lab (10 million steps a second) | author's example |
+| DDoS, CDN, WAF, and counters shared between servers | not run |
+
+</Step>

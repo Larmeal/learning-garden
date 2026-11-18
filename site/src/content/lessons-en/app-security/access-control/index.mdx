@@ -1,0 +1,140 @@
+---
+title: Access control and server-side flaws
+summary: "Being logged in does not mean being allowed to read everybody's data. We go through flaws that appear when a server does work for whoever asks without asking whether it should: changing the order number in a URL (IDOR), sending a role field with a profile (mass assignment), putting ../ in a file name, making the server fetch a URL that points at itself (SSRF), and data that runs code when it is loaded. Then we see how a check on the server closes each one."
+facts:
+  - "Run in exercises/10_access_control.py with fake data in a temporary folder: IDOR, a button that is hidden while the endpoint does not check, mass assignment, path traversal, SSRF tried with seven ways of writing an address, a pickle that runs code on load, and XML with an external entity."
+  - "SSRF only tests the address check and sends no request anywhere. For XXE, the exercise does not show the flaw because Python's XML parser does not follow external entities by default, which is a result that ran, not a simulation."
+  - "The books are API Security in Action (chapters 1, 8 and 10) and Web Application Security (chapters 12 and 24)."
+order: 10
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [xss]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import AccessLab from '../../../../components/labs/app-security/AccessLab';
+
+<Step>
+
+## Logged in, but what should be visible
+
+Until now we have stressed "who are you" (authentication). This lesson asks the next question, "what may you do" (authorization). The two are different questions, and real systems get the second one wrong very often, because no library does it for us automatically. Every endpoint has to ask for itself: should the person who sent this get this?
+
+Here is the first example. Ann is logged in. Her order is number 101 and Bob's is number 102 (run: `exercises/10_access_control.py`).
+
+```python
+def get_order(order_id, who, check_owner):
+    o = ORDERS[order_id]
+    if check_owner and o["owner"] != who and USERS[who]["role"] != "admin":
+        raise PermissionError("forbidden")
+    return o
+```
+
+If the owner is not checked, Ann changes 101 to 102 in the URL and gets Bob's order. If it is checked, the same request is refused. This is an **IDOR (insecure direct object reference)**, also called broken object level authorization, which is the "ask by number and receive" pattern we saw in the first lesson. When the numbers run in order, an attacker can also count his way to find which orders exist. In the exercise, counting from 100 to 109 finds 101 and 102, exactly the ones that exist.
+
+In the lab below choose IDOR and switch between the numbers 101 and 102, with the owner check on and off. See that without the check, order 102 hands over Bob's data although Ann is the one asking.
+
+<AccessLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## A hidden button is not a permission check
+
+This continues from the lesson that opened this subject. A system hides the "delete user" button from the page of an ordinary user. The exercise confirms that the page for `user` does not show the button. But if Ann sends a request to the delete user endpoint by hand, and the endpoint never asks who Ann is, it deletes Bob for her. The fix is to check the role in the endpoint itself, which the exercise does, and Ann is refused and Bob stays. The book API Security in Action calls the principle behind this the **principle of least authority**: every part should have only the rights it needs (book: API Security in Action page 46).
+
+A related matter is **mass assignment**. A profile update function takes every field in the JSON that was sent and updates the table with it. If Ann sends `{"display_name": "Ann", "role": "admin"}`, the `role` field is written too. The exercise confirms that Ann becomes an admin. The fix is an allow list of the fields a user may change (`display_name`, `email`), and a `role` that is sent is ignored.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A team changes order numbers from consecutive numbers to long random UUIDs and says IDOR is fixed. Which statement is the most right?"
+  options={['Right, because an attacker cannot guess the number, so there is no need to check the owner', 'It makes guessing harder, but the cause is not fixed. If a UUID leaks anywhere (a log, a shared link), whoever gets it can read the order. The endpoint still has to check the owner', 'It does not help at all, because a UUID is just as easy to guess']}
+  answer={1}
+  why="A random number cuts down counting, but the decision about permission has to come from asking whether the requester owns the order. If the number leaks, a function that does not check still gives the data away. The exercise points to the function that never uses the variable who as the cause, whatever shape the number has."
+/>
+
+</Step>
+
+<Step>
+
+## Path traversal: a file name that leads out of the folder
+
+A server that lets users ask for a file from the `public` folder by name often joins the path as it is. The user sends `../secret.txt`, where `..` means go up one level, and gets a file outside the folder. The exercise makes a temporary folder with `public/hello.txt` and a `secret.txt` outside. The result: `hello.txt` reads normally, and `../secret.txt` returns `TOP SECRET` although it is outside the folder.
+
+The fix is to resolve the path to a full path with `..` and shortcuts removed (`resolve()`), then check that it is still under the folder we allow (`is_relative_to`). The result: `../secret.txt` is refused and `hello.txt` can still be read. In the lab choose path traversal and switch the check (book: API Security in Action page 420, which notes that secrets in files may be exposed through path traversal).
+
+</Step>
+
+<Step>
+
+## SSRF: making the server fetch what the user points at
+
+Some functions let a user send a URL for the server to fetch, for example a profile picture. An attacker sends a URL that points somewhere he cannot reach himself but the server can, such as `http://127.0.0.1/admin`, which is the server's own admin page, or `169.254.169.254`, the address of the metadata service in a cloud. This is **SSRF (server-side request forgery)** (book: API Security in Action page 354, and page 361 for how to prevent it).
+
+A careful team often writes a blocklist: if the host is `127.0.0.1` or `localhost`, refuse. The exercise tries seven ways of writing an address. The text blocklist stops only two (`127.0.0.1` and `localhost`). The other five, `127.1`, `2130706433`, `0x7f000001`, `[::1]` and `169.254.169.254`, get through, though they point at the same machine. A real client reads `127.1` and `2130706433` as `127.0.0.1` too.
+
+The right way is to resolve the host to a real IP address first (the way the fetcher will), then check the kind of address: loopback, private, link-local or reserved. The result is that all seven are blocked, while a public address such as `93.184.216.34` still passes. The exercise also checks that `169.254.169.254` really is link-local. In the lab choose SSRF and try all seven with both checks.
+
+<Callout type="warn" title="Not complete yet">
+
+Checking the address only when the URL is accepted is not enough in real work, because DNS may give a different answer between the check and the fetch, and a URL can redirect somewhere else. The exercise covers neither of these, and sent no request anywhere.
+
+</Callout>
+
+</Step>
+
+<Step>
+
+## Data that runs code when it is decoded
+
+Python's **pickle** is a way to store an object that can itself say which function to call when it is loaded. The exercise makes an object whose `__reduce__` asks for `print` to be called, so that it looks safe, and when we load those bytes with `pickle.loads` the text `code from the pickle ran` is printed. This means whoever can make those bytes chooses a function to run on our machine. It differs from `json.loads`, which is only data and can call nothing. So we should not load a pickle from a source we do not trust.
+
+**XXE (XML external entity)** is XML that declares an entity pointing at a file on disk and has the parser put the contents of the file into the document (book: Web Application Security chapter 12 page 141). The exercise builds XML that points at `secret.txt` and gives it to Python's `xml.etree.ElementTree`. The parser reports `undefined entity &x;` and the secret contents do not appear in the document. So this parser does not follow external entities by default, while parsers in other languages and some libraries do, so we have to look at how our library is set up (book: Web Application Security chapter 24 on defending against XXE).
+
+The single principle of the whole lesson: decisions about permission, and about what to do, must be made on the server from what the request really means, not from how the text that was sent looks.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A team guards against SSRF by comparing the host text against 127.0.0.1 and localhost. An attacker sends http://2130706433/admin. What happens?"
+  options={['It is blocked, because it is a strange number', 'It passes the text comparison, but a real client reads 2130706433 as 127.0.0.1 and reaches the same machine. The host has to be resolved to an address first and the kind of address checked', 'It passes the text comparison and goes nowhere']}
+  answer={1}
+  why="The exercise tries seven spellings. Five pass the text blocklist (127.1, 2130706433, 0x7f000001, [::1], 169.254.169.254), and all are blocked when resolved to an IP first and checked as loopback, private or link-local. The caution is that even done right, DNS and redirects still have to be considered, which the exercise did not cover."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| Without an owner check Ann reads Bob's order, and counting from 100 to 109 finds 101 and 102 | ran: `exercises/10_access_control.py` |
+| A hidden button does not protect an endpoint that does not check permission | ran: `exercises/10_access_control.py` |
+| Principle of least authority | book: API Security in Action page 46 |
+| Mass assignment lets a user set his own role to admin, and an allow list of fields stops it | ran: `exercises/10_access_control.py` |
+| `../secret.txt` leaves the folder, and comparing the resolved path stops it | ran: `exercises/10_access_control.py` |
+| Secrets on disk may be exposed through path traversal | book: API Security in Action page 420 |
+| The text blocklist stops 2 of 7 spellings, and resolving to an address first blocks them all | ran: `exercises/10_access_control.py` |
+| SSRF and how to prevent it | book: API Security in Action pages 354 and 361 |
+| Pickle runs the function the data chooses, and `json.loads` cannot call anything | ran: `exercises/10_access_control.py` |
+| Python's XML parser does not follow an external entity by default | ran: `exercises/10_access_control.py` and book: Web Application Security chapter 12 page 141 |
+| DNS rebinding and redirects in SSRF, and XML parsers in other languages | not run |
+
+</Step>

@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Four questions to check that you understand cookie flags, issuing a new session id, and defending against CSRF.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="A site does not issue a new session id after the user logs in. What can an attacker do?"
+  options={["Steal the user's cookie over the network", 'Ask the server for an id first, get the user to use that id, and when the user logs in the id belongs to the user', "Make the server forget the user's password"]}
+  answer={1}
+  why="This is session fixation. The attacker steals nothing from the user. He chooses the id himself. The exercise runs both: if the server keeps the old id, the id the attacker knows becomes Ann's session, and if it issues a new id at login, the old id can belong to nobody."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A bank checks only that the cookie is valid and then moves the money the request asks for. Which statement matches CSRF best?"
+  options={["The attacker guesses the user's password", "Another site makes the user's browser send a transfer request with the cookie the browser attaches by itself", 'The attacker reads data on the network']}
+  answer={1}
+  why="In CSRF the attacker knows neither the password nor the cookie. He only makes the browser the sender. The bank sees a valid cookie and believes the user meant it, which is something a cookie cannot confirm. The first option is password guessing, and the last is sniffing, which TLS solves."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="In the exercise the cookie is SameSite=Lax and the page evil.test sends a POST to the bank. What happens?"
+  options={['The bank answers 200 and moves the money', 'The browser (as modelled) leaves the cookie off, and the bank answers 401 because nobody is logged in', 'The bank answers 403 because the token does not match']}
+  answer={1}
+  why="The rule of Lax is not to attach the cookie to a POST that comes from another site. The request carries no session and the bank answers 401 (not the 403 that tokens and the Origin check give). This is the result of the exercise's browser model and not an experiment with a real browser."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A team says: we set SameSite=Lax, so we do not need a CSRF token. Which view is more careful?"
+  options={['Right, SameSite replaces tokens in every case', 'SameSite helps a lot, but it relies on how the browser behaves. A token or an Origin check is another layer in case some browser or some case does not follow the rule', 'Wrong, SameSite does nothing at all']}
+  answer={1}
+  why="We stack layers because no single one guarantees every case. The book Web Application Security calls header checking a starting point and not a complete defence. The author's own view is that there should be at least two layers (an opinion, not tested on many browsers)."
+/>
+
+</Step>

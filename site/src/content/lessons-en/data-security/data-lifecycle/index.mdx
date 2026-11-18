@@ -1,0 +1,137 @@
+---
+title: The life of data, with consent, retention and deletion
+summary: From the moment a customer agrees to let their data be used for one thing, to the day they ask for it to be deleted, we try a small platform in SQLite with source tables, derived tables, an export for a partner and a backup. We see a campaign that forgets consent write to people who did not agree, retention that does not touch derived tables, and a delete from the users table alone that leaves the person in five more places, until we follow the path of the data and apply an erasure log when a backup is restored.
+facts:
+  - "Run in exercises/10_lifecycle.py on in-memory SQLite with 200 synthetic users: a campaign that joins the consent table reaches 115 people while one that uses the users table alone reaches 200 (85 did not agree or have withdrawn), deleting events older than 90 days removes 696 of 1,000 rows, one user is in 6 tables and a delete from users alone leaves 5, walking the data path deletes them all, and the backup still holds the user until an erasure log is applied on restore."
+  - "The platform in the exercise is very small (6 tables, one backup). Real ones have data lakes, log files, external analytics systems and copies nobody knows about. The legal parts are retold from the book only, were not run, and are not legal advice."
+  - "The rights of the data subject under GDPR cite Practical Data Privacy chapter 8 page 202. How to read the law in a real case needs a lawyer."
+order: 10
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [secure-computation]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import LineageLab from '../../../../components/labs/data-security/LineageLab';
+
+<Step>
+
+## Where is one person's data
+
+So far we protected data at one point or another. This lesson asks where one person's data travels over its whole life. When somebody signs up with Mr. A's company, their data goes into the `users` table, the `orders` table and `events`. Then it is combined into a derived table `customer_360`, sent to a partner in a file `partner_export`, and copied to a backup tape every night.
+
+One day that person asks for their data to be deleted. The question is where we must delete it. If we cannot remember where the data went, we do not delete all of it. In this lesson we build a small platform in SQLite with everything above and 200 synthetic users, to try it step by step (run: `exercises/10_lifecycle.py`).
+
+Let us start at the source, with what the data was collected for.
+
+</Step>
+
+<Step>
+
+## Consent is tied to a purpose
+
+A user gives consent for particular things (for example "use my data to give the service" and "send me advertising") and can withdraw it. The exercise has a `consents` table that records the purpose, the date given and the date withdrawn. What is counted: of 200 people, 115 agree to marketing use, 19 agreed once but have withdrawn, and 66 never gave it (book: Practical Data Privacy chapter 3 page 66, on keeping consent with the data).
+
+A marketing team that builds a campaign by joining the `consents` table and selecting those who agreed and have not withdrawn gets 115 recipients, matching the number that agreed. But built from the `users` table alone it gets 200, writing to another 85 people who did not agree. This control is not inside the data. It has to be enforced in the way the data is used, for example by a view that forces the join with consent, as we saw in the last lesson.
+
+</Step>
+
+<Step>
+
+## How long to keep it
+
+Data that is no longer needed should be deleted. The exercise sets a policy of keeping `events` for 90 days. There are 1,000 rows, 696 older than 90 days, and after the delete job 304 are left, matching the number counted before the delete.
+
+But there is a trap. The `customer_360` table, which is computed from those tables, still holds an `events_count` that already includes the old events. The exercise checks that the sum in `customer_360` is still 1,000 as before. A job that deletes old data without knowing which tables are computed from the one it deletes from can only remove the source, and leaves the summaries behind. In some cases that is fine (they are only statistics) and in others it is not (if they can be traced back to a person).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A marketing team builds the list for a campaign from the users table without joining the consents table. What is the result in the exercise?"
+  options={['Correct, because everyone who signed up agrees by default', 'It writes to 200 people, which includes 85 who never agreed or have withdrawn. It has to join the consent for that purpose and select those who have not withdrawn, which gives 115', 'It writes to the same 115']}
+  answer={1}
+  why="Consent is tied to a purpose and changes over time. The users table alone sees none of this. The exercise counts 115 who agree, 19 who withdrew and 66 who never gave it. The number 85 is the sum of the last two groups."
+/>
+
+</Step>
+
+<Step>
+
+## Delete one user completely
+
+One user (id 2) asks for their data to be deleted. Before the delete they have rows in 6 tables: `users` 1 row, `consents` 2, `orders` 3, `events` 3, `customer_360` 1 and `partner_export` 1. What people often do is `DELETE FROM users WHERE id = 2` and call it done. The result: the `users` table no longer holds them, but the other 5 tables still hold them in full.
+
+The picture below is our platform. The lines between the tables are the **lineage**, the path along which data flows from one place to another, which the exercise defines by recording which table is built from which. Choose the ways of handling it one at a time and see which tables still hold the person, and press the button to restore the backup with the erasure log.
+
+<LineageLab client:visible lang="en" />
+
+The right way is to follow the path from the source tables. The exercise walks the graph from `users`, `orders`, `events` and `consents` along the lines until all of it is covered, which gives 6 tables, and deletes the user's rows in every table it finds. The result is that no live table holds the person any more. What makes it work is knowing where the data flows. An export file that nobody recorded would not be deleted.
+
+</Step>
+
+<Step>
+
+## The backup tape
+
+There is one more place that the path of our data did not delete from: a backup taken before the request. The exercise keeps a copy of all six tables as a tape, which still holds that user in full after the delete from the live tables. We cannot delete from a tape (it cannot be edited), and if the backup is restored, the user who was deleted comes back entirely.
+
+The way out that the exercise tries is to keep an **erasure log** holding only the ids of those who were deleted (no other data about them) and to apply this log every time a backup is restored: restore and then immediately delete those ids. What is asserted: after a restore with the log, the user is in none of the six tables (although the tape held them in all six before that), and if the restore is done without the log they come back in all six.
+
+The other way is the crypto-shredding that we saw in the lesson on encrypting stored data. If one person's data is encrypted with a key of their own, deleting the key makes every copy unreadable, but this exercise does not encrypt per person.
+
+<Callout type="warn" title="The legal part">
+
+In this lesson the "request to delete" is something the author made up to learn from. GDPR gives the data subject several rights, including the right to ask for deletion and the right to see their own data (book: Practical Data Privacy chapter 8 page 202), and it separates the roles of the controller and the processor (book: Practical Data Privacy chapter 8 page 204). But the exceptions, the deadlines and the way backups are treated in real law are far more detailed. The author ran nothing about the law, and real matters need a lawyer.
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A user asks for data to be deleted. The team deletes from the users table and reports it done. A week later a backup is restored for use. What is the result?"
+  options={['The user does not come back, because they were deleted', 'The user comes back in every table the backup holds. There has to be an erasure log applied on restore, or crypto-shredding', 'The user comes back only in the users table']}
+  answer={1}
+  why="The tape does not follow the live tables. The exercise restores the backup without the log and the user comes back in all six tables. With the erasure log the user is gone from every restored table. A deletion that does not count backups is an incomplete deletion."
+/>
+
+</Step>
+
+<Step>
+
+## The right to see data uses the same map
+
+The map of the data that we built for deleting can answer another request too. When a user asks for a copy of their own data, we have to gather everything we hold about them. The exercise applies the same lineage to another user (id 4) and finds their rows in all 6 tables. Without this map we could answer neither request.
+
+The lesson here is that safe data does not mean only data that is encrypted or hidden. It means we know where it is, what it is used for, until when, and how it can be deleted. The book Practical Data Privacy suggests keeping provenance and consent with the data from the moment of collection (book: Practical Data Privacy chapter 3 page 66), which makes these jobs much easier.
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| Consent: 115 agree, 19 withdrew, 66 never gave it, and a campaign from the users table alone reaches 200 (85 did not agree) | ran: `exercises/10_lifecycle.py` |
+| Deleting events older than 90 days removes 696 of 1,000 rows (304 left), and customer_360 still counts the old events | ran: `exercises/10_lifecycle.py` |
+| One user is in 6 tables, a delete from users alone leaves 5, and walking the lineage deletes them all | ran: `exercises/10_lifecycle.py` |
+| The backup still holds the user; a restore with the erasure log leaves none; a restore without it brings the user back in 6 tables | ran: `exercises/10_lifecycle.py` |
+| The same lineage answers a request to see data (another user has rows in 6 tables) | ran: `exercises/10_lifecycle.py` |
+| Keeping consent and provenance with the data | book: Practical Data Privacy chapter 3 page 66 |
+| The rights of the data subject and the roles of controller and processor under GDPR | book: Practical Data Privacy chapter 8 pages 202 and 204 (not run, and not legal advice) |
+| Data lakes, log files, external systems and copies nobody recorded | not run |
+
+</Step>

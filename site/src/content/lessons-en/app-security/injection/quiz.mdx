@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Four questions to check why a parameter fixes injection, and where it cannot be used.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="Why does a parameterised query stop SQL injection even when the user types a quote character?"
+  options={["Because it removes the quote first", 'Because the database receives the SQL command and the values separately, so a value is always treated as data whatever characters it holds', 'Because it encrypts the value before giving it to the database']}
+  answer={1}
+  why="What goes wrong when strings are joined is that command and data are mixed in one text. A parameter keeps them apart from the start. The exercise sends the same payload both ways: the joined query returns rows it should not, and the parameterised one returns none."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A search page never prints the result of the query, only found or not found. Which is right?"
+  options={['Safe, because no data is printed', 'It can still leak. The attacker asks questions that can be answered yes or no and rebuilds the data bit by bit. The exercise rebuilds an 11 character password in 85 requests', 'It can leak only numbers']}
+  answer={1}
+  why="One bit per question is enough if the attacker may ask without limit. Halving the range every time means the 95 possible values of a character take only 6 or 7 questions. So the fix has to be at the cause, the place where SQL can be injected, and not at what is printed. A rate limit also helps cap the number of questions."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A program takes a file name from the user and runs a command with shell=True, joining the name onto the command. The user sends report.txt & echo INJECTED. What happens?"
+  options={['The program opens a file named report.txt & echo INJECTED', 'The shell splits it into two commands and runs echo INJECTED too', 'The shell refuses because of the & sign']}
+  answer={1}
+  why="The shell reads the & sign as a separator of commands. The exercise printed both ARGS= ['report.txt'] and INJECTED. Passing a list of arguments without a shell gives a single argument that holds the whole text, and nothing extra is run."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A site lets users choose a sort column named in the URL. The team plans to use a parameter for the column name. What is the result?"
+  options={['It works well and is safe in every case', 'It does not work. A parameter can replace only a value. The column name needs an allow list of the columns that are permitted', 'It works but slows things down']}
+  answer={1}
+  why="The structure of a query (column names, tables, the direction of the sort) is not a value, and the database does not accept a parameter there. The right way is to let the user pick from a list the developer sets. In the exercise price passes and price; DROP TABLE products is refused."
+/>
+
+</Step>

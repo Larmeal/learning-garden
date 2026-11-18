@@ -1,0 +1,135 @@
+---
+title: Who sees what, with roles, views, masking and a scan of what leaves
+summary: One customer table that an admin, a support agent and an analyst see differently, through views that hide columns, hide parts of values and filter rows. We use SQLite's authorizer to enforce that the real table cannot be read directly, find a hole where Python's cache makes the check skipped, see how a token and a mask differ in whether they join, hold small groups back from the analyst, and scan text that is about to leave for e-mails, phone numbers and card numbers.
+facts:
+  - "Run in exercises/08_access_masking.py on in-memory SQLite with 600 synthetic customers: the admin sees 9 columns and 600 rows, support sees 5 columns and 307 rows with e-mail and phone partly masked, the analyst sees 5 columns and 600 rows with no names, reading the real table directly is refused (by the authorizer), the query log holds 13 entries, and the DLP scan finds 32 e-mails and 60 phone numbers in the notes column."
+  - "The cache hole: SQLite's authorizer runs when a statement is compiled. If Python reuses a statement compiled for another user, the check is skipped. The exercise sets cached_statements=0 to close it."
+  - "The permissions are SQLite's own, written in the exercise, and not the permission system of a real database such as PostgreSQL or row level security, which was not run. The regex and Luhn DLP is a small example."
+order: 8
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [encryption-at-rest]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import AccessMaskLab from '../../../../components/labs/data-security/AccessMaskLab';
+
+<Step>
+
+## One table, three roles
+
+Encrypting the disk does not stop people who already have rights through the app, so the next layer is to limit who sees what. Mr. A's customer table has 600 rows (synthetic people), and three groups need it. An **admin** runs the system, **support** answers customers on the phone, and an **analyst** makes reports. The three need different data.
+
+Support has to know the name and how to reach the customer, but a partly hidden e-mail and phone will do, and it should see only the customers of its own region. The analyst does not need to know who anybody is, only the features of the customers. The admin sees everything. In the exercise we make one SQLite **view** per role (run: `exercises/08_access_masking.py`).
+
+```sql
+CREATE VIEW v_support AS SELECT id, name, mask_email(email) AS email, mask_phone(phone) AS phone, zip
+  FROM customers WHERE substr(zip, 1, 3) IN ('101', '102', '103');
+CREATE VIEW v_analyst AS SELECT tok(email) AS person, substr(zip, 1, 3) AS zip3,
+  substr(birth, 1, 4) AS birth_year, band(salary, 10000) AS salary_band, diagnosis FROM customers;
+```
+
+The first view picks five columns, hides the e-mail and phone and filters the rows to three areas. The second removes name, e-mail and phone altogether, replaces the e-mail with a token (the HMAC we saw in the lesson on pseudonymization), makes the zip and the birth date less detailed, and turns the salary into a band of 10,000.
+
+What is asserted: the admin sees 9 columns and 600 rows. Support sees 5 columns and 307 rows, with the e-mail reduced to the first letter, three stars and the domain, and the phone to the first two and last two digits. The analyst sees 5 columns and 600 rows with no name at all, and the salary as a band. Choose the roles in the lab below to compare.
+
+<AccessMaskLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## Enforced for real, not just agreed
+
+A view lets a role use its own view, but if the analyst can still write `SELECT * FROM customers` directly, everything means nothing. It has to be enforced. SQLite has a mechanism called an **authorizer**, a function called before every table and column is read, which can answer allow or deny. The exercise writes the rule that the real table `customers` may be read only when the read comes from a view that the role was given (or the role is admin).
+
+What is asserted: the analyst's `SELECT * FROM customers` is refused. Wrapped in a sub query (`SELECT name FROM (SELECT * FROM customers)`) it is refused as well. Support cannot read the analyst's view, and only the admin can read the log table (`audit`).
+
+### A hole we found ourselves
+
+When the exercise was first written, the check that support cannot read the analyst's view **passed even though it should not have**. The reason is that SQLite's authorizer runs when a statement is **compiled**, not each time it runs, and Python keeps compiled statements in a cache. Once the analyst had run `SELECT * FROM v_analyst`, it was compiled under the analyst's rights, and when support sent the same text Python reused the compiled statement, so the authorizer was never called again.
+
+The exercise shows this as a separate case. The owner of a secret table reads first, and then a guest sends the same text. With Python's normal cache the guest can read. With `cached_statements=0` every statement is compiled again and the guest is refused. This is why we write tests that always try the case that should be refused, and not only the cases that should pass.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A permission check built into the database runs when a statement is compiled, and the system keeps compiled statements to reuse across users. What is the problem?"
+  options={['No problem, because the same statement should give the same result', 'A user without rights who sends the same text as a user with rights may get a statement that was checked for somebody else, and skip the check. The cache must not be shared across rights', 'The only problem is speed']}
+  answer={1}
+  why="The exercise reproduces this in SQLite with Python. With the normal cache a guest reads a table that should be refused. With cached_statements set to 0 the guest is refused. A test of refusal has to use the same text that a permitted user sent earlier, not only new text."
+/>
+
+</Step>
+
+<Step>
+
+## The purpose of use, tokens against masks, and small groups
+
+A permission that is only a role is still not enough. We also have to say what the data is used for. The exercise says the analyst may use it for `reporting` only. If the purpose `marketing` is sent, the request is refused before any query runs, and it is written to the log too. This is the idea of purpose limitation that laws such as GDPR stress, which we come back to in the lesson on the life of data.
+
+Let us see what the hidden values can still be used for. The **token** in the analyst's `person` column is the same in every query, so the same person can be followed across tables without knowing who it is. A **mask** such as the one for support cannot do that, because a masked e-mail like `a***@mail.test` can repeat across several people. The exercise checks that the masked values have fewer distinct values than rows. Something hidden just so that a person can read it can use a mask. Something that must be computed on later should use a token.
+
+If the analyst asks `GROUP BY zip3, birth_year, diagnosis`, he gets many groups with fewer than five people, which is the linkage attack we have already seen in another form. The exercise holds back groups smaller than 5 from view: 509 groups are held back. `GROUP BY diagnosis` alone gives 7 groups, all large, and nothing needs to be held back.
+
+</Step>
+
+<Step>
+
+## Scanning what is about to leave
+
+The last layer is to check what leaves the system, called **data loss prevention (DLP)** (book: Practical Data Privacy chapter 4 page 104). The exercise writes a small scanner that finds e-mails and phone numbers with regexes, and card numbers with the Luhn check digit, which differs from a regex because not every sixteen digit number is a real card number.
+
+What is asserted: the file that support exports (masked) passes the scan, with no raw e-mail or phone left. But when the admin exports the `notes` column, which holds e-mails and phones that staff typed in, the scan finds 60 phone numbers and 32 e-mails and blocks the export. A card number that passes Luhn such as `4539 1488 0343 6467` is caught, and the same number with one digit wrong is not.
+
+The log of queries rounds it off. Every request is recorded, those refused too. The exercise counts 8 answered and 5 refused (four by the authorizer and one by the purpose check). A good log is what lets us answer "who looked at this customer's data yesterday" (the origin of the ideas of Safe People and Safe Settings in the Five Safes of Building an Anonymization Pipeline chapter 3, pages 49 and 52).
+
+<Callout type="warn" title="Written by hand to learn from">
+
+The permission mechanism in the exercise is built on the authorizer of SQLite to show how enforcement works. In real work the database's own permission system is used (roles, column privileges, row level security). The author did not run those. And the DLP that uses regexes and Luhn is only an example. A real one has far more patterns and far more ways of dealing with false alarms.
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="An analyst wants to follow the same customer across two tables without knowing who it is. What should the identifier column show?"
+  options={['An e-mail that is partly hidden, such as a***@mail.test', 'A token computed from the e-mail with a secret key, because it is equal in every table for the same person but does not reveal the e-mail. A partly hidden e-mail can repeat across people, so it cannot be used to join', 'The full e-mail, but with an instruction not to look']}
+  answer={1}
+  why="The exercise checks that the token the analyst sees is the same across queries (600 different values for 600 people), and that masked e-mails have fewer distinct values than rows, so they cannot join. Seeing the full e-mail with an instruction not to look is only an agreement, not enforcement."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The admin sees 9 columns and 600 rows, support 5 columns and 307 rows, the analyst 5 columns and 600 rows, and the shape of the masked values | ran: `exercises/08_access_masking.py` |
+| The authorizer refuses the analyst the real table directly and through a sub query, and another role's view | ran: `exercises/08_access_masking.py` |
+| Python's normal cache makes the check skipped, and cached_statements=0 closes it | ran: `exercises/08_access_masking.py` |
+| The purpose marketing is refused before the query runs | ran: `exercises/08_access_masking.py` |
+| The token is equal across queries (600 values) and masked e-mails repeat | ran: `exercises/08_access_masking.py` |
+| Groups smaller than 5 are held back (509), while grouping by diagnosis alone needs none | ran: `exercises/08_access_masking.py` |
+| DLP catches 60 phone numbers, 32 e-mails in the notes column, and a card number that passes Luhn | ran: `exercises/08_access_masking.py` |
+| A log of 13 entries: 8 answered, 5 refused | ran: `exercises/08_access_masking.py` |
+| Data loss prevention and access control for data | book: Practical Data Privacy chapter 4 pages 102 to 105 |
+| Safe people and safe settings | book: Building an Anonymization Pipeline chapter 3 pages 49 and 52 |
+| Roles and row level security of a real database | not run |
+
+</Step>

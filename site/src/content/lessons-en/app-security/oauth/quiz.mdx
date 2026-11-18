@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Four questions to check the roles of the code, PKCE, redirect_uri and the id_token.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="Why does the authorization code flow let a code travel through the browser and make the app exchange it for a token with the server in a second step, instead of letting the token itself travel through the browser?"
+  options={['To make the flow longer and easier to audit', 'Because the browser is a place where data can leak (logs, links), while the exchange for a token is a direct conversation between the app and the server, backed by a verifier or the app\'s secret', 'Because a token is too big to send through the browser']}
+  answer={1}
+  why="Whatever passes through the browser may be logged or intercepted, so only a code that works once is allowed through, and it is exchanged for a token on a separate channel. The code can still leak, which is why the exercise adds PKCE to tie the code to the app that asked."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="An authorization server checks a redirect_uri by testing whether it starts with https://shop.test. Which statement about the result is right?"
+  options={['Safe, because the attacker would need to own the shop.test domain', 'The attacker can use shop.test.evil.test, which starts the same, and the code is sent there. The whole string must be compared with what was registered', 'Safe if there is a state']}
+  answer={1}
+  why="The exercise sends https://shop.test.evil.test/callback to the server that tests the start, and the code goes to evil.test. The server that compares the whole string refuses. State protects against a forged callback. It does nothing for a code sent to the wrong place."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Our app gets an id_token whose signature is right and which has not expired, but whose aud points to another app. What should it do?"
+  options={['Accept it, because a trusted issuer signed it', 'Refuse it, because the token was issued for another app (wrong audience)', 'Accept it but skip the nonce']}
+  answer={1}
+  why="The issuer's signature says only that the issuer made it, not who it was made for. Without checking aud, a user logged in to another app could have that app's id_token pushed into ours. The exercise gets wrong audience with another app's id_token."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A site keeps the state it made at the start of the flow in the browser's session, and a callback comes back with a state that does not match. What should it do?"
+  options={['Use the code anyway, because the code is valid', 'Throw the callback away, because it may be one the attacker made and got the user to open', 'Ask the server for a new code']}
+  answer={1}
+  why="State ties a callback to the browser that started the flow. If it does not match, the callback did not come from a flow we began. Using the code would tie the user's own account to the attacker's code (book: OAuth 2 in Action section 3.2.3 page 51. The exercise checks only the comparison logic)."
+/>
+
+</Step>

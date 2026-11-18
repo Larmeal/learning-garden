@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Four questions to check that you understand associated data, envelope encryption, crypto-shredding and the limits of encrypting at rest.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="Why is the row id used as associated data when each value is encrypted?"
+  options={['To make the ciphertext shorter', 'To tie each ciphertext to its row. If someone copies a value from one row into another, decryption fails with InvalidTag', 'To make values searchable']}
+  answer={1}
+  why="The tag of AES-GCM covers the associated data too. The exercise copies the ciphertext of row 2 into row 1 and decryption fails. Someone who can write to the disk but has no key cannot swap values between rows."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Why does envelope encryption make rotating the master key much cheaper than using one key for every row?"
+  options={['Because the master key is smaller', 'Because we only unwrap and wrap the data keys again (3 keys, 180 bytes in the exercise) and do not touch millions of rows', 'Because the master key never has to change']}
+  answer={1}
+  why="The data is encrypted with a data key, not with the master key. Rotating the top level therefore rewrites only the wrapped data keys. The exercise works out 180 bytes, against 92,500,000 bytes if every row had to be encrypted again."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A request asks for all of one table to be deleted, and copies exist on a backup tape that cannot be edited. How does crypto-shredding help?"
+  options={['It deletes the data from the tape directly', 'It deletes the data key of that table. Every copy was encrypted with the same key, so when the key is gone every copy is unreadable', 'It moves the tape somewhere else']}
+  answer={1}
+  why="The exercise deletes 32 bytes of key from the key store and then both the table and its backup are unreadable. The technique needs a separate data key for each group of data that is to be deleted together. To delete just one person from a big table another method has to be added."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="What does encrypting data on the disk protect against, and what does it not protect against?"
+  options={['It protects against someone who gets the disk files or a backup, but not against a command run by the app that holds the key, such as an SQL injection', 'It protects against everything when AES-256 is used', 'It protects against nothing']}
+  answer={0}
+  why="The exercise keeps 300 encrypted values in SQLite and has the app decrypt every row a query returns. A query with OR 1 = 1 injected returns all 300 decrypted values. Encrypting the disk is one layer out of several."
+/>
+
+</Step>

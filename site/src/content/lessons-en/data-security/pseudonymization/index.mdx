@@ -1,0 +1,133 @@
+---
+title: Pseudonymization, and hashes of identifiers
+summary: A team replaces e-mails with SHA-256 because they think it cannot be reversed. We undo it with a table computed in advance, then compare four ways of replacing an identifier, plain hash, hash with a salt, HMAC with a key and a random token, to see which attacker each one stops and whether two tables can still be joined.
+facts:
+  - "Run in exercises/02_pseudonymization.py: a table of the SHA-256 of all 1,000,000 six digit numbers undoes 2,000 of 2,000 people, a dictionary of 600,000 guesses finds the e-mails, a salt per row makes a join impossible (0 of 2,000), HMAC with one key joins fully, random tokens in a vault do not join, and a new key makes old tokens useless."
+  - "The time printed (about 1.6 seconds for the table of 1,000,000 values) belongs to the computer that ran it. The exercise asserts only that it is under 60 seconds."
+  - "The explanation of pseudonymization cites Practical Data Privacy chapter 1 page 22. Not run: the tokenization of real products, and keeping keys in a KMS."
+order: 2
+phase: A
+level: 2
+stage: sprout
+format: steps
+requires: [sensitive-data]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import PseudonymLab from '../../../../components/labs/data-security/PseudonymLab';
+
+<Step>
+
+## Replace the e-mail with a hash, and it is safe, right?
+
+Mr. A's analytics team still wants to know how many times the same customer ordered, so it does not drop the e-mail column. It replaces it with `sha256(email)`, because it remembers from [the lesson on cryptography in Application Security](/en/app-security/crypto-basics/) that a hash cannot be reversed. Replacing an identifier with another value that still says "the same person" is called **pseudonymization** (book: Practical Data Privacy chapter 1 page 22).
+
+The question is what somebody who has the table and wants to know whose row is whose will do. The attacker does not reverse anything. He guesses, hashes the guess and compares with the table. In Application Security we saw a four digit PIN found in 7,352 tries. Now something bigger (run: `exercises/02_pseudonymization.py`).
+
+Suppose the table holds a 6 digit member number for each person, which has only 1,000,000 possibilities. The attacker computes the SHA-256 of every number once, and then compares.
+
+```python
+lookup = {sha(f"{n:06d}".encode()): f"{n:06d}" for n in range(1_000_000)}
+undone = sum(1 for pid, h in hashed.items() if lookup.get(h) == members[pid])
+```
+
+The first line builds a table of all the million hashes, which took about 1.6 seconds on the computer that ran it. The second looks up the hashes of our table in it. The result: 2,000 of 2,000 people undone.
+
+E-mail is not much safer, because an e-mail has a pattern: a first name, a dot, a last name, a number, @ and a domain. The exercise builds a dictionary from 20 first names, 15 last names, the numbers 1 to 2,000 and one domain, which gives 600,000 guesses, and it finds all 654 e-mails on that domain.
+
+</Step>
+
+<Step>
+
+## Four ways, and what each one costs
+
+There are alternatives that do not fall over like a plain hash, but each costs something. Choose a method and what the attacker holds in the lab below, and see whether the original e-mail comes back and whether two tables can be joined. The point to notice is that whatever makes a join possible is also usable by an attacker who holds the right thing.
+
+<PseudonymLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## A salt per row: safer, but no join
+
+Just as a salt helps with passwords in Application Security, we put a different random salt in front of every row's hash, and a dictionary no longer works. The exercise checks that the same dictionary finds none of the hashes.
+
+But there is a price. Suppose the orders table and the support tickets table each salt the e-mail of the same customer. The values in the two tables are not equal. The exercise counts matches on 0 of 2,000 people. The analyst who wants to know whether a customer who ordered also phoned in cannot find out. If no join across tables is needed at all, this method will do, but mostly we need one.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A team wants analysts to join the orders table and the support tickets table on e-mail, without anybody reading the real e-mail, and the attacker who got the table has only a dictionary of e-mails. Which method fits best?"
+  options={['Plain SHA-256, because the value is equal in every table', 'HMAC with the team\'s own secret key, because the value is equal in every table and an attacker without the key cannot match it against a dictionary', 'A random salt per row, because it is the safest']}
+  answer={1}
+  why="Plain SHA-256 joins, but the dictionary undoes all of it. A salt per row stops the dictionary, but there is no join (0 of 2,000). HMAC is the only one that both joins and stops the dictionary, as long as the key does not leak. The exercise checks both."
+/>
+
+</Step>
+
+<Step>
+
+## HMAC: joins work as long as the key is safe
+
+HMAC mixes a secret key into the calculation, and nobody without the key can compute the value of a guessed e-mail. The exercise builds two tables with the same key. The values of the same e-mail match for all 2,000 of 2,000 people, so they join, and an attacker with a complete dictionary of e-mails but no key finds no value at all.
+
+The value is shorter than a full hash (16 hex characters) and shows no part of the e-mail. The number of distinct people stays the same (2,000 values), so counting people is still right.
+
+There are two downsides. First, the key is the one weak point of this system. If it leaks with the table, the attacker computes the HMAC of each guessed e-mail from a dictionary and undoes the table just as with a plain hash. Second, if the key is changed, everything made with the old key stops meaning anything. The exercise counts that after a key change no old token equals a new one (0 of 2,000), so tables made at different times can no longer be joined.
+
+</Step>
+
+<Step>
+
+## A random token: nothing to attack, but there must be a vault
+
+The last method does not compute anything from the e-mail. It makes up a new random value and writes the pair "e-mail and token" into a vault kept apart. An attacker who gets only the table has no formula to guess. The exercise builds two tables that tokenize the same e-mails separately, and the values never match (0 of 2,000), because each side picks its own random values, and the vault has to hold 4,000 entries that must be protected on their own.
+
+In practice the vault answers "which token does this e-mail get" and returns the same value when it sees it again, which makes joins possible, but it costs everyone calling the vault, and the vault becomes the biggest target. The exercise did not run a vault like that.
+
+<Callout type="note" title="Pseudonymization is not anonymization">
+
+All four methods change only the direct identifiers. The quasi identifiers zip, birth date and sex are all still there, and from the last lesson we know that is enough to leave 1,992 of 2,000 people with nobody else the same. The author therefore calls data like this pseudonymized and not anonymized, as Practical Data Privacy treats it in chapter 1 (book: Practical Data Privacy chapter 1 page 22).
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A team uses HMAC on e-mails in every table, and keeps the key in a config file that was committed to Git, which later leaked together with the table. What is the result?"
+  options={['Nothing, because HMAC cannot be reversed', 'An attacker with the key and a dictionary of e-mails computes the HMAC of each guessed e-mail and matches it to the table, undoing it just like a plain hash', 'The table is still safe if the key is long enough']}
+  answer={1}
+  why="HMAC stops only an attacker without the key. When the key leaks, the difference from a plain hash disappears (the lab shows the HMAC row being undone when the attacker holds the key). For a key committed to Git, we saw in Application Security that it stays in the history even after the file is deleted."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A table of the SHA-256 of all million six digit numbers undoes 2,000 of 2,000 people | ran: `exercises/02_pseudonymization.py` |
+| A dictionary of 600,000 guesses finds all 654 e-mails on the guessed domain | ran: `exercises/02_pseudonymization.py` |
+| A salt per row means the dictionary finds nothing, and two tables never match (0 of 2,000) | ran: `exercises/02_pseudonymization.py` |
+| HMAC with one key joins 2,000 of 2,000, a dictionary without the key finds nothing, the token is 16 characters, the number of distinct people is unchanged | ran: `exercises/02_pseudonymization.py` |
+| Random tokens in two tables never match (0 of 2,000) and the vault holds 4,000 entries | ran: `exercises/02_pseudonymization.py` |
+| After a key change no old token equals a new one (0 of 2,000) | ran: `exercises/02_pseudonymization.py` |
+| Pseudonymization and how it differs from anonymization | book: Practical Data Privacy chapter 1 page 22 |
+| An HMAC that leaks with its key is undone like a plain hash | author (inferred from the exercise; the case of a leaked key was not run) |
+| A real vault, and keeping keys in a KMS | not run |
+
+</Step>

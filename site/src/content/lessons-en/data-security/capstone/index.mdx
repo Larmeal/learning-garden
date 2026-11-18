@@ -1,0 +1,140 @@
+---
+title: Capstone, releasing a table safely
+summary: "We have a table of 2,000 synthetic people that must be released to researchers. We release it in stages (the raw table, direct identifiers removed, k-anonymous, and only noisy aggregates) and measure every stage with two attacks (a join with a public list, and guessing whether Ann is in the table) and with the accuracy of the numbers that are left, then see what covers the Five Safes."
+facts:
+  - "Run in exercises/11_capstone.py: stages 0 and 1 name 1,409 people correctly through the join, stage 2 (k at least 5, 10 rows suppressed) names 0 and the mean salary per zip is off by 0.03%, and stage 3 (aggregates at a total epsilon of 1) names 0 and the mean salary is off by 0.63%."
+  - "The attack by the difference of two tables (knowing the whole table without Ann) gets 100% against exact numbers at every stage before the last, and 69.7% at epsilon 1 in a model measured with 40,000 random trials (52.5% at epsilon 0.1 and 95.9% at epsilon 5)."
+  - "The choice of stages and of epsilon here is an example of measuring, not advice for real data, and it was not tested against an attacker with other sources or with more knowledge of the table."
+order: 11
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [data-lifecycle]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ReleaseLab from '../../../../components/labs/data-security/ReleaseLab';
+
+<Step>
+
+## The task: release this table to researchers
+
+Mr. A's team has to send the customer table of 2,000 people (synthetic people, as in every lesson so far) to outside researchers who will study salary and diagnosis by area. The table has zip, birth date, sex, diagnosis, salary, and the direct identifiers we know well by now. Through this subject we collected many tools. This lesson uses them together, and measures every stage (run: `exercises/11_capstone.py`).
+
+We release in stages, and look at which attacker each stage stops and how much accuracy the data loses.
+
+- Stage 0: the raw table
+- Stage 1: name, e-mail, phone and the notes column removed
+- Stage 2: zip cut to three digits, ages in ten year bands, and groups smaller than 5 suppressed (k-anonymous)
+- Stage 3: no rows at all, only sums with noise (differential privacy)
+
+There are two attackers. The first is the linkage attack with the public voter list that we know from [lesson 3](/en/data-security/linkage-attack/). The second is the **difference attack**, where the attacker knows the whole table except Ann and wants to know whether the released table has Ann in it, because he compares the count in Ann's group with the table without her.
+
+</Step>
+
+<Step>
+
+## Stages 0 and 1: removing identifiers does not help
+
+At the raw stage the attacker already has everything. The interesting one is stage 1, which removes name, e-mail, phone and the notes column. The exercise confirms the same result as in [lesson 3](/en/data-security/linkage-attack/): the join with the voter list names 1,409 of 2,000 people correctly, at both stage 0 and stage 1. The numbers are equal, so removing the direct identifiers did not reduce identification at all, because the quasi identifiers are all still there.
+
+The difference attack works perfectly at both stages. The table with Ann counts one more person with HIV in her area than the table without her. The exercise confirms that the difference is 1, and the attacker knows for certain that Ann is in the table and has that diagnosis.
+
+</Step>
+
+<Step>
+
+## Stage 2: k-anonymous
+
+This stage uses what we learned in the lesson on k-anonymity. The exercise groups by (3 digit zip, ten year band, sex) and drops groups smaller than 5, which removes 10 rows and leaves 1,990. What is asserted: the linkage with the voter list names 0 people correctly, because every group holds several people. The data is still accurate: the mean salary per zip area is off by 0.03% on average, and the count per diagnosis by 0.57%.
+
+But the difference attack still gets 100%. The numbers released are accurate true values, and an attacker who knows the rest of the table subtracts to get the same result. A table that is safe from a join is therefore not safe from an attacker who knows almost everything, as we saw with the count of 351 patients at the start of differential privacy.
+
+</Step>
+
+<Step>
+
+## Stage 3: aggregates with noise
+
+The last stage releases no rows. The exercise releases two things: the count per diagnosis (at epsilon 0.5) and the mean salary per zip area, clipped into the range 20,000 to 80,000 (at epsilon 0.5). Both queries use groups that do not overlap, because a person has one diagnosis and one zip, as we saw in the lesson on [the privacy budget](/en/data-security/privacy-budget/). But the two queries ask about the same people, so the epsilons add up to 1 in total.
+
+What is asserted: there are no rows to join, so 0 people are named. The numbers are still usable: the mean salary is off by 0.63% and the count per diagnosis by 0.70%, below the 3% we set as the threshold. And the difference attack that used to get 100% falls to 69.7%.
+
+The 69.7% comes from simulating an attacker who guesses in the best way, repeated 40,000 times, which matches the formula 1/2 + 1/2 × (1 − e to the power minus epsilon/2) at epsilon 1. At epsilon 0.1 it is 52.5%, nearly a coin flip, and at epsilon 5 it is 95.9%, so a large epsilon protects very little.
+
+Choose the stages in the lab below and look at three things at once: the number of people named, how well Ann's membership can be guessed, and the error of the numbers.
+
+<ReleaseLab client:visible lang="en" />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Which conclusion fits the results of the four stages best?"
+  options={['Removing direct identifiers is enough to release a table', 'Removing identifiers does not help. k-anonymity stops the join but not the guess of whether Ann is in the table from exact numbers. Noise (differential privacy) is needed, and in this example it costs only a little accuracy', 'Differential privacy makes the numbers unusable in every case']}
+  answer={1}
+  why="The exercise measures three things at every stage. Stage 1 names 1,409, as many as the raw table. Stage 2 cuts that to 0, but the difference attacker still gets 100%. Stage 3 cuts it to 69.7% and the mean salary is off by only 0.63%. Large groups stand noise well, but small groups would suffer more, as the lesson on [differential privacy](/en/data-security/differential-privacy/) showed."
+/>
+
+</Step>
+
+<Step>
+
+## The Five Safes: safety is not in the data alone
+
+The book Building an Anonymization Pipeline offers the **Five Safes** framework, which looks at risk from five sides at once (book: Building an Anonymization Pipeline chapter 3 page 44). A released table deals with only one side (the data). The others need controls too. The table below matches each side to what we did in this subject, which is the author's own arrangement.
+
+| Safe | The question | What we did |
+|---|---|---|
+| Safe projects | should this work be allowed to use the data | a purpose has to be stated, and a role is limited to a purpose ([lesson 8](/en/data-security/access-masking/)) |
+| Safe people | can the users be trusted | the analyst gets a role that sees only a view, not the real table ([lesson 8](/en/data-security/access-masking/)) |
+| Safe settings | in what kind of environment is it used | queries go through views, are logged, and what leaves is scanned ([lesson 8](/en/data-security/access-masking/)) |
+| Safe data | how identifying is the data itself | direct identifiers removed and values coarsened until every group has at least 5 people ([lessons 2](/en/data-security/pseudonymization/) to [4](/en/data-security/k-anonymity/)) |
+| Safe outputs | what do the results that leave reveal | only noisy aggregates leave, and the epsilon spent is counted ([lessons 5](/en/data-security/differential-privacy/) and [6](/en/data-security/privacy-budget/)) |
+
+In the lab, the tags at the bottom show which stage enforces which side. The first three are controls that do not depend on the data itself, so they are present at every stage. The data side starts at stage 1 and the outputs side at stage 3 (book: Building an Anonymization Pipeline chapter 3 pages 46 to 57 describe each side).
+
+<Callout type="note" title="What the author did not do">
+
+The choice of stages and of epsilon in this lesson is an example of measuring, not advice to release real data. In real work we start by asking what the attacker already knows, who the users are, and what a leak would cost. The author did not test against attackers with sources other than the voter list, did not try an attacker who knows more than this, and did not run a production differential privacy library.
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A team says our table is k-anonymous with k equal to 5, so it is safe. Which objection has evidence from this lesson and the earlier ones?"
+  options={['There is no objection, k-anonymity is the highest standard', 'k-anonymity stops the linkage in this example (0 people), but there are still groups where everybody has the same diagnosis (homogeneity), and an attacker who knows the rest of the table guesses that Ann is in the table 100% of the time from the exact counts', 'k-anonymity protects against nothing']}
+  answer={1}
+  why="The exercise of [lesson 4](/en/data-security/k-anonymity/) found 5 groups (62 people) in which everyone has the same diagnosis, and this lesson measures a difference attack that gets 100% against exact numbers. k-anonymity is one of several checks and is not the only one that is enough."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| Stages 0 and 1: the join names 1,409 of 2,000 correctly | ran: `exercises/11_capstone.py` |
+| Stage 2: k-anonymous with 10 rows suppressed names 0, the mean salary is off by 0.03% and the count per diagnosis by 0.57% | ran: `exercises/11_capstone.py` |
+| The difference attack gets 100% against exact numbers (the table with Ann has one more than the table without her) | ran: `exercises/11_capstone.py` |
+| At epsilon 1: 69.7%, epsilon 0.1: 52.5%, epsilon 5: 95.9% (simulated 40,000 times) | ran: `exercises/11_capstone.py` |
+| Stage 3: names 0, the mean salary is off by 0.63% and the count per diagnosis by 0.70% | ran: `exercises/11_capstone.py` |
+| The Five Safes framework and each side | book: Building an Anonymization Pipeline chapter 3 pages 44 to 57 |
+| Matching each safe to what we did in the subject | author |
+| Attackers with other sources or more knowledge, and a production differential privacy library | not run |
+
+</Step>

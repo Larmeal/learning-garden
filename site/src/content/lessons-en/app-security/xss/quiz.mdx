@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Four questions to check where XSS happens, how to encode for the right place, and what a CSP is for.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="The user's text is put into an attribute like value=&quot;...&quot;. What can the text &quot; onfocus=&quot;alert(1)&quot; autofocus=&quot; do if it is not encoded?"
+  options={['Nothing, because it sits inside quotation marks', 'The first " ends the value early and onfocus becomes a real attribute of the input', 'It only breaks the layout of the page']}
+  answer={1}
+  why="The Python parser in the exercise sees onfocus as an attribute nobody wrote. With html.escape the &quot; becomes &amp;quot;, so the value is kept as one piece of text. The value of an attribute must also always be wrapped in quotes, or a single space can end it."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A profile lets users enter their own web site and the page makes it a link. A user enters javascript:alert(document.cookie), and we have already run it through html.escape. What is the result?"
+  options={['Safe, because html.escape converted the dangerous characters', 'Still not safe: there is no character that html.escape converts, so the href is still javascript:... We need an allow list of schemes (http, https, relative links)', 'Safe if it is written in capitals']}
+  answer={1}
+  why="html.escape solves the case of text breaking out of its HTML context, but in a link the whole value is the command. The exercise confirms that the resulting href still equals javascript:... and that an allow list of schemes refuses it, including the forms that start with a space and mixed case."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A site has a CSP that allows script-src 'self' 'unsafe-inline', and then has an XSS hole that lets a script be planted in the page. What happens?"
+  options={['The CSP blocks the planted script, because a CSP is present', 'The planted script runs, because unsafe-inline allows every inline script whoever wrote it', 'The script is blocked if there is a nonce in the header']}
+  answer={1}
+  why="The exercise models the rule of CSP. With a nonce, a planted script without it is blocked, but with unsafe-inline and no nonce the planted script runs again. A policy that adds unsafe-inline so an old site keeps running gives up most of what a CSP is worth. This result comes from a model of the rule, not a real browser."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Why must the nonce change in every response?"
+  options={['To make the response smaller', 'Because if it stayed the same, an attacker who saw the value on an old page could put it on a planted script. A value that cannot be guessed for each response makes it useless to him', 'Because a browser allows a nonce to be used only once a day']}
+  answer={1}
+  why="A nonce works because it is a secret for that one response. The exercise tests that a nonce the attacker guesses, or an old value from another page, does not pass, and that a nonce from token_urlsafe(16) is 22 characters (128 bits), which is hard to guess."
+/>
+
+</Step>

@@ -1,0 +1,154 @@
+---
+title: How a defender thinks
+summary: A small online shop with three functions that let anyone read another person's order, set their own price and ask for unlimited work. From these three we meet Confidentiality, Integrity and Availability, and learn to look at where a request passes and what can be attacked there.
+facts:
+  - "Run in exercises/01_mindset.py: the three shop functions (read an order, work out the price, search), asserted both before and after the fix."
+  - "CIA and STRIDE come from API Security in Action section 1.4.2 page 14 and chapter 1 page 18. The note on weak spots in an architecture comes from Web Application Security chapter 7 page 99."
+  - "Matching each attack to a stop on the path of a request is the author's own grouping, not the book's."
+order: 1
+phase: A
+level: 1
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import RequestPathLab from '../../../../components/labs/app-security/RequestPathLab';
+
+<Step>
+
+## A shop that believes everything the customer sends
+
+Mr. A opens a small online shop over a weekend. He writes all the code himself and is sure nobody will care about such a small shop. Let us look at what he wrote. The shop sells a `pen` for 20, a `book` for 150 and a `bag` for 900, and has two orders: order 1 belongs to Ann and order 2 belongs to Bob, who bought the bag.
+
+The first function reads an order by the number it is given (run: `exercises/01_mindset.py`).
+
+```python
+def get_order_naive(order_id: int, who: str):
+    return ORDERS.get(order_id)
+
+leak = get_order_naive(2, "ann")     # ann asks for order 2
+# {'owner': 'bob', 'item': 'bag', 'qty': 1}
+```
+
+Ann logs in and asks for order 2, and the function hands it over, although the order is Bob's. The argument `who` is passed in and never used.
+
+The second function works out the price at checkout. Mr. A lets the browser send the price, "so we do not have to look it up again".
+
+```python
+def checkout_naive(cart):
+    return sum(line["price"] * line["qty"] for line in cart)
+
+checkout_naive([{"item": "bag", "qty": 1, "price": 1}])     # 1
+```
+
+The 900 baht bag is charged 1 baht, because the customer said so. The third function is the search, which takes a number `limit` from the URL and passes it straight to the database. If someone sends 10,000,000, the database does that much work (`search_naive(10_000_000)` returns 10,000,000).
+
+The three functions fail in different ways, but they share one cause: **they believe what the customer sent a little too much**. We will see that almost every flaw on this path comes from that same cause.
+
+</Step>
+
+<Step>
+
+## The three things to protect
+
+Look back at the three functions. Each one loses something different. The first lets Bob's data reach Ann. The second lets data that nobody should change (the price) be changed. The third could keep other customers out, because the database is busy with one person's job.
+
+The book API Security in Action calls these three the **CIA Triad** (book: API Security in Action section 1.4.2 page 14).
+
+| Letter | Name | Means | Mr. A's function |
+|---|---|---|---|
+| C | Confidentiality | information can be read only by the people who should read it | reading Bob's order |
+| I | Integrity | nobody creates, changes or deletes data without permission | setting the price |
+| A | Availability | legitimate users can get in when they need to | asking for 10,000,000 rows |
+
+The book adds that there are other goals too, such as accountability (knowing who did what) and non-repudiation (not being able to deny what you did). Still, the three above are the ones we ask about whenever we look at a flaw: what does it destroy?
+
+The fix is the same shape in all three cases: move the rule to the server. `get_order_checked` compares `order["owner"] == who`, `checkout_checked` looks the price up in `PRICES` and ignores the `price` that was sent, and `search_checked` caps `limit` at 100. What ran: Ann is refused, the bag is charged 900, and the request for 10,000,000 rows gets 100.
+
+</Step>
+
+<Step>
+
+## How many places does one request pass
+
+When a customer presses the order button, the request does not go straight to the database. It passes five stops: the browser, the network, the web server, the app code and then the database. Two of those hops cross from a place we do not control into our own system, and each crossing is called a **trust boundary**. The five stops and the two crossings are asserted in `01_mindset.py`.
+
+Pick the attacks in the lab below one at a time and press play. The red stop is where that attack lands. The bar at the bottom says what is lost (C, I or A) and which defence stops it. Notice that the attacks do not all sit at the same stop: SQL injection and IDOR happen in the app code, while XSS and CSRF happen on the browser side.
+
+<RequestPathLab client:visible lang="en" />
+
+Each attack in this lab has its own lesson on this path. Do not worry if some names are new: we will go through them one by one and run the real thing.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Mr. A's shop hides the 'delete user' button from anyone who is not an admin. Does a hidden button protect the data?"
+  options={['Yes, an ordinary user cannot see the button, so they cannot press it', 'No, a request can be sent straight to the endpoint without the button, so the permission must be checked on the server', 'Yes, if the button is hidden by complicated enough JavaScript']}
+  answer={1}
+  why="The button is part of the page, which is in the user's hands. Anyone can send a request to the endpoint with a tool such as curl, just as Ann changed the order number in her own request. A permission rule has to live on the server, where the user cannot edit it. We go into that in the lesson on access control."
+/>
+
+</Step>
+
+<Step>
+
+## Four questions before writing code (a threat model)
+
+Before we go through the flaws one by one, there is a way of thinking that works for any system, called **threat modelling**. You look at a diagram of the system and ask a few questions: what has value (the assets), who or what could harm it (the threats), how could they get in (the attack surface), and what do we have in the way (the defences). API Security in Action offers a way of sorting threats called **STRIDE**. It has six letters, and each one destroys something different (book: API Security in Action chapter 1 page 18).
+
+| Threat | What it destroys | In Mr. A's shop |
+|---|---|---|
+| Spoofing | authentication | someone pretends to be Ann |
+| Tampering | integrity | setting the price at checkout |
+| Repudiation | non-repudiation | deleting an order and saying it was not you, because there is no log |
+| Information disclosure | confidentiality | Ann reads Bob's order |
+| Denial of service | availability | asking for 10,000,000 rows |
+| Elevation of privilege | authorization | an ordinary user deletes another user |
+
+The exercise checks that the six really destroy six different things. The most useful habit is to put this table next to the diagram of five stops and ask, stop by stop, "can all six happen here?" You do not have to answer everything in one round. The aim is to see what we forgot to think about.
+
+<Callout type="note" title="Why start with a way of thinking and not a tool">
+
+Web Application Security says in chapter 7 that what separates a safe architecture from an unsafe one is often a simple signal you can see from outside: are there several layers of defence, or was the authentication system written from scratch although a tested one exists (book: Web Application Security chapter 7 page 99). So we spend this lesson on the way of looking, and meet the tools in the next one.
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A checkout function trusts the price sent by the browser, and an attacker sends price 1. Which of C, I and A does it hurt most?"
+  options={['C, because customer data leaks', 'I, because data that should not be changed (the price) is changed by someone with no right to', 'A, because the shop cannot be used']}
+  answer={1}
+  why="No one's data leaks and the shop stays open as usual. What is lost is the correctness of the data, because the price is something only the server should decide. In STRIDE this is tampering, and it is a loss of integrity."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The function that trusts `who` without checking the owner lets Ann read Bob's order, and the checked one refuses | ran: `exercises/01_mindset.py` |
+| Checkout that trusts the customer's `price` charges the 900 bag as 1, and the one that looks the price up charges 900 | ran: `exercises/01_mindset.py` |
+| `limit` 10,000,000 passes the first function in full and is capped at 100 in the fixed one | ran: `exercises/01_mindset.py` |
+| The path of a request has five stops and crosses two trust boundaries | ran: `exercises/01_mindset.py` (the author's model) |
+| STRIDE has six threats and each destroys something different | ran: `exercises/01_mindset.py` and book: API Security in Action chapter 1 page 18 |
+| The CIA Triad | book: API Security in Action section 1.4.2 page 14 |
+| Signals of a safe or unsafe architecture | book: Web Application Security chapter 7 page 99 |
+| Matching each attack to a stop on the path of a request in the lab | author |
+
+</Step>

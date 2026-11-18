@@ -1,0 +1,113 @@
+---
+title: Linkage attack
+summary: Take a medical table with the names removed and join it with a public voter list on zip, birth date and sex. We measure how many people it names correctly, then coarsen the birth date and the zip step by step to see how much each protection helps, and find that the attacker can be wrong too.
+facts:
+  - "Run in exercises/03_linkage.py: the medical table of 2,000 synthetic people joined with a synthetic voter list of 1,413 people names 1,409 correctly out of 1,410 rows that are left with one voter, and the result with the birth date coarsened to month and year and to year only, with a zip of 5, 3 and 2 digits (a grid of 15 cells)."
+  - "All data is synthetic. The voter list is made from the people in the table itself, so it is the highest ceiling of what the attacker can name (70.5%)."
+  - "The linkage attack cites Practical Data Privacy chapter 4 page 88 and the Netflix Prize on page 85. The Netflix data itself was not run."
+order: 3
+phase: A
+level: 2
+stage: sprout
+format: steps
+requires: [pseudonymization]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import LinkageLab from '../../../../components/labs/data-security/LinkageLab';
+
+<Step>
+
+## Two tables never meant to meet
+
+Mr. A's insurance company releases a table of treatment records to researchers with the names removed. What is left is zip, birth date, sex and diagnosis. In the same city there is a voter list that anyone can buy or ask to see, with the name, zip, birth date and sex of those who registered. The two tables were never designed to meet, yet they share three columns.
+
+Joining a released table with another table in order to identify people is called a **linkage attack**. The book Practical Data Privacy tells the famous example of the Netflix Prize, where researchers joined movie ratings with no names to public reviews and identified users (book: Practical Data Privacy chapter 4 page 85 and page 88). We did not run that example, but we do the same thing with our own synthetic data.
+
+Suppose the voter list covers 1,413 of the 2,000 people in our table (70.5%), built from the people in the table with a seeded random generator (run: `exercises/03_linkage.py`).
+
+</Step>
+
+<Step>
+
+## What the join gives
+
+The attacker does something simple. He groups the voters by (zip, birth date, sex) and sees how many voters match each row of the medical table. If exactly one matches, he guesses that the row is that person.
+
+```python
+voter_groups[(zip, birth, sex)].append(name)
+cands = voter_groups.get((p.zip, p.birth, p.sex), [])
+if len(cands) == 1:      # exactly one voter fits this row
+    named += 1
+```
+
+The result: the medical table without names has 1,410 rows left with one voter, and 1,409 of them are named correctly. That is 70.5% of the whole table, almost exactly the share of people on the voter list. So nearly everybody who could be named was named. Removing the names protected almost nobody in this group, and the attacker knows their diagnoses at once.
+
+One row is wrong. The attacker names a person, but the real owner of the row is not on the voter list and just happens to share zip, birth date and sex with a voter. This is worth remembering, because finding one match does not mean being right, and we will see the mistakes grow as the data gets coarser.
+
+</Step>
+
+<Step>
+
+## What happens when the birth date and the zip get coarser
+
+The first protection people think of is to keep the data coarser, for example only the month and year of birth, or only the first three digits of the zip. Pick different levels in the lab below. Every number is from the table the exercise computed. The picture has 100 squares and one square stands for 20 people.
+
+<LinkageLab client:visible lang="en" />
+
+What the exercise asserts: with the birth date reduced to month and year, 1,294 people (65%) are still named correctly. With only the year, 502 are still right, so the diagnosis of about one person in four is still tied to a name. With the year and a 3 digit zip, 273 are right, and with the year and a 2 digit zip nobody is named correctly, because every group holds several voters.
+
+One more thing to notice. Making the zip shorter alone helps very little while the full birth date is kept. A 2 digit zip still names 1,363 people correctly, because the birth date and the sex already tell people apart almost entirely. The protection that works is to make the value that tells people apart best coarser, not the value that is easiest for us to change.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A team cuts the zip from five digits to two to be safer, but keeps the full birth date. What does the exercise result say?"
+  options={['Much safer, with fewer than a hundred people named correctly', 'Hardly any different: 1,363 are still named correctly against 1,409 with a 5 digit zip, because the full birth date and the sex already tell nearly everyone apart', 'Worse, because a short zip is easier to guess']}
+  answer={1}
+  why="Coarsening has to be done on the column that tells people apart most, which in this table is the birth date. Only with the year and a 2 digit zip is nobody named correctly. The answer is not to reduce every column equally but to measure which column tells people apart, and deal with that one first."
+/>
+
+</Step>
+
+<Step>
+
+## The attacker can be wrong, and more so as the data gets coarse
+
+Compare two numbers the exercise counts. The first is the rows left with exactly one voter (where the attacker dares to name someone). The second is how many of those names are really right. With the full birth date and a 5 digit zip, the two are almost the same (1,410 and 1,409). But with only the birth year and a 5 digit zip, the attacker dares to name 711 rows and is right for 502, about 209 wrong.
+
+People who release data often say "the attacker cannot be sure", which is true when the data is coarse enough, but it is not a good excuse, because an attacker who is wrong for 30% is still right for the other 70% and learns their diagnoses. So the author does not suggest the rate at which the attacker is wrong as the only measure of safety. We should look at how many people are named correctly, and who they are.
+
+The book Practical Data Privacy puts another kind of attack in its own class, singling out. It does not need a name, only to point out that this row is the only one with a particular set of features, which we already saw in the last lesson when counting the people who are alone (book: Practical Data Privacy chapter 4 page 90).
+
+<Callout type="note" title="Our data is an easy case">
+
+Our voter list is built from the people in the table, so it covers the people to be identified completely. A real attacker may have a source that covers fewer of them, or more in some columns. The author did not test against real data sources, and did not try a source that holds wrong data.
+
+</Callout>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| 1,413 voters out of 2,000 (70.5%), the join leaves 1,410 rows with one voter, and 1,409 names are right | ran: `exercises/03_linkage.py` |
+| The wrong row is a person not on the voter list whose values match one voter | ran: `exercises/03_linkage.py` |
+| Birth date as month and year: 1,294 right; year only: 502; year and a 3 digit zip: 273; year and a 2 digit zip: 0 | ran: `exercises/03_linkage.py` |
+| A 2 digit zip with the full birth date still names 1,363 correctly | ran: `exercises/03_linkage.py` |
+| Birth year and a 5 digit zip: the attacker dares to name 711 rows and is right for 502 | ran: `exercises/03_linkage.py` |
+| Linkage attacks, the Netflix Prize example and singling out | book: Practical Data Privacy chapter 4 pages 85, 88 and 90 (the Netflix example was not run) |
+| The opinion that the rate at which the attacker is wrong should not be the only measure | author |
+| Real public data sources that cover only part of the people or hold wrong data | not run |
+
+</Step>

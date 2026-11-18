@@ -1,0 +1,133 @@
+---
+title: Dependencies and secrets
+summary: Our code has not changed, yet today's build is not yesterday's, because dependencies move within the range we asked for, and a file that is downloaded can be swapped. We see how a lock file with a hash catches that, how a package name that looks like the real one fools us, and how a key that was committed and then deleted is still in the history. Then we write a scanner that looks for secrets by their shape and by how random they are.
+facts:
+  - "Run in exercises/11_supply_chain_secrets.py: version picking with ^ and ~, a hash that catches a file with one line added, a toy package, a throwaway Git repository holding a sample key (git show, git log -S), and a scanner written for the lesson."
+  - "Everything is a toy. Nothing was downloaded from a real registry, and the key is a sample value of the shape AKIA...EXAMPLE, not a real one. Rewriting history (git filter-repo) was not run."
+  - "The book is Web Application Security chapters 15 and 27."
+order: 11
+phase: D
+level: 2
+stage: sprout
+format: steps
+requires: [access-control]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import DependencyLab from '../../../../components/labs/app-security/DependencyLab';
+import SecretGitLab from '../../../../components/labs/app-security/SecretGitLab';
+
+<Step>
+
+## A build that changes though nobody touched the code
+
+Mr. A's app uses a library called `shop-utils`. In the file of dependencies he wrote `^1.2.0`, which means "the newest 1.x from 1.2.0 up, but below 2.0.0". The other form is `~1.2.0`, meaning "the newest 1.2.x". Suppose the registry holds versions 1.2.0, 1.2.3, 1.3.0, 1.9.9 and 2.0.0 (run: `exercises/11_supply_chain_secrets.py`). `^1.2.0` gets 1.9.9 and `~1.2.0` gets 1.2.3.
+
+A week later the maintainer releases 1.9.10. `^1.2.0` installs 1.9.10 by itself, with Mr. A changing nothing. The exercise confirms that the same line gives different results a week apart. That is the point: **a build with no lock is not the same build twice**. It is a problem when the new library has a bug, or when somebody with bad intentions slipped code into it.
+
+Change how the dependency is asked for in the lab below, one option at a time, then press next week. See that the installed version moves with `^`, but stays put with `==1.2.3` or with a lock file.
+
+<DependencyLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## A lock file with a hash
+
+Locking the version fixes the case where the version moves by itself, but the file of that same version can be swapped, for example when a maintainer's account is taken over and somebody uploads over it. This is where the **hash** comes in. A lock file keeps the SHA-256 of the file we have checked, and the installer compares it every time.
+
+The exercise makes a one line toy package and records its SHA-256. A file that is the same matches the lock. A file with one line of harmful code added (`import os; os.system(...)`) does not match, and the installer stops. In the lab, switch the lock file on and choose "swapped": the install cannot succeed. But with the lock file off, the swapped file is installed and nobody knows (book: Web Application Security chapter 27 page 278 on secure package management).
+
+A hash catches only a change to a file we have already checked. If the file we checked at the start held bad code already, a hash cannot say so. That is a matter of assessing a dependency when we choose it, and the book Web Application Security discusses assessing the tree of dependencies and CVEs as well (book: Web Application Security chapter 15 page 180).
+
+</Step>
+
+<Step>
+
+## A name that looks like the real one
+
+Another thing attackers do is name a package so that it looks like a popular one, for example `reqeusts` instead of `requests`. Someone who makes one typo installs theirs. The exercise writes a function that measures the edit distance between names, against a list of five popular packages. The result: `reqeusts`, `numpyy` and `pydantlc` are no more than two letters away from the real names, while `flask`, which is unrelated to the list, and `requests`, which is the real name, are not flagged.
+
+This only warns when a new name arrives. It is not a tool that catches every case, for example names that use look-alike letters from another alphabet, or packages whose names differ a lot but act as though they were the real thing. The exercise does not cover those.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A team has pinned every dependency to an exact version, but does not use hashes. A maintainer's account is taken over and somebody uploads a new file over the same version. What happens?"
+  options={['Safe, because the version has not changed', 'Not safe, because the version is the same but the file is different, and the installer has nothing to compare. A hash in the lock file is needed', 'Safe if ^ is used instead of ==']}
+  answer={1}
+  why="A version is only a label the maintainer writes. A hash is tied to the contents of the file. In the exercise the file with one line added has a SHA-256 different from the locked one, so the installer stops, while the version is exactly the same."
+/>
+
+</Step>
+
+<Step>
+
+## A key that is deleted and still there
+
+Mr. A commits `config.py` by mistake, with a cloud key in it. When he notices, he changes the file to take the value from the environment and commits again. He thinks that is the end of it (run: `exercises/11_supply_chain_secrets.py` in a throwaway repository, where the key is a sample value of the shape `AKIAIOSFODNN7EXAMPLE`).
+
+The exercise checks three things. First, the file in the folder no longer has the key. Second, `git show <first commit>:config.py` still shows the whole key, and anyone who cloned the repository has that commit too. And last, `git log -S<key>` says that the commit named `add config` added it. Step through it in the lab below.
+
+<SecretGitLab client:visible lang="en" />
+
+What really works is to **revoke the key** at the provider and issue a new one. Rewriting history keeps new clones from seeing it, but whoever cloned it already, and any copy that was backed up elsewhere, still has it (rewriting history was not run in this lesson).
+
+</Step>
+
+<Step>
+
+## A scanner for secrets
+
+So teams often add a scanner that checks every commit before a push. The exercise writes a small one with two methods. The **shape** is a regex that matches the keys providers issue, for example `AKIA` followed by sixteen capital letters or digits, and the `-----BEGIN ... PRIVATE KEY-----` block. The **randomness** is the entropy per character: a long string that has more than 4.0 bits per character, and is not all letters, looks suspicious.
+
+On three sample lines the scanner finds two things: a key of the AWS shape and the random string `x7Kp9Qv2...`. The ordinary long name `a_perfectly_ordinary_long_name_here` is not caught, because its entropy is about 3.8, below the line, while the random 32 character string has about 5.0 bits per character. These numbers are printed by the exercise.
+
+Real scanners have far more patterns than this, and they are wrong in both directions: they miss a key that has changed shape, and flag a random value that is not a secret. A scanner helps, but it does not replace never keeping secrets in code in the first place. It is better to pass values through the environment or a secret store.
+
+<Callout type="note" title="What was not run">
+
+Rewriting history (`git filter-repo`), scanners used in real work, secret stores such as Vault, and checking the CVEs of dependencies that are really installed are not part of this lesson's exercise.
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We pushed a cloud key to a public repository by mistake and removed the file in the next commit a few minutes later. What should we do first?"
+  options={['Nothing, because the file is deleted', 'Revoke that key at the provider at once and issue a new one, because the old commit is still there and may already have been copied', 'Delete the repository and make a new one, which is enough']}
+  answer={1}
+  why="What the exercise shows is that history keeps every commit, and git show and git log -S still find the key in the past. Anyone who cloned it, or a bot that scans public repositories, may already have it. Revoking is the only thing that makes the old value useless. Deleting the repository does not delete copies elsewhere."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| `^1.2.0` gets 1.9.9, `~1.2.0` gets 1.2.3, and a week later `^1.2.0` gets 1.9.10 | ran: `exercises/11_supply_chain_secrets.py` |
+| A hash in the lock file catches a file with one line added | ran: `exercises/11_supply_chain_secrets.py` |
+| Secure package management | book: Web Application Security chapter 27 page 278 |
+| Assessing dependencies and the CVE database | book: Web Application Security chapter 15 page 180 |
+| `reqeusts`, `numpyy` and `pydantlc` are within two letters of popular names | ran: `exercises/11_supply_chain_secrets.py` |
+| After a file is deleted the key is still in the first commit, and `git log -S` finds the commit that added it | ran: `exercises/11_supply_chain_secrets.py` (real Git, throwaway repository) |
+| The scanner finds an AWS shaped key and a random string, and does not flag an ordinary long name (entropy 5.0 against 3.79) | ran: `exercises/11_supply_chain_secrets.py` |
+| A key must be revoked when it leaks | author |
+| Rewriting history, Vault, real scanners and the CVEs of installed dependencies | not run |
+
+</Step>

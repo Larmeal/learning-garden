@@ -1,0 +1,139 @@
+---
+title: Differential privacy
+summary: Instead of releasing a table that is coarse enough, we release only the answers to questions, with Laplace noise mixed in, and we can show that whether or not Ann is in the table, the chance of getting any one answer differs by at most e to the power epsilon. We measure both the privacy and the price, which is error, and then look at randomized response, in which each person adds the noise themselves.
+facts:
+  - "Run in exercises/05_dp_basics.py: the ratio of Laplace densities between tables that differ by one person is checked to be at most e to the power epsilon at epsilon 0.1, 0.5, 1 and 2, the overlap of the two curves (60.7% at epsilon 1), the average error over 50,000 answers, the sensitivity of a mean against the size of the group, and randomized response."
+  - "The noise is made with a seeded random.Random by an inverse CDF transform written in the exercise, not by a production differential privacy library such as OpenDP, which was not run."
+  - "The definition and the Laplace mechanism cite Hands-On Differential Privacy chapter 2 and Practical Data Privacy chapter 2, with the printed pages."
+order: 5
+phase: B
+level: 3
+stage: sprout
+format: steps
+requires: [k-anonymity]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import LaplaceLab from '../../../../components/labs/data-security/LaplaceLab';
+
+<Step>
+
+## One number can leak
+
+Mr. A's team wants to publish the number of customers with the diagnosis HIV in our table, which counts 351 out of 2,000. One number, no rows at all (run: `exercises/05_dp_basics.py`). It looks as safe as anything could be.
+
+Picture an attacker who knows the diagnosis of everybody in the table except Ann, and wants to know whether Ann has it. If he counts 350 among the others and the published number is 351, he knows that Ann does. One true number is enough when the attacker already knows nearly everything. We call two tables that differ by exactly one person **neighbouring tables**.
+
+The way out, **differential privacy**, is to make the answers of two neighbouring tables impossible to tell apart, by adding random noise before the release, so that an attacker who sees 351 does not know whether it came from a true 351 or from a 350 that got noise to make it 351 (book: Hands-On Differential Privacy chapter 2 pages 26 to 29, and Practical Data Privacy chapter 2 page 30).
+
+</Step>
+
+<Step>
+
+## Laplace noise, and a definition that can be checked
+
+The answer released is the true value plus a random number from the **Laplace** distribution whose width (scale) is the sensitivity divided by epsilon.
+
+```python
+def laplace(rnd, scale):
+    u = rnd.random() - 0.5
+    return -scale * math.copysign(1, u) * math.log(1 - 2 * abs(u))
+
+answer = 351 + laplace(rnd, 1 / epsilon)       # a count has sensitivity 1
+```
+
+Sensitivity is the most that the answer can change when one person is added or removed. For a count it is 1, because one person changes the count by at most 1 (book: Practical Data Privacy chapter 2 page 43). Epsilon is a number we choose: the smaller it is, the more private. The function makes the random number from a uniform number with a transform formula.
+
+The definition says that a mechanism is **epsilon-DP** if, for every pair of neighbouring tables and for every possible answer, the probability of that answer from one table differs from the other by at most e to the power epsilon (book: Hands-On Differential Privacy chapter 2 pages 29 and 38). We do not rest on the book alone. The exercise works out the ratio of the densities of the two tables, 351 and 350, at every point from 330.0 to 369.9, which covers below, between and above the two true values. The result is that the worst ratio equals e to the power epsilon exactly: 1.105 at epsilon 0.1, 1.649 at 0.5, 2.718 at 1 and 7.389 at 2. The figure is not only never exceeded, it is reached at the points outside the stretch between the two values.
+
+Look at the picture in the lab below. Choose an epsilon and press play to watch noisy answers fall onto the axis one at a time. The solid curve is the possible answers when Ann is in the table, and the dashed one when she is not. The smaller the epsilon, the more the two curves overlap, and the less an answer says about Ann.
+
+<LaplaceLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## The price is error
+
+The overlap of the two curves measures how hard it is to tell the two worlds apart. The exercise works it out by adding up the smaller of the two densities at each point. At epsilon 1 they overlap by 60.7% (which is e to the power minus 0.5), at 0.1 by 95%, and at 2 only 36.8% is left. An attacker who sees one answer and has to guess which world it came from can hardly guess at epsilon 0.1.
+
+But the noise that protects Ann also makes the number drift. The average error of an answer equals the scale exactly. The exercise measures it over 50,000 answers per epsilon: 99.8 at epsilon 0.01, 10.0 at 0.1, 2.0 at 0.5, 1.0 at 1 and 0.2 at 5. Ten times more privacy (epsilon divided by ten) means ten times more error. For the count of 351 people, the error is only 0.3% at epsilon 1 but 28% at epsilon 0.01.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A team picks epsilon 0.01 to be as private as possible, and publishes the number of patients in a group of 351. What is the result?"
+  options={['Very safe, and the number is still accurate', 'Very safe, but the average error is about 100 people, or 28% of the true value, so the number is hardly usable', 'Not safe, because epsilon is too small']}
+  answer={1}
+  why="The scale is 1 divided by epsilon, which at 0.01 is 100, and the exercise measures 99.8 on average. Privacy and accuracy trade against each other. No epsilon gives both for free. Whoever releases the data has to choose by the size of the group and the risk of a leak."
+/>
+
+</Step>
+
+<Step>
+
+## A mean needs a clip, and small groups hurt more
+
+A count has sensitivity 1 every time, but a mean salary does not. If values are not limited, one person with a salary of 10 million moves the mean of 2,000 people by about 5,000, which the exercise works out. The sensitivity then has no bound. The fix is to **clip** the values into a range set in advance (in the exercise 20,000 to 80,000), and then the sensitivity of the mean of n people is (80,000 minus 20,000) divided by n.
+
+What is asserted: for 2,000 people the sensitivity is 30, for 200 people 300, and for 20 people 3,000. A group of 20 people therefore gets noise 100 times larger than a group of 2,000. Against a mean of about 45,000 that is 6.7% against 0.07%. This is why differential privacy protects large groups well, while small groups, which are the most at risk, get the most noise.
+
+</Step>
+
+<Step>
+
+## Randomized response: each person adds the noise
+
+Everything so far assumed that somebody we trust holds the whole true table and adds noise before the release. If we trust nobody, each person adds noise before sending their answer. The simplest way is called **randomized response**. In the exercise each person flips a coin. If it is heads (probability 0.75) they answer truthfully. If tails, they flip again and answer with the result (book: Hands-On Differential Privacy chapter 2 page 30).
+
+A "yes" therefore comes from a person who really has it with probability 0.875, and from one who does not with 0.125. The ratio is 7, which makes epsilon ln 7, or 1.946. The collector who sees one person's "yes" does not know whether it is true. But adding up the answers of 2,000 people and subtracting the coin gives an estimate of the share, 0.1687 against the true 0.1755, which the exercise checks is within 3 percentage points.
+
+The price is accuracy. At the same epsilon, adding noise centrally gives an error under 1 person, while having each person add their own gives about 26, roughly 50 times more (the square root of 2,000 as the table grows). That is the price of not trusting the collector. The book Practical Data Privacy discusses collecting data this way through the examples of Apple and Chrome (book: Practical Data Privacy chapter 3 pages 74 to 77), which we did not run.
+
+<Callout type="note" title="What is not done yet">
+
+The exercise makes noise with code written for the lesson. That is good for learning but not code for real use, because floating point numbers make noise made in a simple way leak. Libraries such as OpenDP, which Hands-On Differential Privacy uses, handle this. The author did not run that library.
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Why does differential privacy give larger noise to a small group than to a large one, at the same epsilon?"
+  options={['Because small groups matter more', 'Because one person changes the mean of a small group by more, so the sensitivity is higher and the noise must be larger to hide that person', 'Because small groups have fewer hashes']}
+  answer={1}
+  why="The sensitivity of a mean of n people is (the clipped range) divided by n. The exercise works out 3,000 for 20 people against 30 for 2,000, a hundred times apart. The noise has to be large enough to hide the greatest change that one person can make, so a small group needs more."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The count of HIV in the synthetic table is 351 | ran: `exercises/05_dp_basics.py` |
+| The ratio of densities between neighbouring tables is at most e to the power epsilon and reaches it (1.105, 1.649, 2.718, 7.389) | ran: `exercises/05_dp_basics.py` |
+| The overlap of the two curves is e to the power minus epsilon/2 (60.7% at epsilon 1, 95% at 0.1) | ran: `exercises/05_dp_basics.py` |
+| The average error is 1/epsilon (99.8, 10.0, 2.0, 1.0, 0.2) | ran: `exercises/05_dp_basics.py` |
+| The sensitivity of a mean is 30, 300 and 3,000 for 2,000, 200 and 20 people, and unbounded without a clip | ran: `exercises/05_dp_basics.py` |
+| Randomized response with a 0.75 coin gives epsilon ln 7, an estimate of 0.1687 against 0.1755, and an error of about 26 against under 1 | ran: `exercises/05_dp_basics.py` |
+| The definition of differential privacy, the Laplace mechanism, randomized response | book: Hands-On Differential Privacy chapter 2 pages 26 to 30 and 37 to 38 |
+| Sensitivity and the meaning of epsilon | book: Practical Data Privacy chapter 2 pages 30 to 31 and 43 |
+| The local data collection of Apple and Chrome | book: Practical Data Privacy chapter 3 pages 74 to 77 (not run) |
+| OpenDP, and noise that is safe from floating point problems | not run |
+
+</Step>

@@ -1,0 +1,184 @@
+---
+title: The building blocks, hash, HMAC, encryption and signatures
+summary: A transfer message that gets changed on the way introduces the four tools that everything after this uses, hash, HMAC, AES-GCM and signatures. Each makes a different promise, and we run the real thing to see what each one stops.
+facts:
+  - "Run in exercises/02_crypto_basics.py (Python 3.14 with cryptography 47.0.0), asserting the SHA-256 values, the 133 differing bits, and the results of HMAC, AES-GCM and Ed25519 both normally and after a change."
+  - "The SHA-256 used by the labs is written in TypeScript and checked against the exercise numbers and against Node in verify_labs.mts."
+  - "The explanations of MACs and authenticated encryption cite the book API Security in Action."
+order: 2
+phase: A
+level: 1
+stage: sprout
+format: steps
+requires: [mindset]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import HashLab from '../../../../components/labs/app-security/HashLab';
+import CryptoToolboxLab from '../../../../components/labs/app-security/CryptoToolboxLab';
+
+<Step>
+
+## A transfer message changed on the way
+
+Alice sends the bank the message `pay bob 100`. On the way, Mallory changes the last number and it becomes `pay bob 900`. If the bank has no way to check, it pays what it sees. What we need is a way for the bank to know that the message was changed.
+
+The first tool people think of is a **hash**, a function that takes a message of any length and returns a short value of fixed size. Here is SHA-256 on the two messages (run: `exercises/02_crypto_basics.py`).
+
+```text
+sha256('pay bob 100')  aa843d8373c66e261809019ea8bc71ba2e951e1c378b4bf570e34679efac5f16
+sha256('pay bob 900')  70ef8a2487a6d4838ab93b2842806ccf0b89cf56b209312e0761632e4899ea20
+```
+
+The messages differ by one character, a 1 against a 9, yet the two values look like they have nothing to do with each other. Counting the bits that differ out of 256 gives 133, almost exactly half. And whatever the length of the message (we also tried ten thousand `x`), the result is 32 bytes, or 64 hex characters, every time.
+
+</Step>
+
+<Step>
+
+## Change the message yourself and watch the bits move
+
+The lab below computes a real SHA-256 in the browser as you type. The first two grids are the 256 bits of text A and text B, and the third lights up only the bits that differ. Press the button that changes the last letter of B several times, and notice that the third grid looks different each time, while the count stays near 128. Then press "Make B equal to A" and see that no bit differs at all.
+
+<HashLab client:visible lang="en" />
+
+What we see are two properties of a good hash. First, the same message always gives the same value, so we can compare. Second, a tiny change gives a very different value, so we notice a change at once.
+
+</Step>
+
+<Step>
+
+## A hash is not a lock
+
+Now suppose we store a bank's four digit PIN as a SHA-256 instead of storing the PIN itself. Is that safe? The hash function really cannot be run backwards, but a four digit PIN has only 10,000 possibilities, so we try them all and compare the hash.
+
+```python
+target = hashlib.sha256(b"7351").hexdigest()
+for n in range(10_000):
+    if hashlib.sha256(f"{n:04d}".encode()).hexdigest() == target:
+        break
+# found on the 7,352nd try
+```
+
+The code tries the numbers from `0000` upward, hashes each and compares it with the stored value. What ran: the PIN was found on the 7,352nd try, and it could never take more than 10,000, which a computer does in a fraction of a second.
+
+The lesson is that a hash does not hide anything. It only cannot be reversed directly. If there are only a few possible inputs, guessing is quick. We come back to this in the [lesson on storing passwords](/en/app-security/passwords/).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Mallory changes the message to pay bob 900 and attaches the SHA-256 of the new message herself. The bank checks the hash that came with the message. What happens?"
+  options={['The bank knows it was changed, because a hash cannot be faked', 'The bank does not know, because Mallory can hash her own message just as Alice can', 'The bank knows, because the new hash is longer than the old one']}
+  answer={1}
+  why="A hash needs no key, so anyone can compute it. Mallory builds a matching pair of message and hash herself. The bank checks it, everything matches, and it sees no change. A plain hash helps with integrity only when the hash itself travels over a safe channel. The length of a hash is always the same."
+/>
+
+</Step>
+
+<Step>
+
+## HMAC: a hash that needs a key
+
+The problem with a plain hash is that anyone can make one. HMAC mixes a **secret key** into the calculation, so nobody without the key can make a correct tag. The book API Security in Action explains that a message authentication code (MAC) is an algorithm that computes a tag from a message and a secret key, so we can check both that the message was not changed and that it came from someone with the key (book: API Security in Action chapter 5 page 172).
+
+```python
+key = b"k" * 32
+tag = hmac.new(key, b"pay bob 100", hashlib.sha256).hexdigest()
+# e1b2db255689e506cbd5cbe3fd1fb6c4fb1537236abfcea5000d11586eb05104
+```
+
+What the exercise asserts: the same key and message give the same tag, another key gives another tag, a changed message gives another tag, and this tag is not the plain SHA-256 of the same message. So somebody without the key cannot guess the tag. To compare tags we use `hmac.compare_digest` and not `==`, so that the time taken does not reveal how many characters matched.
+
+The limit is that sender and receiver must hold the same key. It suits two sides that already trust each other, such as our own servers.
+
+</Step>
+
+<Step>
+
+## AES-GCM: hide the message and catch changes in one step
+
+HMAC tells us a message was changed, but the message is still readable. To hide it as well we use **encryption**. AES-GCM encrypts and checks for changes in a single step, which is called authenticated encryption (book: API Security in Action section 6.3.1 page 197).
+
+```python
+aes = AESGCM(key32)
+box = aes.encrypt(nonce12, b"card 4111 1111 1111 1111", b"order-17")
+# the ciphertext is 24 + 16 bytes (message + tag)
+```
+
+The exercise asserts four things. First, the ciphertext is as long as the message plus the 16 bytes of tag. Second, with the right key, nonce and label (here `order-17`) it decrypts to the original. Third, flipping a single bit of the ciphertext makes decryption fail with `InvalidTag` instead of returning wrong text. Fourth, using the same ciphertext under another label (`order-18`) is refused as well, which stops anyone from pasting a valid block into the wrong place.
+
+<Callout type="warn" title="Never reuse a nonce with the same key">
+
+A nonce is a number that must be new for each message encrypted with one key. The exercise checks that the same nonce, key and message give exactly the same ciphertext, which tells an outsider that the message repeated. The book warns that reusing a nonce can break the security of AES-GCM (book: API Security in Action page 202). We did not run that break, so this statement comes from the book alone.
+
+</Callout>
+
+</Step>
+
+<Step>
+
+## Signature: anyone can check, only one can sign
+
+HMAC and AES-GCM both need a shared key. What if we want anyone to be able to check that a message really came from us, for example when we announce a new version of a program? We use a **signature**, which has two keys: a private key that signs, and a public key that checks.
+
+```python
+private = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+sig = private.sign(b"release 1.4.2")       # 64 bytes
+private.public_key().verify(sig, b"release 1.4.2")   # passes
+private.public_key().verify(sig, b"release 1.4.3")   # InvalidSignature
+```
+
+An Ed25519 signature is 64 bytes long. Checking it with the public key against the real message passes, and if the message is changed even by one digit it does not. Because the public key can be shown to anyone, anyone can check without holding a secret, yet nobody can sign for us. We will meet these again in TLS and JWT.
+
+</Step>
+
+<Step>
+
+## All four side by side
+
+In the lab below, pick a tool and what Mallory does, one pair at a time (twelve cells), and see which cells are ✓ and which are ✗. Notice that the plain hash row is ✗ all the way across, and that only AES-GCM hides the message.
+
+<CryptoToolboxLab client:visible lang="en" />
+
+A ✗ does not mean the tool is broken. It means the tool never promised that, so we have to pick the one that fits what we need. To know that something was changed, use HMAC or a signature. To keep it secret, use AES-GCM. And if we want both, AES-GCM gives both.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A website keeps a customer's order history in a cookie. The customer may read it but must not be able to change it. Which tool fits best?"
+  options={['A SHA-256 of the message attached to the cookie', 'An HMAC using a key that only the server has', 'AES-GCM, because encrypting is the safest']}
+  answer={1}
+  why="The customer may read it already, so there is nothing to encrypt, but we must notice a change. An HMAC with the server's key makes a tag the customer cannot forge. SHA-256 alone fails because the customer can recompute it. AES-GCM would work, but it hides what does not need hiding and adds a nonce to manage."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| SHA-256 of `pay bob 100` and `pay bob 900`, and the 133 differing bits | ran: `exercises/02_crypto_basics.py` and `verify_labs.mts` |
+| A hash is always 32 bytes | ran: `exercises/02_crypto_basics.py` |
+| A four digit PIN stored as SHA-256 is found in 7,352 tries | ran: `exercises/02_crypto_basics.py` |
+| HMAC needs the key, and changing the message changes the tag | ran: `exercises/02_crypto_basics.py` |
+| A MAC is a value computed from a message and a secret key | book: API Security in Action chapter 5 page 172 |
+| AES-GCM catches a flipped bit with `InvalidTag` and refuses a different label | ran: `exercises/02_crypto_basics.py` |
+| Authenticated encryption | book: API Security in Action section 6.3.1 page 197 |
+| Reusing a nonce breaks AES-GCM | book: API Security in Action page 202 (not run, only the repeated ciphertext was) |
+| An Ed25519 signature is 64 bytes and fails when the message changes | ran: `exercises/02_crypto_basics.py` |
+| The twelve cells of the lab | ran (the wire values and the checks) and author (the arrangement as a table) |
+
+</Step>

@@ -1,0 +1,132 @@
+---
+title: Tokens and JWT
+summary: A pass that carries its own signature means the server remembers nothing, but if the verifier believes what the token says about itself, an attacker can change the payload or write alg as none. We build a JWT by hand, run three real attacks, and see how a careful verifier stops them.
+facts:
+  - "Run in exercises/06_jwt.py with a JWT written by hand in jwtlib.py (HS256) and a 2048 bit RSA key from cryptography 47.0.0: the structure of a token, editing the payload, alg none, algorithm confusion (the public key used as an HMAC secret), the exp/aud/iss checks, a guessable secret, and revocation."
+  - "The token in the lab is signed in TypeScript in the browser, and verify_jwt.mts checks that it equals Python's token byte for byte."
+  - "The book is API Security in Action chapters 5 and 6. The alg none and algorithm confusion attacks were not checked against the book, only against what ran."
+order: 6
+phase: B
+level: 3
+stage: sprout
+format: steps
+requires: [sessions-csrf]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import JwtLab from '../../../../components/labs/app-security/JwtLab';
+
+<Step>
+
+## A pass that needs no table to check it against
+
+The session cookie of the last lesson needs the server to keep a table of which id is which person. If a hundred servers must share one table, or if the client is a mobile app with no cookies, that starts to be awkward. The other idea is for the server to sign a pass that carries the facts inside it: "the holder is Ann, role user, expires in 15 minutes". Then we check only the signature, and no table is opened. That is a **JWT (JSON Web Token)** (book: API Security in Action chapter 6 page 181).
+
+We build it by hand with a few lines in `jwtlib.py` so that every part is visible. The output of `exercises/06_jwt.py` looks like this.
+
+```text
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhbm4i...(middle cut).fGWuPPx8hhpc8xR-j366npMM-StFwDk3DAWq-6NYVeM
+```
+
+It is three parts separated by dots (asserted: two dots and no `=` sign). The first is the header, which names the algorithm. The second is the payload (the claims) that the server wrote. The last is an HMAC-SHA256 signature of 32 bytes, computed from the first two parts and the server's secret.
+
+The point people often get wrong is that the payload is **not encrypted**. Anyone who has the token can read it with no key at all (the exercise asserts that). What the signature gives is that it cannot be changed, not that it is hidden. Do not put secrets in a payload.
+
+</Step>
+
+<Step>
+
+## Try changing a token yourself
+
+In the lab below, start from the default (role user, the old signature, a careful verifier). The server accepts the token. Now change the role to admin while keeping the old signature, and see that the signature the server computes does not match the one in the token, so it is refused as a bad signature, which is exactly what the exercise proved. Then choose "signed fresh with the secret" to see that with the real key you can sign admin, which means the secrecy of the secret is the whole of the security here.
+
+<JwtLab client:visible lang="en" />
+
+When you have tried that, switch the verifier to "trusting the token" and choose the signature "none (alg: none)". This verifier accepts a token with no signature at all, only because the token's own header says `alg` is `none`. This is the classic JWT flaw, where the verifier **believes what the token says about how to check the token**. The exercise confirms that the trusting verifier accepts a token with role admin and no signature, while the careful verifier, which has its own list of algorithms saying only `HS256` is allowed, refuses it with the message that `none` is not allowed.
+
+</Step>
+
+<Step>
+
+## Algorithm confusion: using the public key as the secret
+
+A trickier flaw appears in systems that use two key signatures (RS256). The server signs with a private key and anyone can check with the public key, which can be shown to everybody. If the verifier believes the `alg` in the token, the attacker writes `HS256` in the header and signs his own token with the **public key as the HMAC secret**. A verifier that uses the public key as "the key" as before, but turns to HMAC, accepts it, because both sides use the same bytes.
+
+The exercise makes a 2048 bit RSA key and uses the public key (which is just the text `-----BEGIN PUBLIC KEY-----` that the attacker already has) as the secret to sign a forged token with role admin. The trusting verifier accepts it, but the careful verifier, which allows only `RS256`, refuses it with the message that `HS256` is not on the list. A correct RS256 signature is 256 bytes (a 2048 bit key) and is checked with the public key alone.
+
+Both cases are fixed by one rule: **the server chooses the algorithm, not the token**. We did not check alg none and algorithm confusion against the book. This conclusion comes from running the exercise.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A team's JWT verifier reads alg from the token's header and checks the token the way it says. What can an attacker do?"
+  options={['Nothing, because the signature still has to be right', 'Send a token with alg none and no signature, or change the algorithm to match a key he knows, such as the public key', 'He can only read the payload']}
+  answer={1}
+  why="If the algorithm comes from the token, the attacker chooses how his own token is checked. The exercise runs two cases: alg none (the trusting verifier skips the signature check) and HS256 with the public key as the secret. The careful verifier, with its own list of algorithms, refuses both."
+/>
+
+</Step>
+
+<Step>
+
+## A right signature is not enough, and the secret must not be guessable
+
+A right signature says only that our server issued the token. It does not say that the token is good now, for this API. So the careful verifier in the exercise checks three claims after the signature. First, `exp` must not have passed. Second, `aud` (the audience) must be this API. And third, `iss` (the issuer) must be one we trust. What ran: a token with a right signature that has expired gives `token expired`, one for the wrong audience gives `wrong audience`, and one from the wrong issuer gives `wrong issuer` (book: API Security in Action page 187 for the standard claims).
+
+Another matter is the HMAC secret. If it is easy to guess, it is no better than a guessable password. The exercise tried a short list of six words against a token signed with `secret` and found it on the fourth guess, while our long random secret is not on that list. We should use a random secret of at least 32 bytes.
+
+</Step>
+
+<Step>
+
+## A signed token cannot be taken back
+
+The weakness of remembering nothing is that once the server has issued a token it cannot call it back before it expires. The user can log out and a stolen token still works. The exercise checks that at 800 seconds (before the expiry at 900) the token still passes.
+
+If revoking is really needed, we keep a list of revoked tokens and check it on every request. The exercise proves that this works, but it costs a place to hold state, which is the very thing we wanted to avoid (book: API Security in Action section 6.5 page 209). The popular way is a short life. The exercise uses 900 seconds (`exp - iat`) to limit how long a leaked token is worth anything.
+
+<Callout type="note" title="JWT is not the only answer">
+
+A session cookie that holds an id on the server can be revoked at once, while a JWT lets many servers check without talking to a central store. Choose by what you need. The author's view is that an ordinary web app with a single backend does not need to move to JWT just because it looks modern (an opinion, not measured).
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A user logs out, but the JWT issued 5 minutes ago lives for 15 minutes, and the server has no revocation list. If that token had been stolen earlier, what happens?"
+  options={['The token stops working at once, because the user logged out', 'The token still passes for about 10 more minutes, because the server remembers nothing and checks only the signature and exp', "The token is removed automatically from the thief's computer"]}
+  answer={1}
+  why="The signature is still right and exp has not been reached, so the server has nothing to refuse. The exercise confirms that at 800 seconds the token still passes after we imagine the user logging out. The fix is a short life or a revocation list, which costs keeping state."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A JWT is three parts separated by dots, the payload can be read without a key, and the HS256 signature is 32 bytes | ran: `exercises/06_jwt.py` |
+| A JWT is a token that carries its data and signature | book: API Security in Action chapter 6 page 181 |
+| Changing the payload to admin without the key gives a bad signature | ran: `exercises/06_jwt.py` and the lab (the same token as Python, checked in `verify_jwt.mts`) |
+| A verifier that trusts alg accepts a token with alg none, while a careful one refuses it | ran: `exercises/06_jwt.py` |
+| Using an RSA public key as an HMAC secret forges a token past a verifier that trusts alg, and not past one fixed to RS256 | ran: `exercises/06_jwt.py` (not checked against the book) |
+| exp, aud and iss must be checked after the signature | ran: `exercises/06_jwt.py` and book: API Security in Action page 187 |
+| A guessable secret (`secret`) is found on the fourth guess of a list of six | ran: `exercises/06_jwt.py` |
+| A signed token works until it expires, and a revocation list fixes it but needs state | ran: `exercises/06_jwt.py` and book: API Security in Action section 6.5 page 209 |
+| The view on choosing between a session cookie and a JWT | author |
+
+</Step>

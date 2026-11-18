@@ -1,0 +1,123 @@
+---
+title: Session, Cookie และ CSRF
+summary: ผู้ใช้ล็อกอินครั้งเดียวแต่ Server ต้องจำเขาได้ทุก Request ผ่าน Session ID ใน Cookie ซึ่งใครถือไว้คนนั้นคือผู้ใช้ เราจึงดูว่า Cookie ถูกขโมยด้วย XSS หรือถูกฝังด้วย Fixation ได้อย่างไร และเว็บอื่นใช้ Cookie ที่ Browser แนบให้เอง ทำให้ธนาคารโอนเงินโดยผู้ใช้ไม่ได้ตั้งใจ (CSRF) พร้อมวิธีกันที่รันดูแล้วสามแบบ
+facts:
+  - "รันจริงใน exercises/05_sessions_csrf.py กับธนาคารจำลองที่รันใน Process เดียวกัน และ Browser จำลองที่เขียนตามกฎของ SameSite ไม่ใช่ Browser จริง"
+  - "Assert หัว Set-Cookie, ความยาว Session ID (43 ตัวอักษร, 256 บิต), Session Fixation ทั้งสองแบบ และ CSRF ที่ผ่านเมื่อไม่มีการป้องกัน แล้วถูกหยุดด้วย SameSite=Lax, CSRF Token และการตรวจ Origin"
+  - "หนังสือที่ใช้คือ API Security in Action (บทที่ 4) กับ Web Application Security (บทที่ 11 และ 23) ที่ไม่ได้รัน คือพฤติกรรมของ Browser จริง"
+order: 5
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [passwords]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import CookieSessionLab from '../../../../components/labs/app-security/CookieSessionLab';
+import CsrfLab from '../../../../components/labs/app-security/CsrfLab';
+
+<Step>
+
+## ล็อกอินครั้งเดียว แต่ Server ต้องจำเราได้ทุกครั้ง
+
+HTTP ไม่มีความจำ ทุก Request ที่มาถึง Server เป็นเรื่องใหม่หมด นาย A ล็อกอินที่ธนาคารด้วยรหัสผ่านแล้ว ถ้า Server ไม่จำว่าเขาเป็นใคร ทุกครั้งที่เขากดดูยอดเงินก็ต้องใส่รหัสผ่านใหม่
+
+วิธีที่นิยมที่สุดคือหลังจากตรวจรหัสผ่านแล้ว Server สุ่ม **Session ID** ยาว ๆ ให้หนึ่งค่า เก็บไว้ในตารางของตัวเองว่าค่านี้คือ Ann และส่งให้ Browser เก็บใน **Cookie** จากนี้ทุก Request Browser จะแนบ Cookie ไปเอง ให้ Server เอา ID ไปค้นหาว่าเป็นใคร เหมือนบัตรคิวที่ธนาคารยื่นให้ตอนเราเข้าไปครั้งแรก (รัน: `exercises/05_sessions_csrf.py`)
+
+```text
+Set-Cookie: sid=ZXaHJ6PlxVqhxeKZp5vAcIdtwiSTW3Ea7AOUV5jeYv0; HttpOnly; Secure; Path=/; SameSite=Lax
+```
+
+Session ID ที่แบบฝึกสร้างจาก `secrets.token_urlsafe(32)` ยาว 43 ตัวอักษร ซึ่งเท่ากับ 256 บิต และสองครั้งที่เรียกจะไม่ได้ค่าเดียวกัน ส่วนท้ายของ Header คือ **Flag** สามตัวที่ควรใส่ทุกครั้ง HttpOnly, Secure และ SameSite เดี๋ยวเราจะดูว่าแต่ละตัวกันอะไร หนังสือ API Security in Action เขียนไว้ว่า Secure กับ HttpOnly ควรตั้งกับ Cookie ที่ใช้เพื่อความปลอดภัยทุกตัว (หนังสือ: API Security in Action บทที่ 4 หน้า 122)
+
+ข้อสำคัญที่สุดของระบบนี้คือ **ใครถือ Session ID ใบนี้ ก็คือผู้ใช้คนนั้น** ถ้ามีคนได้ ID ไป เขาไม่ต้องรู้รหัสผ่านเลย
+
+</Step>
+
+<Step>
+
+## Session ID ถูกแย่งได้สองทาง
+
+ลองเลือกเรื่องราวในแล็บข้างล่างทีละอัน เริ่มจาก "ล็อกอินปกติ" เพื่อเห็นว่าผู้ใช้ส่งรหัสผ่านครั้งเดียวแล้ว Cookie ทำงานต่อให้ จากนั้นไปดูอีกสี่เรื่อง
+
+<CookieSessionLab client:visible />
+
+เรื่อง **XSS ขโมย Cookie** คือสมมติว่าเว็บมีช่องโหว่ XSS ซึ่งเราจะเรียนในบทหลัง ๆ Script ที่ฝังมารันใน Browser ของผู้ใช้ และอ่าน `document.cookie` ได้ ถ้า Cookie ไม่มี `HttpOnly` Script ก็ส่ง Sid ออกไปให้ผู้โจมตี เขาเอาไปใช้ได้ทันที แต่ถ้ามี `HttpOnly` Script จะอ่าน Cookie ไม่ได้ แบบฝึกเช็กทั้งสองกรณีด้วยโมเดลของ Browser
+
+เรื่อง **Session Fixation** กลับด้านกัน ผู้โจมตีไม่ได้ขโมย ID แต่เป็นคนเลือก ID เอง เขาขอ ID จาก Server (`A`) แล้วหลอกให้ผู้ใช้ใช้ ID นั้น ถ้า Server เก็บ ID เดิมไว้หลังจากผู้ใช้ล็อกอิน `A` ที่ผู้โจมตีรู้อยู่แล้วก็กลายเป็น Session ของ Ann ทันที แบบฝึกรันทั้งสองแบบและได้ผลว่า การเก็บ ID เดิมให้ผู้โจมตีเข้าได้ ส่วนการออก ID ใหม่ตอนล็อกอินทำให้เข้าไม่ได้ (หนังสือ: API Security in Action หัวข้อ 4.3.1 หน้า 119)
+
+สรุปให้สั้นที่สุด `HttpOnly` กันการอ่านด้วย Script และการออก ID ใหม่ตอนล็อกอินกันการฝัง ID สองอย่างนี้ไม่ได้ทดแทนกัน
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เว็บมีช่องโหว่ XSS และ Cookie ของ Session มี HttpOnly ผู้โจมตีทำอะไรไม่ได้อีกแล้วใช่ไหม"
+  options={['ทำอะไรไม่ได้อีก เพราะ HttpOnly ทำให้ XSS ไม่มีผลอะไรเลย', 'ยังทำได้ เขาอ่าน `sid` ไม่ได้ แต่ Script ที่รันใน Browser ของผู้ใช้ยังส่ง Request ในนามผู้ใช้ผ่าน Browser ได้ เพราะ Browser แนบ Cookie ให้เอง', 'ทำอะไรไม่ได้อีก เพราะ HttpOnly ใช้กับ Cookie ที่ไม่ใช่ Session เท่านั้น']}
+  answer={1}
+  why="HttpOnly ปิดช่องทางเดียวคือการอ่านค่าของ Cookie ด้วย Script ส่วน Script ที่รันอยู่ในหน้าของเราสั่ง Browser ให้ส่ง Request ไปที่เว็บของเราได้ และ Browser จะแนบ Cookie ให้เอง ผู้โจมตีจึงยังทำงานในนามผู้ใช้ได้ แค่เอา Sid ออกไปใช้ข้างนอกไม่ได้ เรื่องนี้เชื่อมกับ CSRF ที่เราจะดูต่อไป และกับการแก้ที่ต้นเหตุของ XSS"
+/>
+
+</Step>
+
+<Step>
+
+## CSRF: เว็บอื่นใช้ Cookie ของเราแทนเรา
+
+ลองนึกภาพนี้ นาย A ล็อกอินธนาคารค้างไว้ในอีกแท็บ แล้วเปิดเว็บ `evil.test` ที่ผู้โจมตีทำไว้ ในหน้านั้นมีฟอร์มซ่อนอยู่ที่สั่งโอนเงิน 500 ไปที่บัญชีของผู้โจมตี และมี Script กดส่งฟอร์มให้เองทันทีที่หน้าเปิด
+
+ผู้โจมตีไม่เห็น Cookie และไม่รู้รหัสผ่าน แต่ Browser เป็นคนส่ง Request ไปที่ `bank.test` และ Browser แนบ Cookie ของ `bank.test` ให้เองทุกครั้งที่ Request ไปที่นั่น ไม่ว่าจะมาจากหน้าไหน ธนาคารเห็น Cookie ถูกต้อง จึงเชื่อว่าผู้ใช้ตั้งใจโอน นี่คือ **CSRF (Cross-Site Request Forgery)** (หนังสือ: Web Application Security บทที่ 11 หน้า 131)
+
+ลองเลือกวิธีป้องกันในแล็บ เริ่มจาก "ไม่มีอะไรเลย" เพื่อเห็นเงินไหล แล้วสลับไปสามแบบที่เหลือ
+
+<CsrfLab client:visible />
+
+ผลที่แบบฝึกได้ ตอนที่ไม่มีอะไรป้องกันและ Cookie เป็น `SameSite=None` ธนาคารโอน 500 ให้ผู้โจมตี (200) ถ้าเป็น `SameSite=Lax` Browser ไม่แนบ Cookie ให้ POST ที่มาจากเว็บอื่น ธนาคารตอบ 401 ถ้าธนาคารตรวจ **CSRF Token** ซึ่งเป็นค่าสุ่มที่ธนาคารให้เฉพาะหน้าของตัวเองและเว็บอื่นอ่านไม่ได้ Request ที่ไม่มี Token ถูกปฏิเสธ 403 และถ้าธนาคารตรวจ **Origin** ซึ่ง Browser ใส่มากับ Request ว่ามาจากเว็บไหน ก็ได้ 403 เช่นกัน (หนังสือ: Web Application Security บทที่ 23 หน้า 247 สำหรับการตรวจ Header และหน้า 249 สำหรับ Token, และ API Security in Action หน้า 127 สำหรับ SameSite)
+
+หน้าของธนาคารเองที่ส่ง Token พร้อมกับมาจาก Origin ของตัวเอง ยังโอนเงินได้ตามปกติ เมื่อเปิดป้องกันทั้งสามอย่างพร้อมกัน แบบฝึกเช็กไว้แล้ว
+
+<Callout type="warn" title="โมเดลของ Browser ไม่ใช่ Browser จริง">
+
+กฎของ SameSite ในแบบฝึก (Lax ไม่แนบ Cookie เมื่อเป็น POST ข้ามเว็บ, Strict ไม่แนบเมื่อข้ามเว็บทุกแบบ) เขียนเป็นโค้ดจากสิ่งที่หนังสือกับเอกสารอธิบาย เราไม่ได้เปิด Browser จริงมาลองส่ง Request ข้ามเว็บ ผลที่ได้จึงบอกว่าถ้า Browser ทำตามกฎนั้น ผลจะเป็นอย่างนี้ ไม่ได้ยืนยันกับ Chrome หรือ Firefox
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เหตุใดการป้องกัน CSRF ด้วย Token จึงได้ผล ทั้งที่ Browser แนบ Cookie ให้ Request ของผู้โจมตีอยู่แล้ว"
+  options={['เพราะ Token ถูกเข้ารหัสด้วย Key ของผู้ใช้', 'เพราะ Token เป็นของที่หน้าเว็บของธนาคารเท่านั้นเห็นและส่งได้ หน้าของ evil.test อ่านมันไม่ได้ จึงใส่ใน Request ไม่ถูก', 'เพราะ Token ทำให้ Browser เลิกแนบ Cookie']}
+  answer={1}
+  why="Cookie ถูกแนบโดย Browser อัตโนมัติ ผู้โจมตีไม่ต้องรู้ค่าก็ใช้ได้ แต่ Token ต้องให้หน้าที่ส่ง Request ใส่เองเข้าไปใน Body หรือ Header หน้าของ evil.test ไม่มีทางรู้ค่านั้น เพราะ Browser ไม่ยอมให้เว็บหนึ่งอ่านเนื้อหาของอีกเว็บ แบบฝึกให้ผลว่า Request ของผู้โจมตีถูกปฏิเสธด้วย 403 ส่วนของธนาคารเองที่ส่ง Token ยังผ่าน"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Header ของ Cookie มี HttpOnly, Secure และ SameSite=Lax | รัน: `exercises/05_sessions_csrf.py` |
+| Session ID จาก `token_urlsafe(32)` ยาว 43 ตัวอักษร (256 บิต) และแต่ละครั้งไม่ซ้ำ | รัน: `exercises/05_sessions_csrf.py` |
+| Script อ่าน Cookie ที่มี HttpOnly ไม่ได้ และอ่านได้เมื่อไม่มี | รัน: `exercises/05_sessions_csrf.py` (โมเดลของ Browser) |
+| Session Fixation ได้ผลเมื่อ Server เก็บ ID เดิม และไม่ได้ผลเมื่อออก ID ใหม่ตอนล็อกอิน | รัน: `exercises/05_sessions_csrf.py` |
+| Secure และ HttpOnly ควรตั้งกับ Cookie ที่ใช้เพื่อความปลอดภัย | หนังสือ: API Security in Action บทที่ 4 หน้า 122 |
+| การออก Session ID ใหม่ป้องกัน Fixation | หนังสือ: API Security in Action หัวข้อ 4.3.1 หน้า 119 |
+| CSRF ผ่านเมื่อไม่มีการป้องกัน (200 และผู้โจมตีได้ 500), SameSite=Lax ได้ 401, Token ได้ 403, ตรวจ Origin ได้ 403 | รัน: `exercises/05_sessions_csrf.py` (โมเดลของ Browser) |
+| ธนาคารที่เปิดป้องกันทั้งสามอย่างยังรับ Request จากหน้าของตัวเอง | รัน: `exercises/05_sessions_csrf.py` |
+| อธิบาย CSRF และการป้องกันด้วยการตรวจ Header กับ Token | หนังสือ: Web Application Security บทที่ 11 หน้า 131, บทที่ 23 หน้า 247 และ 249 |
+| SameSite Cookie | หนังสือ: API Security in Action หน้า 127 |
+| Browser ทำตามกฎ SameSite ที่โมเดลเขียนไว้จริงหรือไม่ | ไม่ได้รันกับ Browser จริง |
+
+</Step>

@@ -1,0 +1,135 @@
+---
+title: Computing on data nobody sees
+summary: Three people want the total of their salaries without telling each other the salaries, and two companies want to know the customers they share without sending each other their lists. We try secret sharing, secure aggregation with masks that cancel (and see it break when somebody drops out), and private set intersection with exponentiation that commutes, and look at what still leaks.
+facts:
+  - "Run in exercises/09_secure_computation.py: additive secret sharing of the salaries of 3 people gives the total 161,000 without anyone seeing another's salary (share 1 is uniform, 9% to 11% per last digit, for the secrets 0, 52,000 and 1,000,000,000), secure aggregation of 100 clients with masks that cancel, a wrong total when client 17 drops out, and PSI with a 127 bit prime and 300 e-mails on each side finds exactly the 120 in common."
+  - "The secret sharing lab uses small numbers (modulo 100,003) and the PSI lab the example p = 1019, so they can be followed. The exercise runs with real large numbers."
+  - "Not run: homomorphic encryption, federated learning, protocols that resist cheating (malicious security), and secure aggregation that copes with clients dropping out."
+order: 9
+phase: C
+level: 4
+stage: sprout
+format: steps
+requires: [access-masking]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import SecretShareLab from '../../../../components/labs/data-security/SecretShareLab';
+import PsiLab from '../../../../components/labs/data-security/PsiLab';
+
+<Step>
+
+## When nobody trusts anybody
+
+In the last few lessons everything relied on somebody holding the raw data, whom we trusted to add noise or to hide columns. But sometimes nobody should hold everybody's data. The author uses two examples in this lesson. Three colleagues want the total of their three salaries but none wants to tell their own, and two companies want to know how many customers they have in common but do not want to send the whole list to the other.
+
+The book Practical Data Privacy calls the group of techniques that answer questions like this **encrypted computation**: working out a result from data that each side keeps hidden, without any side seeing the data of the other (book: Practical Data Privacy chapter 7 page 163). The book also separates "privacy" from "secrecy". Secrecy is that data must not be seen. Privacy is what the result can reveal, and even if we compute without seeing the data at all, the result still says something about it (book: Practical Data Privacy chapter 7 page 166).
+
+In this lesson we try three techniques with code that runs. Homomorphic encryption, which the book describes on page 179, the author did not run.
+
+</Step>
+
+<Step>
+
+## Secret sharing: split a secret into random pieces
+
+The idea of **additive secret sharing** is simple. If Ann earns 52,000, she picks two random numbers and computes a third so that the three add up to 52,000 (modulo a large prime M, which the exercise takes as 2 to the power 61 minus 1). Then she hands out one **share** to each person, and nobody sees Ann's salary (run: `exercises/09_secure_computation.py`).
+
+```python
+def share(secret, parties, rnd):
+    parts = [rnd.randrange(M) for _ in range(parties - 1)]
+    return parts + [(secret - sum(parts)) % M]
+```
+
+The function draws n minus 1 random numbers, and the last is the difference that makes the sum equal the secret. All three people do this with their own salary, so each person ends up with one share per owner. Then each person adds up all the shares they received and gets one partial sum, and the three put their partial sums together. The result is 161,000, exactly the sum of the three salaries, and nobody saw another's salary.
+
+Move the salaries in the lab below and see that every share changes while the total stays right. Then change the view to person 1, 2 or 3 and see that each holds only their own column, which is random numbers. The button "all three together" shows that if all three columns are taken, the salary comes back.
+
+<SecretShareLab client:visible lang="en" />
+
+Why does one person who sees one share learn nothing? The exercise checks it with statistics. It repeats 30,000 times for the secrets 0, 52,000 and 1,000,000,000 and looks at the last digit of share 1. Every last digit appears about 10% of the time (between 9% and 11%) whatever the secret is, and two shares out of three added together are evenly spread as well, for the secrets 0 and 100,000. So all three are needed to learn the secret. That is what the lab shows when you choose one person.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="With three person additive secret sharing, if two of the three conspire and look at their shares together, do they learn the salary of the third person?"
+  options={['Yes, because two shares tell the remaining value', 'No. All three shares are needed to put it back together, and two shares added are still a uniformly random number (the exercise checks the secrets 0 and 100,000)', 'Only the last digit']}
+  answer={1}
+  why="The last share of each owner is the difference that depends on the secret. Without it, the other two shares are plain random numbers. But if all three conspire they know every secret, so this works when the conspirators are fewer than all the participants."
+/>
+
+</Step>
+
+<Step>
+
+## Secure aggregation: masks that cancel
+
+With participants in the hundreds, for example phones reporting the number of steps walked in a day, splitting shares between every pair is a burden. The usual method is **secure aggregation** (book: Practical Data Privacy chapter 7 page 189). Each pair of clients agrees on one random number. The client with the lower index adds that number to its own value and the client with the higher index subtracts it. The server receives only masked values, but when all are added every mask is added once and subtracted once, so they cancel completely.
+
+The exercise does it with 100 clients. What is asserted: the server adds up the 100 masked values and gets exactly the sum of the real values, and each client's masked value is more than 10 to the power 12 away from its real value, so the server learns nothing about one client from it.
+
+The well known weakness is **dropping out**. If client 17 closes its app after the others have already masked their values, the masks that client 17 would have cancelled are gone, so the sum of the other 99 is wrong. The exercise checks that the sum really is wrong. Real protocols add a step to recover the masks of those who drop out, which the author did not run, and which is the most complicated part of those protocols.
+
+</Step>
+
+<Step>
+
+## Private set intersection: find what is shared without sending lists
+
+Two companies want to know how many customers they share. **Private set intersection (PSI)** answers this (book: Practical Data Privacy chapter 7 page 186). The tool we use is exponentiation that commutes: (x to the a) to the b equals (x to the b) to the a.
+
+Each side has a secret key of its own (a for A and b for B). One side raises the hash of every customer to its own key and sends the results to the other. The other raises them again to its own key and sends them back. A customer who is in both lists gets the same number whichever order the powers are taken in. Press through the steps in the lab below, which uses a small example (p equal to 1019 and four customers) that the exercise computes.
+
+<PsiLab client:visible lang="en" />
+
+The exercise does it for real with a 127 bit prime and 300 e-mails on each side, of which 120 overlap. The result is an intersection of 120, exactly right, and B sees 300 numbers from A, none of which equals the plain hash of any e-mail. A dictionary of e-mails does not help, because B does not know A's key.
+
+## What still leaks
+
+PSI does not hide everything. The exercise checks what leaks. First, each side learns the size of the other's list (300 and 300) and the size of the intersection (120). Second, someone who adds an extra item to his own list can ask whether the other side has that customer: the intersection grows by one if it does, and does not if it does not. The exercise adds one e-mail that B has and the intersection becomes 121, and adds another that B does not have and it stays at 120. The protocol is therefore fit for use when the side asking is already entitled to ask about each customer.
+
+And do not forget the difference between secrecy and privacy. The correct result of PSI itself says something about the data. If we want to limit what the result says, we have to use a technique such as differential privacy as well.
+
+<Callout type="note" title="What was not run">
+
+Homomorphic encryption, which computes directly on ciphertext, and federated learning, which trains a model with the data staying where it is, were not run by the author. All the protocols in this lesson assume that the participants follow the steps (semi-honest), and were not tested against anyone who cheats on the steps.
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Company A uses PSI with company B and puts the e-mail of one famous person into its own list. The intersection grows by one. What does A learn?"
+  options={['Nothing, because PSI hides everything', 'That company B has that famous person as a customer. PSI hides the list of B, but someone who asks about a specific item learns the answer for each one', 'The whole list of B']}
+  answer={1}
+  why="The result of PSI is the intersection, which is information disclosed on purpose. Whoever controls his own list can therefore test any single item. The exercise confirms that the intersection grows from 120 to 121 when an e-mail that B holds is added, and does not grow when one that B does not hold is added."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| Secret sharing among three gives the total 161,000, and share 1 is uniform (9% to 11% per last digit) for the secrets 0, 52,000 and 1,000,000,000 | ran: `exercises/09_secure_computation.py` |
+| Two shares out of three added are uniformly spread, and all three together give the secret back | ran: `exercises/09_secure_computation.py` |
+| Secure aggregation of 100 clients gives the right total, masked values are more than 10 to the power 12 from the real ones, and the total is wrong when client 17 drops out | ran: `exercises/09_secure_computation.py` |
+| PSI with a 127 bit prime and 300 e-mails per side gives exactly 120 in common, and B sees no plain hash of any e-mail | ran: `exercises/09_secure_computation.py` |
+| Each side learns the size of the other's list and the intersection, and adding an item shows whether the other side has it (121 against 120) | ran: `exercises/09_secure_computation.py` |
+| Encrypted computation, privacy against secrecy, PSI and secure aggregation | book: Practical Data Privacy chapter 7 pages 163, 166, 186 and 189 |
+| Homomorphic encryption, federated learning, coping with clients dropping out, and participants who cheat | not run |
+
+</Step>

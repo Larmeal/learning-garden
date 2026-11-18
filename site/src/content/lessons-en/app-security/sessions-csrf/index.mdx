@@ -1,0 +1,125 @@
+---
+title: Sessions, cookies and CSRF
+summary: A user logs in once, yet the server must recognise them on every request, which it does with a session id in a cookie. Whoever holds the id is the user, so we see how a cookie can be stolen with XSS or planted by fixation, and how another site can use the cookie the browser attaches by itself to make the bank move money (CSRF), with three defences that we ran.
+facts:
+  - "Run in exercises/05_sessions_csrf.py against a toy bank that runs in the same process, and a toy browser written from the SameSite rules, not a real browser."
+  - "Asserted: the Set-Cookie header, the session id length (43 characters, 256 bits), both kinds of session fixation, and a CSRF that goes through with no defence and is stopped by SameSite=Lax, by a CSRF token and by an Origin check."
+  - "The books are API Security in Action (chapter 4) and Web Application Security (chapters 11 and 23). Not run: the behaviour of a real browser."
+order: 5
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [passwords]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import CookieSessionLab from '../../../../components/labs/app-security/CookieSessionLab';
+import CsrfLab from '../../../../components/labs/app-security/CsrfLab';
+
+<Step>
+
+## Log in once, yet be recognised every time
+
+HTTP has no memory. Every request that reaches a server is brand new. Mr. A logs in to the bank with his password, and if the server did not remember who he is, he would have to type the password again each time he looked at his balance.
+
+The most common way out is for the server, after checking the password, to make up a long random **session id**, store in its own table that this id means Ann, and send the id to the browser to keep in a **cookie**. From then on the browser attaches the cookie to every request by itself, and the server looks the id up to see who it is, like the queue ticket the bank gives you when you walk in (run: `exercises/05_sessions_csrf.py`).
+
+```text
+Set-Cookie: sid=ZXaHJ6PlxVqhxeKZp5vAcIdtwiSTW3Ea7AOUV5jeYv0; HttpOnly; Secure; Path=/; SameSite=Lax
+```
+
+The session id in the exercise comes from `secrets.token_urlsafe(32)`. It is 43 characters long, which is 256 bits, and two calls never give the same value. The end of the header holds three **flags** that should always be set: HttpOnly, Secure and SameSite. We will see what each of them stops. The book API Security in Action says that Secure and HttpOnly should be set on any cookie used for security (book: API Security in Action chapter 4 page 122).
+
+The most important fact about this system is that **whoever holds this session id is that user**. Anyone who gets the id does not need the password at all.
+
+</Step>
+
+<Step>
+
+## A session id can be taken in two ways
+
+Choose the stories in the lab below one at a time. Start with "A normal login" to see the user send the password once and the cookie do the rest, then look at the other four.
+
+<CookieSessionLab client:visible lang="en" />
+
+In the story **XSS steals the cookie**, suppose the site has an XSS hole, which we cover in a later lesson. A script that was planted runs in the user's browser and can read `document.cookie`. If the cookie has no `HttpOnly`, the script sends the sid out to the attacker, who can use it at once. If the cookie does have `HttpOnly`, the script cannot read it. The exercise checks both cases with a model of the browser.
+
+**Session fixation** turns this around. The attacker steals nothing: he chooses the id. He asks the server for an id (`A`) and tricks the user into using it. If the server keeps the same id after the user logs in, the `A` that the attacker already knows becomes Ann's session at once. The exercise runs both ways and finds that keeping the id lets the attacker in, while issuing a new id at login keeps him out (book: API Security in Action section 4.3.1 page 119).
+
+In the shortest form, `HttpOnly` stops reading by script, and a new id at login stops planting an id. The two do not replace each other.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A site has an XSS hole and the session cookie has HttpOnly. Is there nothing left that the attacker can do?"
+  options={['Right, because HttpOnly makes XSS harmless', 'No. He cannot read the sid, but a script running in the user\'s browser can still make requests in the user\'s name, because the browser attaches the cookie by itself', 'No, because HttpOnly applies only to cookies that are not sessions']}
+  answer={1}
+  why="HttpOnly closes just one route, reading the cookie's value from script. A script running in our page can tell the browser to send requests to our site, and the browser attaches the cookie. So the attacker can still act in the user's name. He just cannot take the sid and use it from elsewhere. This connects to CSRF, which we look at next, and to fixing XSS at its cause."
+/>
+
+</Step>
+
+<Step>
+
+## CSRF: another site uses our cookie for us
+
+Picture this. Mr. A has left the bank logged in on another tab, and opens `evil.test`, a site the attacker made. On that page a hidden form orders a transfer of 500 to the attacker's account, and a script submits it the moment the page opens.
+
+The attacker does not see the cookie and does not know the password. But the browser is the one sending the request to `bank.test`, and the browser attaches the cookie of `bank.test` every time a request goes there, whichever page it comes from. The bank sees a valid cookie and believes that the user meant to transfer. This is **CSRF (cross-site request forgery)** (book: Web Application Security chapter 11 page 131).
+
+Pick the defences in the lab one at a time. Start with "nothing at all" to see the money flow, then go through the other three.
+
+<CsrfLab client:visible lang="en" />
+
+What the exercise found: with no defence and the cookie set to `SameSite=None`, the bank sends 500 to the attacker (200). With `SameSite=Lax` the browser does not attach the cookie to a POST from another site, and the bank answers 401. If the bank checks a **CSRF token**, a random value that it gives only to its own pages and other sites cannot read, a request without it is refused with 403. And if the bank checks the **Origin**, which the browser adds to say which site the request came from, it gets 403 too (book: Web Application Security chapter 23 page 247 for header checking and page 249 for tokens, and API Security in Action page 127 for SameSite).
+
+The bank's own page, which sends the token and comes from its own origin, still manages to transfer money when all three defences are on. The exercise checks that too.
+
+<Callout type="warn" title="A model of a browser is not a browser">
+
+The SameSite rules in the exercise (Lax leaves the cookie off a cross-site POST, Strict leaves it off every cross-site request) are written in code from what the books and the documentation describe. We did not open a real browser and send a cross-site request. The result says that if a browser follows those rules, this is what happens. It was not confirmed on Chrome or Firefox.
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Why does a CSRF token work, when the browser attaches the cookie to the attacker's request anyway?"
+  options={["Because the token is encrypted with the user's key", "Because the token is something only the bank's own page can see and send. The page on evil.test cannot read it, so it cannot put the right value into the request", 'Because a token makes the browser stop attaching the cookie']}
+  answer={1}
+  why="The cookie is attached by the browser automatically, so the attacker can use it without knowing its value. But a token has to be put into the body or a header by the page that sends the request. The page on evil.test has no way to learn it, because the browser does not let one site read the contents of another. In the exercise the attacker's request gets 403, while the bank's own request that sends the token passes."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The cookie header has HttpOnly, Secure and SameSite=Lax | ran: `exercises/05_sessions_csrf.py` |
+| A session id from `token_urlsafe(32)` is 43 characters (256 bits) and different each time | ran: `exercises/05_sessions_csrf.py` |
+| A script cannot read a cookie with HttpOnly, and can when it does not have it | ran: `exercises/05_sessions_csrf.py` (the browser model) |
+| Session fixation works when the server keeps the old id, and fails when it issues a new one at login | ran: `exercises/05_sessions_csrf.py` |
+| Secure and HttpOnly should be set on cookies used for security | book: API Security in Action chapter 4 page 122 |
+| Issuing a new session id stops fixation | book: API Security in Action section 4.3.1 page 119 |
+| CSRF goes through with no defence (200 and the attacker gets 500), SameSite=Lax gives 401, a token gives 403, an Origin check gives 403 | ran: `exercises/05_sessions_csrf.py` (the browser model) |
+| A bank with all three defences still accepts requests from its own page | ran: `exercises/05_sessions_csrf.py` |
+| What CSRF is, and defending with header checks and tokens | book: Web Application Security chapter 11 page 131, chapter 23 pages 247 and 249 |
+| SameSite cookies | book: API Security in Action page 127 |
+| Whether a real browser follows the SameSite rules of the model | not run on a real browser |
+
+</Step>

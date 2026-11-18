@@ -1,0 +1,127 @@
+---
+title: OAuth 2.0 and OpenID Connect
+summary: To let another app read our data without giving it our password, OAuth uses a code that is exchanged for a token once. We follow the flow message by message against a toy authorization server, see where PKCE, an exact redirect_uri and state close the holes, and then add OpenID Connect, whose id_token tells the app who the user is.
+facts:
+  - "Run in exercises/07_oauth.py against a toy authorization server written for the lesson: the order of the messages, a code that works once, scopes that limit a token, a thief who steals a code getting a token without PKCE and nothing with it, a redirect_uri compared by prefix against compared exactly, state, and the four id_token checks."
+  - "The tokens are the JWTs of the last lesson (jwtlib.py). The authorization server in the exercise is not a real one, and nothing was tried against a real provider (Google, Keycloak)."
+  - "The book is OAuth 2 in Action. Its page numbers use an offset of 27 checked on 4 pages. RFC 6749 was not read from the spec."
+order: 7
+phase: B
+level: 3
+stage: sprout
+format: steps
+requires: [jwt]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import OAuthFlowLab from '../../../../components/labs/app-security/OAuthFlowLab';
+
+<Step>
+
+## Letting another app read our data without our password
+
+Mr. A uses a finance app that wants to read the order history of his shop. If the app says "enter the user name and password of your shop here", then another company holds his password and can do anything with the account, which is like handing over the keys of the house to the person who parks your car.
+
+OAuth 2.0 fixes this by having the shop issue a **valet key**, one that opens the car door but not the boot or the glove box. In the real world that is a token tied to limited rights (a **scope**), for example reading order history only, and it can be revoked without changing the password. The book OAuth 2 in Action opens with this problem.
+
+There are four parties: the **user** who owns the data, the **app** (the client) that wants it, the **authorization server** that checks who the user is and issues tokens, and the **resource server** (the API) that holds the real data. In the exercise the authorization server is a small piece of code we wrote (run: `exercises/07_oauth.py`).
+
+</Step>
+
+<Step>
+
+## The flow, message by message
+
+If the app asked the authorization server for a token directly, the user would have no place to decide. So the most popular flow is the **authorization code**, which has two beats. In the first, the user (through the browser) goes to the authorization server, logs in, presses allow, and gets a **code** back. In the second, the app takes the code to the server and exchanges it for a **token** directly, without the browser.
+
+In the lab below, choose "The normal flow (PKCE)" first and press play. These are the six messages in the order the exercise asserts, authorize first and then token (on the server side). See that the code travels through the browser, which is a place it could leak, while the token is requested directly between the app and the server, together with a verifier that only the app holds. Then switch to the other three stories.
+
+<OAuthFlowLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## The rules for the code and the scope
+
+The exercise checks several basic rules. First, the code comes back with the same `state` the app sent. Second, the token opens the API only for the scope the user allowed: `orders:read` works, but `orders:write`, which nobody granted, is refused with `insufficient_scope`. Third, **a code works once**: exchanging the same code a second time gives `invalid_grant`.
+
+The "once only" rule matters because if a code leaks and is exchanged before the real app does it, the other side fails, and the server can see something is wrong. But it does not stop everything. If the thief exchanges it first, he gets the token, which leads to PKCE.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="In the exercise a thief gets the code from the redirect and exchanges it for a token without a code_verifier. How does the result differ between an app that uses PKCE and one that does not?"
+  options={['It does not differ, because the code is valid in both cases', 'Without PKCE the thief gets a token. With PKCE he is refused, because the server compares the SHA-256 of the verifier with the challenge and the thief never saw the verifier', 'With PKCE the thief gets his token faster']}
+  answer={1}
+  why="The exercise runs both cases. Without PKCE the thief gets an access_token. With PKCE he gets invalid_grant, because the app keeps the verifier (43 characters) to itself and sent only its SHA-256 at the start. The code is still not a secret on its own, but with PKCE it is tied to the app that asked (book: OAuth 2 in Action page 174)."
+/>
+
+</Step>
+
+<Step>
+
+## redirect_uri and state
+
+The address the code is sent to is the `redirect_uri`, so an attacker wants to change it to one of his own. The exercise registers `https://shop.test/callback` and tries two servers. The first checks that the requested URI **starts with** `https://shop.test`. The attacker sends `https://shop.test.evil.test/callback`, which starts the same way, and the code goes to `shop.test.evil.test`. The second compares the **whole string** with what was registered and refuses. The book advises that the method an authorization server should adopt is exact matching (book: OAuth 2 in Action page 158).
+
+`state` is a random value the app makes at the start and keeps in the user's browser session. When the callback comes back, the app compares the `state` it received with the one it kept, and drops the callback if they differ, which stops a callback the attacker prepared and got the user to open. The exercise checks only that a `state` that does not match is rejected at the level of logic. It does not run that attack (book: OAuth 2 in Action section 3.2.3 page 51).
+
+</Step>
+
+<Step>
+
+## OpenID Connect: who is the user
+
+OAuth answers "what may this app do in the user's name", but it does not answer "who is the user". If an app treats an access token as proof that the user has logged in, it is using it for something it was not made for. **OpenID Connect (OIDC)** builds on it by having the authorization server send back an **id_token** as well, a JWT that says who the user is (`sub`), who issued it (`iss`), which app it was issued for (`aud`) and the `nonce` the app sent at the start.
+
+The app has to check four things in an id_token, and the exercise checks all of them with the `verify` function of the last lesson. The signature and `exp`, then `iss` must be an issuer we trust, `aud` must be our own app, and `nonce` must match what we sent. The results: another app's id_token gives `wrong audience`, one from another issuer gives `wrong issuer`, and an old one gives `token expired` (book: OAuth 2 in Action page 248 for checking the nonce).
+
+Last, the exercise checks a difference that is often forgotten. An access token is a random string whose contents the app **should not read**, only pass on to the API. The id_token is a JWT that the app must read and check.
+
+<Callout type="note" title="What was not run">
+
+The exercise uses a toy authorization server, so nothing was tried with a real provider (Google, Keycloak). Other OAuth flows (client credentials, device) were not run, and the id_token check in the exercise uses HMAC with a shared key, whereas a real provider signs with a two key signature and the app fetches the public key from a JWKS.
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A site lets users log in with OAuth and treats anyone who holds a valid access token as that user. Which weakness is the right one?"
+  options={['The access token is too long', 'An access token says what its holder may do. It does not say who the user is or which app the token was issued for. The site should use the id_token and check aud and nonce', 'There is no weakness, because OAuth already does this']}
+  answer={1}
+  why="OAuth was designed to grant rights, not to prove identity. A token an attacker got from another app may pass the signature check of the same server, yet its aud points at the other app. The exercise uses the OIDC id_token, which carries aud, iss and nonce to check, in line with the book, which keeps the two matters apart."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The six messages in order, state coming back equal, and a code exchanged once for an access_token and an id_token | ran: `exercises/07_oauth.py` |
+| A token opens the API by scope, and `orders:write` is refused | ran: `exercises/07_oauth.py` |
+| A thief who steals a code gets a token without PKCE and does not with it | ran: `exercises/07_oauth.py` |
+| PKCE | book: OAuth 2 in Action page 174 |
+| A prefix redirect_uri sends the code to `shop.test.evil.test`, and an exact comparison refuses | ran: `exercises/07_oauth.py` |
+| The redirect_uri should be compared exactly | book: OAuth 2 in Action page 158 |
+| state guards against a callback the attacker made | book: OAuth 2 in Action section 3.2.3 page 51 (the exercise checks only the comparison logic) |
+| An id_token must pass signature, exp, iss, aud and matching nonce | ran: `exercises/07_oauth.py` and book: OAuth 2 in Action page 248 |
+| OAuth grants rights and OIDC adds who the user is | book: OAuth 2 in Action (the chapter on OAuth and authentication) and author |
+| A real provider, other flows and JWKS | not run |
+
+</Step>

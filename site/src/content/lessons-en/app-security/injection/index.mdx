@@ -1,0 +1,145 @@
+---
+title: Injection
+summary: Text a user types is joined into a query and becomes a command. We try SQL injection against a real SQLite in three ways, getting past a login with no password, pulling out another table with UNION, and rebuilding a password one character at a time from answers that say only found or not found. Then we see where parameterised queries and allow lists stop it, and how command injection works the same way through a shell.
+facts:
+  - "Run in exercises/08_injection.py on in-memory SQLite and on the shell of the operating system (cmd on Windows): the queries that get built, the effect of the injection, the 85 requests it takes to rebuild an 11 character password, and the result of a parameterised query."
+  - "The labs read the queries, the rows and the order of all 85 questions from injection.json, which the exercise writes."
+  - "The book is Web Application Security chapters 13 and 25. Not run: other databases (MySQL, PostgreSQL) and other kinds of injection such as NoSQL."
+order: 8
+phase: C
+level: 2
+stage: sprout
+format: steps
+requires: [sessions-csrf]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import SqlInjectionLab from '../../../../components/labs/app-security/SqlInjectionLab';
+import BlindSqliLab from '../../../../components/labs/app-security/BlindSqliLab';
+
+<Step>
+
+## A password that is ' OR '1'='1
+
+Mr. A's shop wrote its login form by joining strings into SQL, because that is the way most examples show (run: `exercises/08_injection.py`).
+
+```python
+def login_naive(name, password):
+    sql = f"SELECT name, role FROM users WHERE name = '{name}' AND password = '{password}'"
+    return sql, db.execute(sql).fetchall()
+```
+
+If the user enters `ann` and `pw-ann`, the query is right and returns one row. But if the user enters the password `' OR '1'='1`, the query becomes
+
+```sql
+SELECT name, role FROM users WHERE name = 'ann' AND password = '' OR '1'='1'
+```
+
+The `'` the user typed closed the password string early. The `OR '1'='1'` that follows is no longer text. It became a condition of the SQL that is always true. What was asserted: the attacker logs in without knowing the password and gets two rows back. Another way is to put `admin' --` as the name, where `--` turns the rest of the line (including the password check) into a comment, and the row of `admin` comes straight back.
+
+All of it is **data typed by a user becoming part of the code**. It is the same cause as in the first lesson: the code believes what the customer sent a little too much (book: Web Application Security chapter 13 page 147).
+
+</Step>
+
+<Step>
+
+## Put the two ways side by side
+
+In the lab below pick a form and what is typed. The left side is the query built by joining strings, with the part the user typed highlighted. Watch the `'` push the highlighted part out of the string. The right side is the same query with the values sent as **parameters**, where the database receives the SQL and the values separately, so a value can never become a command.
+
+Switch to the search form and choose UNION. The attacker types text that closes the string and appends `UNION SELECT name, password FROM users`, which makes the product search return the names and passwords of users (what was asserted: the row `('admin', 'S3cretAdm1n')` is in the search result). The attacker needs the appended query to have the same number of columns as the original, which is two here. If the numbers differ SQLite reports an error, which is also how an attacker counts the columns (the exercise checks both).
+
+<SqlInjectionLab client:visible lang="en" />
+
+On the right side, whatever is typed, a user with a wrong password gets an empty result, and the UNION text is treated as the name of a product that does not exist. A normal login, and a search for `pen`, still work as before.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A developer 'fixes' SQL injection by adding a function that removes the ' character from what the user types before joining it into the query. How should this be seen?"
+  options={['Enough, because SQL injection always needs a \' character', 'Not to be trusted. Text can turn into a command in many places, and names, numbers or column names need no \' at all. The right way is to send values as parameters, apart from the SQL', 'Fine if -- is removed as well']}
+  answer={1}
+  why="Filtering characters is a guess about what an attacker will use, while a parameterised query fixes the structure: the database receives the SQL and the values separately, so a value is never read as a command. The exercise confirms that every payload gets an empty result or is treated as plain text, without our having to know what the payload looks like (book: Web Application Security chapter 25 page 261 on prepared statements)."
+/>
+
+</Step>
+
+<Step>
+
+## Reading a password from a page that says only found or not found
+
+Sometimes the page prints nothing from the query, only "found" or "not found". The attacker still gets data out, because he asks questions that can be answered yes or no. For example: does the first character of the admin password have an ASCII code greater than 79? Then he halves the range with every question.
+
+The exercise does it. The admin password is `S3cretAdm1n`, 11 characters. The attacker asks with a query that hides the question inside the condition of the SQL, and looks only at whether any row comes back. The result rebuilt the whole password, using 85 requests: for each character one question asking whether a character exists at that place, then 6 or 7 questions to cut the 95 possible values down to one. Press play in the lab below and watch how every question cuts the range in half.
+
+<BlindSqliLab client:visible lang="en" />
+
+Notice that guessing the whole password in one go would be very hard, yet when characters can be asked one at a time the work falls from about 95 to the power 11 to 85 requests. Data that leaks a bit at a time is still data that leaks.
+
+</Step>
+
+<Step>
+
+## The fix, and what a parameter cannot do
+
+The main fix is the **parameterised query**: `db.execute("SELECT name, role FROM users WHERE name = ? AND password = ?", (name, password))`. The exercise confirms that the earlier attack text (`' OR '1'='1`) gets nothing back, and that an honest user can still log in. The UNION text in the search box becomes plain text matched against product names, and no product has such a name.
+
+But a parameter can replace only a **value**, not a column name or a table name. A user choice in `ORDER BY`, for example, cannot be written as `?`. The right way is an **allow list**, a list of names we permit ourselves (in the exercise `name` and `price`). Anything else is refused before it reaches SQL. The result: `price` passes, `price; DROP TABLE products` is refused, and the table still has its three rows (book: Web Application Security chapter 25 pages 259 to 265).
+
+</Step>
+
+<Step>
+
+## Command injection: the same thing through a shell
+
+The same problem appears when we join a user's text into a command of the operating system. The exercise uses our own Python as a program that prints the arguments it receives, and lets the user send the file name `report.txt & echo INJECTED`.
+
+When we join the text onto the command and run it through a shell (`shell=True`), the shell reads the `&` sign as a separator of commands and runs the second one, `echo INJECTED`, as well. The output holds both `ARGS= ['report.txt']` and a line `INJECTED`, which nobody meant to happen. But if we pass a **list of arguments** and let the system call the program directly without a shell, the whole text arrives as one argument (`ARGS= ['report.txt & echo INJECTED']`) and nothing extra runs (book: Web Application Security chapter 13 page 155).
+
+The principle is the same as for SQL. Data and commands must travel apart. Use the way the system gives for keeping them apart before thinking about filtering characters.
+
+<Callout type="note" title="What we did not try">
+
+The exercise ran against SQLite and the shell of Windows. Other databases such as MySQL and PostgreSQL differ in the details (for example the way comments are written and the names of functions). NoSQL injection and injection through other languages, such as LDAP, were not run in this lesson.
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A site lets users choose to sort products by name or price, taking the column name from the URL and joining it into ORDER BY. Which is the right fix?"
+  options={['Use a parameterised query and put the column name in as ?', 'Compare it with the allowed list (name, price) and use that value, refusing anything not on it', 'Remove the spaces and the ; sign from the text']}
+  answer={1}
+  why="A parameter can stand in for a value, not for the structure of a query such as a column name. If we put ? there, the database reads a constant string and the sort does not do what we want. An allow list lets the developer decide the options, and the user can only pick from them. The exercise confirms that price passes and anything else is refused."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A query built by joining is injected with `' OR '1'='1` and `admin' --`, and logs in without a password | ran: `exercises/08_injection.py` |
+| UNION makes the search box return names and passwords from the users table, and a different number of columns gives an error | ran: `exercises/08_injection.py` |
+| An 11 character password rebuilt from found or not found answers with 85 requests | ran: `exercises/08_injection.py` and the lab (data from `injection.json`) |
+| A parameterised query gets nothing from the same payloads, and an honest user can still log in | ran: `exercises/08_injection.py` |
+| A column name cannot be a parameter, so use an allow list | ran: `exercises/08_injection.py` and book: Web Application Security chapter 25 pages 259 to 265 |
+| Prepared statements | book: Web Application Security chapter 25 page 261 |
+| `shell=True` runs the second command, and a list of arguments does not | ran: `exercises/08_injection.py` (the shell of Windows) and book: Web Application Security chapter 13 page 155 |
+| An overview of SQL injection and command injection | book: Web Application Security chapter 13 page 147 |
+| MySQL, PostgreSQL, NoSQL and LDAP injection | not run |
+
+</Step>

@@ -1,0 +1,62 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจบทบาทของ Code, PKCE, redirect_uri และ id_token
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="ทำไม Authorization Code Flow ถึงให้ Code วิ่งผ่าน Browser แล้วให้ App ไปแลก Token กับ Server อีกรอบ แทนที่จะให้ Token วิ่งผ่าน Browser เลย"
+  options={['เพื่อให้ Flow ยาวขึ้นและตรวจสอบง่ายขึ้น', 'เพราะ Browser เป็นทางที่ข้อมูลอาจรั่วได้ (Log, ลิงก์) ส่วนการแลก Token เป็นการคุยตรงระหว่าง App กับ Server ที่มี Verifier หรือ Secret ของ App', 'เพราะ Token ใหญ่เกินกว่าจะส่งผ่าน Browser']}
+  answer={1}
+  why="สิ่งที่วิ่งผ่าน Browser อาจถูกบันทึกหรือถูกดักได้ จึงให้ผ่านแค่ Code ที่ใช้ได้ครั้งเดียว และแลกเป็น Token ในอีกช่องทางที่แยกต่างหาก แต่ Code เองก็ยังหลุดได้ แบบฝึกจึงเพิ่ม PKCE ให้ Code ผูกกับ App ที่ขอ"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Authorization Server ตรวจ redirect_uri ด้วยการเช็กว่าขึ้นต้นด้วย https://shop.test ข้อไหนอธิบายผลได้ถูกต้อง"
+  options={['ปลอดภัย เพราะผู้โจมตีต้องมีโดเมน shop.test', 'ผู้โจมตีใช้ shop.test.evil.test ซึ่งขึ้นต้นเหมือนกันได้ และ Code ถูกส่งไปที่นั่น ต้องเทียบทั้งสตริงกับที่ลงทะเบียนไว้', 'ปลอดภัย ถ้ามี state']}
+  answer={1}
+  why="แบบฝึกลองส่ง https://shop.test.evil.test/callback ไปที่ Server แบบขึ้นต้นด้วย ได้ Code ส่งไปที่ evil.test ส่วน Server ที่เทียบทั้งสตริงปฏิเสธ State ช่วยกัน Callback ปลอม ไม่ได้ช่วยเรื่อง Code ที่ถูกส่งไปผิดที่"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="App ของเราได้ id_token ที่ลายเซ็นถูกและยังไม่หมดอายุ แต่ Aud ชี้ไปที่ App อื่น ควรทำอย่างไร"
+  options={['รับ เพราะผู้ออกที่เชื่อใจเป็นคนเซ็น', 'ปฏิเสธ เพราะ Token นี้ออกให้ App อื่น (Wrong Audience)', 'รับ แต่ไม่ใช้ nonce']}
+  answer={1}
+  why="ลายเซ็นของผู้ออกบอกแค่ว่าผู้ออกเป็นคนทำ ไม่ได้บอกว่าทำให้ใคร ถ้าไม่เช็ก Aud ผู้ใช้ที่ล็อกอินกับแอปอื่นอาจถูกยัด id_token นั้นเข้ามาที่แอปเรา แบบฝึกได้ Wrong Audience กับ id_token ของแอปอื่น"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เว็บเก็บ State ที่สร้างตอนเริ่ม Flow ไว้ใน Session ของ Browser แล้วเมื่อ Callback กลับมามี State ไม่ตรง ควรทำอย่างไร"
+  options={['ใช้ Code นั้นต่อ เพราะ Code ถูกต้อง', 'ทิ้ง Callback นั้น เพราะอาจเป็น Callback ที่ผู้โจมตีทำขึ้นมาแล้วให้ผู้ใช้เปิด', 'ขอ Code ใหม่จาก Server']}
+  answer={1}
+  why="State ผูก Callback เข้ากับ Browser ที่เริ่ม Flow ถ้าไม่ตรง แสดงว่า Callback ไม่ได้เกิดจาก Flow ที่เราเริ่ม การใช้ Code ต่อทำให้ผู้ใช้ผูกบัญชีของตัวเองเข้ากับ Code ของผู้โจมตี (หนังสือ: OAuth 2 in Action หัวข้อ 3.2.3 หน้า 51 ส่วนแบบฝึกเช็กเฉพาะตรรกะการเทียบ)"
+/>
+
+</Step>

@@ -1,0 +1,139 @@
+---
+title: The privacy budget
+summary: If the same question is asked again and every time gets fresh noise, an attacker averages the answers and the noise is gone. So the epsilon spent on every question has to be counted as a budget that can run out. We see what happens to the answers when one budget is split over many queries, why a histogram over groups that do not overlap costs epsilon once, and why rounding after the noise costs no budget but biases counts of empty groups.
+facts:
+  - "Run in exercises/06_privacy_budget.py: the average of answers with fresh noise each time approaches the true count of 351 (error 13.1 falling to 0.01 for 2,000 answers at epsilon 0.1), an accountant that refuses the 11th query of a budget of 1.0, a stored answer that costs nothing more, splitting epsilon 1 over k queries giving k times the error, a histogram over 12 zips, and a clamp that makes the average of an empty group 1.0."
+  - "The accountant in the exercise is short code written for the lesson, not the accountant of a production differential privacy library, which was not run. Composition more subtle than plain addition was not tried."
+  - "Composition and postprocessing cite Hands-On Differential Privacy chapter 2 pages 43 to 44 and Practical Data Privacy chapter 2 page 45."
+order: 6
+phase: B
+level: 3
+stage: sprout
+format: steps
+requires: [differential-privacy]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import BudgetLab from '../../../../components/labs/data-security/BudgetLab';
+
+<Step>
+
+## The same question again and again
+
+In the last lesson we published the count of 351 patients with noise at epsilon 0.1, where one answer is off by about 10 people. Now suppose our system lets anyone ask, and every time someone asks it draws fresh noise. The attacker asks the same question over and over and averages the answers.
+
+Independent noise has an average of zero. When we average many answers it cancels. The exercise tries it (run: `exercises/06_privacy_budget.py`). One answer is off by 13.1. The average of 10 answers is off by 3.49, the average of 100 by 0.26, and the average of 2,000 answers is 351.01, only 0.01 from the truth. The attacker knows the true count almost exactly, although every answer was "protected" by epsilon 0.1.
+
+The exercise measures the rate in another set. Over 400 repetitions one answer is off by 9.45 on average, while the average of 100 answers is off by 1.15, about 8 times more exact (in theory 10 times, a little less here because we take the average of the absolute error). That is the square root of the number of answers.
+
+And the price the attacker really paid is that 1,000 answers at epsilon 0.1 add up to epsilon 100, which is a very weak guarantee (from the last lesson, the part where the two worlds overlap is e to the power minus epsilon/2, which at epsilon 1 is still 60.7%, but at epsilon 100 is almost gone). The guarantee of differential privacy has to count every answer together, not each answer alone (book: Hands-On Differential Privacy chapter 2 page 43).
+
+</Step>
+
+<Step>
+
+## Drag it and see
+
+The right side of the lab below shows asking the same question again. Drag the number of repeats up and see the error of the average disappear while the epsilon spent shoots up. Then switch to "stored answer", which is one defence. The left side shows a budget of epsilon 1 split over many queries.
+
+<BudgetLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## An accountant
+
+The first defence is a keeper of the budget who adds up the epsilon of every answer already given, and refuses when the total would be exceeded. This is called **sequential composition** (book: Hands-On Differential Privacy chapter 2 page 43 and Practical Data Privacy chapter 2 page 45). The exercise writes an accountant that takes a budget of 1.0 and tries queries of 0.1 each.
+
+```python
+acct = Budget(total=1.0, seed=3)
+for _ in range(20):
+    acct.count(is_hiv, 0.1)        # answers 10, and the 11th is refused
+```
+
+The result is exactly 10 answers, then `privacy budget exhausted`, and the ledger adds up to the budget allowed. The counter must always be kept on the side that holds the data. If the askers are different people, they still have to be counted together, or two people working together are the same as one asking twice.
+
+The other way is not to draw fresh noise for an old question. The exercise stores the answer to "total HIV count" and asks again 1,000 times. The same piece of answer comes back every time, and the budget spent stays at 0.5. The average of 1,000 answers is that answer itself, no closer to the truth.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A system answers the patient count with fresh noise at epsilon 0.1 every time and has no accountant. The attacker asks the same question 1,000 times. What happens?"
+  options={['Safe, because each answer has noise', 'The average of the 1,000 answers approaches the true count (an error under 1.5 in the exercise), which is the equivalent of epsilon 100, not 0.1', 'The attacker gets the same answer every time']}
+  answer={1}
+  why="Independent noise cancels when averaged. The exercise measures an error under 1.5 for 1,000 answers. The guarantee of differential privacy counts every answer together. Epsilon 0.1 once is not enough: 1,000 times has to be counted as 100."
+/>
+
+</Step>
+
+<Step>
+
+## Splitting the budget over many queries
+
+If we have a total budget of epsilon 1 and must answer k queries, each gets epsilon 1/k, which means the noise scale is k. What is asserted: with 1 query the average error is 1, with 10 queries about 10 per answer, and with 100 queries about 100 per answer, which against 351 patients is large (28%) and for smaller groups useless.
+
+With a limited budget we must choose which queries matter most. One query answered accurately is worth more than a hundred answered uselessly. Splitting unevenly, for example giving the important query more, was not run by the author.
+
+</Step>
+
+<Step>
+
+## A histogram is paid once: parallel composition
+
+There is a good exception. If the queries are counts over groups that **do not overlap**, for example the number of people in each of 12 zip areas, a person lives in only one zip (the exercise checks that the 12 groups add up to 2,000). Removing one person therefore changes only one of the twelve numbers, and by only 1. So we put noise of scale 1 divided by epsilon on all 12 cells and pay only epsilon once, not 12 times. If we wrongly think we must split the budget over 12 cells, the noise grows 12 times for nothing. The exercise checks the ratio of densities of the whole histogram against a neighbouring table, and it does not exceed e to the power epsilon.
+
+This is called **parallel composition**. It applies only when the groups really do not overlap. If one person can be in several groups, such as counting by diagnosis when one person can have several illnesses, we are back to paying the combined price.
+
+## Rounding after noise costs no budget, but it biases
+
+Once we have a number with noise we want to tidy it, for example round it to a whole number, or turn a negative into 0. This is **postprocessing**, and it costs no extra budget, because it is a function of the answer already released and does not touch the real data again (book: Hands-On Differential Privacy chapter 2 page 44). The exercise checks that rounding gives whole numbers.
+
+But there is another price, bias. Suppose a group whose true count is 0 and epsilon is 0.5. The raw answers average 0, but if negative values are changed to 0 the average of the answers becomes 1.0 (the scale divided by two). The exercise measures 0.994 over 100,000 answers. An empty group therefore always looks as if it holds about one person. An analyst who adds up hundreds of small groups rounded this way gets a total that is too high.
+
+<Callout type="note" title="A limit of this lesson">
+
+Our accountant adds epsilon directly, which is the simplest and loosest way to combine. There are tighter ways of combining that spend less budget when very many queries are asked (advanced composition). The author did not run them, and did not try the accountant of a real library.
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A team needs a histogram of customers in 12 zip areas with a total epsilon of 1, and plans to give epsilon 1/12 to each zip. Which statement is right?"
+  options={['Right, because 12 queries must be counted', 'Not needed. The 12 zips do not overlap and a person lives in one zip only, so noise at epsilon 1 can go on each cell and be paid once. The noise will be 12 times smaller', 'Wrong, epsilon 12 is needed']}
+  answer={1}
+  why="Parallel composition works when the groups do not overlap: one person changes only one cell of the histogram. The exercise checks that the ratio for the whole set is at most e to the power 1. Splitting into 1/12 makes the noise scale 12 per cell without gaining any privacy."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The average of 1, 10, 100, 1,000 and 2,000 answers at epsilon 0.1 has an error of 13.1, 3.49, 0.26, 0.54 and 0.01 | ran: `exercises/06_privacy_budget.py` |
+| Average error of one answer 9.45 against the average of 100 answers 1.15 (about 8 times more exact) | ran: `exercises/06_privacy_budget.py` |
+| 1,000 answers at epsilon 0.1 spend a total of 100 | ran: `exercises/06_privacy_budget.py` |
+| An accountant with 1.0 answers 10 queries at 0.1 and refuses the 11th | ran: `exercises/06_privacy_budget.py` |
+| A stored answer replayed 1,000 times costs no extra budget | ran: `exercises/06_privacy_budget.py` |
+| Splitting epsilon 1 over 1, 10 and 100 queries gives an error per answer of 1, 10 and 100 | ran: `exercises/06_privacy_budget.py` |
+| A histogram of 12 zips is paid once | ran: `exercises/06_privacy_budget.py` |
+| A clamp at 0 makes the average of a group whose true count is 0 about 1.0 (0.994) | ran: `exercises/06_privacy_budget.py` |
+| Composition, postprocessing and the privacy budget | book: Hands-On Differential Privacy chapter 2 pages 43 and 44; Practical Data Privacy chapter 2 page 45 |
+| Advanced composition, and the accountant of a real library | not run |
+
+</Step>

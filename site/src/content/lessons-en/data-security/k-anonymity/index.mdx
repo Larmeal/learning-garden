@@ -1,0 +1,114 @@
+---
+title: k-anonymity, and the price of coarsening
+summary: Make every group of look-alikes hold at least k people by coarsening the age band and the zip and suppressing the small groups. We measure the price, both the rows that disappear and the detail that is lost, and find that a k-anonymous table can still tell a person's diagnosis when everybody in the group is ill with the same thing.
+facts:
+  - "Run in exercises/04_k_anonymity.py: a grid for coarsening the age band (1, 5, 10, 20 years) and the zip (5, 4, 3, 2 digits), giving k, how many rows must be suppressed to reach 5, and how many groups have a single diagnosis."
+  - "The area of a specialist clinic (zip 10900) is an assumption the author put into the synthetic data, with the same diagnosis for 169 of 181 people, so that a homogeneity attack can be seen."
+  - "k-anonymity cites Practical Data Privacy chapter 2 page 54 and chapter 10 page 267. l-diversity and other risk measures were not run, apart from 2-diversity."
+order: 4
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [linkage-attack]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import KAnonLab from '../../../../components/labs/data-security/KAnonLab';
+
+<Step>
+
+## If every group has at least five people
+
+From the last two lessons we know the problem is people who are alone in their group. If we group people by their quasi identifier values (here zip, age band and sex) and demand that every group holds at least k people, an attacker who knows those values for somebody is left with at least k rows that fit, and cannot tell which is the target's. A table like that is called **k-anonymous** (book: Practical Data Privacy chapter 2 page 54).
+
+There are two ways. **Generalize** means to widen a value, for example the birth year into a ten year band, or a 5 digit zip into 3 digits. **Suppress** means to remove the rows of groups that are still too small, whole groups at a time. Both cost something: the first loses detail, the second loses rows.
+
+The exercise works out every combination of (age band 1, 5, 10, 20 years) and (zip 5, 4, 3, 2 digits) on the 2,000 synthetic people, and measures three things: k (the smallest group), the number of rows to suppress for k to reach 5, and the average group size (run: `exercises/04_k_anonymity.py`).
+
+</Step>
+
+<Step>
+
+## Coarsen, and look at the price
+
+Choose an age band and a number of zip digits in the lab below. The red bar is the rows that must be thrown away. The bar of average group size says how coarse the data is: the bigger the groups, the less detail is left.
+
+<KAnonLab client:visible lang="en" />
+
+What the exercise asserts: with the exact birth year and a 5 digit zip, k is 1 and 1,872 of 2,000 rows must be suppressed, because they are in groups smaller than 5. With 5 year bands and a 3 digit zip, k is 3 and 38 rows must go. With 10 year bands and a 3 digit zip only 10 rows (0.5%) must be suppressed, and the remaining 1,990 rows are in groups of five or more.
+
+In this table a 2 digit zip is the whole city (every zip starts with 10), so 10 year bands and a 2 digit zip give only 12 groups, each of 82 or more people, and no rows are suppressed, but very little detail is left. The average group grows from 1.9 people to 166.7. A 20 year band adds nothing over 10 years, because the people were born over only 55 years.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A team chooses 10 year bands and a 3 digit zip because only 10 rows are suppressed and enough detail is left. Which statement describes what was gained and lost best?"
+  options={['Gained k of at least 5 in every group, but lost detail (average group 20.8 people) and the 10 suppressed rows', 'Gained perfect privacy and lost nothing', 'Lost every row whose zip does not match']}
+  answer={0}
+  why="k-anonymity trades detail for group size. The exercise measures that at 10 years and a 3 digit zip, 10 rows are suppressed and 96 groups are left, 20.8 people on average. A researcher who wanted finer groups than this cannot have them. What k-anonymity still does not promise comes next."
+/>
+
+</Step>
+
+<Step>
+
+## Everybody in the group has the same illness
+
+A k-anonymous table says nothing about the sensitive column. k only counts the people in a group and does not look at how many diagnoses are in it. Take the release with 10 year bands and a 3 digit zip, where every group already has at least 5 people.
+
+In our synthetic data zip 10900 is the area of a specialist clinic. The author set it so that most people there have the same diagnosis. The exercise counts that 169 of 181 people in that area have the diagnosis HIV. After grouping, 5 groups with 62 people in all have a single diagnosis. One group is zip 109, born in the 1970s, female, with 10 people, all of them with HIV.
+
+An attacker who knows only that his target lives in that area, was born in that decade and is female learns the diagnosis without knowing which row is the target's. That is a **homogeneity attack**. The table passes k-anonymity fully, and it still leaks. The book speaks about this limit under "why isn't k-anonymity enough" (book: Practical Data Privacy chapter 10 page 267).
+
+A common fix is to require that every group holds at least l different diagnoses (l-diversity). The exercise checks only that 2-diversity fails for this release, and that even the groups of area 109 that are not all HIV still have at least 80% of it. Fixing it means merging groups or suppressing more, which costs more rows. Other levels of l-diversity were not run.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A released table is k-anonymous with k = 5 in every group. The attacker knows the target lives in zip 109, was born in the 1970s and is female. What does he learn?"
+  options={['Nothing at all, because ten rows fit', 'Almost certainly the diagnosis, because everyone in that group has the same one, and he does not need to know which row is the target\'s', 'The name of the target']}
+  answer={1}
+  why="k-anonymity stops pointing at a single row, but it does not stop inferring a sensitive value from the group. If everyone in the group has the same value, not knowing which row it is does not help. The exercise result: the group has 10 people and all have HIV."
+/>
+
+</Step>
+
+<Step>
+
+## How big must k be
+
+The author did not run a search for a suitable k. The 5 in this lesson is an example chosen to make the picture easy to see. In real work the k used for health data is often higher, and it depends on what the attacker already knows. The book Building an Anonymization Pipeline places this in the Five Safes framework, which we come back to in the final lesson (book: Building an Anonymization Pipeline chapter 3 page 44).
+
+Another limit of this method is that if an attacker holds several versions of our table, one coarsened one way and another coarsened another way, he can put them together and narrow the groups. The author did not try this.
+
+[The next lesson](/en/data-security/differential-privacy/) changes the way of thinking completely. Instead of making the table coarse enough, we do not release rows at all. We release only the answers to questions, with noise mixed in, and there is a mathematical definition that can be proven for how safe that is.
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| k = 1 and 1,872 rows to suppress at the exact year and a 5 digit zip; k = 3 and 38 rows at 5 years and a 3 digit zip; only 10 rows at 10 years and a 3 digit zip | ran: `exercises/04_k_anonymity.py` |
+| 10 years and a 2 digit zip give 12 groups with k = 82 and no suppression, and the average group grows from 1.9 to 166.7 | ran: `exercises/04_k_anonymity.py` |
+| A 20 year band adds nothing over 10 years | ran: `exercises/04_k_anonymity.py` |
+| Zip 109 has HIV for 169 of 181 people, 5 groups (62 people) have a single diagnosis, and 2-diversity fails | ran: `exercises/04_k_anonymity.py` (the clinic area is the author's assumption in synthetic data) |
+| The definition of k-anonymity and its limits | book: Practical Data Privacy chapter 2 page 54 and chapter 10 page 267 |
+| The Five Safes as a risk framework | book: Building an Anonymization Pipeline chapter 3 page 44 |
+| A suitable k, other levels of l-diversity, and combining several versions of a table | not run |
+
+</Step>

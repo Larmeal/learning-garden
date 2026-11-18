@@ -1,0 +1,62 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจหน้าที่ของ Cookie Flag, การออก Session ID ใหม่ และการกัน CSRF
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="เว็บไม่ได้ออก Session ID ใหม่หลังจากผู้ใช้ล็อกอิน ผู้โจมตีทำอะไรได้"
+  options={['ขโมย Cookie ของผู้ใช้ผ่านเครือข่าย', 'ขอ ID จาก Server ก่อน แล้วหลอกให้ผู้ใช้ใช้ ID นั้น พอผู้ใช้ล็อกอิน ID นั้นก็เป็นของผู้ใช้', 'ทำให้ Server ลืมรหัสผ่านของผู้ใช้']}
+  answer={1}
+  why="นี่คือ Session Fixation ผู้โจมตีไม่ได้ขโมยอะไรจากผู้ใช้ แต่เป็นคนเลือก ID เอง แบบฝึกรันทั้งสองแบบ ถ้า Server เก็บ ID เดิม ID ที่ผู้โจมตีรู้ก็เป็น Session ของ Ann ถ้าออก ID ใหม่ตอนล็อกอิน ID เดิมเป็นของใครไม่ได้"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ธนาคารตรวจสอบเฉพาะว่า Cookie ถูกต้อง แล้วโอนเงินตามที่ Request บอก ข้อไหนตรงกับ CSRF ที่สุด"
+  options={['ผู้โจมตีเดารหัสผ่านของผู้ใช้ได้', 'หน้าเว็บอื่นทำให้ Browser ของผู้ใช้ส่ง Request โอนเงินไปพร้อม Cookie ที่ Browser แนบให้เอง', 'ผู้โจมตีดักอ่านข้อมูลบนเครือข่าย']}
+  answer={1}
+  why="ใน CSRF ผู้โจมตีไม่รู้ทั้งรหัสผ่านและ Cookie เขาแค่ทำให้ Browser เป็นคนส่ง Request ธนาคารเห็น Cookie ถูกต้องจึงเชื่อว่าผู้ใช้ตั้งใจ ซึ่งเป็นสิ่งที่ Cookie ยืนยันไม่ได้ ข้อแรกคือการเดารหัสผ่าน ส่วนข้อสุดท้ายคือการดักอ่านบนเครือข่ายที่ TLS แก้"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ในแบบฝึก Cookie ตั้ง SameSite=Lax แล้ว หน้า evil.test ส่ง POST ไปที่ธนาคาร ผลเป็นอย่างไร"
+  options={['ธนาคารตอบ 200 และโอนเงิน', 'Browser (ตามโมเดล) ไม่แนบ Cookie ธนาคารตอบ 401 เพราะยังไม่ล็อกอิน', 'ธนาคารตอบ 403 เพราะ Token ไม่ตรง']}
+  answer={1}
+  why="กฎของ Lax คือไม่แนบ Cookie เมื่อ POST มาจากเว็บอื่น Request จึงไม่มี Session และธนาคารตอบ 401 (ไม่ใช่ 403 ที่เป็นผลของ Token กับ Origin) ย้ำว่านี่คือผลจากโมเดลของ Browser ในแบบฝึก ไม่ใช่การทดลองกับ Browser จริง"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ทีมบอกว่าเราตั้ง SameSite=Lax แล้ว ไม่ต้องทำ CSRF Token ก็ได้ ข้อไหนเป็นความเห็นที่รอบคอบกว่า"
+  options={['ถูก เพราะ SameSite แทน Token ได้ทุกกรณี', 'SameSite ช่วยมาก แต่เป็นการพึ่งพฤติกรรมของ Browser การเพิ่ม Token หรือการตรวจ Origin เป็นอีกชั้น เผื่อ Browser บางตัวหรือบางกรณีไม่ทำตามกฎ', 'ผิด เพราะ SameSite ไม่ช่วยอะไรเลย']}
+  answer={1}
+  why="เราซ้อนหลายชั้นเพราะไม่มีชั้นเดียวที่รับประกันทุกกรณี หนังสือ Web Application Security เรียกการตรวจ Header ว่าเป็นจุดเริ่มต้นมากกว่าเป็นการป้องกันที่สมบูรณ์ ส่วนตัวผู้เขียนคิดว่าควรมีอย่างน้อยสองชั้น (ความเห็นผู้เขียน ไม่ได้ทดสอบกับ Browser หลายตัว)"
+/>
+
+</Step>

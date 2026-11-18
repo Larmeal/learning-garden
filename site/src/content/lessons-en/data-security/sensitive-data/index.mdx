@@ -1,0 +1,136 @@
+---
+title: Sensitive data, and the columns that point at a person
+summary: A customer table with the names dropped looks safe, but zip, birth date and sex together point at one person for almost everybody. We sort the columns into three kinds, find identifiers hiding in a free text column, and count how many columns it takes before a person is alone in their group.
+facts:
+  - "Run in exercises/01_sensitive_data.py on 2,000 synthetic people made with a seeded random generator: the distinct values of each column, regexes that find phone numbers and e-mails in the notes column, and how many people are alone as columns are added one at a time."
+  - "There is no data about a real person in this lesson. The names come from short lists and every number from a random generator."
+  - "The three kinds of column follow the books Practical Data Privacy chapter 1 and Building an Anonymization Pipeline chapter 2. How the columns of the sample table are sorted is the author's own."
+order: 1
+phase: A
+level: 1
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import IdentifiabilityLab from '../../../../components/labs/data-security/IdentifiabilityLab';
+
+<Step>
+
+## A table with the names removed
+
+Mr. A's company keeps its customers in one table, and the analytics team asks for it to make a report. Mr. A is careful: he drops the columns name, e-mail and phone before sending. What is left is zip, birth date, sex, diagnosis and salary. He thinks "without a name, nobody knows who it is".
+
+Before we see where that thought goes wrong, let us look at the real table. The table we use throughout this subject is 2,000 synthetic people made with a seeded random generator, so the numbers come out the same on every run, and nobody in it is real. The first five rows look like this (run: `exercises/01_sensitive_data.py`).
+
+| name | email | zip | birth | sex | diagnosis | salary |
+|---|---|---|---|---|---|---|
+| Kim Park | kim.park1@mail.test | 10120 | 1985-06-03 | M | hypertension | 37,200 |
+| Rae Moss | rae.moss2@mail.test | 10110 | 1955-04-21 | M | depression | 49,300 |
+| Eve Frost | eve.frost3@inbox.test | 10330 | 1987-08-09 | M | flu | 40,800 |
+| Bob Wade | bob.wade4@post.test | 10230 | 1968-06-23 | M | asthma | 43,700 |
+| Cat Wade | cat.wade5@inbox.test | 10230 | 1976-12-08 | F | diabetes | 53,000 |
+
+The real table also has a phone number and a notes column, but this is enough to see the picture. Let us first ask which columns can make a person the only one in the table.
+
+</Step>
+
+<Step>
+
+## Columns come in three kinds
+
+The book Practical Data Privacy separates the data to be careful with into several kinds, which the author sums up as three that we use all through this subject (book: Practical Data Privacy chapter 1 page 5, on finding sensitive data).
+
+| Kind | Meaning | In our table |
+|---|---|---|
+| Direct identifier | a value that points at one person by itself | name, email, phone |
+| Quasi identifier | a value that does not point at one person alone, but does when combined | zip, birth, sex |
+| Sensitive value | data we do not want anyone to link to a person | diagnosis, salary |
+
+We counted the distinct values of every column over the 2,000 synthetic people. The result: email and phone are different for nearly everybody (2,000 values), so they do point at one person. sex has only 2 values, zip 12 and diagnosis 7, so each alone fits hundreds of people and identifies nobody. What is interesting is that birth has 1,900 values among 2,000 people, so a birth date alone is almost an identifier already.
+
+The kind of a column is not fixed. A zip code in a big city identifies nobody, while a zip code of a village with ten houses identifies almost everyone. We have to look at our own data, not at the name of the column.
+
+</Step>
+
+<Step>
+
+## Identifiers hiding in a text field
+
+Mr. A's real table has a `notes` column where staff type whatever they like. The author put examples in it such as "call back on 0891390996" or "wrote from kim.park1@mail.test, please reply". When Mr. A drops the email and phone columns and forgets this one, the identifiers are all still there.
+
+The exercise uses two regexes to search the notes.
+
+```python
+EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
+PHONE = re.compile(r"\b0[689]\d{8}\b")
+with_email = [p for p in people if EMAIL.search(p.notes)]
+```
+
+The first looks for text that looks like an e-mail address. The second looks for ten digits that start with 06, 08 or 09. The result: phone numbers in 200 rows and e-mails in 106 more, so this harmless looking column hides identifiers for 306 people. Before releasing any table we have to scan every free text column as well. The book discusses finding personal data that we do not yet know is in a table under the same heading (book: Practical Data Privacy chapter 1 page 14), and a regex like ours can still miss, for example a number written with dashes.
+
+</Step>
+
+<Step>
+
+## Add columns one at a time and see who is left alone
+
+Now back to the table with the names dropped. We ask: if we put together the columns that "identify nobody", how many people are alone in their group? Alone means that nobody else in the table has the same value in every chosen column.
+
+Press the steps in the lab below. The picture has 100 squares and one square stands for 20 people. A dark square is a person who can be singled out.
+
+<IdentifiabilityLab client:visible lang="en" />
+
+What the exercise asserts: sex alone gives 2 groups and nobody is alone. Adding zip gives 24 groups, still nobody. Adding the birth year gives 1,037 groups with 450 people (22.5%) alone. Using month and year of birth gives 1,877 groups with 1,757 people (87.8%). And with the full birth date there are 1,996 groups, with 1,992 people, or 99.6%, whom nobody else matches.
+
+Look at that number once more. Three columns without a name (sex, zip, birth date) leave 1,992 of 2,000 people alone in their group. Anyone who knows the zip, birth date and sex of a neighbour can find that neighbour's row and read the diagnosis and salary next to it. We will see that really happen in [the next lesson](/en/data-security/pseudonymization/).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A team drops name, email and phone and calls the table 'anonymous data'. Which statement describes the problem best?"
+  options={['No problem: without a name nobody knows who it is', 'There is still a problem, because zip, birth date and sex together leave almost everyone alone in their group. Anyone who has those three facts about a person finds the row', 'The problem is only the diagnosis']}
+  answer={1}
+  why="The exercise counts that sex, zip and the full birth date together leave 1,992 of 2,000 people with nobody the same. Removing the direct identifiers did less than expected, because the quasi identifiers that remain do the same job. The diagnosis is a sensitive value that makes identification costly, but it does not make identification possible by itself."
+/>
+
+</Step>
+
+<Step>
+
+## A spectrum of identifiability
+
+The book Building an Anonymization Pipeline does not treat data as two kinds, identifiable and not. It sees a spectrum. At one end is data that clearly identifies, such as a table with names. At the other end is data with no practical way left to identify anyone. In the middle is data whose identifiers were replaced but that is still at risk (book: Building an Anonymization Pipeline chapter 2 page 23). The table Mr. A sent is in the middle, and nearer the identifiable end than he thought.
+
+The risk we can measure is the chance that somebody succeeds in identifying a person in the table (disclosure risk), which the book separates into several kinds (book: Building an Anonymization Pipeline chapter 2 page 24). In the next lessons we measure it with exercises that run, from a join with a public list to counting the sizes of groups.
+
+<Callout type="note" title="What this lesson does not do">
+
+We did not talk about law such as GDPR, which defines what counts as personal data. The book Practical Data Privacy explains it in chapter 8, which the author has not retold in this lesson, and nothing about law was run.
+
+</Callout>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The synthetic table of 2,000 people, the kinds of column and the distinct values (email and phone 2,000; birth 1,900; zip 12; sex 2; diagnosis 7) | ran: `exercises/01_sensitive_data.py` |
+| Regexes find phone numbers in 200 rows and e-mails in 106 rows of the notes column | ran: `exercises/01_sensitive_data.py` |
+| Sex 2 groups, + zip 24 groups, + birth year 450 people alone, + month and year 1,757, + full birth date 1,992 | ran: `exercises/01_sensitive_data.py` |
+| Finding sensitive data and personal data hidden in a table | book: Practical Data Privacy chapter 1 pages 5 and 14 |
+| Data lies on a spectrum of identifiability, and the kinds of disclosure risk | book: Building an Anonymization Pipeline chapter 2 pages 23 and 24 |
+| Sorting the columns of the sample table into three kinds | author |
+| The legal definition of personal data | not run |
+
+</Step>

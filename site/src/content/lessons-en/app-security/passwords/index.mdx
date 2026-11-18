@@ -1,0 +1,170 @@
+---
+title: Storing passwords
+summary: A users table leaks with hashed passwords and one lookup table cracks almost everybody. We then see how much a salt and a slow hash add to the attacker's work, using speeds measured on this computer, and write a correct store and check function.
+facts:
+  - "Run in exercises/04_passwords.py: a leaked table of 5 users, a lookup table from a 1,000 word list that cracks 4 without a salt and none with one, and the speed of SHA-256, PBKDF2 (600,000 rounds) and scrypt (N=32768) on one core."
+  - "The speeds printed in this lesson belong to the computer that ran them and change from run to run. The exercise asserts only ratios (at least 1,000 times slower)."
+  - "Not run: bcrypt and Argon2 (the libraries are not installed) and cracking on a real GPU. The core counts in the lab are examples."
+order: 4
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [crypto-basics]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import SaltLab from '../../../../components/labs/app-security/SaltLab';
+import PasswordCrackLab from '../../../../components/labs/app-security/PasswordCrackLab';
+
+<Step>
+
+## The users table that left the building
+
+Suppose Mr. A's shop is broken into and somebody takes the whole `users` table. Mr. A did not store passwords as they are. He stored SHA-256 of them, because he remembered from the last lesson that a hash cannot be reversed. The leaked table looks like this (run: `exercises/04_passwords.py`).
+
+```text
+ann  e4ad93ca07acb8d908a3...
+bob  e4ad93ca07acb8d908a3...
+cat  48486e1514e842346ff4...
+dan  1c8bfe8f801d79745c46...
+eve  65e84be33532fb784c48...
+```
+
+Does anything look odd? Ann and Bob have exactly the same hash, which means they chose the same password. The attacker does not need to know what it is to know the two share one. If one is cracked, both are cracked at once.
+
+Worse, the attacker does not have to try users one by one. He builds a **lookup table** once, by hashing the 1,000 passwords people most often choose, and then matches the leaked values against it. What ran: 4 of 5 users were cracked (ann, bob, dan, eve). Only cat survived, whose password `Tr0ub4dor&3` is not on the list.
+
+</Step>
+
+<Step>
+
+## A salt makes equal passwords look different
+
+The fix is to add a **salt**, a random text for each user, in front of the password before hashing. With a different salt the hash differs even when the password is the same. The book API Security in Action says that password storage should use a random salt for each password (book: API Security in Action chapter 3 page 78).
+
+Flip the salt in the lab below. With the salt off, look at the rows for Ann and Bob: a bracket marks that their hashes are identical, and four rows are cracked with one table. With the salt on, their hashes are no longer the same, and the table that was built earlier finds nothing at all.
+
+<SaltLab client:visible lang="en" />
+
+What the lab shows is what the exercise confirms in three checks. First, Ann's and Bob's hashes differ once there is a salt. Second, the table built earlier finds nothing. Third, the attacker's work grows from one pass over the 1,000 word list to a new pass for every user, which is 5,000 hashes. In this example the exercise derives the salt from the user name so the numbers repeat. A real one is 16 new random bytes each time (`secrets.token_bytes(16)`, which the exercise checks gives a different value on each call).
+
+A salt does not have to be secret. It can sit next to the hash in the table. Its job is to make the attacker repeat the work for every user.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The leaked users table holds salted hashes with a random salt per user. The attacker has a lookup table built beforehand from 1,000 words. How much does that table help him?"
+  options={['The same as before, because a lookup table does not depend on the salt', 'Hardly at all: the table holds hashes of bare passwords, but the stored values are hashes of salt plus password, so none match', 'It helps only with passwords longer than 8 characters']}
+  answer={1}
+  why="The prebuilt table holds hashes of bare passwords, while the leaked values are hashes of a salt followed by the password, which are different values. The exercise confirms that the earlier table finds 0 rows. The attacker has to compute again for every user with that user's salt."
+/>
+
+</Step>
+
+<Step>
+
+## But a fast hash can still be guessed fast
+
+A salt stops a table being shared, but the attacker can still guess one user's password at a time. How fast? The exercise measured how many guesses per second each method allows on one core of the computer that ran it. (The numbers below are from the run used for the lab. Another computer or another run will differ.)
+
+| How it is stored | Guesses per second (one core) |
+|---|---|
+| plain SHA-256 | about 1,300,000 |
+| PBKDF2 (SHA-256, 600,000 rounds) | about 7 |
+| scrypt (N=32768, r=8, p=1) | about 3 |
+
+The exercise asserts that PBKDF2 and scrypt are at least 1,000 times slower than plain SHA-256 (in the run measured, several hundred thousand times slower), and that one login with these slow hashes still takes under a second, which a real user does not notice but an attacker who has to guess a million times certainly does. That is why we use a hash that is **slow on purpose** for passwords, the opposite of what we want from an ordinary hash.
+
+The lab below takes those speeds and works out the time to try half of all the possibilities. Pick a kind of password, then switch the attacker's cores, and see that the bar for plain SHA-256 stays close to the left edge, while the scrypt bar sits many levels further out.
+
+<PasswordCrackLab client:visible lang="en" />
+
+For example, a password of 8 letters and digits (47.6 bits) stored as plain SHA-256 is half exhausted by one core in about 2.5 years, but behind scrypt it takes about a million years. These numbers depend on the computer that measured them and on the number of cores the attacker has (which, in the lab, is the author's example). What does not change is the ratio between the two methods.
+
+<Callout type="note" title="bcrypt and Argon2">
+
+Books and guides commonly recommend bcrypt, scrypt and Argon2, which share one idea: slow, and adjustable in how slow. This exercise uses scrypt and PBKDF2 because they are in Python's standard library with nothing to install. bcrypt and Argon2 were not run.
+
+</Callout>
+
+</Step>
+
+<Step>
+
+## Store it and check it the right way
+
+Three things have to be stored: the algorithm, the salt and the hash. The exercise puts them into one text of the form `scrypt$salt$hash`, so that checking needs nothing from anywhere else.
+
+```python
+def hash_password(pw, salt):
+    return "scrypt$" + salt.hex() + "$" + hashlib.scrypt(pw.encode(), salt=salt, n=2**14, r=8, p=1, maxmem=64*1024*1024).hex()
+
+def verify_password(pw, stored):
+    _, salt_hex, digest_hex = stored.split("$")
+    again = hashlib.scrypt(pw.encode(), salt=bytes.fromhex(salt_hex), n=2**14, r=8, p=1, maxmem=64*1024*1024)
+    return hmac.compare_digest(again.hex(), digest_hex)
+```
+
+`hash_password` runs the password and the salt through scrypt and joins the parts into one text. `verify_password` splits the salt out of the stored text, computes again with the password it was given, and compares with `hmac.compare_digest`, as we compared tags in the last lesson. What was asserted: the right password passes, and `tr0ub4dor&3` (lower case) does not.
+
+In real work we do not write this ourselves. We use a library that has seen heavy use, and pick the parameters from current advice. The exercise writes it out only to show what is inside. The book Web Application Security covers hashing credentials and 2FA as well (book: Web Application Security chapter 18 page 197).
+
+</Step>
+
+<Step>
+
+## The length of a password still matters
+
+Once storage is right, the password the user picks still counts. We measure strength in **bits**, the log base 2 of the number of passwords that are possible. Every extra bit doubles what the attacker must guess.
+
+| Kind | Bits |
+|---|---|
+| 6 digits | 19.9 (about a million possibilities) |
+| 8 lower case letters | 37.6 |
+| 8 letters and digits | 47.6 |
+| 4 random words from a list of 2,048 | 44.0 |
+
+Notice that four random words, which are much easier to remember, are about as strong as eight mixed characters, which are hard to remember. The condition is that the words really are random. If the user picks them, such as joining the names of favourite songs, the 44 bits is no longer true (the author's observation, not run on passwords people chose).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Two teams store the same 8 letter and digit passwords. Team A uses plain SHA-256 with a salt, team B uses scrypt with a salt, and both tables leak. Who is safer, and why?"
+  options={['Team A, because SHA-256 is a standard that has been checked a great deal', 'Team B, because scrypt makes each guess hundreds of thousands of times slower, so the attacker tries far fewer in the same time', 'They are equal, because both use a salt']}
+  answer={1}
+  why="A salt stops a table being shared, but it does not make each guess slower. SHA-256 does about a million guesses a second per core, while scrypt manages only a few. The exercise computes that for this kind of password scrypt lasts at least 1,000 times longer, which is what is asserted, and the measured numbers are far beyond that."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| Ann and Bob with the same password have the same hash, and a 1,000 word lookup table cracks 4 of 5 users | ran: `exercises/04_passwords.py` |
+| With a salt the hashes differ, the earlier table finds nothing, and the work goes from 1,000 to 5,000 | ran: `exercises/04_passwords.py` |
+| The salt comes from `secrets.token_bytes(16)` and is different each time | ran: `exercises/04_passwords.py` |
+| A random salt should be used for each password | book: API Security in Action chapter 3 page 78 |
+| SHA-256, PBKDF2 (600,000 rounds) and scrypt (N=32768) allow about 1.3 million, 7 and 3 guesses a second per core | ran: `exercises/04_passwords.py` (numbers are for the computer that ran it, only ratios are asserted) |
+| One login with a slow hash still takes under a second | ran: `exercises/04_passwords.py` |
+| The `scrypt$salt$hash` format and the check with `compare_digest` | ran: `exercises/04_passwords.py` |
+| Hashing credentials and 2FA | book: Web Application Security chapter 18 page 197 |
+| The bits of each kind of password | ran: `exercises/04_passwords.py` |
+| Four random words are easier to remember and about as strong, but not if the user picks the words | author |
+| bcrypt and Argon2 | not run |
+
+</Step>

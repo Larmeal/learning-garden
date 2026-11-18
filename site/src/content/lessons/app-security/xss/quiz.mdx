@@ -1,0 +1,62 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจว่า XSS เกิดตรงไหน Encode อย่างไรให้ตรงที่ และ CSP ช่วยเรื่องอะไร
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="ค่าที่ผู้ใช้พิมพ์ถูกใส่ใน Attribute ที่ครอบด้วยเครื่องหมายคำพูด ถ้าข้อความนั้นเริ่มด้วยเครื่องหมายคำพูดแล้วตามด้วยชื่อ Event เช่น Onfocus ผลเป็นอย่างไรเมื่อไม่ Encode"
+  options={['ไม่เกิดอะไร เพราะอยู่ในเครื่องหมายคำพูด', 'เครื่องหมายคำพูดตัวแรกปิดค่าก่อนเวลา แล้ว Onfocus กลายเป็น Attribute จริงของ input', 'ทำให้หน้าแสดงผลผิดเฉย ๆ']}
+  answer={1}
+  why="Parser ของ Python ในแบบฝึกเห็น Onfocus เป็น Attribute ที่ไม่มีใครเขียน เมื่อใช้ html.escape เครื่องหมายคำพูดถูกแปลงเป็นรหัส HTML ค่าจึงถูกเก็บเป็นข้อความทั้งก้อน และต้องมีเครื่องหมายครอบค่า Attribute เสมอด้วย ไม่งั้นช่องว่างตัวเดียวก็ปิดค่าได้"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="โปรไฟล์ให้ผู้ใช้ใส่เว็บของตัวเอง แล้วหน้าเว็บทำเป็นลิงก์ ผู้ใช้ใส่ Javascript:Alert(document.cookie) และเราผ่าน html.escape แล้ว ผลเป็นอย่างไร"
+  options={['ปลอดภัย เพราะ html.escape แปลงอักขระอันตรายแล้ว', 'ยังไม่ปลอดภัย เพราะไม่มีอักขระที่ html.escape แปลงเลย Href ยังเป็น Javascript:... ต้องมี Allow List ของ Scheme (Http, Https, ลิงก์สัมพัทธ์)', 'ปลอดภัยถ้าใช้ตัวพิมพ์ใหญ่']}
+  answer={1}
+  why="html.escape แก้ปัญหาที่ข้อความหลุดออกจากบริบทของ HTML แต่ลิงก์เป็นบริบทที่ค่าทั้งก้อนคือคำสั่ง แบบฝึกยืนยันว่า Href ที่ได้ยังเท่ากับ Javascript:... และ Allow List ของ Scheme ปฏิเสธมัน รวมถึงรูปแบบที่ขึ้นต้นด้วยช่องว่างกับตัวพิมพ์ปน"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เว็บมี CSP ที่อนุญาต Script-src 'self' 'unsafe-inline' แล้วมีช่องโหว่ XSS ที่ทำให้ Script ถูกฝังในหน้า ผลเป็นอย่างไร"
+  options={['CSP บล็อก Script ที่ฝังได้ เพราะมี CSP อยู่', 'Script ที่ฝังรันได้ เพราะ Unsafe-inline อนุญาต Script แบบ Inline ทุกตัว ไม่ว่ามาจากใคร', 'Script ถูกบล็อกถ้ามี Nonce ใน Header']}
+  answer={1}
+  why="แบบฝึกจำลองกฎของ CSP ถ้ามี Nonce และ Script ที่ฝังไม่มี Nonce จึงถูกบล็อก แต่เมื่อมี Unsafe-inline โดยไม่มี Nonce Script ที่ฝังรันได้อีก นโยบายที่ใส่ Unsafe-inline เพื่อให้เว็บเก่ายังรันได้จึงเสียประโยชน์ส่วนใหญ่ของ CSP ไป ผลนี้มาจากโมเดลของกฎ ไม่ใช่ Browser จริง"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เหตุใด Nonce ต้องเปลี่ยนใหม่ในทุก Response"
+  options={['เพื่อให้ Response เล็กลง', 'เพราะถ้าเหมือนเดิม ผู้โจมตีที่เห็นค่าจากหน้าเก่า (เช่น ผ่านการแทรกที่อ่านหน้า) เอาไปใส่ใน Script ที่ฝังได้ ค่าที่เดาไม่ได้ในแต่ละ Response ทำให้ใช้ไม่ได้', 'เพราะ Browser จำกัดให้ใช้ Nonce ได้ครั้งเดียวต่อวัน']}
+  answer={1}
+  why="Nonce ทำงานเพราะเป็นความลับต่อ Response นั้น ๆ แบบฝึกทดสอบว่า Nonce ที่ผู้โจมตีสุ่มเดาเอง หรือค่าเก่าจากหน้าอื่น ไม่ผ่าน และ Nonce จาก token_urlsafe(16) ยาว 22 ตัวอักษร (128 บิต) เดายาก"
+/>
+
+</Step>

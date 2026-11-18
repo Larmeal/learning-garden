@@ -1,0 +1,125 @@
+---
+title: OAuth 2.0 และ OpenID Connect
+summary: อยากให้แอปอื่นอ่านข้อมูลของเราโดยไม่ต้องบอกรหัสผ่าน OAuth ใช้ Code ที่แลกเป็น Token ได้ครั้งเดียว เราเดินตาม Flow ทีละข้อความกับ Authorization Server จำลอง ดูว่า PKCE, redirect_uri ที่เทียบทั้งสตริง และ State ปิดช่องโหว่ตรงไหน แล้วต่อด้วย OpenID Connect ที่เพิ่ม id_token ให้แอปรู้ว่าผู้ใช้คือใคร
+facts:
+  - "รันจริงใน exercises/07_oauth.py กับ Authorization Server จำลองที่เขียนเอง: ลำดับข้อความ, Code ใช้ได้ครั้งเดียว, Scope จำกัด Token, โจรที่ขโมย Code ได้ Token เมื่อไม่มี PKCE และไม่ได้เมื่อมี, redirect_uri เทียบแบบขึ้นต้นกับแบบเทียบทั้งสตริง, state และการตรวจ id_token สี่ข้อ"
+  - "Token ที่ใช้เป็น JWT ของบทที่แล้ว (jwtlib.py) และ Authorization Server ในแบบฝึกไม่ใช่ของจริง ไม่ได้ลองกับ Provider ใด (เช่น Google หรือ Keycloak)"
+  - "หนังสือที่ใช้คือ OAuth 2 in Action ซึ่งเลขหน้าคำนวณจาก Offset 27 และตรวจแล้วใน 4 หน้า ส่วน RFC 6749 ไม่ได้อ่านจากตัวสเปก"
+order: 7
+phase: B
+level: 3
+stage: sprout
+format: steps
+requires: [jwt]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import OAuthFlowLab from '../../../../components/labs/app-security/OAuthFlowLab';
+
+<Step>
+
+## ให้แอปอื่นอ่านข้อมูลของเรา โดยไม่ให้รหัสผ่าน
+
+นาย A ใช้แอปวิเคราะห์การเงินที่อยากอ่านประวัติสั่งซื้อจากร้านของเขา ถ้าแอปบอกว่า "ใส่ชื่อกับรหัสผ่านร้านของคุณที่นี่" ก็แปลว่ามีอีกบริษัทหนึ่งถือรหัสผ่านของเรา และทำอะไรกับบัญชีก็ได้ เหมือนยื่นกุญแจบ้านให้คนจอดรถแทน
+
+OAuth 2.0 แก้ด้วยการให้ร้านออก **กุญแจสำรองสำหรับคนจอดรถ** ซึ่งเปิดได้แค่ประตูรถ ไม่ใช่ท้ายรถหรือกล่องเก็บของ ในโลกจริงก็คือ Token ที่ผูกกับสิทธิ์จำกัด (**Scope**) เช่น อ่านประวัติสั่งซื้ออย่างเดียว และเพิกถอนได้โดยไม่ต้องเปลี่ยนรหัสผ่าน หนังสือ OAuth 2 in Action เปิดเรื่องด้วยโจทย์แบบนี้ตั้งแต่ต้นเล่ม
+
+ผู้เล่นมีสี่ฝ่าย คือ **ผู้ใช้** เจ้าของข้อมูล, **App** (หรือ Client) ที่อยากได้ข้อมูล, **Authorization Server** ที่ตรวจตัวตนผู้ใช้และออก Token และ **Resource Server** (API) ที่เก็บข้อมูลจริง ในแบบฝึก Authorization Server เป็นโค้ดเล็ก ๆ ที่เขียนเอง (รัน: `exercises/07_oauth.py`)
+
+</Step>
+
+<Step>
+
+## Flow ทีละข้อความ
+
+ถ้า App ขอ Token จาก Authorization Server ตรง ๆ ผู้ใช้ก็ไม่มีที่ให้ตัดสินใจ Flow ที่นิยมที่สุดจึงเป็น **Authorization Code** ซึ่งแบ่งเป็นสองจังหวะ จังหวะแรก ผู้ใช้ (ผ่าน Browser) ไปที่ Authorization Server ล็อกอินและกดอนุญาต แล้วได้ **Code** กลับมา จังหวะที่สอง App เอา Code ไปแลก **Token** กับ Server โดยตรง ไม่ผ่าน Browser
+
+ในแล็บข้างล่างเลือก "Flow ปกติ (PKCE)" ก่อน แล้วกดเล่น หกข้อความตามลำดับที่แบบฝึก Assert ไว้ คือ Authorize แล้วถึง Token (บนฝั่ง Server) ดูว่า Code วิ่งผ่าน Browser ได้ ซึ่งเป็นช่องที่อาจรั่ว แต่ Token ถูกขอตรงระหว่าง App กับ Server พร้อม Verifier ที่มีแต่ App ถือ จากนั้นสลับไปอีกสามเรื่อง
+
+<OAuthFlowLab client:visible />
+
+</Step>
+
+<Step>
+
+## กฎของ Code และ Scope
+
+แบบฝึกเช็กกฎพื้นฐานหลายข้อ ข้อแรก Code ที่ได้กลับมามี `state` ตรงกับที่ App ส่งไป ข้อที่สอง Token ที่ได้เปิด API ได้เฉพาะ Scope ที่ผู้ใช้อนุญาต คือ `orders:read` ได้ แต่ `orders:write` ที่ไม่มีใครให้ ถูกปฏิเสธด้วย `insufficient_scope` และข้อที่สาม **Code ใช้ได้ครั้งเดียว** ถ้าเอา Code เดิมไปแลกซ้ำ จะได้ `invalid_grant`
+
+กฎ "ครั้งเดียว" สำคัญเพราะถ้า Code หลุดไปแล้วถูกแลกก่อน App จริง อีกฝ่ายก็ล้มเหลว และ Server เห็นความผิดปกติได้ แต่มันกันไม่ได้ทั้งหมด ถ้าโจรแลกได้ก่อน เขาก็ได้ Token ไปเลย ซึ่งนำไปสู่ PKCE
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ในแบบฝึก โจรได้ Code ที่ Redirect กลับมา แล้วนำไปแลก Token โดยไม่มี code_verifier ผลต่างกันอย่างไรระหว่างตอนที่ App ใช้ PKCE กับตอนที่ไม่ใช้"
+  options={['ไม่ต่างกัน เพราะ Code ถูกต้องทั้งสองกรณี', 'ไม่ใช้ PKCE โจรได้ Token แต่ใช้ PKCE โจรถูกปฏิเสธ เพราะ Server เทียบ SHA-256 ของ Verifier กับ Challenge และโจรไม่เคยเห็น Verifier', 'ใช้ PKCE แล้วโจรได้ Token เร็วขึ้น']}
+  answer={1}
+  why="แบบฝึกรันทั้งสองกรณี ไม่มี PKCE โจรได้ access_token ถ้ามี PKCE ได้ invalid_grant เพราะ App เก็บ Verifier (43 ตัวอักษร) ไว้กับตัวเอง และส่งแค่ SHA-256 ของมันไปตอนเริ่ม Code ที่ขโมยมาจึงใช้ไม่ได้ เพราะ PKCE ผูก Code เข้ากับ App ที่ขอ (หนังสือ: OAuth 2 in Action หน้า 174)"
+/>
+
+</Step>
+
+<Step>
+
+## redirect_uri และ State
+
+ปลายทางที่ Code ถูกส่งไปคือ `redirect_uri` ผู้โจมตีจึงอยากเปลี่ยนมันเป็นที่ของตัวเอง แบบฝึกลงทะเบียนไว้ว่า `https://shop.test/callback` แล้วลอง Server สองแบบ แบบแรกตรวจว่า URI ที่ขอ **ขึ้นต้นด้วย** `https://shop.test` ผู้โจมตีส่ง `https://shop.test.evil.test/callback` ซึ่งขึ้นต้นเหมือนกัน และ Code ถูกส่งไปที่ `shop.test.evil.test` แบบที่สองเทียบ **ทั้งสตริง** กับที่ลงทะเบียนไว้ ปฏิเสธ หนังสือแนะนำว่า วิธีที่ Authorization Server ควรใช้คือเทียบแบบตรงกันทั้งหมด (หนังสือ: OAuth 2 in Action หน้า 158)
+
+`state` เป็นค่าสุ่มที่ App สร้างตอนเริ่มและเก็บไว้ในเซสชันของ Browser ของผู้ใช้ เมื่อ Callback กลับมา App เทียบ `state` ที่ได้กับที่เก็บไว้ ถ้าไม่ตรง ก็ทิ้ง เพื่อกัน Callback ที่ผู้โจมตีทำขึ้นมาแล้วให้ผู้ใช้เปิด แบบฝึกเช็กไว้เพียงว่า `state` ที่ไม่ตรงถูกปฏิเสธในระดับตรรกะ ไม่ได้ทำการโจมตีนั้นให้ดู (หนังสือ: OAuth 2 in Action หัวข้อ 3.2.3 หน้า 51)
+
+</Step>
+
+<Step>
+
+## OpenID Connect: ผู้ใช้คือใคร
+
+OAuth ตอบคำถามว่า "App นี้ทำอะไรได้บ้างในนามผู้ใช้" แต่ไม่ได้ตอบ "ผู้ใช้คือใคร" ถ้า App ใช้ Access Token เป็นหลักฐานว่าผู้ใช้ล็อกอินแล้ว ก็เป็นการใช้ผิดจุดประสงค์ **OpenID Connect (OIDC)** ต่อยอดโดยให้ Authorization Server ส่ง **id_token** กลับมาด้วย ซึ่งเป็น JWT ที่บอกว่าผู้ใช้คือใคร (`sub`) ผู้ออกคือใคร (`iss`) ออกให้ App ไหน (`aud`) และ `nonce` ที่ App ส่งไปตอนเริ่ม
+
+App ต้องตรวจ id_token สี่ข้อ ซึ่งแบบฝึกเช็กทั้งหมดด้วยฟังก์ชัน `verify` จาก[บทที่แล้ว](/app-security/jwt/) ลายเซ็นกับ `exp`, `iss` ต้องเป็นผู้ออกที่เชื่อ, `aud` ต้องเป็น App ของเราเอง และ `nonce` ต้องตรงกับที่ส่งไป ผลที่ได้คือ id_token ของ App อื่นได้ `wrong audience` ของผู้ออกอื่นได้ `wrong issuer` และของเก่าได้ `token expired` (หนังสือ: OAuth 2 in Action หน้า 248 เรื่องการตรวจ Nonce)
+
+สุดท้ายแบบฝึกเช็กความต่างที่มักถูกลืม Access Token เป็นสตริงสุ่มที่ App **ไม่ควรอ่านเนื้อใน** ส่งต่อให้ API อย่างเดียว ส่วน id_token เป็น JWT ที่ App ต้องอ่านและตรวจ
+
+<Callout type="note" title="ที่ไม่ได้รัน">
+
+แบบฝึกใช้ Authorization Server จำลอง จึงไม่ได้ลองกับ Provider จริง (Google, Keycloak) ไม่ได้รัน Flow แบบอื่นของ OAuth (Client Credentials, Device) และการตรวจ id_token ในแบบฝึกใช้ HMAC กับ Key ร่วม ขณะที่ Provider จริงใช้ลายเซ็นแบบสองกุญแจที่ดึง Public Key จาก JWKS
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เว็บหนึ่งให้ผู้ใช้ล็อกอินด้วย OAuth แล้วถือว่าใครก็ตามที่มี Access Token ถูกต้องคือผู้ใช้คนนั้น ข้อไหนเป็นจุดอ่อนที่ถูกต้อง"
+  options={['Access Token ยาวเกินไป', 'Access Token บอกว่าผู้ถือทำอะไรได้ ไม่ได้บอกว่าผู้ใช้คือใครหรือ Token ออกให้ App ไหน เว็บควรใช้ id_token และตรวจ Aud กับ nonce', 'ไม่มีจุดอ่อน เพราะ OAuth ทำเรื่องนี้ให้อยู่แล้ว']}
+  answer={1}
+  why="OAuth ออกแบบมาเพื่อให้สิทธิ์ ไม่ใช่เพื่อยืนยันตัวตน Token ที่ผู้โจมตีได้จากแอปอื่นอาจผ่านการตรวจลายเซ็นของ Server เดียวกัน แต่ Aud ชี้ไปที่แอปอื่น แบบฝึกใช้ id_token ของ OIDC ซึ่งมี Aud, Iss และ Nonce ให้ตรวจ ตรงกับหนังสือที่แยกสองเรื่องนี้ออกจากกัน"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| ลำดับหกข้อความ, State กลับมาตรง, Code แลกเป็น access_token กับ id_token ได้ครั้งเดียว | รัน: `exercises/07_oauth.py` |
+| Token เปิด API ได้ตาม Scope และ `orders:write` ถูกปฏิเสธ | รัน: `exercises/07_oauth.py` |
+| โจรที่ขโมย Code ได้ Token เมื่อไม่มี PKCE และไม่ได้เมื่อมี | รัน: `exercises/07_oauth.py` |
+| PKCE | หนังสือ: OAuth 2 in Action หน้า 174 |
+| redirect_uri แบบขึ้นต้นส่ง Code ไปที่ `shop.test.evil.test` และแบบเทียบทั้งสตริงปฏิเสธ | รัน: `exercises/07_oauth.py` |
+| ควรเทียบ redirect_uri แบบตรงกันทั้งหมด | หนังสือ: OAuth 2 in Action หน้า 158 |
+| State ช่วยกัน Callback ที่ผู้โจมตีทำขึ้น | หนังสือ: OAuth 2 in Action หัวข้อ 3.2.3 หน้า 51 (แบบฝึกเช็กแค่ตรรกะเทียบค่า) |
+| id_token ต้องผ่านลายเซ็น, Exp, Iss, Aud และ Nonce ตรง | รัน: `exercises/07_oauth.py` และหนังสือ: OAuth 2 in Action หน้า 248 |
+| OAuth ให้สิทธิ์ ส่วน OIDC เพิ่มการบอกว่าผู้ใช้คือใคร | หนังสือ: OAuth 2 in Action (บทว่าด้วย OAuth กับการยืนยันตัวตน) และผู้เขียน |
+| การลองกับ Provider จริง, Flow ชนิดอื่น และ JWKS | ไม่ได้รัน |
+
+</Step>

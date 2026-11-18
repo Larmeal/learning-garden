@@ -1,0 +1,111 @@
+---
+title: Capstone, a shop with ten holes
+summary: We have one toy shop with ten flaws hidden in it, one from each of the last twelve lessons. We run all ten attacks, work out which to fix first, then turn the fixes on one at a time and see that each closes only its own hole, and that every honest use still works when all are fixed.
+facts:
+  - "Run in exercises/13_capstone.py against shopapp.py, a toy shop in the same process. It asserts that all ten attacks succeed with nothing fixed and none does with all ten fixed, and that with one fix at a time only that fix's own hole closes (the other 90 cells stay open)."
+  - "Seven honest uses (log in, read your own order, change the e-mail, post a review, search, a wrong login, the sixth wrong login) are checked with every fix on."
+  - "The shop is written to teach, not to be copied, and was not tested against a real browser or network."
+order: 13
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [dos-rate-limit]
+updated: 2026-11-18
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import CapstoneLab from '../../../../components/labs/app-security/CapstoneLab';
+
+<Step>
+
+## A shop built to have problems
+
+Over the last twelve lessons we looked at flaws one at a time, but in real work they do not come one at a time. They come in a heap. In this lesson we put them together. `shopapp.py` is one toy shop written with **ten flaws**, each of which is a switch that turns its fix on, and **ten attacks** written to go with them, each returning whether it succeeded.
+
+The ten are: a search box that joins strings into SQL, passwords stored as plain SHA-256, session ids that are consecutive numbers, an order read without an owner check, a profile updated with every field sent, reviews shown with no encoding, an e-mail changed on a cookie alone, an error message that shows the SQL, any number of wrong logins, and a key written in the source. Every topic we met.
+
+What the exercise asserts (run: `exercises/13_capstone.py`): with nothing fixed, all ten attacks **succeed**. With all ten fixes on, **none of them does**.
+
+</Step>
+
+<Step>
+
+## If we had to fix them, where would we start
+
+The question a team really faces is that there are ten things to fix and the same amount of time. The order below is the author's opinion, not a result of running anything, but each step has a reason that can be checked.
+
+**First** is the key in the source, because it is the one that cannot be fixed by changing code once it has leaked. It has to be revoked at the provider (in the [lesson on dependencies and secrets](/en/app-security/supply-chain-secrets/)), and it is the only thing to do at once without waiting for a deployment.
+
+**Next** are the three that let an attacker work directly on data or rights: SQL injection (pull out whole tables), IDOR (read other people's data) and mass assignment (raise your own rights). All three work without tricking anybody, with one ordinary request.
+
+**Then** come the things that make other attacks easier or worse: weakly stored passwords (if the table leaks, everybody is lost), guessable session ids (take over anyone's account) and the rate limit on login.
+
+**Last** are the ones that depend on tricking a user, or that help an attacker more than they attack: XSS, CSRF and an error that reveals internals. The last one, the error, hurts nobody directly, but tells the attacker where to begin.
+
+Turn the fixes on in the lab below in this order, or in whatever order you think better, and watch the rows change from "exploitable" to "closed".
+
+<CapstoneLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## Each fix closes just one hole
+
+The exercise did not try only the two ends, nothing fixed and everything fixed. It also turned on one fix at a time and ran all ten attacks, giving a ten by ten table. Each fix closes its own attack, and only its own. The other nine still succeed, which makes ninety cells that stay open. In the lab you saw that the other rows do not change when one row's switch is turned on.
+
+There is one more thing about this table. When the Mass Assignment attack was first written, the result was not ninety open cells, because the CSRF fix closed mass assignment too. The author had written the attack as a request with no CSRF token, so the CSRF fix refused that request, while the mass assignment hole itself was fully there, only hidden. The fix the author chose was to change the attack so that Ann sends the request herself, with her own token from the shop's page, which made it close only the one hole, as it should.
+
+The lesson is that **a fix for one flaw can hide another** without that flaw going away. If we test only with attacks from outside, we may think that fixing one thing took another with it. A test should check that the specific attack is closed, not only that a particular request was refused.
+
+</Step>
+
+<Step>
+
+## Honest use still works
+
+Closing the holes by making the shop unusable does not count as a fix. So the exercise checks honest use against the shop with all fixes on. What was asserted: Ann can log in with her own password and gets a session id of 43 characters, she can read her own order, she can change her e-mail from the shop's own page with her token, she can post a review and see it encoded (`<b>nice</b>` is shown as text), a search for `pen` finds it, a wrong password gets 401, and with six wrong passwords in a row the sixth gets 429.
+
+The last item is not about behaviour. The exercise runs the scanner from the lesson on secrets against the source of the shop, and it finds the sample key that was left there to be found. That is where the tenth item comes from.
+
+All of this is a shop written to be attacked and fixed. Do not take it as a pattern. A real app needs many more things, from logging and permissions at several levels to updating dependencies, which the author did not put into this shop.
+
+<Callout type="note" title="What was not checked">
+
+The shop was not tried with a real browser (SameSite, CSP and XSS that really runs), had no network connection, and does not include TLS, OAuth or JWT from the earlier lessons, because the toy shop does not use them. The author has not tested whether the order of fixing above suits a real team. It is the author's opinion alone.
+
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A team fixes the CSRF hole, then tests the mass assignment attack by sending a request with no CSRF token, and sees it refused. The team concludes that mass assignment is fixed as well. How should this conclusion be seen?"
+  options={['Right, because the request was refused', 'It cannot be concluded. The request was refused because it had no token, not because role was ignored. The test must send an otherwise correct request, with a token, and see whether role is really written', 'Right, if the rate limit is on as well']}
+  answer={1}
+  why="This really happened while the exercise was written. The mass assignment hole was still there, only hidden by the CSRF fix. When the attack was changed to send the token with it, the result showed that mass assignment must be fixed separately by limiting the fields, which matches the table with 90 open cells."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The shop has ten flaws and ten attacks, all ten succeed when nothing is fixed, and none does with all fixed | ran: `exercises/13_capstone.py` |
+| Fixing one at a time closes only its own hole (90 cells stay open) | ran: `exercises/13_capstone.py` |
+| The mass assignment attack was hidden by the CSRF fix when sent with no token | author (found while writing the exercise for the first time, the attack was then changed and gave the table above) |
+| Seven honest uses work with all fixes on | ran: `exercises/13_capstone.py` |
+| The scanner finds the key in the source of the unfixed shop | ran: `exercises/13_capstone.py` |
+| The order of what to fix first | author |
+| A real browser, a real network and production use | not run |
+
+</Step>
