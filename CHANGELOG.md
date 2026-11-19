@@ -1,214 +1,278 @@
 # Changelog
 
-Notable changes to the learning garden, newest first. Dates are when the change was made.
+Made from the commit messages by `npm run changelog` (from `site/`), newest day first. Do not edit it by hand: change the commit message
+instead, or read the commit body for the reasons. How a message is written is in [`.cz.toml`](.cz.toml) (`type(scope): subject`).
+Housekeeping (`chore`, `ci`, `test`) is not listed. The older, hand-written notes are in [`docs/changelog-handwritten.md`](docs/changelog-handwritten.md).
 
 ## 2026-11-18
 
 ### Added
-- New subject `networking` (Network): 14 lessons in Thai and English, each with a quiz (the big picture and encapsulation, IP addresses and CIDR, the link layer with switches and ARP, IP routing with traceroute and fragmentation, NAT and DHCP, UDP and DNS, TCP connections, TCP reliability, TCP congestion control, sockets, TLS, HTTP/1.1 and HTTP/2 and QUIC, proxies and load balancers and container networks, and where to look when the network misbehaves). It links back to Spark, Git and Iceberg.
-- Twenty-six animated labs for it in `site/src/components/labs/networking/` (a packet travelling down the layers and up again, a CIDR splitter, a learning switch, ARP, routing with TTL, traceroute, fragmentation and PMTUD, NAT and DHCP, UDP and DNS, the TCP handshake and close, retransmission, Nagle, the window, Reno congestion control, a stream with a backlog, TLS, HTTP/1.1 against HTTP/2 against QUIC, HTTP/2 frames, layer 4 and layer 7 load balancers, container networks with MASQUERADE and DNAT, the phases of a slow request, and seven failure modes), all on the clock and scrub bar of the Spark labs, sharing `nw.tsx` and the `nw-` classes at the end of `global.css`. The numbers they show come from the exercises.
-- `subjects/networking/code/`: 14 exercises that build client, router and server from Linux network namespaces in WSL, change them with `tc netem` and `iptables`, capture with `tcpdump` and read the packets with `struct` (no scapy), `verify.py`, and `docs/` with the overview, sources and verified findings. Claims of the lessons are tagged ran, book, RFC or author.
-- New subject `app-security` (Application Security): 13 lessons in Thai and English, each with a quiz (how a defender thinks, hash and HMAC and AES-GCM and signatures, TLS and certificates, storing passwords, sessions and cookies and CSRF, tokens and JWT, OAuth and OpenID Connect, injection, XSS and CSP, access control with path traversal and SSRF, dependencies and secrets, flooding and rate limits, a capstone shop with ten holes). The lessons cite *Web Application Security*, *API Security in Action* and *OAuth 2 in Action* with the printed page.
-- Twenty labs for it in `site/src/components/labs/app-security/`: a request travelling through five stops with six attacks, a real SHA-256 grid that lights the bits that differ, the four building blocks against a man in the middle, a TLS 1.3 handshake with three failures, a Diffie-Hellman exchange with small numbers, a salt and a password cracking time on a log scale, a session cookie with XSS and fixation, CSRF with four defences, a real HS256 token that is edited and verified in the browser, the authorization code flow with PKCE and a leaking redirect, SQL injection side by side with a parameter, a password read through yes or no answers (85 requests), XSS in three places with a CSP, IDOR and path traversal and SSRF, a dependency range with a lock file and a hash, a key that stays in Git history, a regex that doubles its work, three rate limiters, and the ten holes of the capstone with their fixes. `seq.tsx` is a shared sequence diagram, `sha256.ts` and `jwt.ts` compute in the browser.
-- `subjects/app-security/code/`: 13 exercises (217 checks) that run toy apps on this computer only, `verify.py`, `verify_labs.mts` and `verify_jwt.mts` (the TypeScript of the labs equals the Python byte for byte), and `docs/` with the overview, sources and verified findings.
-- New subject `data-security` (Data Security): 11 lessons in Thai and English, each with a quiz (sensitive data, pseudonymization, linkage attack, k-anonymity, differential privacy, the privacy budget, encrypting stored data, roles and masking, computing on data nobody sees, the life of data, a capstone that releases a table in four stages), built from three books on data privacy.
-- Twelve labs for it in `site/src/components/labs/data-security/` (a 100 square grid of who is unique, a hash table the attacker undoes, a join with a voter list, k-anonymity by age band and zip, Laplace noise on a clock, a budget that runs out, envelope encryption in five steps, views and masking, secret sharing, private set intersection, a lineage graph of erasure, and the release capstone), all with Thai and English text.
-- `subjects/data-security/code/`: 11 exercises (171 checks) on 2,000 synthetic people, `verify.py`, and `docs/` with sources, verified findings and an overview.
-- The subject has its own category "ความปลอดภัย" (Security) on the home page.
 
-### Changed
-- `site/tools/lesson-refs.mjs` knows the book names of the networking subject (Networking and Kubernetes, TCP/IP Illustrated), so a chapter number after them is not read as a lesson.
-- `site/tools/lesson-refs.mjs` knows the book names of the security subjects, so a chapter number after "Web Application Security" or "API Security in Action" is not read as a lesson.
+- **networking**: Networking subject with 14 lessons in Thai and English, 26 labs and 14 exercises ([`f87e96b`](https://github.com/Larmeal/learning-garden/commit/f87e96be1fa99b64f3c91826aad52b78f1e95931))
+- App Security and Data Security subjects, shared styles, ref tool and sync hashes ([`8aa0d40`](https://github.com/Larmeal/learning-garden/commit/8aa0d40a4741d6dda98d50cd9ef585207e9db05e))
 
 ## 2026-11-17
 
 ### Added
-- **Ask**, a second app in the Astro dev toolbar (`site/dev-ask/`, `npm run dev` only, never in a build): highlight text on a lesson page, a purple marker stays over it, and ask Claude what it means. Four shortcut buttons appear with the picked text (what it means, an example, why it is so, quiz me). The answer streams into a panel beside the page and looks like the chat of Claude Code: each file Claude reads or searches is a card that opens to show what it asked and what came back, code blocks have a Copy button, the model can be chosen (default, Sonnet, Opus, Haiku), the panel can be dragged wider, moved to the other side and follows the light or dark theme of the site. The server half starts the `claude` program of this computer in print mode with its existing login, so it uses the owner's own Claude Code subscription and no API key or token is read or stored. The app stores no conversation: the history button lists the session files that Claude Code already keeps for this folder (`~/.claude/projects/<folder>/*.jsonl`, read only), so a chat started in the VS Code extension can be opened and continued here (it is marked when it did not start in Ask, or when it was used in the last two minutes and may still be open elsewhere), and the open chat is read back from its file after a reload or a move to another lesson. A chat can be renamed (double-click its name, or the pencil in the list): the app appends a `custom-title` and an `agent-name` line to the session file, the same two lines `/rename` of Claude Code writes, and the list shows the owner's name for a session before Claude's guess at a title. That is the only thing the app ever writes into a session file, and it warns when the session was used in the last two minutes, because a session that is open in VS Code may write its old name again on its next turn. Claude gets only Read, Grep and Glob (it cannot edit or run anything), no MCP servers, and a 5 minute limit. The page, the lesson file, the nearest heading and the text around the pick are sent with each question. The app switches itself off when the dev server is started with `--host`, and it needs a restart of `astro dev` the first time because it is added in `astro.config.mjs`. Tried in headless Chrome: pick, quick button, streamed answer with a tool card and a code block, the history list, reading a chat back after a reload, opening an older session, resizing, theme, stop, new chat; a session file of 40 MB is read in about 40 ms.
 
-## 2026-11-16
+- **git**: eleven animated labs, a lab data exercise with 63 checks, and a rewritten squash example ([`1dc39ed`](https://github.com/Larmeal/learning-garden/commit/1dc39ede5130b4974b32ccb48994b565cc7baf07))
+- **site**: Ask, a dev toolbar app to highlight text on a lesson and ask the Claude of this computer, with history, rename and tool cards ([`29c16d9`](https://github.com/Larmeal/learning-garden/commit/29c16d9fad89378a94745ef40ee518a6665e4a50))
 
-### Added
-- Eleven animated labs for the Git subject, on a clock with a scrub bar like the Spark labs, in `site/src/components/labs/git/`: `IntegrateLab` (merge commit, squash and rebase taken from the same start, side by side, in the pull requests lesson), `MergeKindsLab` (fast-forward against a real merge) and `ConflictLab` (a three-way merge line by line, with the way out of a conflict), `RangesLab` (what each revision selector picks), `BisectLab` (16 commits, 4 answers), `ReflogLab` (a `reset --hard` and the way back), `PackLab` (20 versions before and after `git gc`), `SnapshotLab` (two commits and the object they share), `DiffLab` (four diff algorithms on one pair of files), `HookLab` (a pre-commit hook that says no, and `--no-verify`) and `SubmoduleLab` (a pointer that does not follow the library). `gl.tsx` holds the shared drawing pieces.
-- `subjects/git/code/exercises/16_lab_data.py` runs the real Git for these labs (63 checks) and with `--write` saves `labData.json`; `verify.py` now runs 17 exercises and 431 checks.
+### Docs
 
-### Changed
-- Data Quality lessons (Thai and English, all pages, quizzes, the dimension lab and the subject description) say "row" instead of "record" and "table" where "dataset" or "data set" meant a table. The shop data is called "our tables". Book terms are kept where the book is quoted ("source of record", "system of record") and the pages that used the book words (Completeness, Consistency, Uniqueness) say once what the book calls them.
-- Data Quality, lesson 2, page Completeness (Thai and English) is longer and easier to read: one paragraph per idea with a blank line between ideas, lists and tables where there is a real list, a table that sorts ten problems into the dimension they belong to, examples from a hospital, an online shop, human resources, a sign-up system and a factory sensor, a patient table where one empty cell means "none" or "unknown", a sensor with a known schedule next to the orders copy, a three-day table that tells lost rows from a quiet holiday, the email denominators as a table (92.00%, 96.74%, 89.00%), and a five-record deduplication example. `13_dimension_pitfalls.py` asserts the numbers of the new tables. The other seven Dimension pages have not been rewritten this way yet.
-- The pull requests lesson shows the squash example with the same starting history as the other two ways (M1, M2, then the topic), so the three results can be compared; exercise 07 resets its clock for each way, and the ids printed for squash and rebase changed.
+- **data-quality**: say row and table instead of record and dataset, and make the Completeness page easier to read ([`e9e9893`](https://github.com/Larmeal/learning-garden/commit/e9e98933b214d5de9cfbfafb0623e6cf69e56c88))
+- describe Ask, the Git labs and the Data Quality edits, and record translation-sync hashes ([`a961ae5`](https://github.com/Larmeal/learning-garden/commit/a961ae57298094f0cdabd11eef2e8163b90d1f50))
 
 ## 2026-11-15
 
 ### Added
-- New subject `git`: 15 lessons in Thai and English, each with a quiz (what Git is, the first commit, reading history, branches and HEAD, merge, rebase, remotes, pull requests and teamwork, fixing history, stash and reflog, finding commits, the object store, refs and packfiles, the index and diff and merge inside, patches and hooks and submodules). The lesson list comes from the tables of contents of *Learning Git* and *Version Control with Git* and from the Git source.
-- `subjects/git/code/`: 16 exercises that run the real Git (2.56.1) in throwaway repositories with a fixed author, clock and configuration, so the ids repeat, and `verify.py` (368 checks). `subjects/git/docs/` has the overview, the sources (page offsets of the two books) and the verified findings.
-- `subjects/git/graphs/git-current/`: knowledge graph of Git v2.56.1 (681 C files, 9,621 nodes, 25,983 edges, 10 layers, an 18-step tour).
-- Six labs in `site/src/components/labs/git/`: three areas of a file, branch and HEAD, merge against rebase, three repositories with fetch and a rejected push, the three kinds of reset, and the objects behind two commits (click a box to read its bytes, data from `exercises/15_object_graph.py`).
+
+- **git**: Git subject with 15 lessons in Thai and English, 6 labs, 16 exercises and a knowledge graph ([`4e1132a`](https://github.com/Larmeal/learning-garden/commit/4e1132a6388d526674ef09fe734be1dcab2eed48))
+
+## 2026-11-14
+
+### Added
+
+- **spark**: rebuild SpillLab and JoinDecisionLab, add RepartitionLab, fix sideways scroll of lab boxes ([`972eaf5`](https://github.com/Larmeal/learning-garden/commit/972eaf5cf31682d18497cb89ca7d3278620dbe70))
+- **spark**: Cache and Persist page, CacheLab, LineageLab, and checks that run on real Spark ([`5b08b08`](https://github.com/Larmeal/learning-garden/commit/5b08b0874301ab4e30f1b8ad5d48a64aa4593ee9))
+
+### Docs
+
+- **create-learning**: lab-audit checks sideways scroll at 1920px and resets option groups ([`a0c651c`](https://github.com/Larmeal/learning-garden/commit/a0c651c7e5dc8c3f53bc7f1c12b61bb93219d62d))
 
 ## 2026-11-13
 
 ### Added
-- The README now says how to clone the repo and run it: the website (Node, `npm ci`, `npm run dev`), the checks the deploy runs, publishing a fork, and the exercises of each subject with what each needs (uv, a JDK for Spark and Iceberg, WSL on Windows). This was tried on a fresh clone of the repo: the site built (634 pages), the dev server answered, and the exercises of Data Quality, Great Expectations, Pydantic and Pytest ran on Windows, and those of Spark and Iceberg ran on Linux (WSL).
-- `subjects/iceberg/code/setup.sh` installs what the Iceberg exercises need outside Python (it checks for Java and uv, downloads the two jars, runs `uv sync`), the jar folder can be moved with `ICEBERG_LAB_JARS`, and the subject now has a `uv.lock` like the others.
-- A lesson page may have a `facts` list in its frontmatter, shown as bullets under its summary ("ตรวจสอบอย่างไร" / "How it was checked"). Every non-quiz lesson page of every subject has one in both languages (Singing included, which has an English version): which exercise ran it, which source file or book page it was read from, and what was not run. Items come from each page's own sources table, the subject's `verified-findings.md` and its exercises. The subject pages got the same list, and the longer descriptions of Data Quality, Pytest, Pydantic and Singing were cut to two or three sentences.
-- A subject JSON may have a `facts` list (and `en.facts`). The subject page shows it as short bullets under the description, headed "ตรวจสอบอย่างไร" / "How it was checked". Iceberg uses it for how the lessons were checked and what was not run, so its description is two lines instead of a paragraph.
 
-- Spark: `RepartitionLab` on the performance tuning page (`repartition(n)`, `repartition(n, "key")`, `coalesce(n)` on a table of 4 partitions): pick the command and n, and the rows travel to their new partitions, with an Exchange drawn or not and the sizes of the result. It shows that `coalesce` joins neighbours without a shuffle, can leave uneven partitions and cannot add partitions. Thai and English. Where each row lands under `repartition` is what Spark 4.2.0 really gave for this table (a first version dealt rows out as row number modulo n, which Spark does not do: it sorts each partition first, starts dealing at a position taken from the partition number, and `repartition(8)` of these 12 rows leaves one partition empty); `lab_placements` in `exercises/07_performance_tuning.py` asserts the lists, and the `coalesce` grouping matches a real run.
-
-- Spark: a sub-page of its own for caching under lesson 7, "Cache และ Persist" / "Cache and Persist" (`performance-tuning/cache-persist`, between the lesson and the in-depth page): where a cache cuts the recipe, `cache()` against `persist()` with a table of the three levels, what was measured on a DataFrame, and the price of a cache. The section `cache()` ช่วยเมื่อไร / When `cache()` helps stays in the lesson as a short paragraph that links to it (other lessons link to that heading), and the links from lesson 2 now point at the new page.
-- Spark: `CacheLab` on the "Cache และ Persist" page. A recipe of four steps over four partitions and three actions in a row, with or without a shuffle (groupBy, join): choose the step to cache after, the StorageLevel and whether memory is enough, and see which cells each action runs, skips, reads from memory or disk or reads from shuffle files, with the block of partition 2 lost before the third action. The text of that section was cut down to four short points and a table of the three levels. `exercises/07_performance_tuning.py` asserts it: `cache_lineage` (steps run on an RDD chain, cache after step 0 to 4) and `cache_dataframe` (DataFrames with a Python UDF that counts rows: the same DataFrame again after a groupBy or a join does not run the part before the shuffle, a different query on the same base does unless the base is cached, a lost block after the shuffle is rebuilt from the shuffle files, and with the shuffle files deleted too the part before the shuffle runs again). `07b_jvm_limits.py` asserts where the three levels put data when memory is short (`levels`) and the deleted shuffle files (`lost_shuffle`, its own session, because deleting the files makes Spark treat the local executor as lost and the storage info of later checks goes empty).
-- Spark: `LineageLab` on the lazy evaluation page (new step "Lineage ใช้ทำอะไรอีก" / "What else lineage is used for"): lose one partition of the result and see what Spark has to run again for a recipe with no shuffle, a groupBy and a join, with the shuffle files still there or gone. Lineage was explained only in lesson 13 as text and `toDebugString()`, and in one sentence in lesson 2.
-
-### Changed
-- Spark `SpillLab` is rebuilt on a clock. It now shows why a task spills (the executor pool is shared and one task holds at most 1/N of it, read from `ExecutionMemoryPool`) and lets you change the number of tasks running at the same time and the size of the partition, so the number of spill files changes. The old version drew a full buffer after a spill and an unreadable label.
-- Spark `JoinDecisionLab`: the 24 unlabelled buttons are now a form with a heading and a label for every setting, in the order the chart asks about them. The nine examples are one drop-down, and a setting that the chosen path never looks at is dimmed with a note.
-- `create-learning`: `scripts/lab-audit.py` also reports a lab box that scrolls sideways on a 1920px screen, and resets the other option groups before it tests one.
+- **iceberg**: exercises 01-16, helpers, docs and knowledge graph ([`7165310`](https://github.com/Larmeal/learning-garden/commit/716531074ab1f9c9a3c18f06f68b4368a61d8297))
+- **site**: iceberg labs and shared ib- styles ([`16cb89d`](https://github.com/Larmeal/learning-garden/commit/16cb89de7706e42bdc4b5ea43cb10c3914b0a392))
+- **site**: optional facts list on subject and lesson pages ([`bdac884`](https://github.com/Larmeal/learning-garden/commit/bdac884167f71f0677e65eebc78c09d5240e8cea))
 
 ### Fixed
-- Spark `LazyLab` showed every step lit, including reading the file, when a cache hit said the file is not read again. A cache hit now starts at the step after the file.
-- Every lab with a drawing (206 lab boxes on 112 pages, Thai and English) scrolled sideways and lost its right edge on a wide screen: the lesson column is 700px, the box has 28px of padding and the drawing had `min-width: 700px`. The minimum is now 660px. Found through a note on a lab (the audit of the labs had only used a 1100px screen).
-- Spark `JoinDecisionLab`: edge labels of the chart ("usable", "= yes") ran into the boxes in English.
-- Iceberg lesson titles now say what the lesson teaches (for example "ไฟล์ในตาราง Iceberg ไล่จาก Catalog ลงไปถึง Data File" instead of "ข้างในตาราง", and "ดูไฟล์จริงที่ถูกเขียนในแต่ละคำสั่ง..." instead of "ใต้ฝากระโปรง..."), in Thai and English.
-- `ReadPathLab`: the arrow of step 1 was a diagonal line that ended at the corner of the Catalog box. It is now an elbow into the box, and step 2 has a straight arrow with its badge clear of the boxes.
-- Iceberg labs: the figures no longer scroll sideways in a box of about 670px (the lab canvas may shrink to 600px, class `ib-fig`), and the names that had been coined, "สารบัญ", "รายการของ Snapshot", "รายการไฟล์", "ไฟล์ข้อมูล" and "ไฟล์ลบ" (and "table of contents", "file list" and "contents" in English), are now the real terms Metadata File, Manifest List, Manifest, Data File and Delete File in the labs and in the Thai lessons. The book analogy of lesson 1 (a book with a table of contents) is kept as an analogy.
 
-### Changed
-- Iceberg: the feedback texts (`why`) of 80 quiz questions and the Thai strings of its eight labs were rewritten in the owner's voice with `/thaihumanize`: whole clauses with connectors, "เรา" instead of a bare "แบบฝึกวัดได้...", and no clipped noun phrases. Only the wording moved, so every number, error message and link is the same and the English pages are recorded as in step. The labs were audited again in headless Edge (40 labs on 14 pages, no overlap, no idle control, no sideways scroll).
+- **iceberg**: use the real terms in the labs and stop the figures scrolling sideways ([`fbd99f9`](https://github.com/Larmeal/learning-garden/commit/fbd99f90a49137dbd12c0f9f4293b0761fe589ae))
+- **iceberg**: draw the step 1 and 2 arrows of ReadPathLab as clean elbows into the boxes ([`d88090f`](https://github.com/Larmeal/learning-garden/commit/d88090fee3b1079b9e7abdda37633ef13639d3d5))
+
+### Docs
+
+- **iceberg**: add the 14 Thai lessons, quizzes and two sub-pages ([`d72bdff`](https://github.com/Larmeal/learning-garden/commit/d72bdff87c7c3772012640d61a9e4e3a1f46686c))
+- **iceberg**: add the English lessons and record translation sync ([`f5632e6`](https://github.com/Larmeal/learning-garden/commit/f5632e672513a144598b10eb050c02ba8272a398))
+- changelog for the Iceberg subject and the Thai wording pass ([`c63826e`](https://github.com/Larmeal/learning-garden/commit/c63826edacfb23269750661df04e285108d5afb8))
+- **iceberg**: use Metadata File, Data File and Delete File in the Thai lessons ([`2b8fdc5`](https://github.com/Larmeal/learning-garden/commit/2b8fdc593dec894c8a1c235207d6bbbb6dcce818))
+- changelog for the Iceberg term fix ([`c190cf5`](https://github.com/Larmeal/learning-garden/commit/c190cf57d4a15210d9da99d4dd356d37b4e7a6b2))
+- **iceberg**: English topic titles, facts on every page and a shorter subject intro ([`c2fe23a`](https://github.com/Larmeal/learning-garden/commit/c2fe23aa9e3292593ecaab56bb76994146692811))
+- **spark**: English topic titles and facts on every page ([`21ff98d`](https://github.com/Larmeal/learning-garden/commit/21ff98d20d5e7678434c519735825591cea2ff61))
+- **great-expectations**: English topic titles and facts on every page (exercises print, they do not assert) ([`a0c0f33`](https://github.com/Larmeal/learning-garden/commit/a0c0f3323c483f81591356c9beb2af5a72ec86a9))
+- **data-quality**: English topic titles and facts on every page ([`fc16f94`](https://github.com/Larmeal/learning-garden/commit/fc16f94ee54cbd608e258b3f31ace66501358aab))
+- **pytest**: English topic titles and facts on every page ([`cfb80e9`](https://github.com/Larmeal/learning-garden/commit/cfb80e9547bf3152a7a6f8f2df4931ac6d3ab060))
+- **pydantic**: English topic titles and facts on every page ([`73db770`](https://github.com/Larmeal/learning-garden/commit/73db7706de4fca85881edb1f699340d32a0aae52))
+- **singing**: English topic titles and facts on every page, Thai and English ([`319113a`](https://github.com/Larmeal/learning-garden/commit/319113a328c3c028d6cd4fe2a2b13d5394e744e2))
+- **guitar,music-theory**: English topic titles, facts on every page and the glossary titles ([`72bf11e`](https://github.com/Larmeal/learning-garden/commit/72bf11e1c415b50c985f2f8a7ddd7acb5dcdeac4))
+- record translation sync and the changelog for titles and facts ([`da6b733`](https://github.com/Larmeal/learning-garden/commit/da6b733963da01804e9d155843a82cc82db8766d))
+- explain how to clone and run the site and the exercises, add Iceberg setup.sh and uv.lock ([`24a7ecb`](https://github.com/Larmeal/learning-garden/commit/24a7ecb81f29ababd24db2cc44cb76c2bd0c6a11))
 
 ## 2026-11-12
 
 ### Added
-- A new subject, `iceberg` (Thai and English): 14 lessons, each with a quiz. They cover what Iceberg is, the files inside a table, schema and partitioning, writes and commits (including two writers that collide), reads and scan planning, row-level changes (copy-on-write, merge-on-read, deletion vectors), schema and partition evolution, time travel with branches, tags and write-audit-publish, catalogs, table maintenance, migrating existing data, streaming and incremental reads, format versions with views and statistics, and a capstone. Everything the lessons print comes from exercises `01` to `14` in `subjects/iceberg/code/` that run Spark 4.1.3 with Iceberg 1.12.0 and PyIceberg 0.12.0 in WSL, on one catalog shared by both engines (Iceberg `JdbcCatalog` and PyIceberg `SqlCatalog` on the same SQLite file). There is no Iceberg runtime for Spark 4.2 yet, which is why this subject does not use the Spark 4.2.0 of the Spark subject. The knowledge graph of Iceberg 1.12.0 (`api` and `core`) is in `subjects/iceberg/graphs/`. Seven labs for it in `components/labs/iceberg/` (the three layers of a table growing commit by commit, the seven steps of a write, two writers racing for the catalog pointer, a read going down the layers, which files a filter skips, copy-on-write against merge-on-read, and snapshots with main, a tag and a branch), laid out after the figures that the book *Apache Iceberg: The Definitive Guide* describes, with text of 14 to 18 units or more, a legend of the three states (new, in use, skipped), plain-language names next to the technical ones, and a one-line banner in the picture for each step. No `in-depth` pages yet, and a REST catalog could not be run. Notes, sources and findings are in `subjects/iceberg/docs/`.
-- Iceberg lesson 2 has a sub-page, "Under the covers" (Thai and English), after the explanation in the Dremio guide *Apache Iceberg: An Architectural Look Under the Covers*. It follows one table through `CREATE TABLE`, two `INSERT`s, `MERGE INTO`, a `SELECT` with a filter, time travel and compaction. Each statement has its own picture (`UnderCoversLab`) that walks through numbered steps, draws the files of the catalog, metadata and data layers (new, reused, skipped), and shows the real content of any file you click (the `metadata.json` fields, the manifest list rows, the manifest entries with their statuses and bounds, the rows of a data file). Those contents are read from disk by `exercises/15_under_the_covers.py --write`, so no number in the pictures is invented. The page ends with a table of how many files each statement writes.
-- Iceberg lesson 6 has a sub-page, "Copy-on-write and merge-on-read in depth" (Thai and English). It prices one changed row in both modes on a table of 100,000 rows (20,000 rows rewritten against 1 row plus a delete file), then shows six pictures built from the real files (`UnderCoversLab` now also draws delete files and delete manifests): a copy-on-write DELETE, a merge-on-read DELETE with the content of the position delete file, an UPDATE (Spark folds the old positions into one new delete file, so a data file needs one delete file at most), a SELECT that filters with the delete file, a compaction that leaves a dangling delete file behind, and the clean-up with `remove-dangling-deletes`. It also covers a different mode per statement and how to choose, with the comparison table of the book. Equality deletes are described from the book and were not run. New exercise `16_cow_mor_in_depth.py`.
+
+- **skill**: add thaihumanize skill with the owner's Thai voice, lint, fix and syntax scripts ([`9aa5d31`](https://github.com/Larmeal/learning-garden/commit/9aa5d31bff40a71839cae42601adf042a6d43a26))
+
+### Docs
+
+- **data-quality**: rewrite the Thai lessons in the owner's voice ([`7edbb70`](https://github.com/Larmeal/learning-garden/commit/7edbb70fb9a3aaf06de7e0cbe2334576a1099753))
+- **great-expectations**: rewrite the Thai lessons in the owner's voice ([`56cd433`](https://github.com/Larmeal/learning-garden/commit/56cd4333feb3daf4075bd0f933ebd84d2319c2e5))
+- **guitar**: rewrite the Thai lessons in the owner's voice ([`ac7a642`](https://github.com/Larmeal/learning-garden/commit/ac7a64207961b6a950f6e3e43cf3f8f18871aae6))
+- **music-theory**: rewrite the Thai lessons in the owner's voice ([`cbfa4c6`](https://github.com/Larmeal/learning-garden/commit/cbfa4c66cf0efab439b017e69e33d05b0b0bba19))
+- **pydantic**: rewrite the Thai lessons in the owner's voice ([`5b1b6a0`](https://github.com/Larmeal/learning-garden/commit/5b1b6a06d424ecd9ea7ff12bf8322ae53f3e5462))
+- **pytest**: rewrite the Thai lessons in the owner's voice ([`93a7996`](https://github.com/Larmeal/learning-garden/commit/93a79967a5bfb2f37a13d8148c739d3f8fa712c2))
+- **singing**: rewrite the Thai lessons in the owner's voice ([`7dc2bc1`](https://github.com/Larmeal/learning-garden/commit/7dc2bc12a1c5c3c7676a371bf7822a855e65644b))
+- **spark**: rewrite the Thai lessons in the owner's voice ([`4afb988`](https://github.com/Larmeal/learning-garden/commit/4afb9883d1417f179d89c600dec2a885b41bcc20))
+- **pydantic**: align the English errors page with the corrected Thai wording ([`251e03c`](https://github.com/Larmeal/learning-garden/commit/251e03cea500b5ef82f30008cd73fd9036bd4ca3))
+- **labs**: rewrite the Thai text of the labs in the owner's voice ([`25060f0`](https://github.com/Larmeal/learning-garden/commit/25060f0c42d439cad41579aea97c12c38725c7eb))
+- **site**: rewrite Thai interface text and subject descriptions in the owner's voice ([`87f3ede`](https://github.com/Larmeal/learning-garden/commit/87f3edef249cfd9f6e0cd049f5a568b1fb7a601d))
 
 ## 2026-11-10
 
-### Changed
-- Data Quality, lesson 2 (Dimensions) and its eight deep-dive pages (Thai and English) are rewritten to be easier to picture. Each page opens with real rows from the dataset and one everyday picture that it keeps using, explains each SQL query line by line, and gives every common misreading its own Step instead of a bold-label form. Citations come once at the end of a paragraph. The headings that other lessons link to are unchanged, except on the Reasonability page, whose misreading headings were renamed and the two capstone links updated.
-- `13_dimension_pitfalls.py` now also asserts the numbers of the new examples (the bad-day copy for Reasonability, the data-set-level completeness copy, the tolerance table). The prose was not read through by a person yet, and the labs and the light theme were not clicked again.
+### Added
+
+- **singing**: add the singing subject with ten lessons, voice labs and a browser voice synthesizer ([`9daf333`](https://github.com/Larmeal/learning-garden/commit/9daf33390446dccb1ee37f7eeed91f128b997015))
+
+### Fixed
+
+- **guitar**: call the improvisation lesson "การ Improvise" in its title, glossary and links ([`d1f1ddc`](https://github.com/Larmeal/learning-garden/commit/d1f1ddc6cc91fb54274c2d78dd558c161ea61396))
+
+### Docs
+
+- **data-quality**: rewrite the Dimension lesson and its eight deep-dive pages to be easier to picture ([`6e46b82`](https://github.com/Larmeal/learning-garden/commit/6e46b8258c069b8ed3b19123fb16d3b8597c5cc0))
 
 ## 2026-11-09
 
 ### Added
-- A new subject, `singing` (Thai only): ten lessons on how the singing voice works and how to practise, each with a quiz, plus in-depth pages for the vocal folds and for resonance. Written from two books (Davids and LaTour, *Vocal Technique*; Titze, *Principles of Voice Production*), cited by printed page.
-- Labs for it in `components/labs/singing/`: the anatomy of head and torso, a breathing cycle, the vocal folds in slow motion (top view, cross-section, airflow, harmonics), the three onsets, registers and voice ranges, a vocal tract with source, filter and output graphs, a one-pipe tube, a vowel chart, vowel modification for a soprano, vibrato, a microphone pitch mirror and a warm-up player that plays guide notes.
-- `site/src/lib/voice.ts`, `tract.ts`, `pitch.ts`: a small voice synthesizer (the sounds are made in the browser, not recorded), a map from mouth shape to formants and a pitch detector. `node subjects/singing/code/verify.mts` checks the numbers that the lessons state about them (191 checks). Notes, sources and what was not checked are in `subjects/singing/docs/`.
-- `tools/lesson-refs.mjs` treats a number after "Davids", "LaTour" or "Titze" as a book chapter, and knows the `singing` subject.
-- Guitar: a page "Anatomy: ส่วนประกอบของกีต้าร์โปร่ง" (Thai and English) in lesson 0 with an animated acoustic guitar (`AcousticAnatomy`): press a part or walk through them to read what it is and what it does next to the drawing, look through the body at the bracing, truss rod and blocks, and follow a plucked string into the room in five steps. The quiz has three more questions.
-- Glossary: eight more parts (heel, rosette, binding, bracing, bridge pin, soundboard, bout, end pin), a "Fret Buzz" entry, and a "See also" row of links between related terms (for example Action to Fret Buzz, Saddle, Truss Rod and Setup). Terms are shown with a capital letter on every word.
 
-### Changed
-- The register lab of the singing subject now draws Chest, Mix, Head and Chest belt side by side on one clock: the folds in cross-section, one cycle of the airflow with the closed part shaded and a moving dot, and the first ten harmonics (H2 and H5 below H1 in dB). A speed switch slows or stops the drawing.
-- The vocal tract lab glides the tongue, jaw, lips and graphs to a new pose instead of jumping, shades the band around each formant on the filter and output graphs, and has a three-line guide to reading the graphs.
-- The anatomy lab "เครื่องดนตรีที่เรียกว่าเสียงร้อง" (and the head and torso drawing it shares with the breathing and vocal tract labs) looks more finished: hair, eye, ear and rounded teeth on the head, shoulders on the trunk that fades out at the bottom, three coloured panels for power, source and filter that light up with the group buttons, a dot on every part, and a pulsing ring with the name of the part you chose. The air path is drawn as a pale tube with white dots.
-- The lesson side navigation (`.lesson-aside`) reserves room for its scrollbar (`scrollbar-gutter: stable`, no sideways scroll). Before, the scrollbar could appear and disappear while the pointer was over a long title, which changed the width, wrapped the title onto a second line and made the list shake.
-- The Action entry of the glossary now explains both sides: a low action is easy to press but can give Fret Buzz, a high action is clear but needs more force.
+- **guitar**: glossary gets Fret Buzz, eight acoustic parts and "See also" links ([`c776a4d`](https://github.com/Larmeal/learning-garden/commit/c776a4d9f9f281e8bafa1ffe460e2861a0aef0ab))
+- **guitar**: add an Anatomy page with an animated acoustic guitar ([`aa5f96b`](https://github.com/Larmeal/learning-garden/commit/aa5f96bcd867a982b93f5ac6034c0837591ef099))
+
+### Docs
+
+- note the guitar Anatomy page, the glossary changes and what was not checked ([`10261ec`](https://github.com/Larmeal/learning-garden/commit/10261ec65fd2ccf0f3d7c620c53d460c8318fbd7))
 
 ## 2026-11-08
 
 ### Added
-- Spark: a page "Spark คืออะไร ประวัติ และปัญหาที่มันแก้" ("What Spark is, its history, and the problems it solves", Thai and English,
-  `foundations/overview`) in lesson 0: what Spark is, Google MapReduce and Hadoop, where MapReduce got stuck (reusing data between jobs),
-  the RDD idea (lineage), what the paper's speedups depend on (first iteration against later ones, the 2014 sort that ran on disk), a
-  timeline from 2009 to 4.2 and where this path answers each problem. Every fact links to its source (papers, Apache release pages,
-  Databricks blog); nothing on the page was run. Lesson 0 points to it from the top.
-- Spark overview page: the timeline is an interactive lab (`SparkTimelineLab`): the line fills as you move down it, every period opens a card
-  with what happened, where this path covers it and the source, and a play button walks through the periods. Thai and English.
-- The Thai text of that page was rewritten after the owner's own edits to the first section (see "Thai prose" in `claude.md`).
-- Links between lessons point at the heading the sentence is about, not only at the lesson (about 420 links in each language, chosen
-  one by one; where no heading is clearly the one the link stays on the lesson). Thai and English point at the same heading.
-- `npm run check:refs` also fails on a link to a heading that no longer exists (ids made with `github-slugger` the way the build
-  makes them; checked against all 506 pages of the built site), and `node tools/lesson-refs.mjs --backlinks <page or page#heading>`
-  lists everything that links to a page or heading, so a heading is not renamed blind. `--graph` prints every link as JSON.
-- The dev editor (View | Edit) lists, above the text, every link to the lesson page being edited and to its headings.
-- References to pages of another subject by title (the guitar and music-theory lessons name each other, Data Quality names the
-  Great Expectations lesson) and page names written without quotes ("the page on data contracts in practice") are links too.
-- `site/tools/lesson-refs.mjs` (`npm run check:refs`, also a step of the deploy workflow): every mention of another lesson must be a
-  link. It finds "บทที่ 5", "บท 5", "lesson 5", "บทถัดไป", "the next lesson", a page named by its title and "lesson 5, page
-  \"Title\"", links them with `--fix`, and fails on a mention that is not linked and on a link that points at no page. A number after
-  a book name in Data Quality ("Ten Steps บทที่ 3 หน้า 42") is a book chapter and is left alone.
-- The `q` and `why` of a `<Question>` and the `title` of a `<Callout>` render `[text](/path/)` links (`src/lib/inline-links.ts`). The
-  key under which a question's answer is stored is the text without the link, so saved answers still match.
+
+- **site**: add a Notes app to the dev toolbar for leaving comments on parts of a page ([`b921961`](https://github.com/Larmeal/learning-garden/commit/b92196133c1a7f9770a5c0a7a2c9f17cd2d6c221))
+- **site**: link every mention of another lesson, and fail the deploy when one is not a link ([`c9f1b98`](https://github.com/Larmeal/learning-garden/commit/c9f1b98db4485bc1278ec7516b6efcf3094d56e7))
+- **site**: point lesson links at the heading each sentence is about, and check headings and backlinks ([`c4057a8`](https://github.com/Larmeal/learning-garden/commit/c4057a891c91069b9e08dda7ceea5ef5096db643))
+- **site**: show what links to a lesson in the dev editor ([`b7364a4`](https://github.com/Larmeal/learning-garden/commit/b7364a4d95c0c400c2cc77338bc1ed883c816cb4))
+- **site**: add an interactive timeline lab for the history of Spark ([`9998709`](https://github.com/Larmeal/learning-garden/commit/99987092b46b62c84adfa8f3244d49af74dfc5be))
+- **spark**: add a page on what Spark is, its history and the problems it solves ([`ec0d6ed`](https://github.com/Larmeal/learning-garden/commit/ec0d6edbca342b4eddcd8e7114d6c2468ec0441b))
 
 ### Fixed
-- Links to the wrong lesson: in music-theory the text counted lessons from 1 while the pages are numbered from 0, so six references
-  now say the number the page shows and point at the right lesson (for example slash chords are in lesson 5, chords). Three
-  Great Expectations references to a lesson of the Spark path pointed at a Great Expectations lesson, and "the next lesson" in the
-  guitar fretboard lesson pointed at open chords where it means barre chords.
 
-### Changed
-- About 440 mentions of other lessons in the Thai and English lessons of every subject were plain text and are now links, and the
-  four frontmatter summaries that named lesson numbers say "the earlier lessons".
-- Thai and English: link-only differences were marked as in step (`npm run sync -- --accept`).
-- Checked with the impeccable detector (`npx impeccable detect <url>`, run from outside the repo, nothing installed) and by eye on
-  desktop, phone and dark mode. The detector no longer reports low contrast, skipped headings or undersized text on the pages
-  it was run on.
-- Dark mode: the gold marker behind the highlighted word of the home title is weaker (`--hl`), so light text on it is readable.
-- Headings: the "pages in this lesson", "on this page" and lesson list blocks and the phase and plant titles of a subject page are
-  `<h2>` instead of `<h4>` or `<h3>`, so no level is skipped. Their look is unchanged.
-- Text of 10.5px (tile tags, page tags, fretboard labels) is 11px. The numbers under the plants of the subject scene are larger,
-  and hidden on a phone where the tiles show them.
-- Home page: the footer of each subject card sits at the bottom and the taglines reserve two lines, so the plant beds and buttons
-  line up across a row.
-- Tables in lessons on a phone: inline code in a cell (`spark://host:7077`) is no longer broken at every letter, which had made
-  that column one letter wide and the rows hundreds of pixels tall. Cells and text are tighter, and a table wider than the screen
-  scrolls sideways with a soft shadow on the side that has more.
-- Home page: each subject card has a ledge and a plant bed tinted with that subject's own accent (the lighter variant in dark
-  mode), the hover ledge uses it too, and tagline text uses `text-wrap: pretty` so a single word is not left on the last line.
-- Phone: the site name no longer wraps in the header, lesson tiles are two to a row, the bottom bar of the subject page stacks its
-  title above the two buttons instead of squeezing the title, and diagrams that scroll sideways show a soft shadow on the side that
-  has more.
+- **site**: make lesson tables readable on a phone and polish the layout of home, subject and lesson pages ([`0e6be8f`](https://github.com/Larmeal/learning-garden/commit/0e6be8f6573cc227410f281e318888e2725218f6))
+- **site**: keep the header inside the screen on a phone by hiding the site name below 430px ([`9390e9e`](https://github.com/Larmeal/learning-garden/commit/9390e9e87a3e1d2ac7c0a797dd82a9b0a311a114))
+- **site**: keep your place in the dev editor when opening Edit, typing and going back to View ([`809ea70`](https://github.com/Larmeal/learning-garden/commit/809ea70322eee7b91e9f8b0beec72aca25ac2d3a))
+
+### Docs
+
+- bring the README up to date and log the Notes app ([`e248eee`](https://github.com/Larmeal/learning-garden/commit/e248eee4bf75eb6e1b90d5945460352d14a003ed))
+- add the /audit procedure for the Notes app, describe the dev tools in claude.md, and list yaml as a dependency ([`9eba07d`](https://github.com/Larmeal/learning-garden/commit/9eba07dbd8cbc63e6c302144d44e56c38d76364c))
+- say what was checked in a browser, and record the translation-sync state ([`05cba04`](https://github.com/Larmeal/learning-garden/commit/05cba042141f73098fb774e7961d416f61d3a163))
+- note the Spark overview page, the timeline lab and the Thai writing voice ([`0d723a4`](https://github.com/Larmeal/learning-garden/commit/0d723a406ce6c90b015a4e07dc3f98e631b710b9))
 
 ## 2026-11-07
 
 ### Added
-- Thai and English lessons are tracked together. `site/tools/translation-sync.mjs` cuts every lesson page into units (the title and
-  summary, then one unit per `<Step>`, or per `##` section on a page without cards) and keeps the hash and edit time of both
-  languages in `site/translation-sync.json`. An edit that the other language did not follow is reported. Run `npm run sync` from
-  `site/` to update the file and list what is behind, `npm run sync -- --check` to only check (exit code 1 when something is
-  behind), or `npm run sync -- --accept <lesson key> [unit numbers]` to say that two versions agree.
-- The dev editor (`astro dev` only) shows the result of that check: a warning panel with the units that are behind, a dot on the
-  Edit button, a button that copies what has to be translated, a link to the other language, and a button to mark a page as in step.
 
-- A "Notes" app in the Astro dev toolbar (`astro dev` only, code in `site/dev-notes/`). In comment mode a click on an element, a
-  right click or a drag over text opens a small form (category and text); the arrow keys change which level is picked. The note is
-  saved to `.audit/comments.json` (git-ignored, the repo is public) with the quoted text or the element path, the component and
-  lesson file, the viewport, the theme, the language and the step. Saved notes show as numbered badges and highlights, in a panel
-  per page, with replies, Resolve and delete. The file is read again when the window gets focus, so replies written into it show
-  up. It is wired in `astro.config.mjs` as the `gardenNotes()` integration and does nothing in a build.
-
-### Changed
-- README: lists all seven subjects with their lesson counts, says that every subject has an English version, and describes the
-  dev-only tools.
-- The dev editor now replaces only the lesson text, in the same column as the page, and grows with its text, so the header, the
-  lesson list and the title stay where they were. In step-by-step mode it uses the long layout while editing.
-- Spark `FormatLab` is redone: pick the columns a query needs and see CSV (stored row by row) and Parquet (stored column by column)
-  side by side, with every cell marked as read and used, read but thrown away, or not read. A play button reads both files cell by
-  cell at the same speed.
+- **site**: move the step-by-step switch to the header and add a dev-only MDX editor ([`9016138`](https://github.com/Larmeal/learning-garden/commit/90161382921c9d1661e85004045d9227b108aa1b))
+- **site**: keep Thai and English lessons in step, and edit MDX inside the page layout ([`e5ea741`](https://github.com/Larmeal/learning-garden/commit/e5ea74193209d2425d54105d7217ed117997c126))
+- **spark**: redo FormatLab to compare CSV and Parquet side by side ([`e32cce1`](https://github.com/Larmeal/learning-garden/commit/e32cce16747b65b431763b2aa71482adf01d31ce))
 
 ### Fixed
-- Spark labs where text or dots covered each other: `RolesFlowLab` (merge label over the group title), `YarnAllocLab` (container
-  marks over the heading), `AqeFlowLab` (dots crossing the executor titles), `ShuffleWriterLab` (dots over the file labels and
-  stacked on each other), `WorkerReuseLab` (fork lines through words, clipped daemon caption), `ClusterLaunchLab` (two step numbers
-  on the same spot), `StragglerLab` (time needle label close to the caption). `LazyLab`: the cache checkbox label wraps as a sentence.
+
+- **spark**: replace two labs with tables, restyle the phase pills, say "lesson" in English text ([`1581ba0`](https://github.com/Larmeal/learning-garden/commit/1581ba00f044f2faf2ddf784d67d57b460d24ae8))
+- **great-expectations**: shorten the English labels inside three diagrams ([`2dccf6c`](https://github.com/Larmeal/learning-garden/commit/2dccf6c31116ed7a0648ac5c6e8ec80202a6e875))
+- **spark**: stop text and dots covering each other in seven labs, and add a changelog ([`fd3f572`](https://github.com/Larmeal/learning-garden/commit/fd3f5722a72ca639ec95a9c2821321bd79e2f117))
 
 ## 2026-11-06
 
 ### Added
-- A dev-only View | Edit switch on lesson pages (`astro dev` only, never in a build). Edit shows the MDX source of the page and saves
-  it to the file. View is refused, and the file is left as it was, when the text does not compile, when the frontmatter does not
-  match the schema or `requires` points to a missing lesson, or when the page then fails to render.
 
-### Changed
-- The step-by-step switch moved to the header. Spark `ArchitectureLab` and `PipelineStagesLab` were replaced by tables, and the
-  phase pills of the optimizer lab were restyled so that every pill has the same size.
-- English text says "lesson" instead of "chapter" in the Spark labs and lessons. Three diagram labels of the Great Expectations
-  lessons were shortened so that they fit on a phone.
+- **spark**: add clock-based animation labs and make every Spark lab bilingual ([`11c7d9f`](https://github.com/Larmeal/learning-garden/commit/11c7d9f877e8255009c83f205c8f1363aed08bdd))
+- **spark**: add cluster manager sub-pages, exercises 06b and 11b, and fix findings ([`dd5e64d`](https://github.com/Larmeal/learning-garden/commit/dd5e64dd8ed0bf2c28450372dc7c02174aca7bb7))
+- make the guitar, music-theory and great-expectations labs bilingual ([`2b32cd3`](https://github.com/Larmeal/learning-garden/commit/2b32cd3f772f4d30af2746a5582dc767fdf8df77))
+- **i18n**: add English lessons for spark, great-expectations, guitar and music-theory ([`bbd8dda`](https://github.com/Larmeal/learning-garden/commit/bbd8ddaea0c4438cf7131ebdc1cdc0bec8ddfceb))
+
+### Fixed
+
+- **lessons**: correct facts found while reviewing the English translation ([`3ad2ed9`](https://github.com/Larmeal/learning-garden/commit/3ad2ed9f0b1d6c5a69ac13cfcee71e6205412f7b))
 
 ## 2026-11-05
 
 ### Added
-- English versions of the `spark`, `great-expectations`, `guitar` and `music-theory` lessons, and bilingual labs (every lab takes a
-  `lang` prop).
-- Spark: cluster manager sub-pages (standalone, YARN, Kubernetes), exercises `06b` and `11b`, and twenty-four animated labs on a
-  shared step player.
+
+- **pydantic**: add the pydantic subject with 12 lessons in Thai and English ([`623f1e5`](https://github.com/Larmeal/learning-garden/commit/623f1e54bd1245f67e02b19c35b6ada2821af622))
+- **pytest**: go deeper, 15 lessons with the inside of pytest, in-depth pages and a plugin ([`eb32fb2`](https://github.com/Larmeal/learning-garden/commit/eb32fb2b5adb3f46af8e75d5c60f111079bddbba))
+- **spark**: add 24 animated labs with a shared step player ([`297f87c`](https://github.com/Larmeal/learning-garden/commit/297f87cc63e7e80d0aa692ec44849db64d4aec35))
+- **spark**: add exercises 01 to 13, verify.py and verified findings, run in WSL where Hadoop needs it ([`15e2089`](https://github.com/Larmeal/learning-garden/commit/15e20891f991fc2d144e180cde2263ae158417d5))
+- **spark**: go deeper on chapters 0 to 5, add in-depth pages and an execution-model quiz ([`65aa5d8`](https://github.com/Larmeal/learning-garden/commit/65aa5d8377abac55e299d97809dc1fd2d7ff253a))
+- **spark**: write chapters 6 to 13 (Catalyst, tuning, UDF, streaming, table formats, deployment, MLlib, internals) ([`0a7d79a`](https://github.com/Larmeal/learning-garden/commit/0a7d79a851fdf49e1442339bb92fbe8fe80c5800))
+
+## 2026-11-04
+
+### Added
+
+- **site**: language menu, theme button in the step player, lesson links, cleaner page list ([`04d24f5`](https://github.com/Larmeal/learning-garden/commit/04d24f574e8675d0ff03adfdfa64c6bc9b8ec08e))
+- **data-quality**: ten steps, governance, a page per dimension, contracts in practice ([`fbce051`](https://github.com/Larmeal/learning-garden/commit/fbce051c2aeab1f6577873e695dfb16f7fad805f))
+- **pytest**: add the pytest subject with 8 lessons in Thai and English ([`b122458`](https://github.com/Larmeal/learning-garden/commit/b122458b063589503c14ed93b550f3ad45068f6f))
+
+## 2026-11-02
+
+### Added
+
+- **site**: add the guitar and music theory subjects ([`0e5c74c`](https://github.com/Larmeal/learning-garden/commit/0e5c74c22583a06628b486ba1088c67eecfe9543))
+- **data-quality**: add exercises, shared modules and notes for the Data Quality subject ([`5a90066`](https://github.com/Larmeal/learning-garden/commit/5a90066206458ac685dec6f9ad7e7dc436edff3e))
+- **site**: add the Data Quality subject with 11 lessons, quizzes and three labs ([`74c4469`](https://github.com/Larmeal/learning-garden/commit/74c4469134d5433563c7a4db4cd79eae6a859a8c))
+- **site**: support Thai and English pages ([`df4bcca`](https://github.com/Larmeal/learning-garden/commit/df4bcca834550251662876a98857f6f55eee117f))
+- **data-quality**: add the English lessons and quizzes ([`2c663b9`](https://github.com/Larmeal/learning-garden/commit/2c663b96a068e246caba6f265439ec44e8a1ee87))
+
+### Docs
+
+- keep technical terms in English in the Thai data-quality lessons ([`1850d5b`](https://github.com/Larmeal/learning-garden/commit/1850d5b06a9805546604ba7367caf1c212cfbccc))
+
+## 2026-10-29
+
+### Added
+
+- **gx**: add runnable exercises pinned to Great Expectations 1.24.1 ([`74b9a9a`](https://github.com/Larmeal/learning-garden/commit/74b9a9aaf1d939a5b80dd4e68158211ea88c93ef))
+- **site**: add the Great Expectations labs ([`184a8b7`](https://github.com/Larmeal/learning-garden/commit/184a8b7f0d90082a33c6871b87fe3cdab0044194))
+- **site**: add the Great Expectations learning path ([`ab22669`](https://github.com/Larmeal/learning-garden/commit/ab22669faae50e397cb00381e65984f3fa5b35f0))
+- **gx**: deepen lesson 0 with three sub-pages and generic lab components ([`3de4037`](https://github.com/Larmeal/learning-garden/commit/3de403759cc6e9952d3800558d8e2d4ba469db8f))
+- **gx**: deepen lesson 1 with build chain, references and first errors ([`a89fa36`](https://github.com/Larmeal/learning-garden/commit/a89fa3668899b9345673ceac2a479c1fe4881043))
+- **gx**: deepen lesson 2 with result anatomy, rerun and practice ([`8005daa`](https://github.com/Larmeal/learning-garden/commit/8005daa5152647a8c181c11e90779b36cd04f84f))
+- **gx**: deepen lesson 3 with family catalog, null and order, suite editing ([`9c049c1`](https://github.com/Larmeal/learning-garden/commit/9c049c1021fb2c13276a4a753b7e6328ea043d3a))
+- **gx**: deepen lesson 4 with result formats, vacuous passes and triage ([`c59b8e0`](https://github.com/Larmeal/learning-garden/commit/c59b8e0182a14eb303ff12999736c2ce3d540a01))
+- **gx**: deepen lesson 5 and record that GX Cloud is shut down in 1.24.1 ([`8702533`](https://github.com/Larmeal/learning-garden/commit/87025339cafb407e8ef6c658ac7f3546edb3a8cd))
+- **gx**: deepen lesson 6 with SQL partitioners, filename patterns and batch.validate ([`78e84ec`](https://github.com/Larmeal/learning-garden/commit/78e84ecb1b44ceab056f61224fa848896d3f37be))
+- **gx**: deepen lesson 7 with multi-validation checkpoints, result shape and vd versus checkpoint ([`7cf139e`](https://github.com/Larmeal/learning-garden/commit/7cf139e8598f1e9c2f3630b8037aababb0b1f660))
+- **gx**: deepen lesson 8 with the metric registry, domains and retries ([`9b77d35`](https://github.com/Larmeal/learning-garden/commit/9b77d35b15ab8b6043a3e0a9cabd2465450907be))
+- **gx**: deepen lesson 9 with the notify matrix, custom actions and Data Docs reading ([`d4b200c`](https://github.com/Larmeal/learning-garden/commit/d4b200c55f55f0374c6d914db8358ba327d2cdf3))
+- **gx**: deepen lesson 10 with failure policies, daily runs and gate tests ([`9802796`](https://github.com/Larmeal/learning-garden/commit/9802796ccc988a531be0b16ad61ce54930238cd9))
+- **gx**: deepen lesson 11 with real SQL statements, the support matrix and a Spark source reading ([`c4ab743`](https://github.com/Larmeal/learning-garden/commit/c4ab743beb8c6de1f5ca83250abaf1f9486daac5))
+- **gx**: deepen lesson 13 with a recorded call trace, graph queries and the 1.9.3 to 1.24.1 diff ([`6987013`](https://github.com/Larmeal/learning-garden/commit/69870138113c9a3ba2b390e8e6faa29b3667c12e))
+- **gx**: add three questions per quiz from the new sub-pages and refresh the overview ([`6a89021`](https://github.com/Larmeal/learning-garden/commit/6a8902196aacf423eb2645f875ca73137d5348a1))
+
+### Fixed
+
+- **gx**: repair layouts found by looking at the pages in a browser ([`ed05d0e`](https://github.com/Larmeal/learning-garden/commit/ed05d0e2fcff471a46aaada25b033f0606876c5d))
+
+### Docs
+
+- **gx**: add the overview and the verified-findings notes ([`b159890`](https://github.com/Larmeal/learning-garden/commit/b1598909b85310bb341885c75c12744c5026b554))
+
+## 2026-10-26
+
+### Added
+
+- **graphs**: add generated spark indexes for rules, configs and physical operators ([`c5eea34`](https://github.com/Larmeal/learning-garden/commit/c5eea34b8ba56662de5cd5c89fef6e9beee53263))
+- **graphs**: add great_expectations knowledge graph snapshot (v1.9.3) ([`fb4fb02`](https://github.com/Larmeal/learning-garden/commit/fb4fb022a2a5f30bbc499a251b22bdd54ecedbcd))
+- **site**: group subjects by category on the home page and continue from progress ([`3ebb372`](https://github.com/Larmeal/learning-garden/commit/3ebb372ee6a3ca98fce6d57702a88e3604e2c78c))
+
+### Changed
+
+- **site**: move the Spark labs into components/labs/spark ([`3839c30`](https://github.com/Larmeal/learning-garden/commit/3839c307c0c97943ba832d21fd4e233aeb49a520))
+- move everything outside the site into subjects/<id>/ ([`f6729bb`](https://github.com/Larmeal/learning-garden/commit/f6729bb59a63f73e1929d61da90e31d82515be8f))
+
+### Docs
+
+- **graphs**: add spark resume guide, backlog, progress log and lesson notes ([`18515df`](https://github.com/Larmeal/learning-garden/commit/18515df43bb5585a1576e83e2aa414711af7a88a))
+
+## 2026-10-23
+
+### Added
+
+- **site**: lessons can have sub-pages, progress is counted per page ([`3f91832`](https://github.com/Larmeal/learning-garden/commit/3f91832575dfad6ac0462e0e79ff017e04924e2d))
+
+### Other
+
+- content: **site**: move the check-yourself questions of lessons 00 to 04 into quiz pages ([`648bf9b`](https://github.com/Larmeal/learning-garden/commit/648bf9bb73372eb7eb826a2b8fa5e77888763a5d))
+
+## 2026-10-22
+
+### Added
+
+- add SparkSession helper and smoke test ([`b88fbbd`](https://github.com/Larmeal/learning-garden/commit/b88fbbdd107ab017779677a11dfd19fb9f02df59))
+- **site**: add Learning Garden app with lesson 00 ([`7ab1235`](https://github.com/Larmeal/learning-garden/commit/7ab12353ddc4b8690bd48039168948d488d785c8))
+- **site**: add lesson 01 on Spark architecture ([`aefeee4`](https://github.com/Larmeal/learning-garden/commit/aefeee4035fdf7a44de81298a61b1564003f77c4))
+- **site**: add lesson 02 on lazy evaluation ([`2949cf6`](https://github.com/Larmeal/learning-garden/commit/2949cf61896abc6c29bfbe03fa8cced7dd6fdcac))
+- **site**: add lesson 03 on DataFrame and Spark SQL ([`e1c5124`](https://github.com/Larmeal/learning-garden/commit/e1c5124fee34714abae9718de93d51f4722047ec))
+- **site**: add lesson 04 on data I/O ([`141fa48`](https://github.com/Larmeal/learning-garden/commit/141fa48d89ea23c4e613190df3fb8cb9db9366af))
+- **site**: add Execution model lesson with shuffle and skew demos ([`0274521`](https://github.com/Larmeal/learning-garden/commit/02745218553729c547f73a900656b4f7e1bea032))
+- **site**: add seed lessons for phases B to E ([`cdc3fdf`](https://github.com/Larmeal/learning-garden/commit/cdc3fdfc175be35b20729a519e6c962868950b08))
+- **site**: make the home garden alive and responsive to the pointer ([`dbe8a1d`](https://github.com/Larmeal/learning-garden/commit/dbe8a1df487a25053022408b1082c4c4b5f8c045))
+- **site**: require every question answered before a lesson can be ticked ([`84714fc`](https://github.com/Larmeal/learning-garden/commit/84714fc9a96e1e3a9eeda0b25f2ef0a768334399))
+- **site**: bring the living garden to every page and grow plants with progress ([`930b204`](https://github.com/Larmeal/learning-garden/commit/930b204bac3c8bfadb5634915cc67d990721223c))
+
+### Docs
+
+- add Spark learning overview ([`0dfbf5a`](https://github.com/Larmeal/learning-garden/commit/0dfbf5a3b2e2d0d07a01620cb53346825a0cfaa5))

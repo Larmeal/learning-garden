@@ -1,0 +1,224 @@
+# Changelog
+
+Notable changes to the learning garden, newest first. Dates are when the change was made.
+
+## 2026-11-19
+
+### Added
+- Networking lesson 1 has a new Step in Thai and English on the OSI seven layers against the four TCP/IP layers: a table, why a switch is L2, a router L3 and a balancer L4 or L7, where the tools of a data engineer sit, and why TLS does not fit a single layer. Cited from Networking All-in-One For Dummies Book 2 chapter 1.
+
+### Changed
+- Networking labs redrawn after the owner found them unclear ("อธิบายไม่ค่อยรู้เรื่อง ไม่รู้จะสื่ออะไร"): the packet journey is now letters inside letters that are wrapped, torn off at the router and opened at the server; routing goes down each router's table row by row with the TTL left behind at every stop; ARP, DHCP, the TCP handshake, the TCP close, DNS, TLS (with open and shut padlocks) and traceroute use message cards with a plain sentence instead of captions on thin arrows; the TCP retransmit timer is a time line, the receive window is a tank that fills, the listen queue is a waiting room with three chairs, the CIDR lab shows which addresses are on the same cable, and the NAT lab shows each packet as a card from/to. The HTTP/2 frames lab now has one lane per stream, and the switch, fragment, UDP, Nagle, stream, container and balancer labs got bigger text and cards. The congestion chart now says in words where the slow start, the drops and the slow climb are, and the requests and phases bar charts show the total at the end of each row.
+
+## 2026-11-18
+
+### Added
+- New subject `networking` (Network): 14 lessons in Thai and English, each with a quiz (the big picture and encapsulation, IP addresses and CIDR, the link layer with switches and ARP, IP routing with traceroute and fragmentation, NAT and DHCP, UDP and DNS, TCP connections, TCP reliability, TCP congestion control, sockets, TLS, HTTP/1.1 and HTTP/2 and QUIC, proxies and load balancers and container networks, and where to look when the network misbehaves). It links back to Spark, Git and Iceberg.
+- Twenty-six animated labs for it in `site/src/components/labs/networking/` (a packet travelling down the layers and up again, a CIDR splitter, a learning switch, ARP, routing with TTL, traceroute, fragmentation and PMTUD, NAT and DHCP, UDP and DNS, the TCP handshake and close, retransmission, Nagle, the window, Reno congestion control, a stream with a backlog, TLS, HTTP/1.1 against HTTP/2 against QUIC, HTTP/2 frames, layer 4 and layer 7 load balancers, container networks with MASQUERADE and DNAT, the phases of a slow request, and seven failure modes), all on the clock and scrub bar of the Spark labs, sharing `nw.tsx` and the `nw-` classes at the end of `global.css`. The numbers they show come from the exercises.
+- `subjects/networking/code/`: 14 exercises that build client, router and server from Linux network namespaces in WSL, change them with `tc netem` and `iptables`, capture with `tcpdump` and read the packets with `struct` (no scapy), `verify.py`, and `docs/` with the overview, sources and verified findings. Claims of the lessons are tagged ran, book, RFC or author.
+- New subject `app-security` (Application Security): 13 lessons in Thai and English, each with a quiz (how a defender thinks, hash and HMAC and AES-GCM and signatures, TLS and certificates, storing passwords, sessions and cookies and CSRF, tokens and JWT, OAuth and OpenID Connect, injection, XSS and CSP, access control with path traversal and SSRF, dependencies and secrets, flooding and rate limits, a capstone shop with ten holes). The lessons cite *Web Application Security*, *API Security in Action* and *OAuth 2 in Action* with the printed page.
+- Twenty labs for it in `site/src/components/labs/app-security/`: a request travelling through five stops with six attacks, a real SHA-256 grid that lights the bits that differ, the four building blocks against a man in the middle, a TLS 1.3 handshake with three failures, a Diffie-Hellman exchange with small numbers, a salt and a password cracking time on a log scale, a session cookie with XSS and fixation, CSRF with four defences, a real HS256 token that is edited and verified in the browser, the authorization code flow with PKCE and a leaking redirect, SQL injection side by side with a parameter, a password read through yes or no answers (85 requests), XSS in three places with a CSP, IDOR and path traversal and SSRF, a dependency range with a lock file and a hash, a key that stays in Git history, a regex that doubles its work, three rate limiters, and the ten holes of the capstone with their fixes. `seq.tsx` is a shared sequence diagram, `sha256.ts` and `jwt.ts` compute in the browser.
+- `subjects/app-security/code/`: 13 exercises (217 checks) that run toy apps on this computer only, `verify.py`, `verify_labs.mts` and `verify_jwt.mts` (the TypeScript of the labs equals the Python byte for byte), and `docs/` with the overview, sources and verified findings.
+- New subject `data-security` (Data Security): 11 lessons in Thai and English, each with a quiz (sensitive data, pseudonymization, linkage attack, k-anonymity, differential privacy, the privacy budget, encrypting stored data, roles and masking, computing on data nobody sees, the life of data, a capstone that releases a table in four stages), built from three books on data privacy.
+- Twelve labs for it in `site/src/components/labs/data-security/` (a 100 square grid of who is unique, a hash table the attacker undoes, a join with a voter list, k-anonymity by age band and zip, Laplace noise on a clock, a budget that runs out, envelope encryption in five steps, views and masking, secret sharing, private set intersection, a lineage graph of erasure, and the release capstone), all with Thai and English text.
+- `subjects/data-security/code/`: 12 exercises (179 checks) on 2,000 synthetic people, `verify.py`, and `docs/` with sources, verified findings and an overview.
+- The labs of Data Security were drawn again on 2026-11-19 because the owner said every animation explained nothing: a crowd of 2,000 dots that empties until one person is left, a guess list hitting a table of hashes, voters piling up beside anonymous medical rows, blocks of people that go red below k, two piles of noisy answers and a detective, a running average against a jar of coins, chests keys and a vault, one table seen by three roles, pieces handed between three people, padlocked boxes, a delete request walking a graph, and four parcels side by side. They compute from the real rows (`labPeople.json`, `exercises/12_lab_people.py`), and `node subjects/data-security/code/verify_labs.mts` checks that code against the exercises (14 checks).
+- Application Security: every message of a sequence lab is now a card that travels (`seq.tsx`), the cookie, CSRF and OAuth labs show what each party holds (cookie jar, session table, code, verifier, token), and the TLS lab draws the certificate, the trusted CA, the three checks and the key.
+- The subject has its own category "ความปลอดภัย" (Security) on the home page.
+
+### Changed
+- `site/tools/lesson-refs.mjs` knows the book names of the networking subject (Networking and Kubernetes, TCP/IP Illustrated), so a chapter number after them is not read as a lesson.
+- `site/tools/lesson-refs.mjs` knows the book names of the security subjects, so a chapter number after "Web Application Security" or "API Security in Action" is not read as a lesson.
+
+## 2026-11-17
+
+### Added
+- **Ask**, a second app in the Astro dev toolbar (`site/dev-ask/`, `npm run dev` only, never in a build): highlight text on a lesson page, a purple marker stays over it, and ask Claude what it means. Four shortcut buttons appear with the picked text (what it means, an example, why it is so, quiz me). The answer streams into a panel beside the page and looks like the chat of Claude Code: each file Claude reads or searches is a card that opens to show what it asked and what came back, code blocks have a Copy button, the model can be chosen (default, Sonnet, Opus, Haiku), the panel can be dragged wider, moved to the other side and follows the light or dark theme of the site. The server half starts the `claude` program of this computer in print mode with its existing login, so it uses the owner's own Claude Code subscription and no API key or token is read or stored. The app stores no conversation: the history button lists the session files that Claude Code already keeps for this folder (`~/.claude/projects/<folder>/*.jsonl`, read only), so a chat started in the VS Code extension can be opened and continued here (it is marked when it did not start in Ask, or when it was used in the last two minutes and may still be open elsewhere), and the open chat is read back from its file after a reload or a move to another lesson. A chat can be renamed (double-click its name, or the pencil in the list): the app appends a `custom-title` and an `agent-name` line to the session file, the same two lines `/rename` of Claude Code writes, and the list shows the owner's name for a session before Claude's guess at a title. That is the only thing the app ever writes into a session file, and it warns when the session was used in the last two minutes, because a session that is open in VS Code may write its old name again on its next turn. Claude gets only Read, Grep and Glob (it cannot edit or run anything), no MCP servers, and a 5 minute limit. The page, the lesson file, the nearest heading and the text around the pick are sent with each question. The app switches itself off when the dev server is started with `--host`, and it needs a restart of `astro dev` the first time because it is added in `astro.config.mjs`. Tried in headless Chrome: pick, quick button, streamed answer with a tool card and a code block, the history list, reading a chat back after a reload, opening an older session, resizing, theme, stop, new chat; a session file of 40 MB is read in about 40 ms.
+
+## 2026-11-16
+
+### Added
+- Eleven animated labs for the Git subject, on a clock with a scrub bar like the Spark labs, in `site/src/components/labs/git/`: `IntegrateLab` (merge commit, squash and rebase taken from the same start, side by side, in the pull requests lesson), `MergeKindsLab` (fast-forward against a real merge) and `ConflictLab` (a three-way merge line by line, with the way out of a conflict), `RangesLab` (what each revision selector picks), `BisectLab` (16 commits, 4 answers), `ReflogLab` (a `reset --hard` and the way back), `PackLab` (20 versions before and after `git gc`), `SnapshotLab` (two commits and the object they share), `DiffLab` (four diff algorithms on one pair of files), `HookLab` (a pre-commit hook that says no, and `--no-verify`) and `SubmoduleLab` (a pointer that does not follow the library). `gl.tsx` holds the shared drawing pieces.
+- `subjects/git/code/exercises/16_lab_data.py` runs the real Git for these labs (63 checks) and with `--write` saves `labData.json`; `verify.py` now runs 17 exercises and 431 checks.
+
+### Changed
+- Data Quality lessons (Thai and English, all pages, quizzes, the dimension lab and the subject description) say "row" instead of "record" and "table" where "dataset" or "data set" meant a table. The shop data is called "our tables". Book terms are kept where the book is quoted ("source of record", "system of record") and the pages that used the book words (Completeness, Consistency, Uniqueness) say once what the book calls them.
+- Data Quality, lesson 2, page Completeness (Thai and English) is longer and easier to read: one paragraph per idea with a blank line between ideas, lists and tables where there is a real list, a table that sorts ten problems into the dimension they belong to, examples from a hospital, an online shop, human resources, a sign-up system and a factory sensor, a patient table where one empty cell means "none" or "unknown", a sensor with a known schedule next to the orders copy, a three-day table that tells lost rows from a quiet holiday, the email denominators as a table (92.00%, 96.74%, 89.00%), and a five-record deduplication example. `13_dimension_pitfalls.py` asserts the numbers of the new tables. The other seven Dimension pages have not been rewritten this way yet.
+- The pull requests lesson shows the squash example with the same starting history as the other two ways (M1, M2, then the topic), so the three results can be compared; exercise 07 resets its clock for each way, and the ids printed for squash and rebase changed.
+
+## 2026-11-15
+
+### Added
+- New subject `git`: 15 lessons in Thai and English, each with a quiz (what Git is, the first commit, reading history, branches and HEAD, merge, rebase, remotes, pull requests and teamwork, fixing history, stash and reflog, finding commits, the object store, refs and packfiles, the index and diff and merge inside, patches and hooks and submodules). The lesson list comes from the tables of contents of *Learning Git* and *Version Control with Git* and from the Git source.
+- `subjects/git/code/`: 16 exercises that run the real Git (2.56.1) in throwaway repositories with a fixed author, clock and configuration, so the ids repeat, and `verify.py` (368 checks). `subjects/git/docs/` has the overview, the sources (page offsets of the two books) and the verified findings.
+- `subjects/git/graphs/git-current/`: knowledge graph of Git v2.56.1 (681 C files, 9,621 nodes, 25,983 edges, 10 layers, an 18-step tour).
+- Six labs in `site/src/components/labs/git/`: three areas of a file, branch and HEAD, merge against rebase, three repositories with fetch and a rejected push, the three kinds of reset, and the objects behind two commits (click a box to read its bytes, data from `exercises/15_object_graph.py`).
+
+## 2026-11-13
+
+### Added
+- The README now says how to clone the repo and run it: the website (Node, `npm ci`, `npm run dev`), the checks the deploy runs, publishing a fork, and the exercises of each subject with what each needs (uv, a JDK for Spark and Iceberg, WSL on Windows). This was tried on a fresh clone of the repo: the site built (634 pages), the dev server answered, and the exercises of Data Quality, Great Expectations, Pydantic and Pytest ran on Windows, and those of Spark and Iceberg ran on Linux (WSL).
+- `subjects/iceberg/code/setup.sh` installs what the Iceberg exercises need outside Python (it checks for Java and uv, downloads the two jars, runs `uv sync`), the jar folder can be moved with `ICEBERG_LAB_JARS`, and the subject now has a `uv.lock` like the others.
+- A lesson page may have a `facts` list in its frontmatter, shown as bullets under its summary ("ตรวจสอบอย่างไร" / "How it was checked"). Every non-quiz lesson page of every subject has one in both languages (Singing included, which has an English version): which exercise ran it, which source file or book page it was read from, and what was not run. Items come from each page's own sources table, the subject's `verified-findings.md` and its exercises. The subject pages got the same list, and the longer descriptions of Data Quality, Pytest, Pydantic and Singing were cut to two or three sentences.
+- A subject JSON may have a `facts` list (and `en.facts`). The subject page shows it as short bullets under the description, headed "ตรวจสอบอย่างไร" / "How it was checked". Iceberg uses it for how the lessons were checked and what was not run, so its description is two lines instead of a paragraph.
+
+- Spark: `RepartitionLab` on the performance tuning page (`repartition(n)`, `repartition(n, "key")`, `coalesce(n)` on a table of 4 partitions): pick the command and n, and the rows travel to their new partitions, with an Exchange drawn or not and the sizes of the result. It shows that `coalesce` joins neighbours without a shuffle, can leave uneven partitions and cannot add partitions. Thai and English. Where each row lands under `repartition` is what Spark 4.2.0 really gave for this table (a first version dealt rows out as row number modulo n, which Spark does not do: it sorts each partition first, starts dealing at a position taken from the partition number, and `repartition(8)` of these 12 rows leaves one partition empty); `lab_placements` in `exercises/07_performance_tuning.py` asserts the lists, and the `coalesce` grouping matches a real run.
+
+- Spark: a sub-page of its own for caching under lesson 7, "Cache และ Persist" / "Cache and Persist" (`performance-tuning/cache-persist`, between the lesson and the in-depth page): where a cache cuts the recipe, `cache()` against `persist()` with a table of the three levels, what was measured on a DataFrame, and the price of a cache. The section `cache()` ช่วยเมื่อไร / When `cache()` helps stays in the lesson as a short paragraph that links to it (other lessons link to that heading), and the links from lesson 2 now point at the new page.
+- Spark: `CacheLab` on the "Cache และ Persist" page. A recipe of four steps over four partitions and three actions in a row, with or without a shuffle (groupBy, join): choose the step to cache after, the StorageLevel and whether memory is enough, and see which cells each action runs, skips, reads from memory or disk or reads from shuffle files, with the block of partition 2 lost before the third action. The text of that section was cut down to four short points and a table of the three levels. `exercises/07_performance_tuning.py` asserts it: `cache_lineage` (steps run on an RDD chain, cache after step 0 to 4) and `cache_dataframe` (DataFrames with a Python UDF that counts rows: the same DataFrame again after a groupBy or a join does not run the part before the shuffle, a different query on the same base does unless the base is cached, a lost block after the shuffle is rebuilt from the shuffle files, and with the shuffle files deleted too the part before the shuffle runs again). `07b_jvm_limits.py` asserts where the three levels put data when memory is short (`levels`) and the deleted shuffle files (`lost_shuffle`, its own session, because deleting the files makes Spark treat the local executor as lost and the storage info of later checks goes empty).
+- Spark: `LineageLab` on the lazy evaluation page (new step "Lineage ใช้ทำอะไรอีก" / "What else lineage is used for"): lose one partition of the result and see what Spark has to run again for a recipe with no shuffle, a groupBy and a join, with the shuffle files still there or gone. Lineage was explained only in lesson 13 as text and `toDebugString()`, and in one sentence in lesson 2.
+
+### Changed
+- Spark `SpillLab` is rebuilt on a clock. It now shows why a task spills (the executor pool is shared and one task holds at most 1/N of it, read from `ExecutionMemoryPool`) and lets you change the number of tasks running at the same time and the size of the partition, so the number of spill files changes. The old version drew a full buffer after a spill and an unreadable label.
+- Spark `JoinDecisionLab`: the 24 unlabelled buttons are now a form with a heading and a label for every setting, in the order the chart asks about them. The nine examples are one drop-down, and a setting that the chosen path never looks at is dimmed with a note.
+- `create-learning`: `scripts/lab-audit.py` also reports a lab box that scrolls sideways on a 1920px screen, and resets the other option groups before it tests one.
+
+### Fixed
+- Spark `LazyLab` showed every step lit, including reading the file, when a cache hit said the file is not read again. A cache hit now starts at the step after the file.
+- Every lab with a drawing (206 lab boxes on 112 pages, Thai and English) scrolled sideways and lost its right edge on a wide screen: the lesson column is 700px, the box has 28px of padding and the drawing had `min-width: 700px`. The minimum is now 660px. Found through a note on a lab (the audit of the labs had only used a 1100px screen).
+- Spark `JoinDecisionLab`: edge labels of the chart ("usable", "= yes") ran into the boxes in English.
+- Iceberg lesson titles now say what the lesson teaches (for example "ไฟล์ในตาราง Iceberg ไล่จาก Catalog ลงไปถึง Data File" instead of "ข้างในตาราง", and "ดูไฟล์จริงที่ถูกเขียนในแต่ละคำสั่ง..." instead of "ใต้ฝากระโปรง..."), in Thai and English.
+- `ReadPathLab`: the arrow of step 1 was a diagonal line that ended at the corner of the Catalog box. It is now an elbow into the box, and step 2 has a straight arrow with its badge clear of the boxes.
+- Iceberg labs: the figures no longer scroll sideways in a box of about 670px (the lab canvas may shrink to 600px, class `ib-fig`), and the names that had been coined, "สารบัญ", "รายการของ Snapshot", "รายการไฟล์", "ไฟล์ข้อมูล" and "ไฟล์ลบ" (and "table of contents", "file list" and "contents" in English), are now the real terms Metadata File, Manifest List, Manifest, Data File and Delete File in the labs and in the Thai lessons. The book analogy of lesson 1 (a book with a table of contents) is kept as an analogy.
+
+### Changed
+- Iceberg: the feedback texts (`why`) of 80 quiz questions and the Thai strings of its eight labs were rewritten in the owner's voice with `/thaihumanize`: whole clauses with connectors, "เรา" instead of a bare "แบบฝึกวัดได้...", and no clipped noun phrases. Only the wording moved, so every number, error message and link is the same and the English pages are recorded as in step. The labs were audited again in headless Edge (40 labs on 14 pages, no overlap, no idle control, no sideways scroll).
+
+## 2026-11-12
+
+### Added
+- A new subject, `iceberg` (Thai and English): 14 lessons, each with a quiz. They cover what Iceberg is, the files inside a table, schema and partitioning, writes and commits (including two writers that collide), reads and scan planning, row-level changes (copy-on-write, merge-on-read, deletion vectors), schema and partition evolution, time travel with branches, tags and write-audit-publish, catalogs, table maintenance, migrating existing data, streaming and incremental reads, format versions with views and statistics, and a capstone. Everything the lessons print comes from exercises `01` to `14` in `subjects/iceberg/code/` that run Spark 4.1.3 with Iceberg 1.12.0 and PyIceberg 0.12.0 in WSL, on one catalog shared by both engines (Iceberg `JdbcCatalog` and PyIceberg `SqlCatalog` on the same SQLite file). There is no Iceberg runtime for Spark 4.2 yet, which is why this subject does not use the Spark 4.2.0 of the Spark subject. The knowledge graph of Iceberg 1.12.0 (`api` and `core`) is in `subjects/iceberg/graphs/`. Seven labs for it in `components/labs/iceberg/` (the three layers of a table growing commit by commit, the seven steps of a write, two writers racing for the catalog pointer, a read going down the layers, which files a filter skips, copy-on-write against merge-on-read, and snapshots with main, a tag and a branch), laid out after the figures that the book *Apache Iceberg: The Definitive Guide* describes, with text of 14 to 18 units or more, a legend of the three states (new, in use, skipped), plain-language names next to the technical ones, and a one-line banner in the picture for each step. No `in-depth` pages yet, and a REST catalog could not be run. Notes, sources and findings are in `subjects/iceberg/docs/`.
+- Iceberg lesson 2 has a sub-page, "Under the covers" (Thai and English), after the explanation in the Dremio guide *Apache Iceberg: An Architectural Look Under the Covers*. It follows one table through `CREATE TABLE`, two `INSERT`s, `MERGE INTO`, a `SELECT` with a filter, time travel and compaction. Each statement has its own picture (`UnderCoversLab`) that walks through numbered steps, draws the files of the catalog, metadata and data layers (new, reused, skipped), and shows the real content of any file you click (the `metadata.json` fields, the manifest list rows, the manifest entries with their statuses and bounds, the rows of a data file). Those contents are read from disk by `exercises/15_under_the_covers.py --write`, so no number in the pictures is invented. The page ends with a table of how many files each statement writes.
+- Iceberg lesson 6 has a sub-page, "Copy-on-write and merge-on-read in depth" (Thai and English). It prices one changed row in both modes on a table of 100,000 rows (20,000 rows rewritten against 1 row plus a delete file), then shows six pictures built from the real files (`UnderCoversLab` now also draws delete files and delete manifests): a copy-on-write DELETE, a merge-on-read DELETE with the content of the position delete file, an UPDATE (Spark folds the old positions into one new delete file, so a data file needs one delete file at most), a SELECT that filters with the delete file, a compaction that leaves a dangling delete file behind, and the clean-up with `remove-dangling-deletes`. It also covers a different mode per statement and how to choose, with the comparison table of the book. Equality deletes are described from the book and were not run. New exercise `16_cow_mor_in_depth.py`.
+
+## 2026-11-10
+
+### Changed
+- Data Quality, lesson 2 (Dimensions) and its eight deep-dive pages (Thai and English) are rewritten to be easier to picture. Each page opens with real rows from the dataset and one everyday picture that it keeps using, explains each SQL query line by line, and gives every common misreading its own Step instead of a bold-label form. Citations come once at the end of a paragraph. The headings that other lessons link to are unchanged, except on the Reasonability page, whose misreading headings were renamed and the two capstone links updated.
+- `13_dimension_pitfalls.py` now also asserts the numbers of the new examples (the bad-day copy for Reasonability, the data-set-level completeness copy, the tolerance table). The prose was not read through by a person yet, and the labs and the light theme were not clicked again.
+
+## 2026-11-09
+
+### Added
+- A new subject, `singing` (Thai only): ten lessons on how the singing voice works and how to practise, each with a quiz, plus in-depth pages for the vocal folds and for resonance. Written from two books (Davids and LaTour, *Vocal Technique*; Titze, *Principles of Voice Production*), cited by printed page.
+- Labs for it in `components/labs/singing/`: the anatomy of head and torso, a breathing cycle, the vocal folds in slow motion (top view, cross-section, airflow, harmonics), the three onsets, registers and voice ranges, a vocal tract with source, filter and output graphs, a one-pipe tube, a vowel chart, vowel modification for a soprano, vibrato, a microphone pitch mirror and a warm-up player that plays guide notes.
+- `site/src/lib/voice.ts`, `tract.ts`, `pitch.ts`: a small voice synthesizer (the sounds are made in the browser, not recorded), a map from mouth shape to formants and a pitch detector. `node subjects/singing/code/verify.mts` checks the numbers that the lessons state about them (191 checks). Notes, sources and what was not checked are in `subjects/singing/docs/`.
+- `tools/lesson-refs.mjs` treats a number after "Davids", "LaTour" or "Titze" as a book chapter, and knows the `singing` subject.
+- Guitar: a page "Anatomy: ส่วนประกอบของกีต้าร์โปร่ง" (Thai and English) in lesson 0 with an animated acoustic guitar (`AcousticAnatomy`): press a part or walk through them to read what it is and what it does next to the drawing, look through the body at the bracing, truss rod and blocks, and follow a plucked string into the room in five steps. The quiz has three more questions.
+- Glossary: eight more parts (heel, rosette, binding, bracing, bridge pin, soundboard, bout, end pin), a "Fret Buzz" entry, and a "See also" row of links between related terms (for example Action to Fret Buzz, Saddle, Truss Rod and Setup). Terms are shown with a capital letter on every word.
+
+### Changed
+- The register lab of the singing subject now draws Chest, Mix, Head and Chest belt side by side on one clock: the folds in cross-section, one cycle of the airflow with the closed part shaded and a moving dot, and the first ten harmonics (H2 and H5 below H1 in dB). A speed switch slows or stops the drawing.
+- The vocal tract lab glides the tongue, jaw, lips and graphs to a new pose instead of jumping, shades the band around each formant on the filter and output graphs, and has a three-line guide to reading the graphs.
+- The anatomy lab "เครื่องดนตรีที่เรียกว่าเสียงร้อง" (and the head and torso drawing it shares with the breathing and vocal tract labs) looks more finished: hair, eye, ear and rounded teeth on the head, shoulders on the trunk that fades out at the bottom, three coloured panels for power, source and filter that light up with the group buttons, a dot on every part, and a pulsing ring with the name of the part you chose. The air path is drawn as a pale tube with white dots.
+- The lesson side navigation (`.lesson-aside`) reserves room for its scrollbar (`scrollbar-gutter: stable`, no sideways scroll). Before, the scrollbar could appear and disappear while the pointer was over a long title, which changed the width, wrapped the title onto a second line and made the list shake.
+- The Action entry of the glossary now explains both sides: a low action is easy to press but can give Fret Buzz, a high action is clear but needs more force.
+
+## 2026-11-08
+
+### Added
+- Spark: a page "Spark คืออะไร ประวัติ และปัญหาที่มันแก้" ("What Spark is, its history, and the problems it solves", Thai and English,
+  `foundations/overview`) in lesson 0: what Spark is, Google MapReduce and Hadoop, where MapReduce got stuck (reusing data between jobs),
+  the RDD idea (lineage), what the paper's speedups depend on (first iteration against later ones, the 2014 sort that ran on disk), a
+  timeline from 2009 to 4.2 and where this path answers each problem. Every fact links to its source (papers, Apache release pages,
+  Databricks blog); nothing on the page was run. Lesson 0 points to it from the top.
+- Spark overview page: the timeline is an interactive lab (`SparkTimelineLab`): the line fills as you move down it, every period opens a card
+  with what happened, where this path covers it and the source, and a play button walks through the periods. Thai and English.
+- The Thai text of that page was rewritten after the owner's own edits to the first section (see "Thai prose" in `claude.md`).
+- Links between lessons point at the heading the sentence is about, not only at the lesson (about 420 links in each language, chosen
+  one by one; where no heading is clearly the one the link stays on the lesson). Thai and English point at the same heading.
+- `npm run check:refs` also fails on a link to a heading that no longer exists (ids made with `github-slugger` the way the build
+  makes them; checked against all 506 pages of the built site), and `node tools/lesson-refs.mjs --backlinks <page or page#heading>`
+  lists everything that links to a page or heading, so a heading is not renamed blind. `--graph` prints every link as JSON.
+- The dev editor (View | Edit) lists, above the text, every link to the lesson page being edited and to its headings.
+- References to pages of another subject by title (the guitar and music-theory lessons name each other, Data Quality names the
+  Great Expectations lesson) and page names written without quotes ("the page on data contracts in practice") are links too.
+- `site/tools/lesson-refs.mjs` (`npm run check:refs`, also a step of the deploy workflow): every mention of another lesson must be a
+  link. It finds "บทที่ 5", "บท 5", "lesson 5", "บทถัดไป", "the next lesson", a page named by its title and "lesson 5, page
+  \"Title\"", links them with `--fix`, and fails on a mention that is not linked and on a link that points at no page. A number after
+  a book name in Data Quality ("Ten Steps บทที่ 3 หน้า 42") is a book chapter and is left alone.
+- The `q` and `why` of a `<Question>` and the `title` of a `<Callout>` render `[text](/path/)` links (`src/lib/inline-links.ts`). The
+  key under which a question's answer is stored is the text without the link, so saved answers still match.
+
+### Fixed
+- Links to the wrong lesson: in music-theory the text counted lessons from 1 while the pages are numbered from 0, so six references
+  now say the number the page shows and point at the right lesson (for example slash chords are in lesson 5, chords). Three
+  Great Expectations references to a lesson of the Spark path pointed at a Great Expectations lesson, and "the next lesson" in the
+  guitar fretboard lesson pointed at open chords where it means barre chords.
+
+### Changed
+- About 440 mentions of other lessons in the Thai and English lessons of every subject were plain text and are now links, and the
+  four frontmatter summaries that named lesson numbers say "the earlier lessons".
+- Thai and English: link-only differences were marked as in step (`npm run sync -- --accept`).
+- Checked with the impeccable detector (`npx impeccable detect <url>`, run from outside the repo, nothing installed) and by eye on
+  desktop, phone and dark mode. The detector no longer reports low contrast, skipped headings or undersized text on the pages
+  it was run on.
+- Dark mode: the gold marker behind the highlighted word of the home title is weaker (`--hl`), so light text on it is readable.
+- Headings: the "pages in this lesson", "on this page" and lesson list blocks and the phase and plant titles of a subject page are
+  `<h2>` instead of `<h4>` or `<h3>`, so no level is skipped. Their look is unchanged.
+- Text of 10.5px (tile tags, page tags, fretboard labels) is 11px. The numbers under the plants of the subject scene are larger,
+  and hidden on a phone where the tiles show them.
+- Home page: the footer of each subject card sits at the bottom and the taglines reserve two lines, so the plant beds and buttons
+  line up across a row.
+- Tables in lessons on a phone: inline code in a cell (`spark://host:7077`) is no longer broken at every letter, which had made
+  that column one letter wide and the rows hundreds of pixels tall. Cells and text are tighter, and a table wider than the screen
+  scrolls sideways with a soft shadow on the side that has more.
+- Home page: each subject card has a ledge and a plant bed tinted with that subject's own accent (the lighter variant in dark
+  mode), the hover ledge uses it too, and tagline text uses `text-wrap: pretty` so a single word is not left on the last line.
+- Phone: the site name no longer wraps in the header, lesson tiles are two to a row, the bottom bar of the subject page stacks its
+  title above the two buttons instead of squeezing the title, and diagrams that scroll sideways show a soft shadow on the side that
+  has more.
+
+## 2026-11-07
+
+### Added
+- Thai and English lessons are tracked together. `site/tools/translation-sync.mjs` cuts every lesson page into units (the title and
+  summary, then one unit per `<Step>`, or per `##` section on a page without cards) and keeps the hash and edit time of both
+  languages in `site/translation-sync.json`. An edit that the other language did not follow is reported. Run `npm run sync` from
+  `site/` to update the file and list what is behind, `npm run sync -- --check` to only check (exit code 1 when something is
+  behind), or `npm run sync -- --accept <lesson key> [unit numbers]` to say that two versions agree.
+- The dev editor (`astro dev` only) shows the result of that check: a warning panel with the units that are behind, a dot on the
+  Edit button, a button that copies what has to be translated, a link to the other language, and a button to mark a page as in step.
+
+- A "Notes" app in the Astro dev toolbar (`astro dev` only, code in `site/dev-notes/`). In comment mode a click on an element, a
+  right click or a drag over text opens a small form (category and text); the arrow keys change which level is picked. The note is
+  saved to `.audit/comments.json` (git-ignored, the repo is public) with the quoted text or the element path, the component and
+  lesson file, the viewport, the theme, the language and the step. Saved notes show as numbered badges and highlights, in a panel
+  per page, with replies, Resolve and delete. The file is read again when the window gets focus, so replies written into it show
+  up. It is wired in `astro.config.mjs` as the `gardenNotes()` integration and does nothing in a build.
+
+### Changed
+- README: lists all seven subjects with their lesson counts, says that every subject has an English version, and describes the
+  dev-only tools.
+- The dev editor now replaces only the lesson text, in the same column as the page, and grows with its text, so the header, the
+  lesson list and the title stay where they were. In step-by-step mode it uses the long layout while editing.
+- Spark `FormatLab` is redone: pick the columns a query needs and see CSV (stored row by row) and Parquet (stored column by column)
+  side by side, with every cell marked as read and used, read but thrown away, or not read. A play button reads both files cell by
+  cell at the same speed.
+
+### Fixed
+- Spark labs where text or dots covered each other: `RolesFlowLab` (merge label over the group title), `YarnAllocLab` (container
+  marks over the heading), `AqeFlowLab` (dots crossing the executor titles), `ShuffleWriterLab` (dots over the file labels and
+  stacked on each other), `WorkerReuseLab` (fork lines through words, clipped daemon caption), `ClusterLaunchLab` (two step numbers
+  on the same spot), `StragglerLab` (time needle label close to the caption). `LazyLab`: the cache checkbox label wraps as a sentence.
+
+## 2026-11-06
+
+### Added
+- A dev-only View | Edit switch on lesson pages (`astro dev` only, never in a build). Edit shows the MDX source of the page and saves
+  it to the file. View is refused, and the file is left as it was, when the text does not compile, when the frontmatter does not
+  match the schema or `requires` points to a missing lesson, or when the page then fails to render.
+
+### Changed
+- The step-by-step switch moved to the header. Spark `ArchitectureLab` and `PipelineStagesLab` were replaced by tables, and the
+  phase pills of the optimizer lab were restyled so that every pill has the same size.
+- English text says "lesson" instead of "chapter" in the Spark labs and lessons. Three diagram labels of the Great Expectations
+  lessons were shortened so that they fit on a phone.
+
+## 2026-11-05
+
+### Added
+- English versions of the `spark`, `great-expectations`, `guitar` and `music-theory` lessons, and bilingual labs (every lab takes a
+  `lang` prop).
+- Spark: cluster manager sub-pages (standalone, YARN, Kubernetes), exercises `06b` and `11b`, and twenty-four animated labs on a
+  shared step player.
