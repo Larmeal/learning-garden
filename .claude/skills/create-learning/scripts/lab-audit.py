@@ -99,12 +99,14 @@ def audit_figure(pg, fig, name, report, settle):
         pg.wait_for_timeout(200)
         seen = []
         for b in range(n):
+            if b >= buttons.count():
+                break  # a group whose buttons depend on another group (a list of inputs per kind) is shorter after the reset above
             buttons.nth(b).click()
             pg.wait_for_timeout(300)
             go_to_end()
             seen.append(digest(fig.evaluate(SNAP)))
         if len(set(seen)) == 1:
-            labels = [buttons.nth(b).inner_text()[:24] for b in range(n)]
+            labels = [buttons.nth(b).inner_text()[:24] for b in range(buttons.count())]
             report.append(f'NO VISIBLE EFFECT  {name} group {g}: {labels}')
 
     # 3. text over text: one option at a time (the others at their first button), every step of each
