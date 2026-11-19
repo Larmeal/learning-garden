@@ -204,3 +204,41 @@ What was built (`components/labs/iceberg/UnderCoversLab.tsx`, page `lessons/iceb
    jump. Mark what is wrong but harmless (a dangling delete file) with a tag ("left over") and say so in the step text. A helper that builds the steps of any write (`writeOp`) keeps each operation to a few lines;
    do not name a helper `W` when the file already has a width constant `W` (the build fails, `tsc` did not say so).
 
+
+## Draw the thing, not the capture (the owner on the first Networking labs, 2026-11-19)
+
+All 26 Networking labs passed the audit (no overlap, no script error, every control changes the picture) and the owner still said "animation ฉันทำแย่ทุกอัน อธิบายไม่ค่อยรู้เรื่อง ไม่รู้จะสื่ออะไร". Looking at them as a reader showed why:
+they replayed the packet capture (arrows with mono labels such as `SYN seq=0 ack=1`, tables of fields, chips of 12 units) instead of drawing the idea, so a reader had to know the protocol already.
+
+1. **Draw the object the lesson talks about.** A packet is letters inside letters (`Envelope` in `nw.tsx`: layers grow around the message and are torn off at the router), not a bar that says "IP 20".
+   A router goes down its own table row by row and the chosen row lights the cable (`RoutingLab`). A receive window is a tank that fills (`WindowLab`). A listen queue is a waiting room with three chairs (`BacklogLab`).
+2. **A message is a card that travels** (`Card` and `cardX` in `nw.tsx`): a plain sentence first ("ใครมี 10.0.1.4 บ้าง?", "ฉันส่งหมดแล้ว ขอปิดฝั่งฉัน"), the protocol name and the key values on the line under it. Cards stay at the end of their row when they arrive, so the still picture at the end reads like a chat. Never put the only explanation in a label on a thin arrow.
+3. **The last frame must say the answer.** A lab that is empty at the end (the first RoutingLab) or loses its cards when they arrive (the first DnsLab) fails the "understandable without playing" rule. Keep the TTL left behind at every stop, the table after the exchange, the summary cards.
+4. **Numbers from the capture are annotations, not the picture.** Bytes, MACs and milliseconds go in the sub line or in one summary; the picture itself uses 16 units or more and at most a few words per object.
+5. **After the audit, open the images at the width of the lesson column and ask what each lab is for in one sentence.** If you cannot say it, redraw it. The audit cannot tell you that.
+
+## The second time (the owner on the first Security labs, 2026-11-19): "animation ฉันทำแย่ทุกอันเลย ไม่รู้จะสื่ออะไร"
+
+The Networking rules above existed already, and the first Security labs (32 of them) were still written as dashboards: bars, verdict cards, tables of numbers, sequence diagrams whose only content was a
+caption on a thin arrow. They passed `lab-audit.py`, the exercises and the crawl. What to do from the first lab, before the audit:
+
+1. **Write the one-sentence picture before the code.** "A crowd of 2,000 dots that fades until one person is left." "A guess list hitting a table of hashes." "Two piles of noisy answers and a detective who guesses
+   which pile." If the sentence is "a panel with a bar and a verdict", it is a dashboard: stop and find the object of the lesson (a person, a key, a box, a jar of coins, a cookie jar, a certificate).
+2. **Let the reader watch the claim happen.** Do not show the result of a measurement, show the process that produces it: a running average walking onto the truth, a delete request travelling a graph, pieces
+   handed between three people, a voter list piling up beside an anonymous row. Counters and bars are the footnote of that picture, not the picture.
+3. **Compute from the real data in the browser when the lesson is about data.** An exercise writes the rows once (`labPeople.json`), a pure module groups and joins them (`peopleLib.ts`), and a Node script
+   (`verify_labs.mts`) asserts that the module gives the exercise's numbers. Then every control changes a real result and nothing is invented.
+4. **An unlucky sample teaches the wrong thing.** A first version showed 40 noisy answers whose average was worse than 10 answers. Check the example against the claim (print the error for each setting the
+   reader can choose) and pick the data and the choices so that the claim shows. Say in the caption which numbers are an illustration with a fixed seed.
+5. **In a sequence lab, show what each party holds**, not only what travels: a cookie jar, a session table, a code, a verifier, a certificate, a list of trusted CAs. A message is a card with a plain sentence
+   (`seq.tsx` does this), and the holdings panels sit above the messages so that the reader sees the object appear when the card arrives.
+6. **Look at the last frame and the middle frame, not only the first.** `lab-audit.py` photographs t = 0, where a clock lab is empty. Use `lab-steps.py` or a small Playwright script (wait 2.5 s after scrolling:
+   the island hydrates late and an early click does nothing) on the last mark of every option, in both languages, and ask "what is this lab for, in one sentence" with the image in front of you.
+7. **Check your own export.** `--write` code that makes a curve with a loop can silently produce a constant (a new generator per draw). Print the JSON values that a lab will draw.
+8. **When the dev server dies, start your own** (`npx astro dev --background`); the port may be shared with another session that stops it.
+9. **Two hashes that match are two pictures that match.** A hash, a tag or a signature is a long hex string that nobody compares by eye. Draw its first bytes as a small grid of coloured cells (`Seal` in
+   `labs/app-security/bits.tsx`, hue taken from each byte), so "equal" and "different" can be seen from across the room, and put the two seals side by side with an = or an ≠. Use a real hash when the lab can compute one.
+10. **A stand-in must behave like the real thing, and say so.** Where the real primitive is not available in the browser (AES-GCM, Ed25519), draw a value that changes when anything changes and that the attacker cannot make,
+    and write in the caption which parts are real and which are stand-ins. Compute the summary table with the same function as the picture, so the two cannot disagree.
+11. **`lab-audit.py` resets the other option groups to their first button.** A control that only matters when another control is set differently (the CSP of an XSS page matters only when the text slips through) looks dead
+    to the audit, and to a reader. Draw its state in the picture even when it changes nothing else (a CSP chip in the window title). The audit also copes now with a group whose buttons depend on another group.
