@@ -1,0 +1,151 @@
+# Commitizen: how a commit message of this repo is written. `cz commit` asks the questions below and builds the message,
+# `cz check` tests a message or a range of commits against the pattern, `cz schema` prints the guide.
+#
+#   uvx --from commitizen cz commit
+#   uvx --from commitizen cz check --rev-range origin/main..HEAD
+#
+# The CHANGELOG.md is made from these messages by `npm run changelog` (site/tools/changelog.mjs), grouped by day. There is no
+# version to bump: the garden is published on every push to main, so commitizen is used for the message and not for releases.
+# Keep the types below and the TYPES table of site/tools/changelog.mjs in step.
+[tool.commitizen]
+name = "cz_customize"
+
+[tool.commitizen.customize]
+message_template = "{{change_type}}{% if scope %}({{scope}}){% endif %}{% if breaking %}!{% endif %}: {{subject}}{% if body %}\n\n{{body}}{% endif %}"
+example = "fix(spark): correct the number of tasks in the AQE lesson"
+schema = """
+
+COMMIT MESSAGE FORMAT
+=====================
+
+    <type>(<scope>)<!>: <subject>
+    <BLANK LINE>
+    <body>
+
+    Example:  feat(git): add a lab that replays a bisect step by step
+
+
+TYPES
+=====
+The changelog is made from these types, so the choice matters.
+Ask "what would the owner, or a reader of the site, notice?" and take the first match.
+
+  feat        appears under "Added"
+              A new subject, lesson, page, lab, exercise set, tool or setting.
+              Choose when: someone can now read, run or click something that was not there.
+              Not for:     correcting what is already there (fix) or rewording it (docs).
+              Example:     feat(networking): add the lesson on TCP congestion control
+
+  fix         appears under "Fixed"
+              Corrects something that was wrong.
+              Choose when: a fact, a number, a link, a quiz answer, a lab or a layout was wrong
+                           and a reader would notice it is right now.
+              Not for:     rewriting a correct sentence to read better (docs).
+              Example:     fix(spark): correct the number of tasks in the AQE lesson
+
+  docs        appears under "Docs"
+              Wording only: lesson text, quiz text, README, comments, notes.
+              Choose when: the same facts are said in a better way, or a page is written again
+                           in the owner's voice, and no number, claim or code changed.
+              Not for:     a page that gains a new idea or a new example (feat).
+              Example:     docs(data-quality): say row and table instead of record
+
+  refactor    appears under "Changed"
+              Restructures code while what the reader sees stays the same.
+              Choose when: you renamed, moved, split or simplified code and no page changed.
+              Example:     refactor(labs): share the drawing pieces of the Git labs
+
+  perf        appears under "Changed"
+              Same result, measurably faster or lighter (a page, a build, an exercise).
+              Example:     perf(site): load a lab only when it scrolls into view
+
+  build       appears under "Changed"
+              How the site or an exercise project is built or which libraries it needs:
+              package.json, uv projects and lock files, the Astro config, a build script.
+              Example:     build(iceberg): add uv.lock and setup.sh
+
+  test        left out of the changelog
+              A check on its own: an exercise that only asserts numbers, a verify script.
+              Not for:     a check added together with its lesson (use feat).
+              Example:     test(pytest): assert the numbers of lesson 9 in verify.py
+
+  ci          left out of the changelog
+              The workflow files under .github and the steps that run on a server.
+              Example:     ci: check the references between lessons before the build
+
+  chore       left out of the changelog
+              Housekeeping that changes nothing a reader sees: sync hashes, .gitignore,
+              formatting, editor settings, how commits are written (this file).
+              Warning:     never use chore for a fix, or the fix will not be in the changelog.
+              Example:     chore: record translation-sync hashes
+
+  revert      left out of the changelog
+              Undoes an earlier commit. Write the reverted subject after the colon and say
+              which commit in the body.
+              Example:     revert: feat(git): add a lab that replays a bisect
+                           (body) This reverts commit 1a2b3c4.
+
+  Prefixes that cz check lets through without matching the format:
+  Merge, Revert, Pull request, fixup!, squash!, amend!
+
+
+MARKS AFTER THE TYPE
+====================
+  scope     optional. The part you touched, in parentheses: a subject id (spark, git,
+            data-quality, app-security) or an area (site, labs, ask, tools, skill, readme).
+            Only lowercase letters, digits, "_", "-" and "," are allowed (guitar,music-theory).
+            Leave it out when the change spans many parts.
+
+  !         optional. Put it directly before the colon for a change that breaks something the
+            owner relies on: a renamed subject id or slug (it changes URLs and saved progress),
+            a changed progress key, a removed command. The changelog marks it "breaking".
+
+
+SUBJECT AND BODY
+================
+  :         required. Followed by exactly one space.
+  subject   required. One line, imperative mood ("add", not "added"), lowercase start,
+            no trailing period. About 72 characters at most (convention, not enforced).
+            It is the line the changelog prints, so it should make sense on its own.
+  body      optional. Starts after one blank line. Explain WHY the change was needed, what
+            was checked, and what was not. The diff already shows WHAT. Lines such as
+            "Co-Authored-By: ..." go at the end of the body.
+"""
+schema_pattern = '(?s)^(feat|fix|perf|refactor|docs|test|ci|build|chore|revert)(\([a-z0-9_,-]+\))?!?: [^\n\r]+((\n\n.*)|(\s*))?$'
+
+[[tool.commitizen.customize.questions]]
+type = "list"
+name = "change_type"
+message = "Select the type of change\n\n"
+choices = [
+    { value = "feat", name = "feat: new subject, lesson, page, lab, exercise or tool (Added)" },
+    { value = "fix", name = "fix: a wrong fact, number, link, answer or layout is corrected (Fixed)" },
+    { value = "docs", name = "docs: wording only, lesson text, README, notes (Docs)" },
+    { value = "refactor", name = "refactor: restructure code, nothing a reader sees changes (Changed)" },
+    { value = "perf", name = "perf: same result, faster or lighter (Changed)" },
+    { value = "build", name = "build: package.json, uv projects, Astro config, build scripts (Changed)" },
+    { value = "test", name = "test: an exercise or verify script on its own (not in the changelog)" },
+    { value = "ci", name = "ci: workflow files only (not in the changelog)" },
+    { value = "chore", name = "chore: housekeeping, never a fix (not in the changelog)" },
+]
+
+[[tool.commitizen.customize.questions]]
+type = "input"
+name = "scope"
+message = "Scope: a subject id (spark, git) or an area (site, labs, ask), lowercase, digits, '_', '-' and ',' only (enter to skip)"
+
+[[tool.commitizen.customize.questions]]
+type = "confirm"
+name = "breaking"
+message = "Breaking change? Yes if a subject id, slug or saved progress key changes (adds !)"
+default = false
+
+[[tool.commitizen.customize.questions]]
+type = "input"
+name = "subject"
+message = "Subject: one line, imperative, lowercase start, no period, e.g. add a lab for bisect"
+
+[[tool.commitizen.customize.questions]]
+type = "input"
+name = "body"
+message = "Body: why the change was needed, what was checked, what was not (enter to skip)"
