@@ -83,6 +83,22 @@ const TEXT: Record<Lang, {
   },
 };
 
+
+type Item = { who: 0 | 1 | 2; text: string; at: number; until?: number; tone?: 'ok' | 'bad' | 'plain'; lock?: boolean };
+const T_ARR = (i: number) => 0.4 + i * 1.8 + 1.3; // when message i (0 based) has arrived
+const ITEMS: Record<Story, Item[]> = {
+  normal: [{ who: 1, text: 'sid ZXaH… → Ann', at: T_ARR(0) + 0.1, tone: 'ok' }, { who: 0, text: 'sid=ZXaH…', at: T_ARR(1), tone: 'ok', lock: true }],
+  xss: [{ who: 0, text: 'sid=ZXaH…', at: T_ARR(0), tone: 'plain' }, { who: 1, text: 'sid ZXaH… → Ann', at: T_ARR(0), tone: 'plain' }, { who: 2, text: 'sid=ZXaH…', at: T_ARR(1), tone: 'bad' }],
+  xssHttp: [{ who: 0, text: 'sid=ZXaH…', at: T_ARR(0), tone: 'ok', lock: true }, { who: 1, text: 'sid ZXaH… → Ann', at: T_ARR(0), tone: 'plain' }],
+  fixKeep: [{ who: 1, text: 'sid A → (ยังไม่ล็อกอิน)', at: T_ARR(0), until: T_ARR(2), tone: 'plain' }, { who: 2, text: 'sid=A', at: T_ARR(1), tone: 'bad' }, { who: 0, text: 'sid=A (ถูกฝังมา)', at: T_ARR(2), tone: 'bad' }, { who: 1, text: 'sid A → Ann', at: T_ARR(2), tone: 'bad' }],
+  fixNew: [{ who: 1, text: 'sid A → (ยังไม่ล็อกอิน)', at: T_ARR(0), until: T_ARR(2), tone: 'plain' }, { who: 2, text: 'sid=A', at: T_ARR(1), tone: 'plain' }, { who: 0, text: 'sid=A', at: T_ARR(2), until: T_ARR(2) + 0.9, tone: 'plain' }, { who: 1, text: 'sid B → Ann', at: T_ARR(2) + 0.2, tone: 'ok' }, { who: 0, text: 'sid=B', at: T_ARR(2) + 0.9, tone: 'ok', lock: true }],
+};
+const HOLD: Record<Lang, [string, string, string]> = {
+  th: ['Browser เก็บไว้ (Cookie)', 'Server จำไว้ (ตาราง Session)', 'ผู้โจมตีถืออยู่'],
+  en: ['Browser keeps (cookies)', 'Server remembers (session table)', 'Attacker holds'],
+};
+const EMPTY: Record<Lang, string> = { th: 'ยังไม่มีอะไร', en: 'nothing yet' };
+
 const ORDER: Record<Story, { msgs: { from: number; to: number; kind?: 'normal' | 'bad' | 'blocked' }[] }> = {
   normal: { msgs: [{ from: 0, to: 1 }, { from: 1, to: 0 }, { from: 0, to: 1 }, { from: 1, to: 0 }] },
   xss: { msgs: [{ from: 1, to: 0 }, { from: 0, to: 2, kind: 'bad' }, { from: 2, to: 1, kind: 'bad' }, { from: 1, to: 2, kind: 'bad' }] },
@@ -101,9 +117,31 @@ export default function CookieSessionLab({ lang = 'th' }: { lang?: Lang }) {
     { x: 760, title: T.parties[2], sub: T.subs[2], bad: true },
   ];
   const labels = T.msgs[s].filter((x) => x);
-  const msgs: Msg[] = ORDER[s].msgs.map((m, i) => ({ ...m, y: 130 + i * 72, at: 0.4 + i * 1.8, label: labels[i], n: i + 1, kind: m.kind ?? 'normal', max: 44 }));
+  const msgs: Msg[] = ORDER[s].msgs.map((m, i) => ({ ...m, y: 318 + i * 66, at: 0.4 + i * 1.8, label: labels[i], n: i + 1, kind: m.kind ?? 'normal', max: 44 }));
+  const holdings = (t: number) => (
+    <g>
+      {[0, 1, 2].map((w) => {
+        const x = 120 + w * 320;
+        const items = ITEMS[s].filter((it) => it.who === w && t >= it.at && (it.until === undefined || t < it.until));
+        return (
+          <g key={w}>
+            <rect x={x - 118} y={74} width={236} height={170} rx={14} fill="var(--surface)" stroke={w === 2 ? 'var(--ib-bad)' : 'var(--line-strong)'} strokeWidth={2} />
+            <text x={x} y={98} textAnchor="middle" className="ib-s" style={{ fontSize: 14 }}>{HOLD[lang][w]}</text>
+            {items.length === 0 ? <text x={x} y={166} textAnchor="middle" className="ib-s" style={{ fontSize: 14.5, fill: 'var(--muted)' }}>{EMPTY[lang]}</text> : null}
+            {items.map((it, k) => (
+              <g key={it.text + it.at}>
+                <rect x={x - 108} y={110 + k * 40} width={216} height={34} rx={17} fill={it.tone === 'bad' ? 'color-mix(in srgb, var(--ib-bad) 14%, var(--surface))' : it.tone === 'ok' ? 'var(--accent-soft)' : 'var(--surface)'} stroke={it.tone === 'bad' ? 'var(--ib-bad)' : it.tone === 'ok' ? 'var(--accent)' : 'var(--line-strong)'} strokeWidth={2.5} />
+                <text x={x - 96} y={132 + k * 40} style={{ fontFamily: 'var(--mono, monospace)', fontSize: 13, fontWeight: 700 }}>{`${it.who === 0 ? '🍪 ' : ''}${it.text}`}</text>
+                {it.lock ? <text x={x + 98} y={133 + k * 40} textAnchor="end" style={{ fontSize: 13 }}>🔒</text> : null}
+              </g>
+            ))}
+          </g>
+        );
+      })}
+    </g>
+  );
   const [noteText, kind] = T.notes[s];
-  const notes: Note[] = [{ x: 24, y: 410, w: 832, h: 70, at: 7.4, text: noteText, kind, max: lang === 'th' ? 80 : 94 }];
+  const notes: Note[] = [{ x: 24, y: 596, w: 832, h: 70, at: 7.4, text: noteText, kind, max: lang === 'th' ? 80 : 94 }];
   const marks: Mark[] = T.marks[s].map(([name, text], i) => ({ at: [0, 2.2, 5.6][i] ?? 0, name, title: name, text }));
   return (
     <figure className="viz ib-fig lg">
@@ -116,8 +154,8 @@ export default function CookieSessionLab({ lang = 'th' }: { lang?: Lang }) {
         </div>
       </div>
       <div className="viz-box">
-        <svg viewBox="0 0 880 500" role="img" aria-label={T.title}>
-          <Seq parties={parties} msgs={msgs} notes={notes} t={clock.t} bottom={400} />
+        <svg viewBox="0 0 880 680" role="img" aria-label={T.title}>
+          <Seq parties={parties} msgs={msgs} notes={notes} t={clock.t} bottom={586} extra={holdings(clock.t)} />
         </svg>
       </div>
       <ClockControls clock={clock} marks={marks} lang={lang} />

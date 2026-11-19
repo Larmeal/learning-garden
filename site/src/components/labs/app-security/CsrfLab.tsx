@@ -90,15 +90,42 @@ export default function CsrfLab({ lang = 'th' }: { lang?: Lang }) {
   ];
   const stopped = d !== 'none';
   const msgs: Msg[] = [
-    { from: 0, to: 1, y: 124, at: 0.4, label: m.m1, n: 1 },
-    { from: 1, to: 0, y: 200, at: 2.0, label: m.m2, n: 2, kind: 'bad' },
-    { from: 0, to: 2, y: 274, at: 3.4, label: m.m3, n: 3, kind: d === 'lax' ? 'blocked' : 'normal', max: 36, dur: 1.5 },
-    { from: 2, to: 0, y: 350, at: 5.2, label: m.m4, n: 4, kind: stopped ? 'bad' : 'normal', max: 36 },
+    { from: 0, to: 1, y: 300, at: 0.4, label: m.m1, n: 1 },
+    { from: 1, to: 0, y: 396, at: 2.0, label: m.m2, n: 2, kind: 'bad' },
+    { from: 0, to: 2, y: 492, at: 3.4, label: m.m3, n: 3, kind: d === 'lax' ? 'blocked' : 'normal', max: 36, dur: 1.5 },
+    { from: 2, to: 0, y: 588, at: 5.2, label: m.m4, n: 4, kind: stopped ? 'bad' : 'normal', max: 36 },
   ];
+  const HOLD: [string, string, string] = lang === 'th' ? ['Browser ถืออยู่', 'หน้าของผู้โจมตี', 'ธนาคารจำไว้'] : ['Browser holds', "attacker's page", 'the bank remembers'];
+  const chips: { who: 0 | 1 | 2; text: string; at: number; tone: 'ok' | 'bad' | 'plain' }[] = [
+    { who: 0, text: lang === 'th' ? '🍪 Cookie ของ bank.test' : '🍪 cookie of bank.test', at: 0, tone: 'ok' },
+    { who: 1, text: lang === 'th' ? 'ฟอร์มซ่อน: โอน 500' : 'hidden form: send 500', at: 1.0, tone: 'bad' },
+    { who: 2, text: lang === 'th' ? 'ยอดผู้ใช้ 1,000' : "user's balance 1,000", at: 0, tone: 'plain' },
+    { who: 2, text: d === 'none' ? (lang === 'th' ? 'โอนแล้ว ยอดเหลือ 500' : 'sent, balance 500') : (lang === 'th' ? 'ปฏิเสธ ยอดยังเท่าเดิม' : 'refused, balance unchanged'), at: 5.2 + 1.3, tone: d === 'none' ? 'bad' : 'ok' },
+  ];
+  const holdings = (t: number) => (
+    <g>
+      {[0, 1, 2].map((w) => {
+        const x = 120 + w * 320;
+        const its = chips.filter((c) => c.who === w && t >= c.at);
+        return (
+          <g key={w}>
+            <rect x={x - 118} y={76} width={236} height={150} rx={14} fill="var(--surface)" stroke={w === 1 ? 'var(--ib-bad)' : 'var(--line-strong)'} strokeWidth={2} />
+            <text x={x} y={98} textAnchor="middle" className="ib-s" style={{ fontSize: 14 }}>{HOLD[w]}</text>
+            {its.slice(-3).map((it, k) => (
+              <g key={it.text}>
+                <rect x={x - 106} y={108 + k * 38} width={212} height={32} rx={16} fill={it.tone === 'bad' ? 'color-mix(in srgb, var(--ib-bad) 14%, var(--surface))' : it.tone === 'ok' ? 'var(--accent-soft)' : 'var(--surface)'} stroke={it.tone === 'bad' ? 'var(--ib-bad)' : it.tone === 'ok' ? 'var(--accent)' : 'var(--line-strong)'} strokeWidth={2.5} />
+                <text x={x - 94} y={129 + k * 38} style={{ fontSize: 13.5, fontWeight: 700 }}>{it.text}</text>
+              </g>
+            ))}
+          </g>
+        );
+      })}
+    </g>
+  );
   const nt = T.notes(d);
   const notes: Note[] = [
-    { x: 24, y: 390, w: 832, h: 46, at: 6.2, text: nt.a, kind: nt.kind, max: lang === 'th' ? 80 : 96 },
-    { x: 24, y: 446, w: 832, h: 40, at: 6.8, text: nt.b, kind: nt.kind },
+    { x: 24, y: 636, w: 832, h: 46, at: 6.2, text: nt.a, kind: nt.kind, max: lang === 'th' ? 80 : 96 },
+    { x: 24, y: 692, w: 832, h: 40, at: 6.8, text: nt.b, kind: nt.kind },
   ];
   return (
     <figure className="viz ib-fig lg">
@@ -111,8 +138,8 @@ export default function CsrfLab({ lang = 'th' }: { lang?: Lang }) {
         </div>
       </div>
       <div className="viz-box">
-        <svg viewBox="0 0 880 500" role="img" aria-label={T.title}>
-          <Seq parties={parties} msgs={msgs} notes={notes} t={clock.t} bottom={380} />
+        <svg viewBox="0 0 880 744" role="img" aria-label={T.title}>
+          <Seq parties={parties} msgs={msgs} notes={notes} t={clock.t} bottom={626} extra={holdings(clock.t)} />
         </svg>
       </div>
       <ClockControls clock={clock} marks={T.marks(d)} lang={lang} />

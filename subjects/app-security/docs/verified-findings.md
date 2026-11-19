@@ -53,3 +53,11 @@ Speeds (`04_passwords.py`) and one timing (`12_dos_rate_limit.py`, 4 more letter
 
 A real browser (SameSite, CSP, a script that runs, mutation XSS, DOM XSS), a real network and a real TLS server, certificates with several levels and revocation, bcrypt and Argon2,
 a real OAuth provider and JWKS, other databases (MySQL, PostgreSQL) and NoSQL, DNS rebinding and redirects in SSRF, `git filter-repo`, a real scanner, DDoS, and anything in production.
+
+## Labs (drawn again 2026-11-19)
+
+The owner said the first labs explained nothing, so all twenty were drawn again around the objects of each lesson (see `docs/overview.md`). What a lab computes on the page is a real SHA-256, HMAC and HS256 token (`sha256.ts`,
+`jwt.ts`, checked against Python and Node by `verify_labs.mts` and `verify_jwt.mts`). What it reads comes from JSON that an exercise wrote with `--write`. Illustrations, not measurements: the AES-GCM ciphertext and the Ed25519
+signature of `CryptoToolboxLab` are stand-ins that change when anything changes (the real ones ran in exercise 02), the HMAC key there is made up, the bytes under TLS in `RequestPathLab`, the colour of a number in
+`KeyExchangeLab`, the strips of `ReDosLab` (a drawing of the 2^(n-1) ways to cut n letters; only the step counts up to n = 20 are measured), the cores and the working time of `PasswordCrackLab`, and the made-up file text
+whose SHA-256 is drawn in `DependencyLab`. The twelve cells of `CryptoToolboxLab` are computed by the same code as its picture, and the characters of `SqlInjectionLab` are coloured data or SQL by counting quotes on the page.

@@ -38,7 +38,7 @@ export function SeqMsg({ m, parties, t }: { m: Msg; parties: Party[]; t: number 
   const color = m.kind === 'bad' ? 'var(--ib-bad)' : m.kind === 'blocked' ? 'var(--ib-bad)' : 'var(--accent)';
   const mid = (x1 + x2) / 2;
   const span = Math.abs(x2 - x1);
-  const max = Math.max(m.max ?? 0, Math.floor((span + 120) / 8), 30);
+  const max = Math.max(18, Math.min(Math.max(m.max ?? 0, Math.floor((span + 120) / 8), 30), Math.floor((span - 50) / 7.4)));
   const lines = wrapText(m.label, max);
   const lh = 19;
   const labelOn = p > 0.55;
@@ -55,9 +55,19 @@ export function SeqMsg({ m, parties, t }: { m: Msg; parties: Party[]; t: number 
       {m.kind === 'blocked' && p >= 0.99 && (
         <text x={xe} y={m.y + 7} textAnchor="middle" style={{ fill: 'var(--ib-bad)', fontSize: 26, fontWeight: 700 }}>✗</text>
       )}
-      <text x={mid} y={m.y - 20 - (lines.length - 1) * lh} textAnchor="middle" className="ib-n" style={{ opacity: labelOn ? 1 : 0 }}>
-        {lines.map((l, i) => <tspan key={i} x={mid} dy={i === 0 ? 0 : lh}>{l}</tspan>)}
-      </text>
+      {labelOn && (() => {
+        const wide = Math.min(span - 14, Math.max(...lines.map((l) => l.length)) * 8.1 + 30);
+        const hh = lines.length * lh + 14;
+        const top = m.y - 14 - hh;
+        return (
+          <g>
+            <rect x={mid - wide / 2} y={top} width={wide} height={hh} rx={10} fill="var(--surface)" stroke={color} strokeWidth={2.5} />
+            <text x={mid} y={top + 13 + lh * 0.7} textAnchor="middle" className="ib-n" style={{ fontSize: 15 }}>
+              {lines.map((l, i) => <tspan key={i} x={mid} dy={i === 0 ? 0 : lh}>{l}</tspan>)}
+            </text>
+          </g>
+        );
+      })()}
     </g>
   );
 }

@@ -30,6 +30,19 @@ const FROM_TO: Record<Story, [number, number][]> = {
   loose: [[3, 0], [0, 2], [2, 0], [0, 3], [3, 2], [2, 3]],
 };
 
+type Item = { who: 0 | 1 | 2 | 3; text: [string, string]; at: number; tone?: 'ok' | 'bad' | 'plain'; lock?: boolean };
+const TA = (i: number) => 0.4 + i * 1.7 + 1.2; // when message i (0 based) has arrived
+const ITEMS: Record<Story, Item[]> = {
+  normal: [{ who: 1, text: ['verifier (ลับ)', 'verifier (secret)'], at: 0.4, tone: 'ok', lock: true }, { who: 2, text: ['challenge', 'challenge'], at: TA(1), tone: 'plain' }, { who: 0, text: ['code=ABC…', 'code=ABC…'], at: TA(2), tone: 'plain' }, { who: 1, text: ['code=ABC…', 'code=ABC…'], at: TA(3), tone: 'plain' }, { who: 1, text: ['token', 'token'], at: TA(5), tone: 'ok' }],
+  stealOff: [{ who: 2, text: ['ไม่มี challenge', 'no challenge'], at: TA(1), tone: 'bad' }, { who: 0, text: ['code=ABC…', 'code=ABC…'], at: TA(2), tone: 'plain' }, { who: 3, text: ['code=ABC… (รั่ว)', 'code=ABC… (leaked)'], at: TA(3), tone: 'bad' }, { who: 3, text: ['token ของ Ann', "Ann's token"], at: TA(5), tone: 'bad' }],
+  stealOn: [{ who: 1, text: ['verifier (ลับ)', 'verifier (secret)'], at: 0.4, tone: 'ok', lock: true }, { who: 2, text: ['challenge', 'challenge'], at: TA(1), tone: 'plain' }, { who: 0, text: ['code=ABC…', 'code=ABC…'], at: TA(2), tone: 'plain' }, { who: 3, text: ['code=ABC… (รั่ว)', 'code=ABC… (leaked)'], at: TA(3), tone: 'bad' }, { who: 3, text: ['ไม่มี verifier ✗', 'no verifier ✗'], at: TA(4), tone: 'plain' }],
+  loose: [{ who: 3, text: ['redirect_uri ของผู้โจมตี', 'attacker redirect_uri'], at: 0.4, tone: 'bad' }, { who: 2, text: ['เทียบแค่ขึ้นต้น ✗', 'prefix match ✗'], at: TA(1), tone: 'bad' }, { who: 3, text: ['code=ABC…', 'code=ABC…'], at: TA(3), tone: 'bad' }, { who: 3, text: ['token ของ Ann', "Ann's token"], at: TA(5), tone: 'bad' }],
+};
+const HOLD: Record<Lang, string[]> = {
+  th: ['Browser ถืออยู่', 'App ถืออยู่', 'Auth server จำไว้', 'ผู้โจมตีถืออยู่'],
+  en: ['Browser holds', 'App holds', 'Auth server knows', 'Attacker holds'],
+};
+
 const TEXT: Record<Lang, {
   title: string; pick: string; stories: Record<Story, string>; legend: { kind: 'new' | 'use' | 'skip' | 'node'; text: string }[]; caption: string;
   parties: [string, string, string, string]; subs: [string, string, string, string];
@@ -99,9 +112,29 @@ export default function OAuthFlowLab({ lang = 'th' }: { lang?: Lang }) {
     { x: 560, title: T.parties[2], sub: T.subs[2] },
     { x: 780, title: T.parties[3], sub: T.subs[3], bad: true },
   ];
-  const msgs: Msg[] = FROM_TO[s].map(([from, to], i) => ({ from, to, y: 138 + i * 58, at: 0.4 + i * 1.7, label: T.msgs[s][i], n: i + 1, kind: KINDS[s][i], max: 44, dur: 1.2 }));
+  const msgs: Msg[] = FROM_TO[s].map(([from, to], i) => ({ from, to, y: 334 + i * 58, at: 0.4 + i * 1.7, label: T.msgs[s][i], n: i + 1, kind: KINDS[s][i], max: 44, dur: 1.2 }));
+  const holdings = (t: number) => (
+    <g>
+      {[0, 1, 2, 3].map((w) => {
+        const x = parties[w].x;
+        const its = ITEMS[s].filter((it) => it.who === w && t >= it.at);
+        return (
+          <g key={w}>
+            <rect x={x - 104} y={76} width={208} height={150} rx={14} fill="var(--surface)" stroke={w === 3 ? 'var(--ib-bad)' : 'var(--line-strong)'} strokeWidth={2} />
+            <text x={x} y={98} textAnchor="middle" className="ib-s" style={{ fontSize: 13.5 }}>{HOLD[lang][w]}</text>
+            {its.slice(-3).map((it, k) => (
+              <g key={it.text[0] + it.at}>
+                <rect x={x - 94} y={108 + k * 38} width={188} height={32} rx={16} fill={it.tone === 'bad' ? 'color-mix(in srgb, var(--ib-bad) 14%, var(--surface))' : it.tone === 'ok' ? 'var(--accent-soft)' : 'var(--surface)'} stroke={it.tone === 'bad' ? 'var(--ib-bad)' : it.tone === 'ok' ? 'var(--accent)' : 'var(--line-strong)'} strokeWidth={2.5} />
+                <text x={x - 82} y={129 + k * 38} style={{ fontFamily: 'var(--mono, monospace)', fontSize: 12.5, fontWeight: 700 }}>{it.text[lang === 'th' ? 0 : 1]}{it.lock ? ' 🔒' : ''}</text>
+              </g>
+            ))}
+          </g>
+        );
+      })}
+    </g>
+  );
   const [text, kind] = T.notes[s];
-  const notes: Note[] = [{ x: 24, y: 478, w: 832, h: 62, at: 10.8, text, kind, max: lang === 'th' ? 80 : 94 }];
+  const notes: Note[] = [{ x: 24, y: 690, w: 832, h: 62, at: 10.8, text, kind, max: lang === 'th' ? 80 : 94 }];
   const marks: Mark[] = T.marks[s].map(([name, tx], i) => ({ at: [0, 3.5, 8][i] ?? 0, name, title: tx, text: T.msgs[s][[0, 2, 5][i]] }));
   return (
     <figure className="viz ib-fig lg">
@@ -114,8 +147,8 @@ export default function OAuthFlowLab({ lang = 'th' }: { lang?: Lang }) {
         </div>
       </div>
       <div className="viz-box">
-        <svg viewBox="0 0 880 556" role="img" aria-label={T.title}>
-          <Seq parties={parties} msgs={msgs} notes={notes} t={clock.t} bottom={470} />
+        <svg viewBox="0 0 880 770" role="img" aria-label={T.title}>
+          <Seq parties={parties} msgs={msgs} notes={notes} t={clock.t} bottom={680} extra={holdings(clock.t)} />
         </svg>
       </div>
       <ClockControls clock={clock} marks={marks} lang={lang} />

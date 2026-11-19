@@ -13,7 +13,7 @@ import { bitDiff, hex, sha256, utf8 } from './sha256';
 
 const TEXT: Record<Lang, { title: string; a: string; b: string; one: string; same: string; reset: string; legend: { kind: 'new' | 'use' | 'skip' | 'node'; text: string }[]; diffTitle: string; readout: (n: number) => string; same2: string; caption: string; len: string }> = {
   th: {
-    title: 'พิมพ์ข้อความสองชุดแล้วดู SHA-256 ของแต่ละชุดเป็นตาราง 256 บิต ลองเปลี่ยนตัวอักษรตัวเดียวแล้วดูว่าตารางที่สามสว่างตรงไหน',
+    title: 'พิมพ์ข้อความสองชุด แล้วดูลายนิ้วมือ SHA-256 ของแต่ละชุดเป็นตาราง 256 ช่อง ลองเปลี่ยนตัวอักษรตัวเดียว ตัวอักษรที่ต่างจะเป็นสีแดง และตารางที่สามจะสว่างตรงช่องที่ลายนิ้วมือต่างกัน',
     a: 'ข้อความ A', b: 'ข้อความ B', one: 'เปลี่ยนตัวอักษรท้ายของ B หนึ่งตัว', same: 'ให้ B เท่ากับ A', reset: 'ตัวอย่างเริ่มต้น',
     legend: [{ kind: 'use', text: 'บิตเป็น 1' }, { kind: 'node', text: 'บิตเป็น 0' }, { kind: 'new', text: 'บิตที่ต่างกัน' }],
     diffTitle: 'บิตที่ต่างกัน', readout: (n) => `ต่างกัน ${n} จาก 256 บิต (${Math.round((n / 256) * 100)}%)`, same2: 'ข้อความเท่ากัน ได้ค่าเดิมเป๊ะ ไม่มีบิตไหนต่าง',
@@ -21,7 +21,7 @@ const TEXT: Record<Lang, { title: string; a: string; b: string; one: string; sam
     len: 'ความยาวข้อความ',
   },
   en: {
-    title: 'Type two texts and see the SHA-256 of each as a 256 bit grid. Change one letter and see where the third grid lights up',
+    title: 'Type two texts and see the SHA-256 fingerprint of each as a grid of 256 cells. Change one letter (the letter that differs turns red) and see where the third grid lights up, which is where the two fingerprints differ',
     a: 'Text A', b: 'Text B', one: 'Change the last letter of B', same: 'Make B equal to A', reset: 'Start again',
     legend: [{ kind: 'use', text: 'bit is 1' }, { kind: 'node', text: 'bit is 0' }, { kind: 'new', text: 'bit that differs' }],
     diffTitle: 'bits that differ', readout: (n) => `${n} of 256 bits differ (${Math.round((n / 256) * 100)}%)`, same2: 'the texts are equal, so the digests are identical and no bit differs',
@@ -81,8 +81,15 @@ export default function HashLab({ lang = 'th' }: { lang?: Lang }) {
           {[0, 1, 2].map((k) => (
             <text key={k} x={GX[k]} y={40} className="ib-n" style={{ fontWeight: 700, fontSize: 18 }}>{k === 0 ? T.a : k === 1 ? T.b : T.diffTitle}</text>
           ))}
-          <text x={GX[0]} y={62} className="ib-s">{`${T.len}: ${utf8(a).length}`}</text>
-          <text x={GX[1]} y={62} className="ib-s">{`${T.len}: ${utf8(b).length}`}</text>
+          {[a, b].map((str, k) => {
+            const other = k === 0 ? b : a;
+            const shown = str.length > 22 ? str.slice(0, 21) + '…' : str;
+            return (
+              <text key={k} x={GX[k]} y={64} className="ib-m" style={{ fontSize: 15 }}>
+                {'"'}{shown.split('').map((ch, i) => <tspan key={i} style={ch !== other[i] ? { fill: 'var(--ib-bad)', fontWeight: 700 } : undefined}>{ch}</tspan>)}{'"'}
+              </text>
+            );
+          })}
           {grid(GX[0], ba)}
           {grid(GX[1], bb)}
           {grid(GX[2], diffBits, diffBits)}

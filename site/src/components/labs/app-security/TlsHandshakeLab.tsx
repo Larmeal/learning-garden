@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { ClockControls, useClock, prog, smooth, mix, type Lang, type Mark } from '../spark/timeline';
-import { Legend, Lines } from '../iceberg/ib';
+import { Key } from '../data-security/ds';
+import { wrapText } from '../iceberg/ib';
 
-// Shows:      a TLS 1.3 handshake as four numbered messages between a browser and a server, the three checks the browser makes on the certificate
-//             after message 2, and what happens when one check fails. Pick a scenario and replay it.
+// Shows:      a TLS 1.3 handshake as four cards that travel between a browser and a server, with the objects they are about: the server's certificate (name, who signed it, until when), the
+//             browser's list of CAs it trusts, the three checks on the certificate after message 2, and the key both sides end with. Pick a scenario and replay it.
 // Because:    "TLS is a handshake" is only words until you see that the browser decides after the server's first answer, and that the data
 //             is encrypted only after the keys exist on both sides.
 // Control:    the scenario (a good server, a CA the browser does not trust, another host name, an expired certificate); the clock plays it.
@@ -63,90 +64,139 @@ const TEXT: Record<Lang, {
   },
 };
 
-const CX = 120, SX = 760;
+
+const NEW: Record<Lang, { browser: string; server: string; trusted: string; asking: string; cert: string; name: string; issuer: string; valid: string; privKey: string; staysHere: string; got: string; sk: string; failed: string }> = {
+  th: { browser: 'Browser', server: 'Server', trusted: 'CA ที่ Browser เชื่อ', asking: 'กำลังคุยกับ', cert: 'ใบรับรองของ Server', name: 'ชื่อ', issuer: 'ออกโดย', valid: 'ใช้ได้ถึง', privKey: 'Private Key', staysHere: 'อยู่ที่ Server ตลอด', got: 'ตัวเดียวกัน', sk: 'Key ของการเชื่อมต่อนี้', failed: 'ตรวจไม่ผ่าน' },
+  en: { browser: 'Browser', server: 'Server', trusted: 'CAs the browser trusts', asking: 'talking to', cert: "the server's certificate", name: 'name', issuer: 'signed by', valid: 'valid until', privKey: 'private key', staysHere: 'never leaves the server', got: 'the same one', sk: "this connection's key", failed: 'check failed' },
+};
+const CERT: Record<Scn, { name: string; issuer: string; valid: string; bad: 'issuer' | 'name' | 'valid' | null }> = {
+  good: { name: 'shop.test', issuer: 'Test CA', valid: '2027-01-01', bad: null },
+  ca: { name: 'shop.test', issuer: 'Unknown CA', valid: '2027-01-01', bad: 'issuer' },
+  name: { name: 'other.test', issuer: 'Test CA', valid: '2027-01-01', bad: 'name' },
+  date: { name: 'shop.test', issuer: 'Test CA', valid: '2020-01-01', bad: 'valid' },
+};
 const START = [0.6, 2.6, 7.0, 8.6];
 const DUR = 1.5;
 
 export default function TlsHandshakeLab({ lang = 'th' }: { lang?: Lang }) {
   const T = TEXT[lang];
+  const N = NEW[lang];
   const [scn, setScn] = useState<Scn>('good');
   const clock = useClock(12);
   const { t } = clock;
   const failAt = FAILS[scn];
-  const msgY = [104, 168, 338, 388];
-  const dirs = [1, -1, 1, -1]; // 1 = client to server
-  const checksP = smooth(prog(t, 4.4, 5.2));
-  const rowShow = (i: number) => smooth(prog(t, 4.4 + i * 0.5, 4.8 + i * 0.5));
   const failed = scn !== 'good';
-  const lastMsg = failed ? 2 : 4; // number of messages that happen
-  const arrow = (i: number) => {
-    if (i >= lastMsg) return null;
+  const cert = CERT[scn];
+  const certP = smooth(prog(t, 3.6, 4.1));
+  const showRow = (i: number) => smooth(prog(t, 4.4 + i * 0.5, 4.8 + i * 0.5));
+  const dirs = [1, -1, 1, -1];
+  const ys = [136, 258, 364, 452];
+  const bad = 'var(--ib-bad)', acc = 'var(--accent)';
+  const card = (i: number) => {
+    if (failed && i >= 2) return null;
     const p = smooth(prog(t, START[i], START[i] + DUR));
-    const x1 = dirs[i] === 1 ? CX : SX, x2 = dirs[i] === 1 ? SX : CX;
-    const y = msgY[i];
+    if (p <= 0) return null;
+    const w = 250;
+    const x = 330;
+    const lines = wrapText(T.msgs[i], 30);
+    const h = lines.length * 19 + 34;
+    const top = ys[i] - h - 6;
+    const x1 = dirs[i] === 1 ? 308 : 572, x2 = dirs[i] === 1 ? 572 : 308;
     const xe = mix(x1, x2, p);
     return (
-      <g key={i} style={{ opacity: t >= START[i] - 0.1 ? 1 : 0 }}>
-        <line x1={x1} y1={y} x2={xe} y2={y} className="ib-line" style={{ stroke: 'var(--accent)', strokeWidth: 3.5 }} />
-        <circle cx={xe} cy={y} r={8} className="ib-new" />
-        <g style={{ opacity: p > 0.5 ? 1 : 0.0 }}>
-          <circle cx={x1 + dirs[i] * 40} cy={y} r={15} style={{ fill: 'var(--accent)' }} />
-          <text x={x1 + dirs[i] * 40} y={y + 5} textAnchor="middle" className="ib-white" style={{ fontSize: 15 }}>{i + 1}</text>
-          <Lines x={CX + 66} y={y - 22} text={`${T.msgs[i]} (${SIZES[i].toLocaleString('en-US')} ${T.bytes})`} max={lang === 'th' ? 54 : 62} lh={19} className="ib-n" />
-        </g>
+      <g key={i}>
+        <line x1={x1} y1={ys[i]} x2={xe} y2={ys[i]} stroke={acc} strokeWidth={4} />
+        <path d={`M${xe},${ys[i]} l${-10 * dirs[i]},-7 l0,14 z`} fill={acc} />
+        <rect x={x - 4} y={top} width={w + 8} height={h} rx={10} fill="var(--surface)" stroke={acc} strokeWidth={2.5} opacity={Math.min(1, p * 2)} />
+        <circle cx={x + 8} cy={top + 14} r={12} fill={acc} opacity={Math.min(1, p * 2)} />
+        <text x={x + 8} y={top + 19} textAnchor="middle" style={{ fill: 'var(--on-key, #fff)', fontSize: 13.5, fontWeight: 700 }}>{i + 1}</text>
+        <text x={x + 28} y={top + 20} className="ib-n" style={{ fontSize: 14.5 }} opacity={Math.min(1, p * 2)}>
+          {lines.map((l, k) => <tspan key={k} x={x + 28} dy={k === 0 ? 0 : 19}>{l}</tspan>)}
+        </text>
+        <text x={x + w - 4} y={top + h - 8} textAnchor="end" className="ib-s" style={{ fontSize: 13.5 }} opacity={Math.min(1, p * 2)}>{`${SIZES[i].toLocaleString('en-US')} ${T.bytes}`}</text>
       </g>
     );
   };
-  const keysP = smooth(prog(t, 9.8, 10.6));
+  const marks = T.marks(scn);
+  const goodEnd = !failed && t >= 8.2;
+  const failEnd = failed && t >= 5.4;
+  const rowFail = (i: number) => failed && failAt === i;
+  const current = marks[Math.max(0, marks.filter((m) => t >= m.at).length - 1)];
   return (
     <figure className="viz ib-fig lg">
       <div className="viz-title">{T.title}</div>
-      <Legend items={T.legend} />
-      <div className="ib-controls">
+      <div className="ib-controls" style={{ flexWrap: 'wrap' }}>
         <span className="ib-lbl">{T.pick}</span>
         <div className="seg" role="group" aria-label={T.pick} style={{ flexWrap: 'wrap' }}>
-          {SCN.map((s) => <button key={s} type="button" aria-pressed={scn === s} onClick={() => { setScn(s); clock.restart(); }}>{T.scn[s]}</button>)}
+          {SCN.map((x) => <button key={x} type="button" aria-pressed={scn === x} onClick={() => { setScn(x); clock.restart(); }}>{T.scn[x]}</button>)}
         </div>
       </div>
+      <Key items={[{ color: acc, text: T.legend[0].text }, { color: bad, text: N.failed }]} />
       <div className="viz-box">
-        <svg viewBox="0 0 880 520" role="img" aria-label={T.title}>
-          <rect className="ib-use" x={30} y={10} width={180} height={44} rx={10} />
-          <text x={CX} y={39} textAnchor="middle" className="ib-n" style={{ fontWeight: 700, fontSize: 18 }}>{T.client}</text>
-          <rect className="ib-use" x={670} y={10} width={180} height={44} rx={10} />
-          <text x={SX} y={39} textAnchor="middle" className="ib-n" style={{ fontWeight: 700, fontSize: 18 }}>{T.server}</text>
-          <line x1={CX} y1={54} x2={CX} y2={500} className="ib-line" style={{ strokeDasharray: '6 6' }} />
-          <line x1={SX} y1={54} x2={SX} y2={500} className="ib-line" style={{ strokeDasharray: '6 6' }} />
-          {[0, 1, 2, 3].map(arrow)}
-          {/* the three checks */}
-          <g style={{ opacity: checksP }}>
-            <rect className="ib-zone" x={170} y={206} width={540} height={110} rx={12} />
-            {T.checks.map((c, i) => {
-              const bad = failAt === i;
-              return (
-                <g key={c} style={{ opacity: rowShow(i) }}>
-                  <text x={196} y={236 + i * 30} className={bad ? 'ib-bad ib-n' : 'ib-ok ib-n'} style={{ fontWeight: 700 }}>{bad ? '✗' : '✓'}</text>
-                  <text x={226} y={236 + i * 30} className="ib-n">{c}</text>
-                </g>
-              );
-            })}
-          </g>
-          {failed && (
-            <g style={{ opacity: smooth(prog(t, 5.9, 6.6)) }}>
-              <rect x={30} y={338} width={820} height={96} rx={12} style={{ fill: 'var(--surface)', stroke: 'var(--ib-bad)', strokeWidth: 3 }} />
-              <text x={50} y={368} className="ib-m" style={{ fontSize: 15, fill: 'var(--ib-bad)' }}>{ERR[scn]}</text>
-              <Lines x={50} y={402} text={T.stop} max={lang === 'th' ? 74 : 92} className="ib-n" />
+        <svg viewBox="0 0 880 560" role="img" aria-label={T.title}>
+          {/* the browser */}
+          <rect x={6} y={6} width={296} height={470} rx={14} fill="var(--surface)" stroke="var(--line-strong)" strokeWidth={2} />
+          <text x={20} y={32} className="ib-n" style={{ fontWeight: 700, fontSize: 18 }}>{N.browser}</text>
+          <text x={20} y={54} className="ib-s" style={{ fontSize: 14 }}>{`${N.asking} shop.test`}</text>
+          <rect x={18} y={68} width={272} height={62} rx={10} fill="var(--accent-soft)" stroke="var(--line-strong)" strokeWidth={1.5} />
+          <text x={30} y={90} className="ib-s" style={{ fontSize: 13.5 }}>{N.trusted}</text>
+          <text x={30} y={114} style={{ fontSize: 15, fontWeight: 700, fontFamily: 'var(--mono, monospace)' }}>Test CA</text>
+          {T.checks.map((c, i) => {
+            const y = 160 + i * 62;
+            const p = showRow(i);
+            const skipped = failed && i > failAt;
+            return (
+              <g key={c} opacity={0.35 + 0.65 * p}>
+                <rect x={18} y={y} width={272} height={50} rx={10} fill="var(--surface)" stroke={p > 0.9 ? (rowFail(i) ? bad : skipped ? 'var(--line)' : acc) : 'var(--line)'} strokeWidth={p > 0.9 ? 3 : 1.5} strokeDasharray={p < 0.2 ? '6 5' : undefined} />
+                <foreignObject x={28} y={y + 4} width={216} height={44}><div style={{ fontSize: 14.5, lineHeight: 1.25, paddingTop: 4, color: skipped ? 'var(--muted)' : undefined }}>{c}</div></foreignObject>
+                <text x={274} y={y + 32} textAnchor="end" style={{ fontSize: 22, fontWeight: 700, fill: p < 0.9 ? 'transparent' : rowFail(i) ? bad : skipped ? 'var(--muted)' : acc }}>{rowFail(i) ? '✗' : skipped ? '–' : '✓'}</text>
+              </g>
+            );
+          })}
+          {goodEnd ? (
+            <g>
+              <rect x={18} y={354} width={272} height={64} rx={12} fill="var(--accent-soft)" stroke={acc} strokeWidth={3} />
+              <text x={30} y={378} className="ib-s" style={{ fontSize: 13.5 }}>{N.sk}</text>
+              <text x={30} y={404} style={{ fontSize: 17, fontWeight: 700, fontFamily: 'var(--mono, monospace)' }}>🔑 k = ••••••••</text>
             </g>
-          )}
-          {!failed && (
-            <g style={{ opacity: keysP }}>
-              <rect className="ib-new" x={170} y={430} width={540} height={74} rx={12} />
-              <Lines x={190} y={458} text={T.keys} max={lang === 'th' ? 54 : 62} className="ib-n" lh={21} />
-              <Lines x={190} y={494} text={T.data} max={lang === 'th' ? 54 : 62} className="ib-s" />
+          ) : null}
+          {failEnd ? (
+            <g>
+              <rect x={18} y={354} width={272} height={108} rx={12} fill="color-mix(in srgb, var(--ib-bad) 12%, var(--surface))" stroke={bad} strokeWidth={3} />
+              <foreignObject x={28} y={360} width={252} height={98}><div style={{ fontSize: 14, lineHeight: 1.3, fontWeight: 700, color: 'var(--ib-bad)' }}>{`✗ ${T.stop}`}</div></foreignObject>
             </g>
-          )}
+          ) : null}
+          {/* the server */}
+          <rect x={578} y={6} width={296} height={470} rx={14} fill="var(--surface)" stroke="var(--line-strong)" strokeWidth={2} />
+          <text x={592} y={32} className="ib-n" style={{ fontWeight: 700, fontSize: 18 }}>{N.server}</text>
+          <rect x={590} y={50} width={272} height={150} rx={12} fill="var(--surface)" stroke={certP > 0.9 && failed ? bad : acc} strokeWidth={3} />
+          <text x={602} y={74} className="ib-n" style={{ fontWeight: 700, fontSize: 15.5 }}>{`📜 ${N.cert}`}</text>
+          {([['name', N.name, cert.name], ['issuer', N.issuer, cert.issuer], ['valid', N.valid, cert.valid]] as const).map(([k, label, v], i) => {
+            const hot = certP > 0.9 && cert.bad === k;
+            return (
+              <g key={k}>
+                <text x={602} y={104 + i * 30} className="ib-s" style={{ fontSize: 14 }}>{label}</text>
+                <text x={702} y={104 + i * 30} style={{ fontSize: 16, fontWeight: 700, fontFamily: 'var(--mono, monospace)', fill: hot ? bad : 'var(--fg)' }}>{`${v}${hot ? ' ✗' : ''}`}</text>
+              </g>
+            );
+          })}
+          <rect x={590} y={214} width={272} height={64} rx={12} fill="var(--accent-soft)" stroke="var(--line-strong)" strokeWidth={2} />
+          <text x={602} y={238} className="ib-n" style={{ fontWeight: 700, fontSize: 15.5 }}>{`🔒 ${N.privKey}`}</text>
+          <text x={602} y={262} className="ib-s" style={{ fontSize: 14 }}>{N.staysHere}</text>
+          {goodEnd ? (
+            <g>
+              <rect x={590} y={354} width={272} height={64} rx={12} fill="var(--accent-soft)" stroke={acc} strokeWidth={3} />
+              <text x={602} y={378} className="ib-s" style={{ fontSize: 13.5 }}>{`${N.sk} (${N.got})`}</text>
+              <text x={602} y={404} style={{ fontSize: 17, fontWeight: 700, fontFamily: 'var(--mono, monospace)' }}>🔑 k = ••••••••</text>
+            </g>
+          ) : null}
+          {[0, 1, 2, 3].map(card)}
+          {failEnd ? <text x={440} y={352} textAnchor="middle" style={{ fontSize: 14, fontWeight: 700, fill: bad }}>{ERR[scn].replace('CERTIFICATE_VERIFY_FAILED: ', '')}</text> : null}
+          <rect x={6} y={486} width={868} height={60} rx={12} className="ib-banner" />
+          <foreignObject x={18} y={490} width={844} height={52}><div style={{ fontSize: 15.5, fontWeight: 700, lineHeight: 1.35, paddingTop: 6 }}>{goodEnd ? `${T.keys}. ${T.data}` : failEnd ? T.stop : current.title}</div></foreignObject>
         </svg>
       </div>
-      <ClockControls clock={clock} marks={T.marks(scn)} lang={lang} />
+      <ClockControls clock={clock} marks={marks} lang={lang} />
       <figcaption className="viz-caption">{T.caption}</figcaption>
     </figure>
   );

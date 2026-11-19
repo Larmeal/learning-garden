@@ -1,8 +1,9 @@
 import { StepControls, useStepper, type Lang } from '../spark/stepper';
-import { Legend, Lines } from '../iceberg/ib';
+import { Key } from '../data-security/ds';
+import { Figure } from './bits';
 
-// Shows:      a key committed in the first commit and "removed" in the second. Five steps: the key is added, the file is changed, the folder looks clean,
-//             a clone still holds the key in the first commit, and the only fix that works (revoke the key).
+// Shows:      the history of a repository as a chain of two commit cards, the file in the folder as it is now, and someone else's clone that holds a copy of every commit. Five steps: the key
+//             is committed, the file is changed, the folder looks clean, the clone still holds the key in the first commit, and the only fix that works (revoke the key).
 // Because:    "I deleted the file" is the belief behind most leaked keys, and it is only believable until you see that history is a chain of copies.
 // Control:    the step player (Previous, Next, play, and the step buttons).
 // Conclusion: removing a secret from the latest commit removes it from nothing else. Anyone with a clone can read it, so the key has to be revoked.
@@ -44,38 +45,61 @@ export default function SecretGitLab({ lang = 'th' }: { lang?: Lang }) {
   const T = TEXT[lang];
   const st = useStepper(T.steps.length, 3200);
   const s = st.step;
-  const has1 = true;
   const has2 = s >= 1;
-  const keyNow = s < 1 ? true : false;
   const revoked = s >= 4;
-  const box = (x: number, y: number, w: number, h: number, title: string, line1: string, hasKey: boolean, dim?: boolean) => (
-    <g style={{ opacity: dim ? 0.35 : 1 }}>
-      <rect className={hasKey && !revoked ? 'ib-new' : 'ib-use'} x={x} y={y} width={w} height={h} rx={10} style={hasKey && !revoked ? { stroke: 'var(--ib-bad)', strokeWidth: 3, fill: 'var(--surface)' } : undefined} />
-      <text x={x + 14} y={y + 28} className="ib-n" style={{ fontWeight: 700 }}>{title}</text>
-      <text x={x + 14} y={y + 56} className="ib-m" style={{ fontSize: 14 }}>{line1}</text>
-    </g>
-  );
+  const R = 'var(--ib-bad)', A = 'var(--accent)';
+  const th = lang === 'th';
+  const L = {
+    history: th ? 'ประวัติของ Repository (Commit เรียงต่อกัน)' : 'the history of the repository (commits in a chain)',
+    folder: th ? 'ไฟล์ในโฟลเดอร์ตอนนี้' : 'the file in the folder now',
+    clone: th ? 'Clone ของคนอื่น (มีสำเนาของทุก Commit)' : "someone else's clone (a copy of every commit)",
+    key: th ? 'Key' : 'key',
+    old: th ? 'ยังอยู่ใน Commit แรก' : 'still in the first commit',
+    revoked: th ? 'เพิกถอนแล้ว' : 'revoked',
+    reads: th ? 'อ่านได้' : 'can read it',
+    nobody: th ? 'ยังไม่มีใครรู้' : 'nobody knows yet',
+  };
+  const keyLine = `AWS_KEY = "${KEY.slice(0, 12)}…"`;
+  const envLine = 'AWS_KEY = os.environ["AWS_KEY"]';
+  // a commit card: a title, the file line, and a key badge when the line holds the key
+  const commit = (x: number, y: number, w: number, title: string, line: string, hasKey: boolean, op = 1) => {
+    const dead = hasKey && revoked;
+    return (
+      <g opacity={op}>
+        <rect x={x} y={y} width={w} height={96} rx={12} fill="var(--surface)" stroke={hasKey && !revoked ? R : hasKey ? 'var(--muted)' : A} strokeWidth={hasKey && !revoked ? 3.5 : 2.5} />
+        <text x={x + 14} y={y + 26} className="ib-n" style={{ fontWeight: 700, fontSize: 15 }}>{title}</text>
+        <text x={x + 14} y={y + 58} className="ib-m" style={{ fontSize: 14.5, fontWeight: hasKey ? 700 : 400, fill: hasKey && !revoked ? R : 'var(--fg)', textDecoration: dead ? 'line-through' : undefined }}>{line}</text>
+        {hasKey ? <text x={x + w - 14} y={y + 84} textAnchor="end" className="ib-s" style={{ fontSize: 13.5, fill: dead ? 'var(--muted)' : R, fontWeight: 700 }}>{dead ? `🔑 ${L.revoked}` : `🔑 ${L.key}`}</text> : null}
+      </g>
+    );
+  };
   return (
-    <figure className="viz ib-fig">
+    <figure className="viz ib-fig lg">
       <div className="viz-title">{T.title}</div>
-      <Legend items={T.legend} />
+      <Key items={[{ color: R, text: T.legend[0].text }, { color: A, text: T.legend[1].text }]} />
       <div className="viz-box">
-        <svg viewBox="0 0 880 420" role="img" aria-label={T.title}>
-          {/* the chain */}
-          {box(20, 30, 380, 82, T.c1, `AWS_KEY = "${KEY.slice(0, 12)}…"`, true, !has1)}
-          {box(480, 30, 380, 82, T.c2, 'AWS_KEY = os.environ["AWS_KEY"]', false, !has2)}
-          <line x1={400} y1={71} x2={480} y2={71} className="ib-line" style={{ strokeWidth: 3, opacity: has2 ? 1 : 0.2 }} />
-          {/* the folder and the clone */}
-          <text x={20} y={156} className="ib-s">{T.folder}</text>
-          {box(20, 166, 380, 74, 'config.py', has2 ? 'AWS_KEY = os.environ[...]' : `AWS_KEY = "${KEY.slice(0, 12)}…"`, keyNow)}
-          <text x={480} y={156} className="ib-s">{T.clone}</text>
-          {box(480, 166, 380, 74, 'git show <commit 1>:config.py', `AWS_KEY = "${KEY.slice(0, 12)}…"`, true, s < 3)}
-          <text x={20} y={274} className={s >= 2 && s < 4 ? 'ib-ok ib-n' : 'ib-n'} style={{ opacity: s >= 2 ? 1 : 0.25 }}>{s >= 2 ? `✓ ${T.clean}` : ''}</text>
-          <text x={480} y={274} className="ib-bad ib-n" style={{ fontWeight: 700, opacity: s >= 3 && !revoked ? 1 : 0 }}>{`✗ ${T.leaked}`}</text>
-          <g style={{ opacity: revoked ? 1 : 0 }}>
-            <rect className="ib-new" x={20} y={300} width={840} height={52} rx={10} />
-            <Lines x={36} y={332} text={T.revoked} max={lang === 'th' ? 80 : 96} className="ib-n" />
+        <svg viewBox="0 0 880 346" role="img" aria-label={T.title}>
+          <text x={14} y={24} className="ib-s" style={{ fontSize: 14 }}>{L.history}</text>
+          {commit(14, 36, 410, T.c1, keyLine, true)}
+          <line x1={424} y1={84} x2={456} y2={84} stroke="var(--line-strong)" strokeWidth={4} opacity={has2 ? 1 : 0.2} />
+          {commit(456, 36, 410, T.c2, envLine, false, has2 ? 1 : 0.2)}
+          <text x={14} y={172} className="ib-s" style={{ fontSize: 14 }}>{L.folder}</text>
+          {commit(14, 184, 410, 'config.py', has2 ? envLine : keyLine, !has2)}
+          {s >= 2 ? <text x={34} y={304} className="ib-n" style={{ fontSize: 15, fontWeight: 700, fill: A }}>{`✓ ${T.clean}`}</text> : null}
+          {/* someone else's clone holds every commit */}
+          <text x={456} y={172} className="ib-s" style={{ fontSize: 14 }}>{L.clone}</text>
+          <g opacity={s >= 3 ? 1 : 0.28}>
+            <rect x={456} y={184} width={410} height={150} rx={12} fill="var(--surface)" stroke={s >= 3 && !revoked ? R : 'var(--line-strong)'} strokeWidth={s >= 3 && !revoked ? 3.5 : 2} strokeDasharray={s >= 3 ? undefined : '7 5'} />
+            <Figure cx={490} cy={212} r={11} />
+            <rect x={522} y={196} width={160} height={48} rx={8} fill="var(--surface)" stroke={revoked ? 'var(--muted)' : R} strokeWidth={2.5} />
+            <text x={532} y={226} className="ib-m" style={{ fontSize: 13, fill: revoked ? 'var(--muted)' : R, fontWeight: 700 }}>{`${T.c1.split(':')[0]}  🔑`}</text>
+            <rect x={694} y={196} width={160} height={48} rx={8} fill="var(--surface)" stroke={A} strokeWidth={2} />
+            <text x={704} y={226} className="ib-m" style={{ fontSize: 13 }}>{T.c2.split(':')[0]}</text>
+            <path d="M682,220 h12" stroke="var(--line-strong)" strokeWidth={3} />
+            <text x={470} y={288} className="ib-n" style={{ fontSize: 14.5, fontWeight: 700, fill: revoked ? 'var(--muted)' : R }}>{revoked ? `🔑 ${L.revoked}` : `✗ ${T.leaked}`}</text>
+            <text x={470} y={314} className="ib-s" style={{ fontSize: 13 }}>{`git show <commit 1>:config.py`}</text>
           </g>
+          {s >= 3 && !revoked ? <path d="M520,196 C 480,150 330,150 250,140" fill="none" stroke={R} strokeWidth={3} strokeDasharray="8 6" /> : null}
         </svg>
       </div>
       <StepControls steps={T.steps} step={st.step} playing={st.playing} go={st.go} toggle={st.toggle} lang={lang} />

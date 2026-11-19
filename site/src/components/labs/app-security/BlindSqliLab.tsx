@@ -1,9 +1,9 @@
 import { ClockControls, useClock, type Lang, type Mark } from '../spark/timeline';
-import { Legend } from '../iceberg/ib';
+import { Key } from '../data-security/ds';
 import data from './injection.json';
 
-// Shows:      a secret read one character at a time through a page that only says "found" or "not found". Each question is "is the character at place N greater
-//             than M?". Every answer cuts the range of possible characters (32 to 126) in half, until one is left and the letter appears.
+// Shows:      a secret read one character at a time through a page that only says "found" or "not found". Under the boxes of the secret lies a board of all 95 printable characters (one tile
+//             each). Each question is "is the character at place N greater than M?", and every answer wipes half of the tiles that are still alive, until one tile is left and the letter appears.
 // Because:    the page never prints the secret, which is why people think a yes/no is harmless. 85 requests for 11 characters is what it takes, and the
 //             halving is what makes it so few.
 // Control:    the clock (play, scrub and jump to the first letter or the last). The questions are the real ones, in order.
@@ -32,11 +32,11 @@ function replay() {
 }
 const STATES = replay();
 
-const TEXT: Record<Lang, { title: string; legend: { kind: 'new' | 'use' | 'skip' | 'node'; text: string }[]; ask: (p: number, m: number) => string; exists: (p: number) => string; yes: string; no: string; req: string; range: string; secret: string; caption: string; marks: Mark[] }> = {
+const TEXT: Record<Lang, { title: string; legend: { color: string; text: string; ring?: boolean }[]; ask: (p: number, m: number) => string; exists: (p: number) => string; yes: string; no: string; req: string; range: string; secret: string; caption: string; marks: Mark[] }> = {
   th: {
     title: 'หน้าเว็บตอบแค่ "เจอ" หรือ "ไม่เจอ" แต่ผู้โจมตีถามไปเรื่อย ๆ ได้รหัสผ่านทีละตัวอักษร กดเล่นดูว่าช่วงที่เป็นไปได้หดลงครึ่งหนึ่งทุกคำถาม',
-    legend: [{ kind: 'new', text: 'ช่วงที่ยังเป็นไปได้' }, { kind: 'use', text: 'ตัวอักษรที่ได้แล้ว' }],
-    ask: (p, m) => `ตัวอักษรที่ ${p} มีรหัส ASCII มากกว่า ${m} ไหม`, exists: (p) => `ตัวอักษรที่ ${p} มีอยู่ไหม`, yes: 'เจอ', no: 'ไม่เจอ', req: 'จำนวนคำขอ', range: 'ช่วงที่เป็นไปได้ (รหัส 32 ถึง 126)', secret: 'รหัสผ่านที่ถอดได้',
+    legend: [{ color: 'var(--accent)', text: 'ตัวอักษรที่ยังเป็นไปได้' }, { color: 'var(--line-strong)', text: 'ตัวอักษรที่ตัดทิ้งแล้ว', faded: true } as any],
+    ask: (p, m) => `ตัวอักษรที่ ${p} มีรหัส ASCII มากกว่า ${m} ไหม`, exists: (p) => `ตัวอักษรที่ ${p} มีอยู่ไหม`, yes: 'เจอ', no: 'ไม่เจอ', req: 'จำนวนคำขอ', range: 'กระดานตัวอักษรที่พิมพ์ได้ทั้ง 95 ตัว (รหัส 32 ถึง 126)', secret: 'รหัสผ่านที่ถอดได้',
     caption: 'คำถามและคำตอบทั้ง 85 ข้อมาจากแบบฝึก 08 (injection.json) ที่ถามกับ SQLite จริงผ่านช่องที่ฉีด SQL ได้ รหัสผ่านเป็นข้อมูลปลอม',
     marks: [
       { at: 0, name: 'เริ่ม', title: 'ถามทีละข้อ ตอบได้แค่ เจอ หรือ ไม่เจอ', text: 'หน้าเว็บไม่เคยพิมพ์รหัสผ่านออกมา ผู้โจมตีใช้ช่องที่ฉีด SQL ได้ ถามว่าตัวอักษรที่ N มีรหัสมากกว่า M ไหม' },
@@ -47,8 +47,8 @@ const TEXT: Record<Lang, { title: string; legend: { kind: 'new' | 'use' | 'skip'
   },
   en: {
     title: 'The page answers only "found" or "not found", yet an attacker who keeps asking gets the password one character at a time. Press play and watch the range of possibilities halve with every question',
-    legend: [{ kind: 'new', text: 'the range still possible' }, { kind: 'use', text: 'the characters found' }],
-    ask: (p, m) => `Is the character at place ${p} greater than ${m}?`, exists: (p) => `Is there a character at place ${p}?`, yes: 'found', no: 'not found', req: 'requests', range: 'the range still possible (codes 32 to 126)', secret: 'the password so far',
+    legend: [{ color: 'var(--accent)', text: 'a character still possible' }, { color: 'var(--line-strong)', text: 'a character wiped out', faded: true } as any],
+    ask: (p, m) => `Is the character at place ${p} greater than ${m}?`, exists: (p) => `Is there a character at place ${p}?`, yes: 'found', no: 'not found', req: 'requests', range: 'the board of all 95 printable characters (codes 32 to 126)', secret: 'the password so far',
     caption: 'All 85 questions and answers come from exercise 08 (injection.json), asked of a real SQLite through a place where SQL could be injected. The password is fake data.',
     marks: [
       { at: 0, name: 'start', title: 'One question at a time, answered only found or not found', text: 'The page never prints the password. The attacker uses the place where SQL can be injected to ask: is the character at place N greater than M?' },
@@ -74,9 +74,9 @@ export default function BlindSqliLab({ lang = 'th' }: { lang?: Lang }) {
   return (
     <figure className="viz ib-fig lg">
       <div className="viz-title">{T.title}</div>
-      <Legend items={T.legend} />
+      <Key items={T.legend} />
       <div className="viz-box">
-        <svg viewBox="0 0 880 380" role="img" aria-label={T.title}>
+        <svg viewBox="0 0 880 416" role="img" aria-label={T.title}>
           <text x={40} y={30} className="ib-s">{T.secret}</text>
           {SECRET.split('').map((ch, i) => {
             const shown = i < found.length;
@@ -87,22 +87,32 @@ export default function BlindSqliLab({ lang = 'th' }: { lang?: Lang }) {
               </g>
             );
           })}
-          <text x={40} y={146} className="ib-s">{T.range}</text>
-          <line x1={X(32)} y1={186} x2={X(126)} y2={186} className="ib-line" style={{ strokeWidth: 3 }} />
-          <rect className="ib-new" x={X(lo)} y={166} width={Math.max(8, X(hi) - X(lo))} height={40} rx={8} style={{ transition: 'x .15s, width .15s' }} />
-          <text x={X(32)} y={230} className="ib-m" style={{ fontSize: 14 }}>32</text>
-          <text x={X(126)} y={230} textAnchor="end" className="ib-m" style={{ fontSize: 14 }}>126</text>
-          <text x={440} y={230} textAnchor="middle" className="ib-n">{`${lo} … ${hi}  (${hi - lo + 1})`}</text>
+          <text x={40} y={142} className="ib-s" style={{ fontSize: 14 }}>{T.range}</text>
+          {Array.from({ length: 95 }, (_, n) => {
+            const code = 32 + n;
+            const row = Math.floor(n / 32), col = n % 32;
+            const x = 40 + col * 25.5, y = 154 + row * 44;
+            const alive = code >= lo && code <= hi;
+            const ch = String.fromCharCode(code);
+            const edge = ev && ev.mid > 0 && code === ev.mid;
+            return (
+              <g key={code} opacity={alive ? 1 : 0.16}>
+                <rect x={x} y={y} width={23} height={38} rx={5} fill={alive ? 'var(--accent)' : 'var(--surface)'} stroke={edge ? 'var(--ib-bad)' : 'var(--line-strong)'} strokeWidth={edge ? 3.5 : 1.2} />
+                <text x={x + 11.5} y={y + 25} textAnchor="middle" style={{ fontSize: 15, fontWeight: 700, fontFamily: 'var(--mono, monospace)', fill: alive ? 'var(--on-key, #fff)' : 'var(--fg)' }}>{ch === ' ' ? '␠' : ch}</text>
+              </g>
+            );
+          })}
+          <text x={840} y={142} textAnchor="end" className="ib-n" style={{ fontSize: 16, fontWeight: 700 }}>{`${hi - lo + 1} / 95`}</text>
           {ev && (
             <g>
-              <rect className={ev.yes ? 'ib-new' : 'ib-node'} x={40} y={254} width={800} height={56} rx={10} style={ev.yes ? undefined : { stroke: 'var(--ib-bad)', strokeWidth: 2.5 }} />
-              <text x={56} y={288} className="ib-n" style={{ fontWeight: 700, fontSize: 18 }}>{ev.mid === 0 ? T.exists(ev.pos) : T.ask(ev.pos, ev.mid)}</text>
-              <text x={824} y={288} textAnchor="end" className={ev.yes ? 'ib-ok ib-n' : 'ib-bad ib-n'} style={{ fontWeight: 700, fontSize: 20, opacity: 0.4 + 0.6 * (1 - pulse) }}>{ev.yes ? `✓ ${T.yes}` : `✗ ${T.no}`}</text>
+              <rect className={ev.yes ? 'ib-new' : 'ib-node'} x={40} y={296} width={800} height={56} rx={10} style={ev.yes ? undefined : { stroke: 'var(--ib-bad)', strokeWidth: 2.5 }} />
+              <text x={56} y={330} className="ib-n" style={{ fontWeight: 700, fontSize: 18 }}>{ev.mid === 0 ? T.exists(ev.pos) : T.ask(ev.pos, ev.mid)}</text>
+              <text x={824} y={330} textAnchor="end" className={ev.yes ? 'ib-ok ib-n' : 'ib-bad ib-n'} style={{ fontWeight: 700, fontSize: 20, opacity: 0.4 + 0.6 * (1 - pulse) }}>{ev.yes ? `✓ ${T.yes}` : `✗ ${T.no}`}</text>
             </g>
           )}
-          <text x={40} y={350} className="ib-s">{T.req}</text>
-          <text x={150} y={352} className="ib-n" style={{ fontWeight: 700, fontSize: 26 }}>{k + 1}</text>
-          <text x={220} y={350} className="ib-s">{`/ ${TRACE.length}`}</text>
+          <text x={40} y={392} className="ib-s">{T.req}</text>
+          <text x={150} y={394} className="ib-n" style={{ fontWeight: 700, fontSize: 26 }}>{k + 1}</text>
+          <text x={220} y={392} className="ib-s">{`/ ${TRACE.length}`}</text>
         </svg>
       </div>
       <ClockControls clock={clock} marks={T.marks} lang={lang} />

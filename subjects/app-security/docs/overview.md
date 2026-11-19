@@ -22,7 +22,7 @@ Nothing is sent over a network and nothing real is touched.
 | 12 | Being flooded, and rate limits | D | `ReDosLab`, `RateLimitLab` |
 | 13 | Capstone: a shop with ten holes | D | `CapstoneLab` |
 
-Twenty labs in `site/src/components/labs/app-security/`. Seven are clock labs (`RequestPathLab`, `TlsHandshakeLab`, `CookieSessionLab`, `CsrfLab`, `OAuthFlowLab`, `BlindSqliLab`, `RateLimitLab`; four of them
+Twenty labs in `site/src/components/labs/app-security/`, all drawn again on 2026-11-19 after the owner said the first ones explained nothing (each draws the objects of its lesson: an envelope, parcels with seals, a lookup book, a ticket and a desk, a board of characters, a shelf of folders, a bucket of coins, a wall with holes; `bits.tsx` has the shared pieces). Seven are clock labs (`RequestPathLab`, `TlsHandshakeLab`, `CookieSessionLab`, `CsrfLab`, `OAuthFlowLab`, `BlindSqliLab`, `RateLimitLab`; four of them
 draw their messages with `seq.tsx`), one is a step lab (`SecretGitLab`) and twelve are controls and a picture. `sha256.ts` and `jwt.ts` compute a real SHA-256, HMAC and HS256 token in the browser.
 
 ## Code
