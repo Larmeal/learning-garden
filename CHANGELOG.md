@@ -4,6 +4,17 @@ Made from the commit messages by `npm run changelog` (from `site/`), newest day 
 instead, or read the commit body for the reasons. How a message is written is in [`.cz.toml`](.cz.toml) (`type(scope): subject`).
 Housekeeping (`chore`, `ci`, `test`) is not listed. The older, hand-written notes are in [`docs/changelog-handwritten.md`](docs/changelog-handwritten.md).
 
+## 2026-11-19
+
+### Changed
+
+- **tools**: make the changelog from commit messages, with a commitizen config for the format ([`571e9fb`](https://github.com/Larmeal/learning-garden/commit/571e9fbc8a9ef9a026736c304c7be0f5d1144a78))
+
+### Docs
+
+- **readme**: explain commit messages and the generated changelog, and update the skills that told Claude to edit CHANGELOG.md ([`a3070b2`](https://github.com/Larmeal/learning-garden/commit/a3070b25a67d23c3a45526d9c83239f67104d6a9))
+- move the notes written by hand to docs/ and start the generated CHANGELOG.md ([`7c99aff`](https://github.com/Larmeal/learning-garden/commit/7c99aff2ab4a7842a4c63f638f5ac11b13ec11b1))
+
 ## 2026-11-18
 
 ### Added
