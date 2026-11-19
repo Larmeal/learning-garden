@@ -6,6 +6,18 @@ Housekeeping (`chore`, `ci`, `test`) is not listed. The older, hand-written note
 
 ## 2026-11-19
 
+### Added
+
+- **app-security**: draw the 20 labs again around the objects of each lesson ([`f508202`](https://github.com/Larmeal/learning-garden/commit/f508202e066a55a2a8b3c419c3a7c6eb42943c02))
+- **data-security**: draw the 12 labs again with the real 2,000 people in the browser ([`2c26d42`](https://github.com/Larmeal/learning-garden/commit/2c26d42b11f5e13b9f5947d143acbb47d619b0c7))
+- **networking**: draw the 26 labs again as envelopes, cards and things you can point at ([`b7a522f`](https://github.com/Larmeal/learning-garden/commit/b7a522f2ce54d82250f9194164addaa1c406ff44))
+- **networking**: add the OSI seven layers to lesson 1, with a lab that lights the layers of a switch, a balancer or TLS ([`4675cf4`](https://github.com/Larmeal/learning-garden/commit/4675cf4b6bb1879a3b5ed5959ca5c0978c83d1fb))
+
+### Fixed
+
+- **skill**: let lab-audit.py cope with a button group whose buttons depend on another group ([`9889780`](https://github.com/Larmeal/learning-garden/commit/98897805f67cdd00cdc378e9e305dd6877a5bb80))
+- **data-security**: make the curve of the average error of the privacy budget lab fall instead of staying flat ([`98b4226`](https://github.com/Larmeal/learning-garden/commit/98b422613e35ca4c9ea0a2bbe16b836e654ed4d5))
+
 ### Changed
 
 - **tools**: make the changelog from commit messages, with a commitizen config for the format ([`571e9fb`](https://github.com/Larmeal/learning-garden/commit/571e9fbc8a9ef9a026736c304c7be0f5d1144a78))
@@ -14,6 +26,7 @@ Housekeeping (`chore`, `ci`, `test`) is not listed. The older, hand-written note
 
 - **readme**: explain commit messages and the generated changelog, and update the skills that told Claude to edit CHANGELOG.md ([`a3070b2`](https://github.com/Larmeal/learning-garden/commit/a3070b25a67d23c3a45526d9c83239f67104d6a9))
 - move the notes written by hand to docs/ and start the generated CHANGELOG.md ([`7c99aff`](https://github.com/Larmeal/learning-garden/commit/7c99aff2ab4a7842a4c63f638f5ac11b13ec11b1))
+- **skill**: write down what the owner said about the Networking and Security labs, and how to draw a lab so it explains ([`7d99239`](https://github.com/Larmeal/learning-garden/commit/7d992398092e5b2d4a1123923842bcd6c84d294c))
 
 ## 2026-11-18
 
