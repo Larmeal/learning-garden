@@ -123,19 +123,38 @@ export default function CongestionLab({ lang = 'th' }: { lang?: Lang }) {
           <path d={path(1, cy)} fill="none" style={{ stroke: 'var(--accent)', strokeWidth: 3.5, strokeLinejoin: 'round' }} />
           <path d={thrPath} fill="none" style={{ stroke: 'var(--ib-bad)', strokeWidth: 2.5, strokeDasharray: '7 5' }} />
           <text x={X1} y={cy(cmax) + 14} textAnchor="end" className="ib-s" style={{ fill: 'var(--ib-bad)', fontWeight: 700 }}>- - {T.thr}</text>
+          {(() => {
+            const th = lang === 'th';
+            const cuts = data.cuts as number[][];
+            return (
+              <g>
+                {sNow > 0.04 && <text x={px(0.03)} y={cy(cmax) - 2} className="ib-n" style={{ fill: 'var(--accent)' }}>{th ? 'Slow Start: เพิ่มเป็นสองเท่าทุกรอบ' : 'slow start: doubling every round'}</text>}
+                {q === 'small' && cuts.filter((c) => c[0] <= sNow).map((c, i) => (
+                  <g key={i}>
+                    <circle cx={px(c[0])} cy={cy(c[1])} r={8} style={{ fill: 'var(--ib-bad)' }} />
+                    <path d={`M${px(c[0]) - 4},${cy(c[1]) - 4} l8,8 m0,-8 l-8,8`} style={{ stroke: '#fff', strokeWidth: 2.2 }} />
+                    {i === 0 && <text x={px(c[0]) + 16} y={cy(c[1]) + 34} className="ib-n" style={{ fill: 'var(--ib-bad)' }}>{th ? 'ทิ้ง Packet แล้วตัดครึ่ง' : 'packet dropped, cut in half'}</text>}
+                  </g>
+                ))}
+                {q === 'small' && sNow > 0.8 && <text x={px(0.5)} y={cy(5)} className="ib-n" style={{ fill: 'var(--fg)' }}>{th ? 'บวกทีละ 1 จนเต็มอีก' : 'adding 1 at a time until full again'}</text>}
+              </g>
+            );
+          })()}
           <path className="ib-arrow" d={`M${px(sNow)},${cy(cmax) - 6} L${px(sNow)},${ry(0) + 4}`} style={{ strokeDasharray: '6 5', strokeWidth: 2, opacity: 0.55 }} />
           <g>
             <rect className="nw-cell" x={X1 - 230} y={62} width={230} height={32} rx={8} />
             <text x={X1 - 218} y={83} className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700 }}>{T.now}: cwnd {cwnd} {T.seg}</text>
           </g>
 
-          <text x={X0} y={262} className="ib-layer">{T.flight}: {Math.round(inflight / 1000)} KB</text>
-          <rect className="nw-cell" x={X0} y={272} width={barW} height={30} rx={6} />
-          <rect className="nw-cell ok" x={X0} y={272} width={Math.max(0, bw(wireBytes))} height={30} rx={6} />
-          <rect className="nw-cell bad" x={X0 + bw(wireBytes)} y={272} width={Math.max(0, bw(queueBytes))} height={30} rx={6} />
-          <text x={X0} y={326} className="ib-s">{T.wire}: {(BDP / 1000).toFixed(0)} KB · {T.queue}: {Math.round(queueBytes / 1000)} KB</text>
+          <text x={X0} y={272} className="ib-n">{T.flight}: {Math.round(inflight / 1000)} KB</text>
+          <rect className="nw-cell" x={X0} y={282} width={barW} height={56} rx={10} />
+          <rect className="nw-cell ok" x={X0} y={282} width={Math.max(0, bw(wireBytes))} height={56} rx={10} />
+          <rect className="nw-cell bad" x={X0 + bw(wireBytes)} y={282} width={Math.max(0, bw(queueBytes))} height={56} rx={10} />
+          {bw(wireBytes) > 190 ? <text x={X0 + 12} y={316} className="ib-n" style={{ fill: 'var(--fg)' }}>{T.wire} {(BDP / 1000).toFixed(0)} KB</text> : <text x={X0} y={356} className="ib-s">{T.wire}: {(BDP / 1000).toFixed(0)} KB</text>}
+          {bw(queueBytes) > 120 && bw(wireBytes) > 0 && <text x={X0 + bw(wireBytes) + 12} y={316} className="ib-n" style={{ fill: 'var(--fg)' }}>{T.queue} {Math.round(queueBytes / 1000)}/{Math.round(maxQ / 1000)} KB</text>}
+          {queueBytes >= maxQ * 0.97 && <text x={X0 + barW + 12} y={316} className="ib-n" style={{ fill: 'var(--ib-bad)' }}>{lang === 'th' ? 'ล้น ✗' : 'full ✗'}</text>}
 
-          <text x={X0} y={366} className="ib-layer">{T.rtt}</text>
+          <text x={X0} y={376} className="ib-layer">{T.rtt}</text>
           <path className="ib-line" d={`M${X0},${ry(0)} L${X1},${ry(0)}`} />
           {(q === 'small' ? [20, 40, 60] : [20, 300, 600]).map((v) => (<g key={v}><path className="ib-line" d={`M${X0 - 6},${ry(v)} l6,0`} /><text x={X0 - 10} y={ry(v) + 5} textAnchor="end" className="ib-s">{v}</text></g>))}
           <path d={path(3, ry)} fill="none" style={{ stroke: 'var(--ib-bad)', strokeWidth: 3.5, strokeLinejoin: 'round' }} />

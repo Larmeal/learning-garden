@@ -31,7 +31,7 @@ const TEXT: Record<Lang, T> = {
   th: {
     title: 'กดเล่นแล้วดูตารางในสวิตช์ค่อย ๆ เต็ม Frame ครั้งแรกถูกส่งไปทุก Port แต่ครั้งต่อ ๆ ไปไปแค่ Port เดียว',
     caption: 'ใครเห็น Frame ไหน (c เห็นแค่ Echo Request ครั้งแรก) เป็นผลจริงของการจับ Packet ในแบบฝึก 03 ส่วนตารางตอนท้ายตรงกับ bridge fdb show ที่รันจริง ชื่อ a, b, c ย่อมาจากคอมพิวเตอร์สามตัวในแบบฝึก',
-    names: { a: 'a', b: 'b', c: 'c' }, table: 'ตาราง MAC ในสวิตช์', mac: 'MAC', port: 'Port', empty: 'ว่าง ยังไม่รู้จักใครเลย',
+    names: { a: 'คอมพิวเตอร์ a', b: 'คอมพิวเตอร์ b', c: 'คอมพิวเตอร์ c' }, table: 'ตาราง MAC ในสวิตช์', mac: 'MAC', port: 'Port', empty: 'ว่าง ยังไม่รู้จักใครเลย',
     drop: 'ไม่ใช่ MAC ของฉัน ทิ้ง', got: 'รับ', legendFlood: 'สำเนาที่ถูกส่งไป Port ที่ไม่ใช่ปลายทาง (Flood)',
     steps: [
       'สวิตช์รับ Frame จาก {s} แล้วจดว่า MAC ต้นทางอยู่ที่ Port {p}',
@@ -48,7 +48,7 @@ const TEXT: Record<Lang, T> = {
   en: {
     title: 'Press play and watch the table in the switch fill up. The first frame goes out of every port, the later ones out of one port only',
     caption: 'Who saw which frame (c sees only the first echo request) is the real result of the capture in exercise 03. The final table matches the real bridge fdb show. The names a, b and c are the three computers of the exercise.',
-    names: { a: 'a', b: 'b', c: 'c' }, table: 'MAC table in the switch', mac: 'MAC', port: 'Port', empty: 'empty, nobody known yet',
+    names: { a: 'Computer a', b: 'Computer b', c: 'Computer c' }, table: 'MAC table in the switch', mac: 'MAC', port: 'Port', empty: 'empty, nobody known yet',
     drop: 'not my MAC, drop', got: 'got it', legendFlood: 'a copy sent to a port that is not the destination (flood)',
     steps: [
       'The switch receives the frame from {s} and notes that the source MAC is on port {p}',
@@ -89,7 +89,7 @@ export default function SwitchLab({ lang = 'th' }: { lang?: Lang }) {
     else banner = knownBefore ? T.steps[2].replace('{p}', PORT[e.dst]) : T.steps[1];
   }
 
-  const label = e ? (e.kind === 'ICMP echo request' ? `Ping ${e.src}→${e.dst}` : `Pong ${e.src}→${e.dst}`) : '';
+  const label = e ? (lang === 'th' ? (e.kind === 'ICMP echo request' ? `${e.src} → ${e.dst}` : `${e.src} → ${e.dst}`) : `${e.src} → ${e.dst}`) : '';
   const copies: { to: Host; flood: boolean }[] = e ? e.seenBy.filter((h) => h !== e.src).map((h) => ({ to: h, flood: h !== e.dst })) : [];
 
   let current = 0;
@@ -109,8 +109,8 @@ export default function SwitchLab({ lang = 'th' }: { lang?: Lang }) {
           {(['a', 'b', 'c'] as Host[]).map((h) => (
             <Dev key={h} x={HOSTS[h].box[0]} y={HOSTS[h].box[1]} w={170} kind="host" title={T.names[h]} sub={HOSTS[h].ip} hot={hot(h)} />
           ))}
-          <text x={228} y={180} className="ib-m">p1</text>
-          <text x={528} y={180} className="ib-m">p2</text>
+          <text x={228} y={212} className="ib-m">p1</text>
+          <text x={528} y={212} className="ib-m">p2</text>
           <text x={452} y={252} className="ib-m">p3</text>
           {/* the MAC table */}
           <g>
@@ -120,20 +120,20 @@ export default function SwitchLab({ lang = 'th' }: { lang?: Lang }) {
             {rows.map((r, i) => (
               <g key={r.mac} style={{ opacity: Math.min(1, (t - r.at) / 0.5 + 0.3) }}>
                 <rect className={t - r.at < 1.2 ? 'nw-cell on' : 'nw-cell'} x={310} y={38 + i * 38} width={260} height={32} rx={7} />
-                <text x={322} y={60 + i * 38} className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700 }}>…:0{r.mac === 'a' ? 'a' : r.mac === 'b' ? 'b' : 'c'}  ({r.mac})</text>
+                <text x={322} y={60 + i * 38} className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700, fontSize: 16 }}>…:0{r.mac === 'a' ? 'a' : r.mac === 'b' ? 'b' : 'c'}  ({r.mac})</text>
                 <text x={556} y={60 + i * 38} textAnchor="end" className="ib-n">{PORT[r.mac]}</text>
               </g>
             ))}
           </g>
           {/* the frame: host to switch, then out to the ports */}
-          {e && u < 1.4 && (() => { const [x, y] = lerp(HOSTS[e.src].edge, swEdge[e.src], ease(u, 0, 1.4)); return <Pk x={x} y={y - 22} label={label} kind="data" />; })()}
+          {e && u < 1.4 && (() => { const [x, y] = lerp(HOSTS[e.src].edge, swEdge[e.src], ease(u, 0, 1.4)); return <Pk x={x} y={y - 26} label={label} kind="data" w={88} />; })()}
           {e && u >= 2.4 && u < 5 && copies.map((c) => {
             const [x, y] = lerp(swEdge[c.to], HOSTS[c.to].edge, ease(u, 2.4, 3.8));
             const dy = c.to === 'c' ? 0 : -22;
             const dx = c.to === 'c' ? 56 : 0;
             return c.flood
-              ? <g key={c.to}><rect className="nw-lost" x={x + dx - 44} y={y + dy - 15} width={88} height={30} rx={8} /><text x={x + dx} y={y + dy + 5} textAnchor="middle" className="ib-m" style={{ fill: 'var(--ib-bad)', fontWeight: 700 }}>{label}</text></g>
-              : <Pk key={c.to} x={x + dx} y={y + dy} label={label} kind="data" />;
+              ? <g key={c.to}><rect className="nw-lost" x={x + dx - 44} y={y + dy - 16} width={88} height={32} rx={8} /><text x={x + dx} y={y + dy + 6} textAnchor="middle" className="ib-m" style={{ fill: 'var(--ib-bad)', fontWeight: 700, fontSize: 16 }}>{label}</text></g>
+              : <Pk key={c.to} x={x + dx} y={y + dy} label={label} kind="data" w={88} />;
           })}
           {e && u >= 3.8 && u < 5.8 && copies.filter((c) => c.flood).map((c) => (
             <text key={c.to} x={c.to === 'c' ? 530 : 765} y={c.to === 'c' ? 372 : 262} textAnchor={c.to === 'c' ? 'start' : 'middle'} className="ib-s" style={{ fill: 'var(--ib-bad)', fontWeight: 700 }}>{T.drop}</text>

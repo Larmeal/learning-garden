@@ -117,7 +117,7 @@ export default function StreamLab({ lang = 'th' }: { lang?: Lang }) {
               <rect x={BX + starts[i] * CELL - 2} y={by - 18} width={n * CELL - 1} height={50} rx={9} className="ib-sel" style={{ stroke: 'var(--ib-bad)', strokeWidth: 3.5 }} />
               <path className="ib-line" d={`M${BX + starts[i] * CELL + (n * CELL) / 2},${by + 34} L${BX + starts[i] * CELL + (n * CELL) / 2},${ry - 4}`} style={{ stroke: 'var(--ib-bad)', strokeWidth: 2.5 }} />
               <rect className="nw-cell bad" x={BX + starts[i] * CELL + (n * CELL) / 2 - 56} y={ry - 2} width={112} height={32} rx={8} />
-              <text x={BX + starts[i] * CELL + (n * CELL) / 2} y={ry + 19} textAnchor="middle" className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700, fontSize: 13 }}>{T.read} {i + 1}: {n} B</text>
+              <text x={BX + starts[i] * CELL + (n * CELL) / 2} y={ry + 19} textAnchor="middle" className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700, fontSize: 16 }}>{T.read} {i + 1}: {n} B</text>
             </g>
           ))}
           <Banner y={424} text={marks[current].title} />

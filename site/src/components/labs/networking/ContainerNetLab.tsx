@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ClockControls, useClock, type Lang, type Mark } from '../spark/timeline';
 import { Banner } from '../iceberg/ib';
-import { Dev, Legend, Wire, ease, lerp } from './nw';
+import { Dev, Legend, Wire, ease, lerp, Card } from './nw';
 import data from './proxies.json';
 
 // Shows:      one Linux host that behaves like a Docker or Kubernetes node: a client on the left, an outside server on the right, and inside the host a bridge br0 with two containers (k1, k2). A switch picks
@@ -124,9 +124,8 @@ export default function ContainerNetLab({ lang = 'th' }: { lang?: Lang }) {
           <text x={560} y={140} className="ib-s">10.0.2.1</text>
           {t >= 0.2 && (
             <g>
-              <rect className={def.chg[seg] ? 'nw-cell on' : 'nw-cell'} x={lx} y={pos[1] - 66} width={w} height={26} rx={7} />
-              <text x={lx + w / 2} y={pos[1] - 48} className="ib-m" textAnchor="middle" style={{ fontSize: 13, fill: 'var(--fg)', fontWeight: 700 }}>{lab}</text>
-              <circle cx={pos[0]} cy={pos[1]} r={7} className="nw-l3" />
+              {(() => { const [from, ...rest] = lab.split(/\s*(?:→|->)\s*/); return <Card x={Math.min(Math.max(pos[0], 135), 745)} y={98} w={250} title={`${lang === 'th' ? 'จาก' : 'from'} ${from}`} sub={`${lang === 'th' ? 'ไป' : 'to'} ${rest.join(' → ')}`} kind={def.chg[seg] ? 'q' : 'a'} />; })()}
+              <circle cx={pos[0]} cy={pos[1]} r={10} className="nw-l3" />
             </g>
           )}
           <Banner y={420} text={marks[current].title} />

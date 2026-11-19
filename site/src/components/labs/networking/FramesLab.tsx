@@ -25,7 +25,7 @@ const server = data.frames.server as Fr[];
 type T = { title: string; caption: string; c2s: string; s2c: string; stream: string; bytes: string; marks: Mark[]; none: string; small: string };
 const TEXT: Record<Lang, T> = {
   th: {
-    title: 'กดเล่นแล้วดูเฟรมของ HTTP/2 ที่จับได้จริง แต่ละสีคือหนึ่ง Stream ที่ใช้ร่วมกันบน Connection เดียว',
+    title: 'กดเล่นแล้วดูเฟรมของ HTTP/2 ที่จับได้จริง แต่ละแถวคือหนึ่ง Stream ที่ใช้ร่วมกันบน Connection เดียว',
     caption: 'ชนิด เลข Stream และขนาดของทุกเฟรมเป็นผลจริงที่จับได้ในแบบฝึก 12 (DATA ละ 1000 ไบต์เพราะเป็นขนาดข้อมูลที่เราให้ Server ส่ง) แท่งมีสองความกว้าง คือเฟรมเล็กกับเฟรม DATA ขนาดจริงอ่านจากตัวเลขในแท่ง',
     c2s: 'Client → Server', s2c: 'Server → Client', stream: 'Stream', bytes: 'ไบต์', none: 'ไม่มี Stream (ทั้ง Connection)', small: 'เล็ก',
     marks: [
@@ -55,21 +55,27 @@ export default function FramesLab({ lang = 'th' }: { lang?: Lang }) {
   let current = 0;
   T.marks.forEach((m, i) => { if (t >= m.at - 0.001) current = i; });
 
-  const strip = (frames: Fr[], y: number, label: string, t0: number, t1: number) => {
-    let x = X0;
+  const th = lang === 'th';
+  const word = (kind: string, fromClient: boolean) => (kind === 'HEADERS' ? (fromClient ? (th ? 'ขอ' : 'ask') : (th ? 'หัว' : 'head')) : kind === 'DATA' ? (th ? 'ข้อมูล' : 'data') : kind === 'SETTINGS' ? (th ? 'ตั้งค่า' : 'set') : 'Window');
+  const rowOf = (sid: number) => (sid === 0 ? 0 : STREAMS.indexOf(sid) + 1);
+  const panel = (frames: Fr[], y0: number, label: string, t0: number, t1: number, fromClient: boolean) => {
+    const cw = Math.min(64, (W + X0 - 150) / frames.length);
     return (
       <g>
-        <text x={X0} y={y - 12} className="ib-layer">{label}</text>
+        <text x={X0} y={y0 - 14} className="ib-t">{label}</text>
+        {[0, 1, 2, 3, 4, 5, 6].map((r) => (
+          <g key={r}>
+            <text x={X0} y={y0 + r * 32 + 21} className="ib-n" style={{ fill: r === 0 ? 'var(--muted)' : 'var(--fg)' }}>{r === 0 ? (th ? 'ทั้ง Connection' : 'whole connection') : `${T.stream} ${STREAMS[r - 1]}`}</text>
+            <path className="ib-line" d={`M${X0 + 124},${y0 + r * 32 + 28} L${X0 + W},${y0 + r * 32 + 28}`} style={{ opacity: 0.5 }} />
+          </g>
+        ))}
         {frames.map((f, i) => {
-          const w = f[2] > 200 ? 70 : 44;
-          const bx = x;
-          x += w + 2;
           const op = ease(t, t0 + (i / frames.length) * (t1 - t0), t0 + (i / frames.length) * (t1 - t0) + 0.5);
+          const r = rowOf(f[1]);
           return (
             <g key={i} style={{ opacity: op }}>
-              <rect className={cls(f[1])} x={bx} y={y} width={w} height={46} rx={5} style={f[1] === 0 ? { fill: 'var(--surface-2)' } : undefined} />
-              <text x={bx + w / 2} y={y + 20} textAnchor="middle" className="ib-m" style={{ fontSize: 11, fontWeight: 700, fill: f[1] === 0 ? 'var(--fg)' : 'var(--on-key)' }}>{f[0] === 'WINDOW_UPDATE' ? 'WIN' : f[0] === 'SETTINGS' ? 'SET' : f[0] === 'HEADERS' ? 'HDR' : f[0]}</text>
-              <text x={bx + w / 2} y={y + 37} textAnchor="middle" className="ib-m" style={{ fontSize: 10.5, fill: f[1] === 0 ? 'var(--muted)' : 'var(--on-key)' }}>{f[1] ? `${f[1]}·${f[2]}` : f[2]}</text>
+              <rect className={cls(f[1])} x={X0 + 130 + i * cw} y={y0 + r * 32 + 1} width={cw - 3} height={27} rx={6} style={f[1] === 0 ? { fill: 'var(--surface-2)' } : undefined} />
+              <text x={X0 + 130 + i * cw + (cw - 3) / 2} y={y0 + r * 32 + 20} textAnchor="middle" className="ib-m" style={{ fontSize: 14, fontWeight: 700, fill: f[1] === 0 ? 'var(--fg)' : 'var(--on-key)' }}>{word(f[0], fromClient)}</text>
             </g>
           );
         })}
@@ -82,11 +88,10 @@ export default function FramesLab({ lang = 'th' }: { lang?: Lang }) {
       <div className="viz-title">{T.title}</div>
       <Legend layers={[]} lang={lang} extra={[{ cls: 'l3', text: `${T.stream} 1, 3, 5, 7, 9, 11` }, { cls: 'same', text: T.none }]} />
       <div className="viz-box">
-        <svg viewBox="0 0 880 330" role="img" aria-label={T.title}>
-          {strip(client, 80, T.c2s, 0.3, 7)}
-          {strip(server, 190, T.s2c, 7.5, 14)}
-          <text x={X0 + 20} y={262} className="ib-s">HDR = HEADERS · SET = SETTINGS · WIN = WINDOW_UPDATE · {lang === 'th' ? 'ตัวเลขคือ Stream · ไบต์' : 'numbers are stream · bytes'}</text>
-          <Banner y={276} text={T.marks[current].title} />
+        <svg viewBox="0 0 880 620" role="img" aria-label={T.title}>
+          {panel(client, 50, T.c2s, 0.3, 7, true)}
+          {panel(server, 310, T.s2c, 7.5, 14, false)}
+          <Banner y={566} text={T.marks[current].title} />
         </svg>
       </div>
       <ClockControls clock={clock} marks={T.marks} lang={lang} />

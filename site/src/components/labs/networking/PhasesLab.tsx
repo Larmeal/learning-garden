@@ -74,7 +74,8 @@ export default function PhasesLab({ lang = 'th' }: { lang?: Lang }) {
             let a = 0;
             return (
               <g key={r}>
-                <text x={X0 - 12} y={y + 24} className="ib-m" textAnchor="end" style={{ fill: 'var(--fg)', fontWeight: 700 }}>{T.rows[r]}</text>
+                <text x={X0 - 12} y={y + 24} className="ib-n" textAnchor="end" style={{ fill: 'var(--fg)', fontSize: 18 }}>{T.rows[r]}</text>
+                {now >= PH.reduce((q, p) => q + P[r][p], 0) && <text x={X0 + sx(PH.reduce((q, p) => q + P[r][p], 0)) + 10} y={y + 26} className="ib-n" style={{ fontSize: 22 }}>{PH.reduce((q, p) => q + P[r][p], 0)} {T.ms}</text>}
                 {PH.map((p) => {
                   const start = a;
                   a += P[r][p];
@@ -84,7 +85,7 @@ export default function PhasesLab({ lang = 'th' }: { lang?: Lang }) {
                   return (
                     <g key={p}>
                       <rect className={CLS[p]} x={X0 + sx(start)} y={y} width={w} height={36} rx={4} />
-                      {w > 44 && shown >= P[r][p] && <text x={X0 + sx(start) + w / 2} y={y + 23} className="nw-txt" style={{ fontSize: 13 }}>{P[r][p]}</text>}
+                      {w > 44 && shown >= P[r][p] && <text x={X0 + sx(start) + w / 2} y={y + 23} className="nw-txt" style={{ fontSize: 17 }}>{P[r][p]}</text>}
                     </g>
                   );
                 })}

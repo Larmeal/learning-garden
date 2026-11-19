@@ -1,6 +1,6 @@
 import { ClockControls, useClock, type Lang, type Mark } from '../spark/timeline';
 import { Banner } from '../iceberg/ib';
-import { Dev, Legend, Pk, Wire, ease, lerp } from './nw';
+import { Dev, Legend, Pk, Wire, ease, lerp, Card } from './nw';
 import data from './natDhcp.json';
 
 // Shows:      two computers with private addresses (both using source port 50000) reaching the same server through a router that does NAT. The packet label changes at the router,
@@ -114,13 +114,13 @@ export default function NatLab({ lang = 'th' }: { lang?: Lang }) {
             {rows.map((r, i) => (
               <g key={r.i}>
                 <rect className={clash && i === 0 ? 'nw-cell bad' : t - r.at < 1.5 ? 'nw-cell on' : 'nw-cell'} x={240} y={316 + i * 40} width={400} height={32} rx={7} />
-                <text x={252} y={338 + i * 40} className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700 }}>{r.i}</text>
+                <text x={252} y={338 + i * 40} className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700, fontSize: 16 }}>{r.i}</text>
                 <text x={400} y={338 + i * 40} className="ib-m" style={{ fill: 'var(--fg)' }}>→</text>
-                <text x={452} y={338 + i * 40} className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700 }}>{r.o}</text>
+                <text x={452} y={338 + i * 40} className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700, fontSize: 16 }}>{r.o}</text>
               </g>
             ))}
           </g>
-          {pk && <Pk x={pk.pos[0]} y={pk.pos[1] + dy} label={pk.label} kind={pk.pub ? 'data' : 'ack'} w={Math.max(150, pk.label.length * 8.6 + 16)} />}
+          {pk && (() => { const [from, to] = pk.label.split(' → '); return <Card x={pk.pos[0]} y={Math.max(36, pk.pos[1] - 86)} w={236} title={`${lang === 'th' ? 'จาก' : 'from'} ${from}`} sub={`${lang === 'th' ? 'ไป' : 'to'} ${to}`} kind={pk.pub ? 'q' : 'a'} />; })()}
           {refused && <g><circle cx={RR[0] + 4} cy={RR[1]} r={16} style={{ fill: 'var(--surface)', stroke: 'var(--ib-bad)', strokeWidth: 4 }} /><path d={`M${RR[0] - 6},${RR[1] - 6} l20,12 m0,-12 l-20,12`} style={{ stroke: 'var(--ib-bad)', strokeWidth: 4, fill: 'none', strokeLinecap: 'round' }} /></g>}
           <Banner y={420} text={banner} />
         </svg>

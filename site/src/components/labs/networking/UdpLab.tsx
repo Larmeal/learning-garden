@@ -71,11 +71,11 @@ export default function UdpLab({ lang = 'th' }: { lang?: Lang }) {
             const dropped = s.lost && t > t0 + 1.5;
             return dropped
               ? <Lost key={i} x={lerp(A, B, 0.62)[0]} y={y - 26} label={`#${s.n}`} op={Math.max(0, 1 - (t - (t0 + 1.5)) / 1.0)} />
-              : <Pk key={i} x={x} y={y - 26} label={`#${s.n} · ${s.size} B`} kind="data" w={96} />;
+              : <Pk key={i} x={x} y={y - 26} label={`#${s.n} · ${s.size} B`} kind="data" w={124} />;
           })}
-          <text x={20} y={236} className="ib-n">{T.sent}: {sentCount}</text>
-          <text x={690} y={236} className="ib-n">{T.got}: {gotCount}</text>
-          {sentCount >= 3 && <text x={440} y={236} textAnchor="middle" className="ib-s" style={{ fill: 'var(--ib-bad)', fontWeight: 700 }}>{T.none}</text>}
+          <text x={20} y={240} className="ib-n" style={{ fontSize: 22 }}>{T.sent}: {sentCount}</text>
+          <text x={690} y={240} className="ib-n" style={{ fontSize: 22 }}>{T.got}: {gotCount}</text>
+          {sentCount >= 3 && <text x={440} y={240} textAnchor="middle" className="ib-n" style={{ fill: 'var(--ib-bad)', fontSize: 18 }}>{T.none}</text>}
           <PacketBar x={40} y={276} parts={[
             { layer: 'l4', label: `${T.header[0]} ${h.sport}`, w: 170 },
             { layer: 'l4', label: `${T.header[1]} ${h.dport}`, w: 170 },

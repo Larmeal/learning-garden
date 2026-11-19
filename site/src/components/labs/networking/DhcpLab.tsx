@@ -1,6 +1,6 @@
 import { ClockControls, useClock, type Lang, type Mark } from '../spark/timeline';
 import { Banner } from '../iceberg/ib';
-import { Lifelines, Msg, Note, Legend, ease } from './nw';
+import { Card, Lifelines, Msg, Note, Legend, cardX, ease } from './nw';
 import data from './natDhcp.json';
 
 // Shows:      a computer that starts with no address at all (0.0.0.0) and gets one in four messages: DISCOVER, OFFER, REQUEST, ACK. Each arrow carries the real source and
@@ -13,9 +13,10 @@ import data from './natDhcp.json';
 // Everything on the arrows is read from the capture of the real dhclient talking to the small server of exercises/05_nat_dhcp.py (natDhcp.json).
 
 const D = 20;
-const XS = { c: 150, s: 730 };
+const XS = { c: 130, s: 750 };
+const CW = 340;
 const START = [1, 5, 9, 13];
-const Y = [100, 196, 292, 388];
+const Y = [112, 204, 296, 388];
 
 type T = { title: string; caption: string; client: string; server: string; noAddr: string; hasAddr: (a: string, s: number) => string; what: string[]; fields: string[]; marks: Mark[]; legendBc: string };
 const TEXT: Record<Lang, T> = {
@@ -64,23 +65,21 @@ export default function DhcpLab({ lang = 'th' }: { lang?: Lang }) {
       <div className="viz-title">{T.title}</div>
       <Legend layers={[]} lang={lang} extra={[{ cls: 'bad', text: T.legendBc }]} />
       <div className="viz-box">
-        <svg viewBox="0 0 880 570" role="img" aria-label={T.title}>
-          <Lifelines xs={[XS.c, XS.s]} y1={62} y2={470} names={[T.client, T.server]} subs={['02:..:c0', '10.0.1.1']} />
+        <svg viewBox="0 0 880 550" role="img" aria-label={T.title}>
+          <Lifelines xs={[XS.c, XS.s]} y1={62} y2={440} names={[T.client, T.server]} subs={['02:..:c0', '10.0.1.1']} />
           {msgs.map((m, i) => {
             const toServer = i % 2 === 0;
             const p = ease(t, START[i], START[i] + 2);
             const x1 = toServer ? XS.c : XS.s, x2 = toServer ? XS.s : XS.c;
             return (
               <g key={i}>
-                <Msg x1={x1} y1={Y[i]} x2={x2} y2={Y[i] + 26} p={p} kind={i < 2 ? 'retx' : 'data'} n={i + 1} />
-                {p > 0.5 && <text x={440} y={Y[i] + 2} textAnchor="middle" className="ib-n" style={{ fill: 'var(--fg)' }}>{T.what[i]}</text>}
-                {p > 0.9 && <text x={440} y={Y[i] + 52} textAnchor="middle" className="ib-m" style={{ fill: 'var(--fg)' }}>{m.src} → {m.dst}</text>}
-                {p > 0.9 && <text x={440} y={Y[i] + 70} textAnchor="middle" className="ib-s">{T.fields[i]}</text>}
+                <Msg x1={x1} y1={Y[i]} x2={x2} y2={Y[i]} p={p} kind={i < 2 ? 'retx' : 'data'} />
+                <Card x={cardX(x1, x2, p, CW)} y={Y[i]} w={CW} title={T.what[i]} sub={`${m.src} → ${m.dst}`} kind={i < 2 ? 'bc' : toServer ? 'q' : 'a'} n={i + 1} op={p > 0.01 ? 1 : 0} />
               </g>
             );
           })}
-          <Note x={XS.c - 135} y={474} w={270} text={done ? T.hasAddr(msgs[3].yiaddr, lease) : T.noAddr} tone={done ? 'ok' : undefined} />
-          <Banner y={518} text={T.marks[current].title} />
+          <Note x={XS.c - 120} y={452} w={300} text={done ? T.hasAddr(msgs[3].yiaddr, lease) : T.noAddr} tone={done ? 'ok' : undefined} />
+          <Banner y={496} text={T.marks[current].title} />
         </svg>
       </div>
       <ClockControls clock={clock} marks={T.marks} lang={lang} />

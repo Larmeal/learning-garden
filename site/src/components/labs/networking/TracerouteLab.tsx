@@ -1,5 +1,5 @@
 import { ClockControls, useClock, type Lang, type Mark } from '../spark/timeline';
-import { Lifelines, Msg, Legend, ease } from './nw';
+import { Lifelines, Msg, Pk, Legend, ease, mix } from './nw';
 import data from './routing.json';
 
 // Shows:      traceroute as a series of probes. Probe k is a packet with TTL k. It dies at the k-th router, which sends back "time exceeded". The last probe reaches the server,
@@ -13,8 +13,8 @@ import data from './routing.json';
 const D = 21;
 const XS = [70, 250, 430, 610, 790];
 const START = (k: number) => 1 + 4.5 * k;
-const Y0 = 96;
-const PITCH = 64;
+const Y0 = 100;
+const PITCH = 80;
 
 type T = { title: string; caption: string; names: string[]; out: string; exceeded: string; unreach: string; head: string; marks: Mark[]; legendProbe: string; legendBack: string };
 const TEXT: Record<Lang, T> = {
@@ -57,8 +57,8 @@ export default function TracerouteLab({ lang = 'th' }: { lang?: Lang }) {
       <div className="viz-title">{T.title}</div>
       <Legend layers={[]} lang={lang} extra={[{ cls: 'chg', text: T.legendProbe }, { cls: 'same', text: T.legendBack }]} />
       <div className="viz-box">
-        <svg viewBox="0 0 880 484" role="img" aria-label={T.title}>
-          <Lifelines xs={XS} y1={74} y2={330} names={T.names} subs={['', '10.0.1.2', '10.0.2.2', '10.0.3.2', '10.0.4.2']} />
+        <svg viewBox="0 0 880 574" role="img" aria-label={T.title}>
+          <Lifelines xs={XS} y1={74} y2={420} names={T.names} subs={['', '10.0.1.2', '10.0.2.2', '10.0.3.2', '10.0.4.2']} />
           {rows.map((r, k) => {
             const s = START(k);
             const y = Y0 + k * PITCH;
@@ -66,18 +66,23 @@ export default function TracerouteLab({ lang = 'th' }: { lang?: Lang }) {
             const pBack = ease(t, s + 2, s + 3.4);
             const x2 = XS[k + 1];
             const last = r.type === 3;
+            const say = `${r.from}  ${last ? T.unreach : T.exceeded}`;
             return (
               <g key={k}>
-                <Msg x1={XS[0]} y1={y} x2={x2} y2={y + 14} p={pOut} kind="data" n={k + 1} label={`TTL ${r.ttl}`} labelDy={-10} lost={!last} />
-                <Msg x1={x2} y1={y + 24} x2={XS[0]} y2={y + 38} p={pBack} kind="ack" label={last ? T.unreach : T.exceeded} labelDy={-6} />
+                <Msg x1={XS[0]} y1={y} x2={x2} y2={y} p={pOut} kind="data" lost={!last} n={k + 1} />
+                {pOut > 0.02 && pOut < 0.99 && <Pk x={mix(XS[0] + 56, x2 - 56, pOut)} y={y} label={`TTL ${r.ttl}`} kind="data" w={86} h={30} />}
+                {pOut >= 0.99 && !last && <Pk x={x2 - 58} y={y} label={`TTL ${r.ttl}`} kind="retx" w={86} h={30} op={1 - pBack} />}
+                <Msg x1={x2} y1={y + 36} x2={XS[0]} y2={y + 36} p={pBack} kind="ack" />
+                {pBack > 0.02 && pBack < 0.99 && <Pk x={mix(x2 - 44, XS[0] + 44, pBack)} y={y + 36} label="ICMP" kind="ack" w={66} h={26} />}
+                {pBack > 0.5 && <text x={last ? x2 - 16 : x2 + 16} y={y + 23} textAnchor={last ? 'end' : 'start'} className="ib-n" style={{ fill: 'var(--fg)' }}>{say}</text>}
               </g>
             );
           })}
-          <rect className="nw-cell" x={20} y={338} width={840} height={132} rx={10} />
-          <text x={32} y={360} className="ib-layer">{T.out}</text>
-          <text x={32} y={382} className="ib-m" style={{ fill: 'var(--muted)', whiteSpace: 'pre' }}>{T.head}</text>
+          <rect className="nw-cell" x={20} y={430} width={840} height={132} rx={10} />
+          <text x={32} y={452} className="ib-layer">{T.out}</text>
+          <text x={32} y={474} className="ib-m" style={{ fill: 'var(--muted)', whiteSpace: 'pre' }}>{T.head}</text>
           {rows.map((r, k) => t >= START(k) + 3.4 && (
-            <text key={k} x={32} y={406 + k * 20} className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700, whiteSpace: 'pre' }}>
+            <text key={k} x={32} y={498 + k * 20} className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700, whiteSpace: 'pre' }}>
               {`${r.ttl}      ${r.from.padEnd(14, ' ')}${(r.type === 3 ? T.unreach : T.exceeded).padEnd(19, ' ')}${r.rtt} ms`}
             </text>
           ))}

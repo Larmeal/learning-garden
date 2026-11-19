@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ClockControls, useClock, type Lang, type Mark } from '../spark/timeline';
 import { Banner } from '../iceberg/ib';
-import { Lifelines, Msg, Note, Legend, ease } from './nw';
+import { Card, Lifelines, Msg, Note, Legend, cardX, ease } from './nw';
 import data from './tcpConn.json';
 
 // Shows:      three endings of a TCP story side by side in one picture, chosen with a switch: (1) a normal close, with the four segments and the states of both sides, ending with the
@@ -20,11 +20,13 @@ const flow = data.flow as { t: number; dir: string; flags: string; seq: number; 
 const closing = flow.slice(-4);
 const syn = data.synRetries as number[];
 
-type T = { title: string; caption: string; client: string; server: string; scen: Record<Scen, string>; marks: Record<Scen, Mark[]>; tw: string; closed: string; gaveUp: string; left: string };
+type T = { plain: Record<Scen, string[]>; synN: (n: number, s: string) => string; title: string; caption: string; client: string; server: string; scen: Record<Scen, string>; marks: Record<Scen, Mark[]>; tw: string; closed: string; gaveUp: string; left: string };
 const TEXT: Record<Lang, T> = {
   th: {
     title: 'เลือกตอนจบของ Connection แล้วกดเล่น เทียบการปิดตามปกติ, Port ที่ไม่มีใครฟัง และ Server ที่ไม่ตอบอะไรเลย',
     caption: 'Segment สถานะ TIME-WAIT 59 วินาที และเวลาส่ง SYN ซ้ำที่ 0, 1, 2, 3.1, 4.1, 5.1 และ 7.1 วินาที เป็นผลจริงของแบบฝึก 07 (ระยะเวลาของการปิดตามปกติในภาพยืดออกให้อ่านได้ ของจริงใช้ 20 มิลลิวินาที)',
+    plain: { close: ['ฉันส่งหมดแล้ว ขอปิดฝั่งฉัน', 'รับทราบ', 'ฉันเองก็ขอปิดเหมือนกัน', 'รับทราบ ปิดครบแล้ว'], refused: ['ขอเปิดการเชื่อมต่อ Port 8099', 'ไม่มีใครฟังอยู่ ปฏิเสธ'], silent: [] },
+    synN: (n, s) => `SYN ครั้งที่ ${n} · ${s} วินาที`,
     client: 'Client', server: 'Server', scen: { close: 'ปิดตามปกติ', refused: 'Port ที่ไม่มีใครฟัง', silent: 'Server ไม่ตอบ' },
     tw: 'TIME-WAIT เหลือ', closed: 'CLOSED', gaveUp: 'โปรแกรมยอมแพ้เอง (Timeout 9 วินาที)', left: 'วินาที',
     marks: {
@@ -48,6 +50,8 @@ const TEXT: Record<Lang, T> = {
   en: {
     title: 'Pick an ending of a connection and press play, comparing a normal close, a port nobody listens on and a server that says nothing',
     caption: 'The segments, the 59-second TIME-WAIT, and the times of the repeated SYN at 0, 1, 2, 3.1, 4.1, 5.1 and 7.1 seconds are the real results of exercise 07 (the normal close is stretched in the picture to be readable, in reality it takes 20 milliseconds).',
+    plain: { close: ['I am done sending, closing my side', 'Got it', 'I want to close too', 'Got it, fully closed'], refused: ['Please open a connection to port 8099', 'Nobody listens here, refused'], silent: [] },
+    synN: (n, s) => `SYN try ${n} · ${s} s`,
     client: 'Client', server: 'Server', scen: { close: 'a normal close', refused: 'a port nobody listens on', silent: 'a server that does not answer' },
     tw: 'TIME-WAIT left', closed: 'CLOSED', gaveUp: 'the program gives up (its own 9-second timeout)', left: 'seconds',
     marks: {
@@ -80,17 +84,17 @@ export default function TcpCloseLab({ lang = 'th' }: { lang?: Lang }) {
   marks.forEach((m, i) => { if (t >= m.at - 0.001) current = i; });
   const pick = (s: Scen) => { setScen(s); clock.restart(); };
 
-  const arrows: { x1: number; y1: number; x2: number; y2: number; at: number; kind: 'data' | 'ack' | 'ctl' | 'retx'; label: string; n: number }[] = [];
+  const arrows: { x1: number; y1: number; x2: number; y2: number; at: number; kind: 'data' | 'ack' | 'ctl' | 'retx'; title: string; sub: string; n: number; w: number }[] = [];
   if (scen === 'close') {
     closing.forEach((f, i) => {
       const toServer = f.dir === 'c2s';
-      arrows.push({ x1: toServer ? XS.c : XS.s, x2: toServer ? XS.s : XS.c, y1: 110 + i * 70, y2: 132 + i * 70, at: 1 + i * 3, kind: f.flags.includes('FIN') ? 'retx' : 'ack', label: `${f.flags}  seq=${f.seq} ack=${f.ack}`, n: i + 1 });
+      arrows.push({ x1: toServer ? XS.c : XS.s, x2: toServer ? XS.s : XS.c, y1: 110 + i * 70, y2: 110 + i * 70, at: 1 + i * 3, kind: f.flags.includes('FIN') ? 'retx' : 'ack', title: T.plain.close[i], sub: `${f.flags} · seq=${f.seq} ack=${f.ack}`, n: i + 1, w: 330 });
     });
   } else if (scen === 'refused') {
-    arrows.push({ x1: XS.c, y1: 130, x2: XS.s, y2: 152, at: 1, kind: 'retx', label: 'SYN  seq=0', n: 1 });
-    arrows.push({ x1: XS.s, y1: 230, x2: XS.c, y2: 252, at: 4, kind: 'ack', label: 'RST,ACK  ack=1', n: 2 });
+    arrows.push({ x1: XS.c, y1: 130, x2: XS.s, y2: 130, at: 1, kind: 'retx', title: T.plain.refused[0], sub: 'SYN · seq=0', n: 1, w: 330 });
+    arrows.push({ x1: XS.s, y1: 230, x2: XS.c, y2: 230, at: 4, kind: 'ack', title: T.plain.refused[1], sub: 'RST,ACK · ack=1', n: 2, w: 330 });
   } else {
-    syn.forEach((s, i) => arrows.push({ x1: XS.c, y1: 96 + i * 40, x2: XS.s - 120, y2: 108 + i * 40, at: 1 + s, kind: 'retx', label: `SYN  seq=0  (${s.toFixed(1)} s)`, n: i + 1 }));
+    syn.forEach((s, i) => arrows.push({ x1: XS.c, y1: 96 + i * 44, x2: XS.s - 120, y2: 96 + i * 44, at: 1 + s, kind: 'retx', title: T.synN(i + 1, s.toFixed(1)), sub: '', n: i + 1, w: 270 }));
   }
 
   // states
@@ -114,9 +118,15 @@ export default function TcpCloseLab({ lang = 'th' }: { lang?: Lang }) {
       <div className="viz-box">
         <svg viewBox="0 0 880 480" role="img" aria-label={T.title}>
           <Lifelines xs={[XS.c, XS.s]} y1={54} y2={346} names={[T.client, T.server]} />
-          {arrows.map((a, i) => (
-            <Msg key={i} x1={a.x1} y1={a.y1} x2={a.x2} y2={a.y2} p={ease(t, a.at, a.at + 1.6)} kind={a.kind} n={a.n} label={a.label} labelDy={-8} lost={scen === 'silent'} />
-          ))}
+          {arrows.map((a, i) => {
+            const p = ease(t, a.at, a.at + 1.6);
+            return (
+              <g key={i}>
+                <Msg x1={a.x1} y1={a.y1} x2={a.x2} y2={a.y2} p={p} kind={a.kind} lost={scen === 'silent'} />
+                <Card x={cardX(a.x1, a.x2, p, a.w)} y={a.y1} w={a.w} title={a.title} sub={a.sub || undefined} kind={a.kind === 'retx' ? (scen === 'silent' ? 'bad' : 'bc') : 'a'} n={a.n} op={p > 0.01 ? 1 : 0} />
+              </g>
+            );
+          })}
           <Note x={XS.c - 70} y={352} w={140} text={stateC} tone={stateC === 'ESTABLISHED' ? 'ok' : undefined} />
           {stateS !== '-' && <Note x={XS.s - 80} y={352} w={160} text={stateS} tone={stateS === 'TIME-WAIT' ? 'bad' : undefined} />}
           {twLeft !== null && <text x={XS.s} y={410} textAnchor="middle" className="ib-n" style={{ fill: 'var(--ib-bad)' }}>{T.tw} ≈ {twLeft} {T.left}</text>}

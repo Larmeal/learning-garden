@@ -52,13 +52,13 @@ export function PacketBar({ x, y, parts, h = 30, op = 1, center = false, gap = 2
 }
 
 // A small labelled packet for sequence pictures and queues (SYN, ACK, seq 1000).
-export function Pk({ x, y, label, kind = 'data', op = 1, w, h = 28 }: { x: number; y: number; label: string; kind?: 'data' | 'ack' | 'ctl' | 'retx'; op?: number; w?: number; h?: number }) {
+export function Pk({ x, y, label, kind = 'data', op = 1, w, h = 32 }: { x: number; y: number; label: string; kind?: 'data' | 'ack' | 'ctl' | 'retx'; op?: number; w?: number; h?: number }) {
   if (op <= 0.01) return null;
-  const pw = w ?? Math.max(40, label.length * 9 + 16);
+  const pw = w ?? Math.max(46, label.length * 10 + 20);
   return (
     <g style={{ opacity: op }}>
       <rect className={`nw-pk ${kind}`} x={x - pw / 2} y={y - h / 2} width={pw} height={h} rx={8} />
-      <text x={x} y={y + 5} textAnchor="middle" className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700, fontSize: 14 }}>{label}</text>
+      <text x={x} y={y + 6} textAnchor="middle" className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700, fontSize: 16 }}>{label}</text>
     </g>
   );
 }
@@ -160,3 +160,70 @@ export function Note({ x, y, w, text, op = 1, tone }: { x: number; y: number; w:
 }
 
 export const fmt = (n: number, d = 1) => n.toFixed(d);
+
+// A packet drawn as letters inside letters. Layers go from the outermost (first) to the innermost, and each has a presence p from 0 to 1, so a layer can grow around
+// the letter (wrapping) or shrink away (unwrapping) on the clock. Every layer shows a plain name on its first line and the real values on its second line.
+export interface EnvLayer { layer: Layer; name: string; detail: string; p: number; tag?: string; hot?: boolean }
+const STRIP = 58, PAD = 12;
+
+export function Envelope({ cx, y, w = 440, layers, body, bodyName, msgH = 62 }: { cx: number; y: number; w?: number; layers: EnvLayer[]; body: string; bodyName: string; msgH?: number }) {
+  const act = layers.filter((l) => l.p > 0.01);
+  const sSum = act.reduce((a, l) => a + STRIP * l.p, 0);
+  const bSum = act.reduce((a, l) => a + PAD * l.p, 0);
+  const H = sSum + bSum + msgH;
+  let top = y, side = 0, bot = 0;
+  return (
+    <g>
+      {act.map((l, i) => {
+        const x0 = cx - w / 2 + side, ww = w - 2 * side, y0 = top, hh = y + H - bot - top;
+        const strip = STRIP * l.p;
+        const full = l.p > 0.92;
+        const out = (
+          <g key={i}>
+            <rect className={`nw-env ${l.layer}${l.hot ? ' hot' : ''}`} x={x0} y={y0} width={ww} height={Math.max(8, hh)} rx={12} />
+            {full && (
+              <g>
+                <text x={x0 + 14} y={y0 + 27} className="ib-n" style={{ fontSize: 17 }}>{l.name}</text>
+                <text x={x0 + 14} y={y0 + 49} className="ib-m" style={{ fill: 'var(--fg)', fontSize: 15 }}>{l.detail}</text>
+                {l.tag && (<g><rect className="nw-tag" x={x0 + ww - 14 - l.tag.length * 9.5 - 16} y={y0 + 11} width={l.tag.length * 9.5 + 16} height={24} rx={12} /><text x={x0 + ww - 14 - l.tag.length * 4.75 - 8} y={y0 + 28} textAnchor="middle" className="ib-white" style={{ fontSize: 14 }}>{l.tag}</text></g>)}
+              </g>
+            )}
+          </g>
+        );
+        top += strip; side += PAD * l.p; bot += PAD * l.p;
+        return out;
+      })}
+      <rect className="nw-env app" x={cx - w / 2 + side} y={top} width={w - 2 * side} height={msgH} rx={10} />
+      <text x={cx - w / 2 + side + 14} y={top + 24} className="ib-n" style={{ fontSize: 17 }}>{bodyName}</text>
+      <text x={cx - w / 2 + side + 14} y={top + 47} className="ib-m" style={{ fill: 'var(--fg)', fontSize: 15 }}>{body}</text>
+    </g>
+  );
+}
+
+// A message as a card that travels (x, y is its centre). The title says in plain words what the message means, the sub line holds the protocol name and the key values.
+// kind: q = a question or a request, a = an answer, bc = sent to everybody, bad = a refusal or a loss. A card with `lost` gets a cross over it.
+export function Card({ x, y, w = 250, title, sub, kind = 'q', n, op = 1, lost, lock }: { x: number; y: number; w?: number; title: string; sub?: string; kind?: 'q' | 'a' | 'bc' | 'bad' | 'ctl'; n?: number; op?: number; lost?: boolean; lock?: 'open' | 'shut' }) {
+  if (op <= 0.01) return null;
+  const h = sub ? 56 : 40;
+  return (
+    <g style={{ opacity: op }}>
+      <rect className={`nw-card ${kind}`} x={x - w / 2} y={y - h / 2} width={w} height={h} rx={12} />
+      <text x={x - w / 2 + (n ? 38 : 14)} y={y - (sub ? 5 : -6)} className="ib-n" style={{ fontSize: 17 }}>{title}</text>
+      {sub && <text x={x - w / 2 + (n ? 38 : 14)} y={y + 17} className="ib-m" style={{ fill: 'var(--fg)', fontSize: 14 }}>{sub}</text>}
+      {n !== undefined && (<g><circle cx={x - w / 2 + 19} cy={y} r={12} style={{ fill: kind === 'a' ? 'var(--k2)' : kind === 'bad' ? 'var(--ib-bad)' : 'var(--accent)' }} /><text x={x - w / 2 + 19} y={y + 5} className="ib-white" style={{ fontSize: 14 }}>{n}</text></g>)}
+      {lock && (
+        <g className="nw-lock" transform={`translate(${x + w / 2 - 34},${y - 12})`}>
+          <path d={lock === 'shut' ? 'M4,10 v-4 a6,6 0 0 1 12,0 v4' : 'M4,10 v-4 a6,6 0 0 1 12,0'} />
+          <rect x={1} y={10} width={18} height={14} rx={3} className="body" />
+        </g>
+      )}
+      {lost && <path d={`M${x - 16},${y - 16} l32,32 M${x + 16},${y - 16} l-32,32`} style={{ stroke: 'var(--ib-bad)', strokeWidth: 5, fill: 'none', strokeLinecap: 'round' }} />}
+    </g>
+  );
+}
+
+// where a card is while it travels from the lifeline x1 to the lifeline x2 (p from 0 to 1); it keeps clear of the lifelines so it never hides the name of a side
+export const cardX = (x1: number, x2: number, p: number, w = 250) => {
+  const dir = x2 >= x1 ? 1 : -1;
+  return mix(x1 + dir * (w / 2 + 14), x2 - dir * (w / 2 + 14), p);
+};

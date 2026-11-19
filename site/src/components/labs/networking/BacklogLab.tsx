@@ -1,6 +1,6 @@
 import { ClockControls, useClock, type Lang, type Mark } from '../spark/timeline';
 import { Banner } from '../iceberg/ib';
-import { Legend, Lifelines, Msg, ease } from './nw';
+import { Card, Pk, Legend, Note, ease, mix } from './nw';
 import data from './sockets.json';
 
 // Shows:      a server that called listen(2) and never calls accept(). Six clients try to connect one after another. The first three finish the handshake and sit in the accept queue (three slots:
@@ -55,37 +55,45 @@ export default function BacklogLab({ lang = 'th' }: { lang?: Lang }) {
       <div className="viz-title">{T.title}</div>
       <Legend layers={[]} lang={lang} extra={[{ cls: 'same', text: 'SYN,ACK' }, { cls: 'bad', text: 'SYN (ignored)' }]} />
       <div className="viz-box">
-        <svg viewBox="0 0 880 540" role="img" aria-label={T.title}>
-          <Lifelines xs={[XS.c, XS.s]} y1={64} y2={344} names={[T.client, T.server]} />
+        <svg viewBox="0 0 880 490" role="img" aria-label={T.title}>
           {res.map((r, i) => {
             const ok = r.result === 'connected';
-            const y = 92 + i * 40;
-            const p = ease(t, startOf(i), startOf(i) + 1.0);
+            const y = 84 + i * 62;
+            const st = startOf(i);
+            const p = ease(t, st, st + 1.0);
+            const chair = i < 3 ? i : -1;
+            const tx = ok ? mix(250, 540 + chair * 108 + 50, p) : mix(250, 450, Math.min(1, p));
+            const ty = ok ? mix(y, 150, p) : y;
+            const bounced = !ok && t >= st + 1.0;
             return (
               <g key={i}>
-                <Msg x1={XS.c} y1={y} x2={XS.s} y2={y + 14} p={p} kind={ok ? 'ctl' : 'retx'} n={r.n} label={ok ? 'SYN → SYN,ACK → ACK' : 'SYN'} lost={!ok} labelDy={-6} />
-                {!ok && p > 0.99 && t < startOf(i) + 1.6 && <text x={XS.c + 40} y={y + 6} className="ib-s" style={{ fill: 'var(--ib-bad)', fontWeight: 700 }}>…</text>}
-                {ok && t >= startOf(i) + 1.0 && <text x={XS.c + 24} y={y - 6} className="ib-s" style={{ fill: 'var(--k2)', fontWeight: 700 }}>✓ {r.seconds} s</text>}
-                {!ok && t >= startOf(i) + 1.5 && <text x={XS.c + 24} y={y - 6} className="ib-s" style={{ fill: 'var(--ib-bad)', fontWeight: 700 }}>✗ {T.timeout}</text>}
+                <Card x={140} y={y} w={190} title={`${T.client} ${r.n}`} sub={ok ? (lang === 'th' ? 'ต่อติด' : 'connected') : bounced ? (lang === 'th' ? 'ส่ง SYN ซ้ำ ๆ' : 'resending SYN') : 'SYN'} kind={ok ? 'a' : 'q'} op={t >= st - 0.2 ? 1 : 0.45} />
+                {t >= st && t < st + 1.4 && <Pk x={tx} y={ty} label="SYN" kind={ok ? 'ctl' : 'retx'} w={70} h={28} />}
+                {!ok && t >= st + 1.0 && <path d={`M${450 - 10},${y - 10} l20,20 M${450 + 10},${y - 10} l-20,20`} style={{ stroke: 'var(--ib-bad)', strokeWidth: 5, fill: 'none', strokeLinecap: 'round' }} />}
+                {ok && t >= st + 1.0 && <text x={246} y={y + 6} className="ib-n" style={{ fill: 'var(--k2)' }}>✓ {r.seconds} s</text>}
+                {!ok && t >= st + 1.5 && <text x={246} y={y + 6} className="ib-n" style={{ fill: 'var(--ib-bad)' }}>✗ {T.timeout}</text>}
               </g>
             );
           })}
-          <text x={20} y={376} className="ib-layer">{T.queue}</text>
+          <rect className="ib-zone-solid" x={500} y={76} width={360} height={250} rx={16} />
+          <text x={516} y={102} className="ib-t">{lang === 'th' ? 'ห้องรอของ Server (Accept Queue)' : 'The waiting room of the server (accept queue)'}</text>
           {[0, 1, 2].map((i) => (
             <g key={i}>
-              <rect className={i < inQueue ? 'nw-cell ok' : 'nw-cell'} x={20 + i * 150} y={386} width={140} height={44} rx={8} />
-              <text x={20 + i * 150 + 70} y={414} textAnchor="middle" className="ib-n" style={{ fontSize: 15 }}>{i < inQueue ? `#${i + 1} ${T.waiting}` : `${T.slot} ${i + 1}`}</text>
+              <rect className={i < inQueue ? 'nw-cell ok' : 'nw-cell'} x={516 + i * 108} y={120} width={100} height={64} rx={10} />
+              <text x={516 + i * 108 + 50} y={158} textAnchor="middle" className="ib-n">{i < inQueue ? `#${i + 1}` : T.slot}</text>
             </g>
           ))}
+          <text x={516} y={218} className="ib-n" style={{ fill: 'var(--muted)' }}>{lang === 'th' ? 'โปรแกรมไม่เคยเรียก accept()' : 'the program never calls accept()'}</text>
+          <text x={516} y={242} className="ib-n" style={{ fill: 'var(--muted)' }}>{lang === 'th' ? 'ที่นั่งจึงไม่ว่างอีก' : 'so no seat is ever freed'}</text>
           <g>
-            <rect className="nw-cell" x={490} y={386} width={170} height={44} rx={8} />
-            <text x={502} y={406} className="ib-s">ss: Recv-Q / Send-Q</text>
-            <text x={502} y={424} className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700 }}>{inQueue} / 2</text>
-            <rect className={synN > 0 ? 'nw-cell bad' : 'nw-cell'} x={676} y={386} width={184} height={44} rx={8} />
-            <text x={688} y={406} className="ib-s">{T.ignored}</text>
-            <text x={688} y={424} className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700 }}>{synN} {t >= 13 ? `(→ ${data.backlog.overflows})` : ''}</text>
+            <rect className="nw-cell" x={516} y={262} width={150} height={52} rx={8} />
+            <text x={526} y={282} className="ib-s">ss: Recv-Q / Send-Q</text>
+            <text x={526} y={304} className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700, fontSize: 16 }}>{inQueue} / 2</text>
+            <rect className={synN > 0 ? 'nw-cell bad' : 'nw-cell'} x={676} y={262} width={170} height={52} rx={8} />
+            <text x={686} y={282} className="ib-s">{T.ignored}</text>
+            <text x={686} y={304} className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700, fontSize: 16 }}>{synN} {t >= 13 ? `(→ ${data.backlog.overflows})` : ''}</text>
           </g>
-          <Banner y={460} text={T.marks[current].title} />
+          <Banner y={430} text={T.marks[current].title} />
         </svg>
       </div>
       <ClockControls clock={clock} marks={T.marks} lang={lang} />

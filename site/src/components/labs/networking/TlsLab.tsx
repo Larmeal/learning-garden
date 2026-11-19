@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ClockControls, useClock, type Lang, type Mark } from '../spark/timeline';
 import { Banner } from '../iceberg/ib';
-import { Legend, Lifelines, Msg, ease } from './nw';
+import { Card, Legend, Lifelines, Msg, cardX, ease } from './nw';
 import data from './tls.json';
 
 // Shows:      the first round trips of a connection with TLS 1.3 or TLS 1.2, as arrows between client and server, one row per flight of messages. For each arrow the picture says what a person who only
@@ -24,6 +24,11 @@ const ch = data.records13.c2s[0].length;
 const tm = data.times as Record<string, (number | null)[]>;
 const T13 = Math.round(tm.tls13[2] as number), T12 = Math.round(tm.tls12[2] as number), TNG = Math.round(tm.nagle[2] as number), TP = Math.round(tm.plain[2] as number);
 const RT = (ms: number) => (ms / data.rtt).toFixed(1);
+
+const PLAIN: Record<Lang, Record<V, string[]>> = {
+  th: { tls13: ['ขอเปิด Connection', 'ตกลง', 'ทักทาย พร้อมกุญแจครึ่งหนึ่ง', 'ทักทายกลับ ที่เหลือล็อกไว้แล้ว', 'ยืนยัน แล้วส่ง Request', 'ส่ง Response'], tls12: ['ขอเปิด Connection', 'ตกลง', 'ทักทาย ถามว่ารองรับอะไรบ้าง', 'ส่ง Certificate พร้อมกุญแจ', 'ส่งกุญแจของฝั่งฉัน เริ่มล็อก', 'ยืนยัน ล็อกเรียบร้อย', 'ส่ง Request', 'ส่ง Response'] },
+  en: { tls13: ['Please open a connection', 'Agreed', 'Hello, with half of a key', 'Hello back, the rest is locked', 'Confirmed, and here is the request', 'Here is the response'], tls12: ['Please open a connection', 'Agreed', 'Hello, what do you support?', 'Certificate and a key', 'My half of the key, locking now', 'Confirmed, locked', 'Here is the request', 'Here is the response'] },
+};
 
 interface Row { from: 'c' | 's'; label: string; sees: string; plain: boolean; rtt?: number; at: number }
 
@@ -117,8 +122,8 @@ export default function TlsLab({ lang = 'th' }: { lang?: Lang }) {
   marks.forEach((m, i) => { if (t >= m.at - 0.001) current = i; });
   const rows = T.rows(v);
   const pick = (x: V) => { setV(x); clock.restart(); };
-  const pitch = v === 'tls13' ? 62 : 58;
-  const y0 = 96;
+  const pitch = 88;
+  const y0 = 110;
   const rtt = rows.reduce((n, r) => (r.rtt && t >= r.at + 1.4 ? r.rtt : n), 0);
   const times = data.times as Record<string, (number | null)[]>;
   const done = t >= rows[rows.length - 1].at + 1.4;
@@ -141,10 +146,13 @@ export default function TlsLab({ lang = 'th' }: { lang?: Lang }) {
             const y = y0 + i * pitch;
             const toServer = r.from === 'c';
             const p = ease(t, r.at, r.at + 1.4);
+            const W = 440;
+            const x1 = toServer ? XS.c : XS.s, x2 = toServer ? XS.s : XS.c;
             return (
               <g key={i}>
-                <Msg x1={toServer ? XS.c : XS.s} y1={y} x2={toServer ? XS.s : XS.c} y2={y + 14} p={p} kind={r.plain ? 'data' : 'retx'} n={i + 1} label={r.label} labelDy={-7} />
-                {p > 0.95 && r.sees && <text x={440} y={y + 32} textAnchor="middle" className="ib-s" style={{ fill: r.plain ? 'var(--fg)' : 'var(--ib-bad)', fontWeight: 600 }}>{T.sees}: {r.sees}</text>}
+                <Msg x1={x1} y1={y} x2={x2} y2={y} p={p} kind={r.plain ? 'data' : 'retx'} />
+                <Card x={cardX(x1, x2, p, W)} y={y} w={W} title={PLAIN[lang][v][i]} sub={r.label.replace(/ \(เข้ารหัส\)/g, '')} kind={r.plain ? 'q' : 'bad'} n={i + 1} lock={i < 2 ? undefined : r.plain ? 'open' : 'shut'} op={p > 0.01 ? 1 : 0} />
+                {p > 0.95 && r.sees && <text x={440} y={y + 46} textAnchor="middle" className="ib-s" style={{ fill: r.plain ? 'var(--fg)' : 'var(--ib-bad)', fontWeight: 600 }}>{T.sees}: {r.sees}</text>}
               </g>
             );
           })}

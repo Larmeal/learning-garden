@@ -1,6 +1,6 @@
 import { ClockControls, useClock, type Lang, type Mark } from '../spark/timeline';
 import { Banner } from '../iceberg/ib';
-import { Lifelines, Msg, Note, Legend, ease } from './nw';
+import { Card, Lifelines, Msg, Note, Legend, cardX, ease } from './nw';
 import data from './linkLayer.json';
 
 // Shows:      a ping from a to c when a does not know c's MAC address. a shouts "who has 10.0.1.4?" to everybody on the cable (broadcast), b ignores it, c answers a only,
@@ -13,15 +13,16 @@ import data from './linkLayer.json';
 
 const D = 17;
 const X = { a: 110, b: 440, c: 770 };
+const CW = 230;
 
-type T = { title: string; caption: string; names: string[]; cache: string; empty: string; marks: Mark[]; req: string; rep: string; ping: string; notMe: string; me: string; bc: string; uni: string; legendBc: string; legendUni: string };
+type T = { title: string; caption: string; names: string[]; cache: string; empty: string; marks: Mark[]; reqT: string; reqS: string; repT: string; repS: string; pingT: string; pingS: string; cacheOf: string; notMe: string; me: string; bc: string; uni: string; legendBc: string; legendUni: string };
 
 const TEXT: Record<Lang, T> = {
   th: {
     title: 'กดเล่นแล้วดู ARP ถามหา MAC ของ 10.0.1.4 ก่อนที่ a จะส่งอะไรไปหาจริง ๆ',
     caption: 'ขนาด 42 ไบต์ ที่อยู่ MAC ใครเห็น Request และ Reply (b เห็นแค่ Request) และบรรทัดใน Cache เป็นผลจริงของแบบฝึก 03',
-    names: ['a', 'b', 'c'], cache: 'Neighbour Cache ของ a', empty: 'ว่าง',
-    req: `ARP Request: ใครคือ ${data.arp.request.who}? ตอบ ${data.arp.request.tell}`, rep: `ARP Reply: ${data.arp.reply.ip} อยู่ที่ …:0c`, ping: 'Ping ไป MAC …:0c',
+    names: ['a', 'b', 'c'], cache: 'Cache ของ a', empty: 'ว่าง',
+    reqT: `ใครมี ${data.arp.request.who} บ้าง?`, reqS: 'ARP Request · ถึงทุกคน', repT: `${data.arp.reply.ip} อยู่ที่ฉัน`, repS: 'ARP Reply · ถึง a คนเดียว', pingT: 'ส่ง Ping จริง', pingS: 'ใช้ MAC …:0c', cacheOf: 'จำไว้ใน Cache ของ a',
     notMe: 'ไม่ใช่ฉัน เงียบ', me: 'ฉันเอง', bc: 'ส่งถึงทุกคน (ff:ff:ff:ff:ff:ff)', uni: 'ส่งถึง a คนเดียว', legendBc: 'Broadcast ถึงทุกคนในสายเดียวกัน', legendUni: 'Unicast ถึงคนเดียว',
     marks: [
       { at: 0, name: 'ยังไม่รู้', title: 'a อยากส่ง Packet ไป 10.0.1.4 แต่ไม่รู้ MAC', text: 'IP บอกว่าปลายทางคือ 10.0.1.4 และอยู่ในเครือข่ายเดียวกัน แต่ Frame ต้องมี MAC ปลายทาง Cache ของ a ยังไม่มีแถวของ 10.0.1.4 จึงต้องถามก่อน' },
@@ -35,8 +36,8 @@ const TEXT: Record<Lang, T> = {
   en: {
     title: 'Press play and watch ARP ask for the MAC address of 10.0.1.4 before a sends anything real',
     caption: 'The 42-byte size, the MAC addresses, who saw the request and the reply (b sees only the request) and the cache line are the real results of exercise 03.',
-    names: ['a', 'b', 'c'], cache: 'Neighbour cache of a', empty: 'empty',
-    req: `ARP request: who has ${data.arp.request.who}? tell ${data.arp.request.tell}`, rep: `ARP reply: ${data.arp.reply.ip} is at …:0c`, ping: 'Ping to MAC …:0c',
+    names: ['a', 'b', 'c'], cache: 'Cache of a', empty: 'empty',
+    reqT: `Who has ${data.arp.request.who}?`, reqS: 'ARP request · to everyone', repT: `${data.arp.reply.ip} is at me`, repS: 'ARP reply · to a only', pingT: 'The real ping', pingS: 'uses MAC …:0c', cacheOf: 'Remembered in the cache of a',
     notMe: 'not me, silent', me: 'that is me', bc: 'to everyone (ff:ff:ff:ff:ff:ff)', uni: 'to a only', legendBc: 'broadcast to everyone on the cable', legendUni: 'unicast to one',
     marks: [
       { at: 0, name: 'Not known', title: 'a wants to send to 10.0.1.4 but has no MAC', text: 'IP says the destination is 10.0.1.4 and it is on the same network, but the frame needs a destination MAC. The cache of a has no row for 10.0.1.4, so it has to ask first.' },
@@ -53,47 +54,36 @@ export default function ArpLab({ lang = 'th' }: { lang?: Lang }) {
   const T = TEXT[lang];
   const clock = useClock(D);
   const { t } = clock;
-  const y0 = 100;
   const pReq = ease(t, 1.2, 4.2);
   const pRep = ease(t, 6, 9);
   const pPing = ease(t, 11, 14.5);
   let current = 0;
   T.marks.forEach((m, i) => { if (t >= m.at - 0.001) current = i; });
-  const seenReq = data.arp.request.seenBy as string[];
-  const seenRep = data.arp.reply.seenBy as string[];
   const cacheOn = t >= 9.5;
+  const R = [128, 204, 292, 372];
 
   return (
     <figure className="viz lg ib-fig">
       <div className="viz-title">{T.title}</div>
       <Legend layers={[]} lang={lang} extra={[{ cls: 'bad', text: T.legendBc }, { cls: 'chg', text: T.legendUni }]} />
       <div className="viz-box">
-        <svg viewBox="0 0 880 480" role="img" aria-label={T.title}>
-          <Lifelines xs={[X.a, X.b, X.c]} y1={y0 - 40} y2={340} names={T.names} subs={['10.0.1.2', '10.0.1.3', '10.0.1.4']} />
-          <Msg x1={X.a} y1={y0} x2={X.b} y2={y0 + 40} p={seenReq.includes('b') ? pReq : 0} kind="retx" n={1} />
-          <Msg x1={X.a} y1={y0} x2={X.c} y2={y0 + 80} p={seenReq.includes('c') ? pReq : 0} kind="retx" />
-          {pReq > 0.4 && <text x={X.a + 14} y={y0 - 12} className="ib-s" style={{ fontWeight: 700, fill: 'var(--fg)' }}>{T.req}</text>}
-          {pReq > 0.9 && <text x={X.b - 16} y={y0 + 66} textAnchor="end" className="ib-s" style={{ fill: 'var(--muted)' }}>{T.bc}</text>}
-          <Note x={X.b - 86} y={y0 + 92} w={172} text={T.notMe} op={ease(t, 4.4, 5) * (t < 20 ? 1 : 0)} />
-          <Note x={X.c - 86} y={y0 + 92} w={172} text={T.me} tone="ok" op={ease(t, 4.4, 5)} />
-          <Msg x1={X.c} y1={y0 + 134} x2={X.a} y2={y0 + 174} p={seenRep.includes('a') ? pRep : 0} kind="ack" n={2} />
-          {pRep > 0.4 && <text x={(X.a + X.c) / 2} y={y0 + 140} textAnchor="middle" className="ib-s" style={{ fontWeight: 700, fill: 'var(--fg)' }}>{T.rep}</text>}
-          {pRep > 0.9 && <text x={X.a + 16} y={y0 + 168} className="ib-s" style={{ fill: 'var(--muted)' }}>{T.uni}</text>}
-          {/* the cache of a */}
-          <g>
-            <rect className="nw-cell" x={20} y={y0 + 250} width={400} height={66} rx={10} />
-            <text x={32} y={y0 + 272} className="ib-layer">{T.cache}</text>
-            {!cacheOn && <text x={32} y={y0 + 302} className="ib-s">{T.empty}</text>}
-            {cacheOn && (
-              <g>
-                <rect className="nw-cell on" x={30} y={y0 + 280} width={380} height={28} rx={7} />
-                <text x={40} y={y0 + 300} className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700 }}>10.0.1.4  →  02:00:00:00:00:0c  REACHABLE</text>
-              </g>
-            )}
+        <svg viewBox="0 0 880 520" role="img" aria-label={T.title}>
+          <Lifelines xs={[X.a, X.b, X.c]} y1={64} y2={416} names={T.names} subs={['10.0.1.2', '10.0.1.3', '10.0.1.4']} />
+          <Msg x1={X.a} y1={R[0]} x2={X.b} y2={R[0]} p={pReq} kind="retx" />
+          <Msg x1={X.a} y1={R[1]} x2={X.c} y2={R[1]} p={pReq} kind="retx" />
+          <Card x={cardX(X.a, X.b, pReq, CW)} y={R[0]} w={CW} title={T.reqT} sub={T.reqS} kind="bc" n={1} op={pReq > 0.01 ? 1 : 0} />
+          <Card x={cardX(X.a, X.c, pReq, CW)} y={R[1]} w={CW} title={T.reqT} sub={T.reqS} kind="bc" op={pReq > 0.01 ? 1 : 0} />
+          <Note x={X.b + 14} y={R[0] - 16} w={190} text={T.notMe} op={ease(t, 4.4, 5)} />
+          <Note x={X.c - 90} y={R[1] + 40} w={180} text={T.me} tone="ok" op={ease(t, 4.4, 5)} />
+          <Msg x1={X.c} y1={R[2]} x2={X.a} y2={R[2]} p={pRep} kind="ack" />
+          <Card x={cardX(X.c, X.a, pRep, CW)} y={R[2]} w={CW} title={T.repT} sub={T.repS} kind="a" n={2} op={pRep > 0.01 ? 1 : 0} />
+          <Msg x1={X.a} y1={R[3]} x2={X.c} y2={R[3]} p={pPing} kind="data" />
+          <Card x={cardX(X.a, X.c, pPing, CW)} y={R[3]} w={CW} title={T.pingT} sub={T.pingS} kind="q" n={3} op={pPing > 0.01 ? 1 : 0} />
+          <g style={{ opacity: ease(t, 9.5, 10.5) }}>
+            <rect className="nw-cell on" x={20} y={428} width={470} height={34} rx={9} />
+            <text x={34} y={451} className="ib-n">{T.cacheOf}  <tspan className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700, fontSize: 15 }}>10.0.1.4 → …:0c</tspan></text>
           </g>
-          <Msg x1={X.a} y1={y0 + 196} x2={X.c} y2={y0 + 236} p={pPing} kind="data" n={3} />
-          {pPing > 0.4 && <text x={(X.a + X.c) / 2 + 40} y={y0 + 204} textAnchor="middle" className="ib-s" style={{ fontWeight: 700, fill: 'var(--fg)' }}>{T.ping}</text>}
-          <Banner y={426} text={T.marks[current].title} />
+          <Banner y={472} text={T.marks[current].title} />
         </svg>
       </div>
       <ClockControls clock={clock} marks={T.marks} lang={lang} />

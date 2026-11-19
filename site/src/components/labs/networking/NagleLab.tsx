@@ -92,7 +92,7 @@ export default function NagleLab({ lang = 'th' }: { lang?: Lang }) {
           <text x={X0} y={wy - 36} className="ib-layer">{T.writes}</text>
           <path className="ib-line" d={`M${X0},${wy + 20} L${X1},${wy + 20}`} />
           {[0, 5, 10, 15, 20].map((ms) => (<g key={ms}><path className="ib-line" d={`M${px(ms)},${wy + 14} L${px(ms)},${wy + 26}`} /><text x={px(ms)} y={wy + 44} textAnchor="middle" className="ib-s">{ms} {ms === 20 ? T.ms : ''}</text></g>))}
-          {writeMs.map((ms, i) => seen(ms) && (<g key={i}><circle cx={px(ms)} cy={wy - 8} r={9} className="nw-app" /><text x={px(ms)} y={wy - 4} className="nw-txt" style={{ fontSize: 11 }}>10</text></g>))}
+          {writeMs.map((ms, i) => seen(ms) && (<g key={i}><circle cx={px(ms)} cy={wy - 8} r={15} className="nw-app" /><text x={px(ms)} y={wy - 3} className="nw-txt" style={{ fontSize: 14 }}>10</text></g>))}
           <text x={X0} y={sy - 36} className="ib-layer">{T.wire}</text>
           <path className="ib-line" d={`M${X0},${sy + 20} L${X1},${sy + 20}`} />
           {mode === 'nagle' && t >= T0 + 4 * K && t < T0 + 20 * K && (
@@ -103,12 +103,12 @@ export default function NagleLab({ lang = 'th' }: { lang?: Lang }) {
           )}
           {sizes.map((sz, i) => seen(sendMs[i]) && (
             <g key={i}>
-              <rect className="nw-pk data" x={px(sendMs[i]) - (sz > 10 ? 36 : 10)} y={sy - 12} width={sz > 10 ? 72 : 20} height={26} rx={6} style={{ opacity: ease(t, T0 + sendMs[i] * K, T0 + sendMs[i] * K + 0.3) }} />
-              <text x={px(sendMs[i])} y={sy + 6} textAnchor="middle" className="ib-m" style={{ fontSize: sz > 10 ? 14 : 11, fontWeight: 700, fill: 'var(--fg)' }}>{sz}</text>
+              <rect className="nw-pk data" x={px(sendMs[i]) - (sz > 10 ? 38 : 17)} y={sy - 15} width={sz > 10 ? 76 : 34} height={32} rx={8} style={{ opacity: ease(t, T0 + sendMs[i] * K, T0 + sendMs[i] * K + 0.3) }} />
+              <text x={px(sendMs[i])} y={sy + 7} textAnchor="middle" className="ib-m" style={{ fontSize: 16, fontWeight: 700, fill: 'var(--fg)' }}>{sz}</text>
             </g>
           ))}
           {ackMs.map((ms, i) => i < sizes.length && seen(ms + 10) && (
-            <g key={'a' + i}><path d={`M${px(ms + 10)},${sy + 44} l-7,-10 h14 z`} style={{ fill: 'var(--k2)' }} /></g>
+            <g key={'a' + i}><path d={`M${px(ms + 10)},${sy + 44} l-10,-14 h20 z`} style={{ fill: 'var(--k2)' }} /></g>
           ))}
           <g>
             {[[T.segs, String(sentSegs)], [T.bytes, `${sentBytes} B`], [T.hdr, `${sentSegs * HDR} B`]].map(([l, v], i) => (

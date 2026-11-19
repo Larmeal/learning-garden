@@ -16,7 +16,7 @@ const D = 22;
 const TOTAL = 3008;
 const X0 = 40;
 const SCALE = 800 / TOTAL;
-const ROW = { orig: 96, l1: 176, l2: 272, back: 368 };
+const ROW = { orig: 96, l1: 196, l2: 306, back: 416 };
 const COLORS = ['k1', 'k2', 'k3', 'app'] as const;
 
 type T = { title: string; caption: string; orig: string; l1: string; l2: string; back: string; offset: string; bytes: string; legendPiece: string; marks: Mark[]; banner: string[] };
@@ -80,28 +80,28 @@ export default function FragmentLab({ lang = 'th' }: { lang?: Lang }) {
       <div className="viz-title">{T.title}</div>
       <Legend layers={[]} lang={lang} extra={[{ cls: 'l3', text: T.legendPiece }]} />
       <div className="viz-box">
-        <svg viewBox="0 0 880 482" role="img" aria-label={T.title}>
-          <text x={X0} y={ROW.orig - 14} className="ib-layer">{T.orig}</text>
+        <svg viewBox="0 0 880 540" role="img" aria-label={T.title}>
+          <text x={X0} y={ROW.orig - 14} className="ib-n">{T.orig}</text>
           {bar(X0, sc(TOTAL) * (1 - join) + sc(TOTAL) * join, ROW.orig, 'nw-app', `${TOTAL} ${T.bytes}`)}
-          <text x={X0} y={ROW.l1 - 14} className="ib-layer" style={{ opacity: cut1 }}>{T.l1}</text>
+          <text x={X0} y={ROW.l1 - 14} className="ib-n" style={{ opacity: cut1 }}>{T.l1}</text>
           {f1.map((p, i) => cut1 > 0.02 && (
-            <g key={i} style={{ opacity: cut1 * (1 - join) }}>
+            <g key={i} style={{ opacity: cut1 }}>
               {bar(X0 + sc(p.off) + gap(cut1, i), sc(p.data), ROW.l1, color(i), `${p.data}`, `${T.offset} ${p.off}`)}
             </g>
           ))}
-          <text x={X0} y={ROW.l2 - 14} className="ib-layer" style={{ opacity: cut2 }}>{T.l2}</text>
+          <text x={X0} y={ROW.l2 - 14} className="ib-n" style={{ opacity: cut2 }}>{T.l2}</text>
           {f2.map((p, i) => cut2 > 0.02 && (
-            <g key={i} style={{ opacity: cut2 * (1 - join) }}>
+            <g key={i} style={{ opacity: cut2 }}>
               {bar(X0 + sc(p.off) + gap(cut2, i), sc(p.data), ROW.l2, color(parent(p.off)), `${p.data}`, `${T.offset} ${p.off}`)}
             </g>
           ))}
-          <text x={X0} y={ROW.back - 14} className="ib-layer" style={{ opacity: join }}>{T.back}</text>
+          <text x={X0} y={ROW.back - 14} className="ib-n" style={{ opacity: join }}>{T.back}</text>
           {join > 0.02 && (
             <g style={{ opacity: join }}>
               {bar(X0, sc(TOTAL), ROW.back, 'nw-app', `${TOTAL} ${T.bytes}`)}
             </g>
           )}
-          <Banner y={426} text={T.banner[stage]} />
+          <Banner y={484} text={T.banner[stage]} />
         </svg>
       </div>
       <ClockControls clock={clock} marks={T.marks} lang={lang} />

@@ -1,6 +1,6 @@
 import { ClockControls, useClock, type Lang, type Mark } from '../spark/timeline';
 import { Banner } from '../iceberg/ib';
-import { Lifelines, Msg, Note, Legend, ease } from './nw';
+import { Card, Lifelines, Msg, Note, Legend, cardX, ease } from './nw';
 import data from './tcpConn.json';
 
 // Shows:      the first six segments of one real TCP connection, as arrows between the client and the server, with the sequence and acknowledgement numbers on each arrow, the state of each
@@ -13,12 +13,13 @@ import data from './tcpConn.json';
 // side's own random first number.
 
 const D = 20;
-const XS = { c: 170, s: 710 };
+const XS = { c: 210, s: 730 };
+const CW = 330;
 const START = (i: number) => 1 + 2.5 * i;
-const Y = (i: number) => 92 + i * 52;
+const Y = (i: number) => 108 + i * 64;
 const flow = (data.flow as { t: number; dir: string; flags: string; seq: number; ack: number | null; len: number; win: number; opts: Record<string, unknown> }[]).slice(0, 6);
 
-type T = { title: string; caption: string; client: string; server: string; opts: string; ms: string; marks: Mark[]; cState: string[]; sState: string[]; bytes: string; legendC: string; legendS: string; legendD: string; why: string[] };
+type T = { title: string; caption: string; client: string; server: string; opts: string; ms: string; marks: Mark[]; cState: string[]; sState: string[]; bytes: string; legendC: string; legendS: string; legendD: string; what: string[]; bracket: string };
 const TEXT: Record<Lang, T> = {
   th: {
     title: 'กดเล่นแล้วดู Handshake สามจังหวะของ TCP ตามตัวเลข Sequence และ Acknowledgement จริง แล้วดู Request ตัวแรกที่ออกไปได้หลังจาก 1 รอบเวลา',
@@ -26,7 +27,7 @@ const TEXT: Record<Lang, T> = {
     client: 'Client', server: 'Server', opts: 'Option: MSS 1460 · SACK · Timestamp · Window Scale ×1024', ms: 'ms', bytes: 'ไบต์',
     cState: ['CLOSED', 'SYN-SENT', 'ESTABLISHED'], sState: ['LISTEN', 'SYN-RCVD', 'ESTABLISHED'],
     legendC: 'ควบคุมการเชื่อมต่อ (SYN)', legendS: 'ตอบรับ (ACK)', legendD: 'ข้อมูล',
-    why: ['', '', '', '', '', ''],
+    what: ['ขอเปิดการเชื่อมต่อ', 'ตกลง ฉันเริ่มนับที่ 0', 'รับทราบ เริ่มได้', 'ส่ง Request 65 ไบต์', 'ได้รับถึงไบต์ที่ 65', 'ตอบกลับ 98 ไบต์'], bracket: 'ต้องรอ 1 รอบเวลา (20 ms) ก่อนส่งข้อมูลได้',
     marks: [
       { at: START(0), name: 'SYN', title: 'SYN: ขอเปิด Connection พร้อมเลขเริ่มต้น', text: 'Client เลือกเลขเริ่มต้นของตัวเอง (สุ่ม แต่ในภาพนับเป็น 0) ส่ง SYN พร้อม Option ที่อยากใช้ คือ MSS 1460, SACK, Timestamp และ Window Scale 10 ตอนนี้ Client อยู่ในสถานะ SYN-SENT' },
       { at: START(1), name: 'SYN,ACK', title: 'SYN,ACK: ตกลง พร้อมเลขเริ่มต้นของ Server', text: 'Server ส่งเลขเริ่มต้นของตัวเอง และตอบรับด้วย ack=1 เพราะ SYN ใช้เลข Sequence ไปหนึ่งตัว จึงขอไบต์ต่อไปเป็นเลข 1 ใช้เวลา 20 มิลลิวินาที ซึ่งเป็นหนึ่งรอบเวลา' },
@@ -42,7 +43,7 @@ const TEXT: Record<Lang, T> = {
     client: 'Client', server: 'Server', opts: 'Options: MSS 1460 · SACK · Timestamp · Window Scale ×1024', ms: 'ms', bytes: 'bytes',
     cState: ['CLOSED', 'SYN-SENT', 'ESTABLISHED'], sState: ['LISTEN', 'SYN-RCVD', 'ESTABLISHED'],
     legendC: 'controls the connection (SYN)', legendS: 'acknowledgement (ACK)', legendD: 'data',
-    why: ['', '', '', '', '', ''],
+    what: ['Please open a connection', 'Agreed, I count from 0', 'Got it, go ahead', 'Send a 65-byte request', 'Received up to byte 65', 'Reply with 98 bytes'], bracket: 'One round trip (20 ms) before data can go',
     marks: [
       { at: START(0), name: 'SYN', title: 'SYN: ask to open a connection, with a starting number', text: 'The client picks its own starting number (random, but counted as 0 in the picture) and sends a SYN with the options it would like: MSS 1460, SACK, timestamps and window scale 10. The client is now in the state SYN-SENT.' },
       { at: START(1), name: 'SYN,ACK', title: 'SYN,ACK: agreed, with the server\'s starting number', text: 'The server sends its own starting number and acknowledges with ack=1, because a SYN uses up one sequence number, so the next byte it wants is number 1. It took 20 milliseconds, one round trip.' },
@@ -71,23 +72,31 @@ export default function TcpHandshakeLab({ lang = 'th' }: { lang?: Lang }) {
       <div className="viz-title">{T.title}</div>
       <Legend layers={[]} lang={lang} extra={[{ cls: 'chg', text: T.legendD }, { cls: 'same', text: T.legendS }, { cls: 'bad', text: T.legendC }]} />
       <div className="viz-box">
-        <svg viewBox="0 0 880 490" role="img" aria-label={T.title}>
-          <Lifelines xs={[XS.c, XS.s]} y1={54} y2={390} names={[T.client, T.server]} />
-          <Note x={XS.c - 60} y={392} w={120} text={T.cState[cState]} tone={cState === 2 ? 'ok' : undefined} />
-          <Note x={XS.s - 60} y={392} w={120} text={T.sState[sState]} tone={sState === 2 ? 'ok' : undefined} />
+        <svg viewBox="0 0 880 566" role="img" aria-label={T.title}>
+          <Lifelines xs={[XS.c, XS.s]} y1={62} y2={470} names={[T.client, T.server]} />
+          <Note x={XS.c - 60} y={474} w={120} text={T.cState[cState]} tone={cState === 2 ? 'ok' : undefined} />
+          <Note x={XS.s - 60} y={474} w={120} text={T.sState[sState]} tone={sState === 2 ? 'ok' : undefined} />
           {flow.map((f, i) => {
             const toServer = f.dir === 'c2s';
             const p = ease(t, START(i), START(i) + 1.6);
-            const label = `${f.flags}  seq=${f.seq}${f.ack !== null ? ` ack=${f.ack}` : ''}${f.len ? `  (${f.len} ${T.bytes})` : ''}`;
+            const x1 = toServer ? XS.c : XS.s, x2 = toServer ? XS.s : XS.c;
+            const sub = `${f.flags} · seq=${f.seq}${f.ack !== null ? ` ack=${f.ack}` : ''}${f.len ? ` · ${f.len} ${T.bytes}` : ''}`;
+            const k = kindOf(f);
             return (
               <g key={i}>
-                <Msg x1={toServer ? XS.c : XS.s} y1={Y(i)} x2={toServer ? XS.s : XS.c} y2={Y(i) + 22} p={p} kind={kindOf(f) === 'ctl' ? 'retx' : kindOf(f) === 'data' ? 'data' : 'ack'} n={i + 1} label={label} labelDy={-8} />
-                {p > 0.9 && <text x={toServer ? XS.c - 30 : XS.s + 30} y={Y(i) + 5} textAnchor={toServer ? 'end' : 'start'} className="ib-s">{f.t} {T.ms}</text>}
+                <Msg x1={x1} y1={Y(i)} x2={x2} y2={Y(i)} p={p} kind={k === 'ctl' ? 'retx' : k === 'data' ? 'data' : 'ack'} />
+                <Card x={cardX(x1, x2, p, CW)} y={Y(i)} w={CW} title={T.what[i]} sub={sub} kind={k === 'ctl' ? 'bc' : k === 'data' ? 'q' : 'a'} n={i + 1} op={p > 0.01 ? 1 : 0} />
+                {p > 0.9 && <text x={14} y={Y(i) + 5} className="ib-n" style={{ fill: 'var(--muted)' }}>{f.t} {T.ms}</text>}
               </g>
             );
           })}
-          {t >= START(0) + 0.8 && <text x={XS.c + 10} y={Y(0) - 22} className="ib-s" style={{ fill: 'var(--fg)', fontWeight: 700 }}>{T.opts}</text>}
-          <Banner y={438} text={T.marks[current].title} />
+          {t >= START(3) && (
+            <g>
+              <path d={`M104,${Y(0) - 22} v${Y(2) - Y(0) + 44}`} style={{ stroke: 'var(--accent)', strokeWidth: 4, fill: 'none', strokeLinecap: 'round' }} />
+              <text x={116} y={Y(2) + 40} className="ib-n" style={{ fill: 'var(--accent)' }}>{T.bracket}</text>
+            </g>
+          )}
+          <Banner y={512} text={T.marks[current].title} />
         </svg>
       </div>
       <ClockControls clock={clock} marks={T.marks} lang={lang} />

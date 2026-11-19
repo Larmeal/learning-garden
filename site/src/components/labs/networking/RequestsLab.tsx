@@ -66,7 +66,7 @@ export default function RequestsLab({ lang = 'th' }: { lang?: Lang }) {
   const done: Record<Mode, number[]> = { new: h1.new, reuse: h1.reuse, parallel: h1.parallel, h2: (data.h2 as number[]).map((x) => x + (data.h2Total - Math.max(...(data.h2 as number[])))) };
   const panelH = [68, 68, 150, 150];
   const ys: number[] = [];
-  panelH.reduce((a, h, i) => { ys[i] = a; return a + h + 38; }, 70);
+  panelH.reduce((a, h, i) => { ys[i] = a; return a + h + 38; }, 100);
   const total = ys[3] + panelH[3] + 50;
   const bar = (start: number, end: number, key: string, y: number, h: number, hasConnect: boolean) => {
     const work = Math.min(100, end - start);
@@ -90,10 +90,12 @@ export default function RequestsLab({ lang = 'th' }: { lang?: Lang }) {
           {rows.map((r, i) => {
             const y = ys[i];
             const d = done[r.key];
-            const h = r.lanes === 1 ? 26 : 18;
+            const h = r.lanes === 1 ? 30 : 18;
             return (
               <g key={r.key}>
-                <text x={X0} y={y - 6} className="ib-n" style={{ fontSize: 15 }}>{T.label[r.key]}  ·  {Math.max(...d)} {T.ms}</text>
+                <text x={X0} y={y - 8} className="ib-n" style={{ fontSize: 18 }}>{T.label[r.key]}</text>
+                {ms >= Math.max(...d) && <text x={840} y={y - 8} textAnchor="end" className="ib-n" style={{ fontSize: 22, fill: r.key === 'h2' ? 'var(--k2)' : 'var(--fg)' }}>{Math.max(...d)} {T.ms}</text>}
+                {r.lanes !== 1 && d.map((_, k) => <text key={'l' + k} x={px(0) - 8} y={y + 4 + k * 22 + 14} textAnchor="end" className="ib-s">#{k + 1}</text>)}
                 {d.map((end, k) => {
                   if (r.key === 'new' || r.key === 'reuse') {
                     const per = r.key === 'new' ? 140 : 120;

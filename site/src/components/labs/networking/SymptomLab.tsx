@@ -117,17 +117,17 @@ export default function SymptomLab({ lang = 'th' }: { lang?: Lang }) {
             const lostHere = p.lost && q >= 1;
             return (
               <g key={i}>
-                <rect className={cls(p)} x={x - 30} y={Y - 74} width={60} height={22} rx={6} style={p.lost ? { fill: 'var(--surface)' } : undefined} />
-                <text x={x} y={Y - 58} className="nw-txt" style={{ fontSize: 12 }}>{lostHere ? '✗' : p.label}</text>
+                <rect className={cls(p)} x={x - 44} y={Y - 84} width={88} height={32} rx={8} style={p.lost ? { fill: 'var(--surface)' } : undefined} />
+                <text x={x} y={Y - 62} className="nw-txt" style={{ fontSize: 16, fill: p.lost ? 'var(--ib-bad)' : undefined }}>{lostHere ? '✗' : p.label}</text>
               </g>
             );
           })}
           {pks.some((q) => q.lost) && (<text x={pos(pks.find((q) => q.lost)!.to)} y={Y + 70} className="ib-s" textAnchor="middle">{`SYN × ${pks.filter((q) => t >= q.t0).length}`}</text>)}
           <text x={X.c} y={260} className="ib-s">{lang === 'th' ? 'เวลาจริง' : 'real time'}: {Math.min(t, endT).toFixed(1)} {T.sec}</text>
           <rect className={done ? 'nw-cell on' : 'nw-cell'} x={60} y={280} width={760} height={110} rx={10} />
-          <text x={80} y={308} className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700 }}>{T.saw}: {done ? T.res[f.result] ?? f.result : '…'}</text>
-          <text x={80} y={334} className="ib-m" style={{ fill: 'var(--fg)' }}>{T.took}: {done ? `${SHOWN[k].toFixed(1)} ${T.sec}` : '…'}</text>
-          <text x={80} y={360} className="ib-s">{T.look}: {T.hint[k]}</text>
+          <text x={80} y={308} className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700, fontSize: 18 }}>{T.saw}: {done ? T.res[f.result] ?? f.result : '…'}</text>
+          <text x={80} y={334} className="ib-m" style={{ fill: 'var(--fg)', fontSize: 18 }}>{T.took}: {done ? `${SHOWN[k].toFixed(1)} ${T.sec}` : '…'}</text>
+          <text x={80} y={360} className="ib-n" style={{ fontSize: 16 }}>{T.look}: {T.hint[k]}</text>
           <text x={80} y={380} className="ib-s" style={{ opacity: 0.8 }}>{k === 'lossy_link' ? T.note : ''}</text>
           <Banner y={420} text={marks[cur].title} />
         </svg>

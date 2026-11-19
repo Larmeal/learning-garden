@@ -97,7 +97,7 @@ export default function BalancerLab({ lang = 'th' }: { lang?: Lang }) {
             return (
               <g key={i}>
                 <circle cx={pos[0]} cy={pos[1] - 18} r={13} className={bad ? 'nw-lost' : r === 'k1' ? 'nw-l3' : 'nw-l4'} style={bad ? { fill: 'var(--surface)' } : undefined} />
-                <text x={pos[0]} y={pos[1] - 13} className="nw-txt" style={{ fontSize: 13 }}>{bad && q > 0.5 ? '✗' : i + 1}</text>
+                <text x={pos[0]} y={pos[1] - 13} className="nw-txt" style={{ fontSize: 16 }}>{bad && q > 0.5 ? '✗' : i + 1}</text>
               </g>
             );
           })}
@@ -109,14 +109,14 @@ export default function BalancerLab({ lang = 'th' }: { lang?: Lang }) {
             {seq.map((r, i) => (
               <g key={i} style={{ opacity: t >= START(i) + 2 ? 1 : 0.2 }}>
                 <rect className={r === 'k1' ? 'nw-l3' : r === 'k2' ? 'nw-l4' : 'nw-lost'} x={20 + i * 52} y={300} width={46} height={32} rx={7} style={r !== 'k1' && r !== 'k2' ? { fill: 'var(--surface)' } : undefined} />
-                <text x={20 + i * 52 + 23} y={321} textAnchor="middle" className="nw-txt" style={{ fontSize: 14, fill: r !== 'k1' && r !== 'k2' ? 'var(--ib-bad)' : undefined }}>{r === 'k1' || r === 'k2' ? r : '✗'}</text>
+                <text x={20 + i * 52 + 23} y={322} textAnchor="middle" className="nw-txt" style={{ fontSize: 16, fill: r !== 'k1' && r !== 'k2' ? 'var(--ib-bad)' : undefined }}>{r === 'k1' || r === 'k2' ? r : '✗'}</text>
               </g>
             ))}
           </g>
-          <rect className={done ? 'nw-cell on' : 'nw-cell'} x={450} y={292} width={410} height={80} rx={10} />
-          <text x={464} y={314} className="ib-s">{T.sees}</text>
-          <text x={464} y={338} className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700 }}>{T.peer}: {done ? seen.peer : '…'}</text>
-          <text x={464} y={360} className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700 }}>{T.xff}: {done ? (seen.xff ?? T.none) : '…'}</text>
+          <rect className={done ? 'nw-cell on' : 'nw-cell'} x={450} y={290} width={410} height={90} rx={10} />
+          <text x={464} y={314} className="ib-n" style={{ fill: 'var(--muted)' }}>{T.sees}</text>
+          <text x={464} y={340} className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700, fontSize: 16 }}>{T.peer}: {done ? seen.peer : '…'}</text>
+          <text x={464} y={364} className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700, fontSize: 16 }}>{T.xff}: {done ? (seen.xff ?? T.none) : '…'}</text>
           <Banner y={400} text={marks[current].title} />
         </svg>
       </div>

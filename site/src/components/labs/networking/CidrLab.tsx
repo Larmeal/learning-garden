@@ -70,7 +70,7 @@ export default function CidrLab({ lang = 'th' }: { lang?: Lang }) {
   const hosts = 2 ** (32 - p) - 2;
   const kernel = (data.kernel as Record<string, Record<string, boolean>>)[String(p)];
 
-  const X0 = 20, PITCH = 19, OCT = 10;
+  const X0 = 14, PITCH = 21, OCT = 10;
   const cx = (i: number) => X0 + i * PITCH + Math.floor(i / 8) * OCT;
   const bx = cx(p) - 2 - (p % 8 === 0 && p > 0 ? OCT / 2 - 1 : 0);
   const Row = ({ y, bits, ref }: { y: number; bits: number[]; ref?: number[] }) => (
@@ -84,8 +84,8 @@ export default function CidrLab({ lang = 'th' }: { lang?: Lang }) {
         }
         return (
           <g key={i} style={{ opacity: ref && i >= p ? 0.45 : 1 }}>
-            <rect className={cls} x={cx(i)} y={y} width={PITCH - 2} height={24} rx={4} />
-            <text x={cx(i) + (PITCH - 2) / 2} y={y + 17} textAnchor="middle" className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700 }}>{b}</text>
+            <rect className={cls} x={cx(i)} y={y} width={PITCH - 2} height={28} rx={4} />
+            <text x={cx(i) + (PITCH - 2) / 2} y={y + 20} textAnchor="middle" className="ib-m" style={{ fill: 'var(--fg)', fontWeight: 700, fontSize: 16 }}>{b}</text>
           </g>
         );
       })}
@@ -100,12 +100,12 @@ export default function CidrLab({ lang = 'th' }: { lang?: Lang }) {
       <div className="viz-title">{T.title}</div>
       <Legend layers={[]} lang={lang} extra={[{ cls: 'chg', text: T.legendNet }, { cls: 'same', text: T.legendSame }, { cls: 'bad', text: T.legendBad }]} />
       <div className="viz-box">
-        <svg viewBox="0 0 880 408" role="img" aria-label={T.title}>
+        <svg viewBox="0 0 880 546" role="img" aria-label={T.title}>
           <text x={X0} y={26} className="ib-layer">{T.netPart} ({p} bit)</text>
           <text x={cx(Math.min(p, 31))} y={26} className="ib-layer" style={{ opacity: p < 26 ? 1 : 0 }}>{T.hostPart} ({32 - p} bit)</text>
           <Row y={38} bits={mine} />
-          <text x={676} y={56} className="ib-n">{MY}/{p}</text>
-          <text x={676} y={76} className="ib-s">{T.me}</text>
+          <text x={730} y={58} className="ib-n">{MY}/{p}</text>
+          <text x={730} y={78} className="ib-s">{T.me}</text>
           {DESTS.map((d, k) => {
             const y = 98 + k * 42;
             const db = bitsOf(d);
@@ -114,26 +114,48 @@ export default function CidrLab({ lang = 'th' }: { lang?: Lang }) {
             return (
               <g key={d}>
                 <Row y={y} bits={db} ref={mine} />
-                <text x={676} y={y + 17} className="ib-n">{d}</text>
-                <text x={676} y={y + 35} className="ib-s" style={{ fill: inside ? 'var(--k2)' : 'var(--ib-bad)', fontWeight: 700 }}>{inside ? T.direct : T.router}{ok ? ' ✓' : ''}</text>
+                <text x={730} y={y + 18} className="ib-n">{d}</text>
+                <text x={730} y={y + 38} className="ib-n" style={{ fill: inside ? 'var(--k2)' : 'var(--ib-bad)' }}>{inside ? T.direct : T.router}{ok ? ' ✓' : ''}</text>
               </g>
             );
           })}
           <path d={`M${bx},30 L${bx},${98 + 3 * 42 - 14}`} className="ib-arrow" style={{ strokeDasharray: '7 5', strokeWidth: 3 }} />
+          {(() => {
+            const inside = DESTS.filter((d) => bitsOf(d).slice(0, p).every((b, i) => b === mine[i]));
+            const outside = DESTS.filter((d) => !inside.includes(d));
+            const chip = (x: number, y: number, label: string, sub: string | null, tone: string) => (
+              <g key={label + x}>
+                <rect className={`nw-cell ${tone}`} x={x} y={y} width={190} height={44} rx={10} />
+                <text x={x + 12} y={y + 20} className="ib-n">{label}</text>
+                {sub && <text x={x + 12} y={y + 38} className="ib-s">{sub}</text>}
+              </g>
+            );
+            return (
+              <g>
+                <rect className="ib-zone-solid" x={14} y={246} width={420} height={142} rx={14} />
+                <rect className="ib-zone-dash" x={446} y={246} width={420} height={142} rx={14} />
+                <text x={28} y={270} className="ib-n" style={{ fill: 'var(--brand)' }}>{T.direct} ({lang === 'th' ? 'สายเดียวกัน' : 'same cable'})</text>
+                <text x={460} y={270} className="ib-n" style={{ fill: 'var(--ib-bad)' }}>{T.router}</text>
+                {chip(28, 284, MY, T.me, 'on')}
+                {inside.map((d, i) => chip(28 + ((i + 1) % 2) * 200, 284 + Math.floor((i + 1) / 2) * 50, d, null, 'ok'))}
+                {outside.map((d, i) => chip(460 + (i % 2) * 200, 284 + Math.floor(i / 2) * 50, d, null, 'bad'))}
+              </g>
+            );
+          })()}
           <g>
             {[
-              [T.net, dotted(net), 20],
-              [T.bc, dotted(bc), 300],
-              [T.hosts, hosts.toLocaleString('en-US'), 580],
+              [T.net, dotted(net), 14],
+              [T.bc, dotted(bc), 304],
+              [T.hosts, hosts.toLocaleString('en-US'), 594],
             ].map(([label, value, x]) => (
               <g key={String(label)}>
-                <rect className="nw-cell" x={Number(x)} y={248} width={270} height={76} rx={12} />
-                <text x={Number(x) + 14} y={274} className="ib-s">{label}</text>
-                <text x={Number(x) + 14} y={310} className="ib-n" style={{ fontSize: 26 }}>{value}</text>
+                <rect className="nw-cell" x={Number(x)} y={402} width={272} height={72} rx={12} />
+                <text x={Number(x) + 14} y={426} className="ib-s">{label}</text>
+                <text x={Number(x) + 14} y={460} className="ib-n" style={{ fontSize: 26 }}>{value}</text>
               </g>
             ))}
           </g>
-          <Banner y={342} text={`${T.marks[current].title}${kernel ? `  ·  ${T.kernelOk}` : `  ·  ${T.arith}`}`} />
+          <Banner y={488} text={`${T.marks[current].title}${kernel ? `  ·  ${T.kernelOk}` : `  ·  ${T.arith}`}`} />
         </svg>
       </div>
       <ClockControls clock={clock} marks={T.marks} lang={lang} />

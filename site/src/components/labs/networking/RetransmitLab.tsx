@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ClockControls, useClock, type Lang, type Mark } from '../spark/timeline';
 import { Banner } from '../iceberg/ib';
-import { Lifelines, Msg, Legend, ease } from './nw';
+import { Card, Lifelines, Msg, Legend, ease } from './nw';
 import data from './tcpRel.json';
 
 // Shows:      the same loss told two ways. (1) Only one segment is sent and it is dropped: the sender can only wait for its timer, sends it again, and the timer doubles each time.
@@ -35,6 +35,51 @@ const timerRows = (T: { s1: string; again: string; ack: string }): Row[] => {
     { from: 's', label: `${T.ack}  ack=101`, kind: 'ack', at: t(s[3]) + 1.3 },
   ];
 };
+
+
+// The first scenario drawn as a time line: every attempt is a card at its real time, and the wait between two attempts is a bar that grows while the sender waits.
+const TX = (ms: number) => 70 + (ms / 1100) * 740;
+const TV: Record<Lang, { send: (n: number) => string; ack: string; wait: string; total: string }> = {
+  th: { send: (n) => `ส่งครั้งที่ ${n}`, ack: 'ถึงแล้ว ได้ ACK', wait: 'รอ', total: 'กว่าข้อมูล 100 ไบต์จะถึงใช้เวลา' },
+  en: { send: (n) => `Try ${n}`, ack: 'Arrived, got an ACK', wait: 'wait', total: 'Time before 100 bytes got through' },
+};
+
+function TimerView({ t, lang, ms }: { t: number; lang: Lang; ms: string }) {
+  const V = TV[lang];
+  const sent = data.rto.sent, gaps = data.rto.gaps;
+  const now = (t - 1) * 100;
+  return (
+    <g transform="translate(0,-60)">
+      <path d={`M${TX(0)},262 L${TX(1100)},262`} className="nw-wire" />
+      {[0, 250, 500, 750, 1000].map((m) => (<g key={m}><path d={`M${TX(m)},256 v12`} className="nw-wire" /><text x={TX(m)} y={290} textAnchor="middle" className="ib-s">{m} {ms}</text></g>))}
+      {sent.map((m, i) => {
+        const shown = now >= m;
+        const last = i === sent.length - 1;
+        const nextX = i < sent.length - 1 ? TX(sent[i + 1]) : TX(m);
+        const grow = i < sent.length - 1 ? Math.max(0, Math.min(1, (now - m) / (sent[i + 1] - m))) : 0;
+        return (
+          <g key={i}>
+            {shown && <Card x={Math.max(TX(m), 120 + i * 0)} y={190} w={136} title={V.send(i + 1)} sub={`${m} ${ms}`} kind={last ? 'a' : i === 0 ? 'q' : 'bad'} />}
+            {shown && !last && now >= sent[i + 1] - 150 && <path d={`M${TX(m) + 50},158 l22,22 M${TX(m) + 72},158 l-22,22`} style={{ stroke: 'var(--ib-bad)', strokeWidth: 5, fill: 'none', strokeLinecap: 'round' }} />}
+            {shown && <path d={`M${TX(m)},222 V256`} className="nw-wire" style={{ stroke: 'var(--accent)' }} />}
+            {i < sent.length - 1 && grow > 0 && (
+              <g>
+                <rect x={TX(m)} y={300} width={(nextX - TX(m)) * grow} height={22} rx={6} className="nw-cell bad" />
+                {grow > 0.98 && <text x={(TX(m) + nextX) / 2} y={344} textAnchor="middle" className="ib-n" style={{ fill: 'var(--ib-bad)' }}>{V.wait} {gaps[i]} {ms}</text>}
+              </g>
+            )}
+          </g>
+        );
+      })}
+      {now >= sent[3] + 120 && (
+        <g>
+          <Card x={TX(sent[3]) - 40} y={420} w={230} title={V.ack} sub="ACK ack=101" kind="a" />
+          <text x={70} y={432} className="ib-t" style={{ fontSize: 20 }}>{V.total} {sent[3] + data.rto.rtt} {ms}</text>
+        </g>
+      )}
+    </g>
+  );
+}
 
 const sackLabel = (a: number, b: number) => `SACK ${a}${a === b ? '' : `–${b}`}`;
 
@@ -131,8 +176,9 @@ export default function RetransmitLab({ lang = 'th' }: { lang?: Lang }) {
       <Legend layers={[]} lang={lang} extra={[{ cls: 'bad', text: T.legendLost }, { cls: 'same', text: 'ACK' }]} />
       <div className="viz-box">
         <svg viewBox={`0 0 880 ${H + 40}`} role="img" aria-label={T.title}>
-          <Lifelines xs={[XS.c, XS.s]} y1={58} y2={H - 54} names={[T.client, T.server]} />
-          {rows.map((r, i) => {
+          {scen === 'timer' && <TimerView t={t} lang={lang} ms={T.ms} />}
+          {scen === 'fast' && <Lifelines xs={[XS.c, XS.s]} y1={58} y2={H - 54} names={[T.client, T.server]} />}
+          {scen === 'fast' && rows.map((r, i) => {
             const y = y0 + i * pitch;
             const toServer = r.from === 'c';
             const p = ease(t, r.at, r.at + 1.2);

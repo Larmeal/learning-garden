@@ -1,6 +1,6 @@
 import { ClockControls, useClock, type Lang, type Mark } from '../spark/timeline';
 import { Banner } from '../iceberg/ib';
-import { Legend } from './nw';
+import { Legend, Dev } from './nw';
 import data from './tcpRel.json';
 
 // Shows:      the receive window of a receiver that does not read for two seconds, as a line over time, and under it what the sender does. The window shrinks while data piles up in the
@@ -71,7 +71,32 @@ export default function WindowLab({ lang = 'th' }: { lang?: Lang }) {
       <div className="viz-title">{T.title}</div>
       <Legend layers={[]} lang={lang} extra={[{ cls: 'same', text: T.send }, { cls: 'bad', text: T.stop }]} />
       <div className="viz-box">
-        <svg viewBox="0 0 880 440" role="img" aria-label={T.title}>
+        <svg viewBox="0 0 880 646" role="img" aria-label={T.title}>
+          {(() => {
+            const th = lang === 'th';
+            const used = (WMAX - curW) / WMAX;
+            const TX0 = 520, TY0 = 84, TW = 330, TH = 150;
+            const flowing = curW > 0;
+            const phase = (ms / 45) % 1;
+            return (
+              <g>
+                <Dev x={30} y={TY0 + 38} w={190} kind="host" title={th ? 'ผู้ส่ง' : 'Sender'} hot={flowing} />
+                <path d={`M220,${TY0 + 75} L${TX0},${TY0 + 75}`} className="nw-wire" />
+                {flowing && [0, 1, 2, 3, 4].map((i) => (<rect key={i} x={240 + ((i + phase) / 5) * 250} y={TY0 + 66} width={22} height={18} rx={4} className="nw-l4" />))}
+                {!flowing && !probes.some((p) => Math.abs(p - ms) < 40) && <text x={370} y={TY0 + 66} textAnchor="middle" className="ib-n" style={{ fill: 'var(--ib-bad)' }}>{th ? 'หยุดส่ง ✗' : 'stopped ✗'}</text>}
+                {!flowing && probes.some((p) => Math.abs(p - ms) < 40) && <rect x={370} y={TY0 + 70} width={10} height={10} rx={2} style={{ fill: 'var(--ib-bad)' }} />}
+                <rect className="nw-cell" x={TX0} y={TY0} width={TW} height={TH} rx={14} />
+                <rect className={curW === 0 ? 'nw-cell bad' : 'nw-cell ok'} x={TX0 + 8} y={TY0 + TH - 8 - used * (TH - 16)} width={TW - 16} height={Math.max(0, used * (TH - 16))} rx={8} />
+                <text x={TX0 + 14} y={TY0 - 10} className="ib-layer">{th ? 'Buffer ของผู้รับ' : 'Receive buffer'}</text>
+                <text x={TX0 + TW / 2} y={TY0 + 28} textAnchor="middle" className="ib-n" style={{ fontSize: 18, fill: 'var(--fg)' }}>{th ? 'ที่ว่างเหลือ (Window)' : 'free space (window)'}</text>
+                <text x={TX0 + TW / 2} y={TY0 + 88} textAnchor="middle" style={{ fontSize: 40, fontWeight: 700, fill: curW === 0 ? 'var(--ib-bad)' : 'var(--fg)' }}>{curW.toLocaleString('en-US')}</text>
+                <text x={TX0 + TW / 2} y={TY0 + 130} textAnchor="middle" className="ib-s">{T.bytes}</text>
+                <text x={TX0 + TW / 2} y={TY0 + TH + 20} textAnchor="middle" className="ib-s">{th ? 'ส่วนที่ระบายสี = ข้อมูลที่ค้างอยู่ใน Buffer' : 'the coloured part = data waiting in the buffer'}</text>
+                {ms >= reopen && ms < reopen + 700 && <text x={TX0 + TW / 2} y={TY0 + TH + 44} textAnchor="middle" className="ib-n" style={{ fill: 'var(--k2)' }}>{th ? 'โปรแกรมผู้รับอ่านข้อมูลออกแล้ว ที่ว่างกลับมา' : 'the receiving program read the data, space is back'}</text>}
+              </g>
+            );
+          })()}
+          <g transform="translate(0,200)">
           <text x={X0} y={96} className="ib-layer">{T.chart}</text>
           <path className="ib-line" d={`M${X0},${wy(0)} L${X1},${wy(0)}`} />
           {[0, 4344, 8688].map((w) => (<g key={w}><path className="ib-line" d={`M${X0 - 6},${wy(w)} L${X0},${wy(w)}`} /><text x={X0 - 10} y={wy(w) + 5} textAnchor="end" className="ib-s">{w.toLocaleString('en-US')}</text></g>))}
@@ -89,7 +114,8 @@ export default function WindowLab({ lang = 'th' }: { lang?: Lang }) {
             <text x={X1 - 208} y={98} className="ib-s">{T.now}: {Math.round(ms)} {T.ms}</text>
             <text x={X1 - 208} y={129} className="ib-n" style={{ fontSize: 20, fill: curW === 0 ? 'var(--ib-bad)' : 'var(--fg)' }}>{curW.toLocaleString('en-US')} {T.bytes}</text>
           </g>
-          <Banner y={394} text={T.marks[current].title} />
+          </g>
+          <Banner y={594} text={T.marks[current].title} />
         </svg>
       </div>
       <ClockControls clock={clock} marks={T.marks} lang={lang} />
