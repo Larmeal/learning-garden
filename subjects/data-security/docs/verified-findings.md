@@ -2,7 +2,7 @@
 
 Every statement in a lesson is tagged **ran** (produced by an exercise in `code/exercises/` with Python 3.14.9 and `cryptography` 47.0.0 on Windows, no network), **book** (chapter and the printed
 page where it starts; `docs/sources.md` has the page offsets) or **author** (advice, framing or a guess, said so in the lesson). No source tree was read, so there is no **source** tag.
-`code/verify.py` re-runs the 11 exercises (171 checks) and exits non-zero if one changes. The people are synthetic and seeded, so the numbers repeat. Two timings
+`code/verify.py` re-runs the 12 exercises (179 checks; exercise 12 writes the real 2,000 people for the labs) and `node verify_labs.mts` (14 checks) runs the grouping and joining code of the labs on the same rows and exits non-zero if one changes. The people are synthetic and seeded, so the numbers repeat. Two timings
 (`02_pseudonymization.py`, about 1.6 s for a table of a million hashes) belong to the computer that ran them.
 
 | Lesson | Claim | Tag | Where |
@@ -44,3 +44,14 @@ page where it starts; `docs/sources.md` has the page offsets) or **author** (adv
 Homomorphic encryption and federated learning, OpenDP and other production differential privacy libraries, noise that is safe against floating point attacks, advanced composition, a real
 KMS or HSM, searchable encryption, roles and row level security of a real database, bcrypt-like products for tokenization, real vaults, GDPR and CCPA as law, attackers with sources
 other than the voter list, and any real data.
+
+## Labs (redrawn 2026-11-19)
+
+The owner said the first labs explained nothing, so all twelve were drawn again around the objects of each lesson. Where a lab shows a number it is computed in the browser from the real rows
+(`labPeople.json`, written by `exercises/12_lab_people.py`) or read from a JSON that an exercise wrote, and `verify_labs.mts` checks the browser code against the numbers of exercises 01, 03 and 04
+(0, 0, 450, 1,757, 1,992 people alone; 1,410 named and 1,409 right; 1,294, 502, 273 and 0 right with coarser keys; 1,872 cut at exact values; 38 and 10 cut at k = 5; 5 groups of 62 people with one
+diagnosis). Illustrations, not measurements: the 100 noisy answers per world in the lesson 5 lab (a fixed seed, the formula is the measured number), the noisy counts in the last column of the capstone
+lab, the three people and the random pieces of the secret sharing lab (a small modulus), the four customers and the guess list of the pseudonym lab (the hashes are real).
+
+A bug found while doing this: `06_privacy_budget.py --write` made a new random generator for every answer, so the curve of the average error was constant (8.83 for every m). It is fixed, and the lab now
+uses 200 answers of the exercise, where the error of the average is 13.1 (1 answer), 3.5 (10), 1.95 (50) and 1.29 (200).

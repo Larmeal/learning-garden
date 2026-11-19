@@ -1,93 +1,133 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ClockControls, useClock, prog, smooth, type Lang, type Mark } from '../spark/timeline';
-import { Legend } from '../iceberg/ib';
-import data from './laplace.json';
+import { Key } from './ds';
 
-// Shows:      the answer to "how many people have this diagnosis" published with Laplace noise. Two curves: the possible answers when Ann is in the table (true count 351) and when she
-//             is not (350). Press play and the noisy answers fall onto the axis one at a time. A smaller epsilon pulls the curves together (you cannot tell the two worlds apart) and
-//             pushes the answers further from the truth.
-// Because:    "differential privacy" is the claim that the two curves overlap, and the price is that the answers spread out. Both are one picture.
-// Control:    epsilon (0.1, 0.5, 1, 2, 5) and the clock. Every epsilon redraws the curves, the overlap, the bound on the ratio and the dots.
-// Conclusion: the curves differ by at most the factor e^epsilon at any point, and the average error is 1/epsilon. A small epsilon hides one person and blurs the count.
+// Shows:      two worlds that differ by one person (Ann is in the table, 351 people with the diagnosis, or she is not, 350). Both worlds answer "how many have it?" with noise added.
+//             100 answers from each world fall onto one number line and pile up, the world with Ann above the line and the world without her below. A detective sees only the number and
+//             guesses "Ann is in" when it is above the middle. The score of the detective is counted live.
+// Because:    "the answer hides whether one person is in the data" is a claim about two piles of answers that overlap. You only believe it when you see the piles line up on top of each other.
+// Control:    epsilon (0.1, 0.5, 1, 2, 5) and the clock. A small epsilon makes the piles wide and the detective's score close to a coin flip, a big one makes them narrow and the score near 100%.
+// Conclusion: the answer of the world with Ann and of the world without her look alike, and epsilon decides how alike. The detective's best score is 1/2 + 1/2 (1 - e^(-epsilon/2)).
 //
-// The curve is the Laplace density with scale 1/epsilon. The 120 answers per epsilon, the overlap and the true count are those of exercises/05_dp_basics.py (laplace.json).
+// The 100 answers per world are drawn in the browser with a fixed seed from Laplace noise of scale 1 / epsilon (the sampling of exercises/05_dp_basics.py), so they are an illustration,
+// and the detective's score on 200 answers moves a few points around the formula. The formula is the one exercises/11_capstone.py measured (69.7% at epsilon 1, 52.5% at 0.1, 95.9% at 5).
 
-type E = { scale: number; overlap: number; answers: number[] };
-const EPS = Object.keys(data.eps) as string[];
-const D = data.eps as Record<string, E>;
-const TRUE = data.true;
-const DUR = 9;
+const TRUE_WITH = 351, TRUE_WITHOUT = 350, PER = 100, NB = 24;
+const EPS = [0.1, 0.5, 1, 2, 5];
+const DUR = 9, T0 = 0.8, T1 = 7.4;
+
+// a small seeded generator, so that every reader sees the same piles
+function rng(seed: number) {
+  let a = seed >>> 0;
+  return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+const laplace = (r: () => number, mu: number, b: number) => { const u = r() - 0.5; return mu - b * Math.sign(u) * Math.log(1 - 2 * Math.abs(u)); };
+const theory = (e: number) => 0.5 + 0.5 * (1 - Math.exp(-e / 2));
 
 const TEXT: Record<Lang, {
-  title: string; eps: string; legend: { kind: 'new' | 'use' | 'skip' | 'node'; text: string }[]; with: string; without: string; bound: (e: number) => string; overlap: string; err: string; answers: string; caption: string; marks: (e: string) => Mark[]; truth: string;
+  title: string; eps: string; withAnn: string; withoutAnn: string; truth: (n: number) => string; line: string; says: { in: string; out: string }; score: (ok: number, n: number) => string; formula: (p: string, e: number) => string; coin: string;
+  key: { a: string; b: string }; caption: string; marks: (e: number) => Mark[];
 }> = {
   th: {
-    title: 'เลือกค่า Epsilon แล้วกดเล่นดูคำตอบที่มี Noise ตกลงบนแกน เส้นโค้งสองเส้นคือคำตอบที่เป็นไปได้ตอนมี Ann กับตอนไม่มี',
-    eps: 'Epsilon', legend: [{ kind: 'new', text: 'มี Ann ในตาราง (351)' }, { kind: 'use', text: 'ไม่มี Ann (350)' }],
-    with: 'มี Ann', without: 'ไม่มี Ann', bound: (e) => `ที่จุดไหนก็ตาม ความน่าจะเป็นของสองโลกต่างกันไม่เกิน ${Math.exp(e).toFixed(2)} เท่า`, overlap: 'ส่วนที่ซ้อนกันของสองเส้นโค้ง', err: 'ความคลาดเคลื่อนเฉลี่ยของคำตอบ', answers: 'คำตอบที่ปล่อยออกไป', truth: 'ค่าจริง 351',
-    caption: 'เส้นโค้งคือความหนาแน่นของ Laplace ที่มี Scale เท่ากับ 1 หารด้วย Epsilon คำตอบ 120 ค่าต่อ Epsilon ส่วนที่ซ้อนกัน และจำนวนจริง 351 มาจากแบบฝึก 05',
+    title: 'เลือก Epsilon แล้วกดเล่น ดูคำตอบที่มี Noise จากสองโลกตกลงมากองบนเส้นตัวเลขเดียวกัน แล้วดูว่าผู้ทายแยกสองโลกออกได้ไหม',
+    eps: 'Epsilon', withAnn: 'โลกที่มี Ann ในตาราง', withoutAnn: 'โลกที่ไม่มี Ann', truth: (n) => `จำนวนจริง ${n}`, line: 'ผู้ทายเห็นแค่ตัวเลข ถ้ามากกว่า 350.5 เขาทายว่ามี Ann',
+    says: { in: 'ทายว่า มี Ann', out: 'ทายว่า ไม่มี Ann' }, score: (ok, n) => `ผู้ทายทายถูก ${ok} จาก ${n} คำตอบ`, formula: (p, e) => `ทายได้ดีที่สุดที่ Epsilon ${e} คือ ${p}`, coin: 'ถ้าเดาสุ่ม 50%',
+    key: { a: 'คำตอบจากโลกที่มี Ann', b: 'คำตอบจากโลกที่ไม่มี Ann' },
+    caption: 'คำตอบ 100 ค่าต่อโลกสุ่มในเบราว์เซอร์ด้วย Noise แบบ Laplace ขนาด 1 / Epsilon และกำหนดตัวสุ่มตายตัว จึงเป็นภาพประกอบ คะแนนจากคำตอบ 200 ค่าจึงขยับรอบสูตรได้ไม่กี่เปอร์เซ็นต์ สูตรเป็นตัวเลขที่แบบฝึก 11 วัดได้ (69.7% ที่ Epsilon 1, 52.5% ที่ 0.1, 95.9% ที่ 5)',
     marks: (e) => [
-      { at: 0, name: 'สองโลก', title: 'สองตารางที่ต่างกันคนเดียว', text: `ตารางที่มี Ann นับได้ 351 ตารางที่ไม่มีเธอนับได้ 350 ทั้งสองถูกเติม Noise แบบ Laplace ด้วย Epsilon ${e}` },
-      { at: 2.0, name: 'คำตอบแรก', title: 'คำตอบแต่ละอันเป็นแค่จุดบนเส้นโค้ง', text: 'ผู้ใช้เห็นเลขเดียว ถ้าเลขนั้นอยู่ตรงที่เส้นโค้งสองเส้นซ้อนกัน เขาบอกไม่ได้ว่ามาจากโลกไหน' },
-      { at: 7.5, name: 'เห็นทั้งหมด', title: 'คำตอบทั้งหมดกระจายรอบค่าจริง', text: 'ยิ่ง Epsilon เล็ก คำตอบยิ่งกระจาย ความเป็นส่วนตัวมากขึ้นต้องแลกกับความแม่นที่น้อยลง' },
+      { at: 0, name: 'สองโลก', title: 'สองตารางที่ต่างกันคนเดียว', text: `ตารางที่มี Ann มีคนเป็นโรค ${TRUE_WITH} คน ตารางที่ไม่มีเธอมี ${TRUE_WITHOUT} คน ทั้งสองตอบคำถาม "มีกี่คน" โดยเติม Noise ที่ Epsilon ${e}` },
+      { at: 2.6, name: 'คำตอบตกลงมา', title: 'ทุกคำตอบเป็นแค่ตัวเลขหนึ่งตัว', text: 'ผู้ทายไม่รู้ว่าตัวเลขมาจากโลกไหน เขาเห็นแต่ตำแหน่งบนเส้น ตัวเลขที่ตกตรงกลางทายผิดได้ง่าย' },
+      { at: T1, name: 'ผลทาย', title: 'กองสองกองซ้อนกันมากแค่ไหน', text: e <= 0.5 ? 'สองกองแทบทับกันสนิท ผู้ทายแทบเดาสุ่ม Ann จึงซ่อนอยู่ในตัวเลขได้' : e >= 2 ? 'สองกองแยกจากกันชัด ผู้ทายทายถูกเกือบทุกครั้ง Noise ที่น้อยเกินไปซ่อน Ann ไม่ได้' : 'สองกองทับกันบางส่วน ผู้ทายทายได้ดีกว่าเดาสุ่มอยู่บ้าง นี่คือราคาของความแม่น' },
     ],
   },
   en: {
-    title: 'Choose an epsilon and press play to watch the noisy answers fall onto the axis. The two curves are the possible answers with Ann in the table and without her',
-    eps: 'Epsilon', legend: [{ kind: 'new', text: 'Ann is in the table (351)' }, { kind: 'use', text: 'Ann is not (350)' }],
-    with: 'with Ann', without: 'without Ann', bound: (e) => `At every point the probabilities of the two worlds differ by at most ${Math.exp(e).toFixed(2)} times`, overlap: 'overlap of the two curves', err: 'average error of an answer', answers: 'answers released', truth: 'true count 351',
-    caption: 'The curves are the Laplace density with scale 1 / epsilon. The 120 answers per epsilon, the overlap and the true count 351 come from exercise 05.',
+    title: 'Choose an epsilon and press play. Noisy answers from two worlds fall onto one number line, and a detective tries to tell the worlds apart',
+    eps: 'Epsilon', withAnn: 'the world with Ann in the table', withoutAnn: 'the world without Ann', truth: (n) => `true count ${n}`, line: 'The detective only sees the number. Above 350.5 he guesses Ann is in',
+    says: { in: 'guesses Ann is in', out: 'guesses Ann is out' }, score: (ok, n) => `The detective is right on ${ok} of ${n} answers`, formula: (p, e) => `The best possible at epsilon ${e} is ${p}`, coin: 'a coin flip is 50%',
+    key: { a: 'answers from the world with Ann', b: 'answers from the world without Ann' },
+    caption: 'The 100 answers per world are drawn in the browser from Laplace noise of scale 1 / epsilon with a fixed seed, so they are an illustration and the score on 200 answers moves a few points around the formula. The formula is what exercise 11 measured (69.7% at epsilon 1, 52.5% at 0.1, 95.9% at 5).',
     marks: (e) => [
-      { at: 0, name: 'two worlds', title: 'Two tables that differ by one person', text: `The table with Ann counts 351 and the table without her counts 350. Both get Laplace noise with epsilon ${e}.` },
-      { at: 2.0, name: 'first answers', title: 'Each answer is only a point on a curve', text: 'The reader sees a single number. If it lands where the two curves overlap, he cannot say which world it came from.' },
-      { at: 7.5, name: 'all of them', title: 'The answers spread around the true value', text: 'The smaller the epsilon, the wider they spread. More privacy costs accuracy.' },
+      { at: 0, name: 'two worlds', title: 'Two tables that differ by one person', text: `The table with Ann counts ${TRUE_WITH} people with the illness, the table without her counts ${TRUE_WITHOUT}. Both answer "how many?" with noise added at epsilon ${e}.` },
+      { at: 2.6, name: 'answers fall', title: 'Every answer is just one number', text: 'The detective does not know which world a number came from. He only sees where it lands, and a number in the middle is easy to get wrong.' },
+      { at: T1, name: 'the guess', title: 'How much do the two piles overlap', text: e <= 0.5 ? 'The two piles nearly sit on top of each other, so the detective is close to guessing. Ann hides inside the number.' : e >= 2 ? 'The two piles are clearly apart, so the detective is right almost every time. With too little noise Ann is not hidden.' : 'The piles overlap in part. The detective does better than a coin, and that is the price of accuracy.' },
     ],
   },
 };
 
 export default function LaplaceLab({ lang = 'th' }: { lang?: Lang }) {
   const T = TEXT[lang];
-  const [e, setE] = useState(EPS.includes('1.0') ? '1.0' : EPS[0]);
+  const [e, setE] = useState(1);
   const clock = useClock(DUR);
   const { t } = clock;
-  const d = D[e];
-  const b = d.scale;
-  const lo = TRUE - 6 * Math.max(b, 1.2), hi = TRUE + 6 * Math.max(b, 1.2);
-  const X = (v: number) => 40 + ((v - lo) / (hi - lo)) * 800;
-  const f = (x: number, c: number) => Math.exp(-Math.abs(x - c) / b) / (2 * b);
-  const peak = 1 / (2 * b);
-  const Y = (p: number) => 250 - (p / peak) * 170;
-  const path = (c: number) => Array.from({ length: 161 }, (_, i) => lo + ((hi - lo) * i) / 160).map((x, i) => `${i ? 'L' : 'M'}${X(x).toFixed(1)},${Y(f(x, c)).toFixed(1)}`).join(' ');
-  const n = Math.floor(smooth(prog(t, 1.2, 8)) * d.answers.length);
-  const shown = d.answers.slice(0, n);
-  const meanErr = shown.length ? shown.reduce((s, a) => s + Math.abs(a - TRUE), 0) / shown.length : 0;
-  const epsN = Number(e);
+  const b = 1 / e;
+  const lo = TRUE_WITH - 6 * b - 0.5, hi = TRUE_WITH + 6 * b - 0.5, bw = (hi - lo) / NB;
+  const data = useMemo(() => {
+    const r = rng(7919 + Math.round(e * 100));
+    return { A: Array.from({ length: PER }, () => laplace(r, TRUE_WITH, b)), B: Array.from({ length: PER }, () => laplace(r, TRUE_WITHOUT, b)) };
+  }, [e, b]);
+  const L = 70, R = 860, AX = 244;
+  const X = (v: number) => L + ((Math.min(hi - 1e-9, Math.max(lo, v)) - lo) / (hi - lo)) * (R - L);
+  const binOf = (v: number) => Math.min(NB - 1, Math.max(0, Math.floor((v - lo) / bw)));
+  // the order in which the answers fall: one from each world in turn
+  const order = useMemo(() => Array.from({ length: PER * 2 }, (_, j) => ({ world: j % 2 === 0 ? 'A' : 'B', v: (j % 2 === 0 ? data.A : data.B)[Math.floor(j / 2)] })), [data]);
+  const tj = (j: number) => T0 + ((T1 - T0) * j) / (PER * 2);
+  const fall = 0.45;
+  // the height of each answer in its pile is fixed by the order of falling, so it does not jump when the clock moves
+  const heights = useMemo(() => {
+    const c: Record<string, number[]> = { A: Array(NB).fill(0), B: Array(NB).fill(0) };
+    return order.map((o) => c[o.world][binOf(o.v)]++);
+  }, [order, lo, bw]); // eslint-disable-line react-hooks/exhaustive-deps
+  const maxStack = Math.max(...heights) + 1;
+  const step = Math.min(10, 135 / maxStack);
+  const dotR = Math.max(2.4, Math.min(5, step / 2 - 0.4));
+  const f = (j: number) => smooth(prog(t, tj(j), tj(j) + fall));
+  const mid = 350.5;
+  const landed = order.map((o, j) => ({ o, j })).filter(({ j }) => f(j) >= 1);
+  const ok = landed.filter(({ o }) => (o.world === 'A' ? o.v > mid : o.v <= mid)).length;
+  const share = landed.length ? ok / landed.length : 0.5;
+  const barW = 400;
+  const th = theory(e);
   return (
     <figure className="viz ib-fig lg">
       <div className="viz-title">{T.title}</div>
-      <Legend items={T.legend} />
       <div className="ib-controls">
         <span className="ib-lbl">{T.eps}</span>
         <span className="seg" role="group" aria-label={T.eps}>
           {EPS.map((x) => <button key={x} type="button" aria-pressed={e === x} onClick={() => { setE(x); clock.restart(); }}>{x}</button>)}
         </span>
       </div>
+      <Key items={[{ color: 'var(--accent)', text: T.key.a }, { color: 'var(--muted)', text: T.key.b }]} />
       <div className="viz-box">
-        <svg viewBox="0 0 880 400" role="img" aria-label={T.title}>
-          <path d={path(TRUE - 1)} fill="none" style={{ stroke: 'var(--muted)', strokeWidth: 3, strokeDasharray: '7 5' }} />
-          <path d={path(TRUE)} fill="none" style={{ stroke: 'var(--accent)', strokeWidth: 4 }} />
-          <line x1={40} y1={250} x2={840} y2={250} className="ib-line" style={{ strokeWidth: 2 }} />
-          <line x1={X(TRUE)} y1={70} x2={X(TRUE)} y2={256} style={{ stroke: 'var(--fg)', strokeWidth: 1.5, strokeDasharray: '3 4' }} />
-          <text x={X(TRUE)} y={62} textAnchor="middle" className="ib-s">{T.truth}</text>
-          {shown.map((a, i) => (
-            <circle key={i} cx={X(Math.max(lo, Math.min(hi, a)))} cy={238 - (i % 7) * 9} r={5} className="ib-new" style={{ opacity: 0.8 }} />
-          ))}
-          <text x={40} y={286} className="ib-s">{`${lo.toFixed(0)}`}</text>
-          <text x={840} y={286} textAnchor="end" className="ib-s">{`${hi.toFixed(0)}`}</text>
-          <rect className="ib-banner" x={14} y={304} width={852} height={84} rx={10} />
-          <text x={30} y={332} className="ib-n" style={{ fontWeight: 700 }}>{T.bound(epsN)}</text>
-          <text x={30} y={358} className="ib-n">{`${T.overlap}: ${(d.overlap * 100).toFixed(1)}%   ·   ${T.err}: ${b.toFixed(1)}   ·   ${T.answers}: ${shown.length} (${T.err}: ${meanErr.toFixed(1)})`}</text>
-          <text x={30} y={380} className="ib-s">{`${T.with}: ───    ${T.without}: - - -`}</text>
+        <svg viewBox="0 0 880 584" role="img" aria-label={T.title}>
+          <text x={L} y={22} className="ib-n" style={{ fontWeight: 700, fontSize: 16 }}>{T.withAnn}</text>
+          {/* the number line */}
+          <line x1={L} y1={AX} x2={R} y2={AX} stroke="var(--fg)" strokeWidth={2} />
+          {[0, 6, 12, 18, 24].map((k) => { const v = lo + bw * k; return <g key={k}><line x1={X(v)} y1={AX - 5} x2={X(v)} y2={AX + 5} stroke="var(--fg)" strokeWidth={2} /><text x={X(v)} y={AX + 22} textAnchor="middle" style={{ fontSize: 14, fill: 'var(--muted)' }}>{v.toFixed(e >= 2 ? 1 : 0)}</text></g>; })}
+          {/* true values and the detective's line */}
+          <line x1={X(TRUE_WITH)} y1={36} x2={X(TRUE_WITH)} y2={AX} stroke="var(--accent)" strokeWidth={2} strokeDasharray="4 5" />
+          <text x={X(TRUE_WITH) + 6} y={AX - 168} style={{ fontSize: 14, fill: 'var(--accent)', fontWeight: 700 }}>{T.truth(TRUE_WITH)}</text>
+          <line x1={X(TRUE_WITHOUT)} y1={AX} x2={X(TRUE_WITHOUT)} y2={AX + 214} stroke="var(--muted)" strokeWidth={2} strokeDasharray="4 5" />
+          <text x={X(TRUE_WITHOUT) - 6} y={AX + 208} textAnchor="end" style={{ fontSize: 14, fill: 'var(--muted)', fontWeight: 700 }}>{T.truth(TRUE_WITHOUT)}</text>
+          <line x1={X(mid)} y1={40} x2={X(mid)} y2={AX + 214} stroke="var(--ib-bad)" strokeWidth={3} />
+          <text x={R} y={22} textAnchor="end" style={{ fontSize: 14, fill: 'var(--ib-bad)', fontWeight: 700 }}>{T.line}</text>
+          <text x={X(mid) + 8} y={56} style={{ fontSize: 14, fill: 'var(--ib-bad)' }}>{`→ ${T.says.in}`}</text>
+          <text x={X(mid) - 8} y={AX + 186} textAnchor="end" style={{ fontSize: 14, fill: 'var(--ib-bad)' }}>{`${T.says.out} ←`}</text>
+          <text x={L} y={AX + 186} className="ib-n" style={{ fontWeight: 700, fontSize: 16 }}>{T.withoutAnn}</text>
+          {/* the answers */}
+          {order.map((o, j) => {
+            const p = f(j);
+            if (p <= 0) return null;
+            const y = o.world === 'A' ? AX - 9 - heights[j] * step - (1 - p) * 70 : AX + 9 + heights[j] * step + (1 - p) * 70;
+            return <circle key={j} cx={X(lo + (binOf(o.v) + 0.5) * bw)} cy={y} r={dotR} style={{ fill: o.world === 'A' ? 'var(--accent)' : 'var(--muted)', opacity: p }} />;
+          })}
+          {/* the score */}
+          <rect x={6} y={AX + 224} width={868} height={100} rx={12} className="ib-banner" />
+          <text x={22} y={AX + 254} style={{ fontSize: 18, fontWeight: 700 }}>{T.score(ok, landed.length)}</text>
+          <rect x={22} y={AX + 268} width={barW} height={16} rx={8} fill="var(--accent-soft)" stroke="var(--line-strong)" />
+          <rect x={22} y={AX + 268} width={Math.max(4, barW * share)} height={16} rx={8} fill={share > 0.8 ? 'var(--ib-bad)' : 'var(--accent)'} />
+          <line x1={22 + barW * 0.5} y1={AX + 264} x2={22 + barW * 0.5} y2={AX + 288} stroke="var(--fg)" strokeWidth={2} />
+          <text x={22 + barW + 12} y={AX + 282} style={{ fontSize: 17, fontWeight: 700 }}>{landed.length ? `${(share * 100).toFixed(0)}%` : '–'}</text>
+          <text x={22} y={AX + 312} className="ib-s" style={{ fontSize: 14.5 }}>{`${T.coin}  ·  ${T.formula(`${(th * 100).toFixed(1)}%`, e)}`}</text>
         </svg>
       </div>
       <ClockControls clock={clock} marks={T.marks(e)} lang={lang} />

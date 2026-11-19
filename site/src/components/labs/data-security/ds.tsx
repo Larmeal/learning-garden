@@ -48,3 +48,28 @@ export function Row({ children, gap = 12 }: { children: ReactNode; gap?: number 
 
 export const pct = (x: number, n: number) => `${((x / n) * 100).toFixed(x / n < 0.1 && x > 0 ? 1 : 0)}%`;
 export const num = (x: number) => x.toLocaleString('en-US');
+
+// A row of legend chips for the pictures that are drawn with plain colours: a dot of the colour, then what it means.
+export function Key({ items }: { items: { color: string; text: string; ring?: boolean; faded?: boolean }[] }) {
+  return (
+    <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', margin: '4px 0 10px', fontSize: 15 }}>
+      {items.map((it) => (
+        <span key={it.text} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ width: 16, height: 16, borderRadius: '50%', background: it.ring ? 'transparent' : it.color, border: it.ring ? `3px solid ${it.color}` : '1px solid var(--line-strong)', opacity: it.faded ? 0.35 : 1, display: 'inline-block' }} />
+          {it.text}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// A person drawn as a head and shoulders, centred on (cx, cy) with the head radius r. Used wherever the lesson talks about "a person".
+export function PersonGlyph({ cx, cy, r = 16, fill = 'var(--accent)', stroke = 'var(--line-strong)', op = 1, ring }: { cx: number; cy: number; r?: number; fill?: string; stroke?: string; op?: number; ring?: string }) {
+  return (
+    <g opacity={op}>
+      {ring ? <circle cx={cx} cy={cy + r * 0.6} r={r * 2.1} fill="none" stroke={ring} strokeWidth={3} /> : null}
+      <path d={`M ${cx - r * 1.5} ${cy + r * 2.5} Q ${cx - r * 1.5} ${cy + r * 0.9} ${cx} ${cy + r * 0.9} Q ${cx + r * 1.5} ${cy + r * 0.9} ${cx + r * 1.5} ${cy + r * 2.5} Z`} fill={fill} stroke={stroke} strokeWidth={1.5} />
+      <circle cx={cx} cy={cy} r={r * 0.75} fill={fill} stroke={stroke} strokeWidth={1.5} />
+    </g>
+  );
+}

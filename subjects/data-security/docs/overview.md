@@ -19,13 +19,13 @@ quiz and one or two animated labs. Everything runs on 2,000 synthetic people on 
 | 10 | The life of data, with consent, retention and deletion | D | `LineageLab` |
 | 11 | Capstone, releasing a table safely | D | `ReleaseLab` |
 
-Twelve labs in `site/src/components/labs/data-security/`. One is a clock lab (`LaplaceLab`), two are step labs (`EnvelopeLab`, `PsiLab`) and nine are controls and a picture. `ds.tsx` has the shared
-pieces (`Card`, `Bar`, `Cells`). `LineageLab` is an SVG. The grid of 100 squares (one square is 20 people) is the same measure in the labs of lessons 1, 3 and 11.
+Twelve labs in `site/src/components/labs/data-security/`. Four are clock labs (`PseudonymLab`, `LaplaceLab`, `SecretShareLab`, `LineageLab`), two are step labs (`EnvelopeLab`, `PsiLab`) and six have controls and a picture. Each draws what its lesson talks about (a crowd of 2,000 dots, a guess list hitting a table, voters piling up beside an anonymous row, blocks of people, two piles of noisy answers, a running average and a jar of coins, chests and keys, a table seen by three roles, pieces handed between people, padlocked boxes, a delete request travelling a graph, four parcels side by side). `ds.tsx` has the shared
+pieces (`Key` legend, `PersonGlyph`) and `peopleLib.ts` groups and joins the real people in the browser.
 
 ## Code
 
 `subjects/data-security/code/` is its own `uv` project (Python 3.12 or newer, `cryptography` 47.0.0). `dslab.py` has `check`, `show` and `done` and `people.py` makes the synthetic people and a voter list.
-Exercises `01` to `11` assert what the lessons print and `verify.py` re-runs them. Every exercise takes `--write` and saves the JSON that a lab reads
+Exercises `01` to `12` assert what the lessons print and `verify.py` re-runs them. Every exercise takes `--write` and saves the JSON that a lab reads
 (`identifiability.json`, `pseudonym.json`, `linkage.json`, `kanon.json`, `laplace.json`, `budget.json`, `envelope.json`, `access.json`, `securecomp.json`, `lifecycle.json`, `release.json`).
 
 ## Backlog

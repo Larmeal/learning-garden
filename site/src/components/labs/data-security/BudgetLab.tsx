@@ -1,84 +1,118 @@
 import { useState } from 'react';
-import { Legend } from '../iceberg/ib';
 import type { Lang } from '../spark/stepper';
-import { Bar, Card, Row, num } from './ds';
+import { Key } from './ds';
 import data from './budget.json';
 
-// Shows:      two things that spend a privacy budget. Left: one total epsilon of 1 split over k queries, so each answer has noise k times larger. Right: an attacker who asks the same
-//             question again and again and averages the answers, with fresh noise each time (the error melts away) or with a stored answer (nothing is gained).
-// Because:    the budget is only visible as a number that runs out, and the repeated question is the attack the budget exists to stop.
-// Control:    the number of queries k (slider) and the mode of the repeated question (fresh noise, stored answer) with the number of repeats m (slider).
-// Conclusion: noise per query grows with the number of queries, and fresh noise on the same question can be averaged away, so epsilon has to be added up (or the answer stored).
+// Shows:      the same question ("how many people have this diagnosis?") asked again and again. Each answer is one dot with noise (epsilon 0.1 each, a real answer of exercise 06), and the blue
+//             line is the running average of everything asked so far. On the left the machine answers every time: the average walks onto the true count. On the right the machine has a budget of
+//             epsilon 1, a jar of ten coins: each answer takes one coin, and when the jar is empty the machine refuses.
+// Because:    "each answer is noisy, so it is safe" is false for the second answer, and the third. Only when you see the average close in on the truth do you see why someone has to count the epsilon.
+// Control:    how many times the question is asked (1, 10, 50, 200). Both panels use the same answers, so the only difference is the jar.
+// Conclusion: noise protects one answer, not a stream of answers. A budget stops the stream, and what a fixed budget buys is a small number of questions or a lot of noise per question.
 //
-// The averaged error by number of repeats comes from exercises/06_privacy_budget.py (budget.json, 30 repetitions per point, epsilon 0.1 each, true count 351).
+// The 200 answers are the first 200 of exercise 06 (budget.json: true count 351, epsilon 0.1 per answer, Laplace scale 10). The jar of ten coins is the accountant of the exercise (epsilon 1 in total,
+// 0.1 per query, it refuses the 11th). The strip at the bottom is the exercise's split of a total epsilon of 1 over q queries (error 1, 2, 5, 10, 50, 100 per query).
 
-type P = { m: number; error: number };
-const CURVE = data.avgCurve as P[];
-const TRUE = data.true;
+const TRUE = data.true as number;
+const ANSWERS = data.firstAnswers as number[];
+const SPLIT = data.split as Record<string, number>;
+const COINS = 10;
+const MS = [1, 10, 50, 200];
+const LO = 306, HI = 396;
 
 const TEXT: Record<Lang, {
-  title: string; k: string; m: string; mode: string; fresh: string; stored: string; legend: { kind: 'new' | 'use' | 'skip' | 'node'; text: string }[]; leftTitle: string; rightTitle: string;
-  each: string; err: string; rel: (p: number) => string; spent: string; avgErr: string; stillNoisy: string; known: string; caption: string; budget: string;
+  title: string; times: string; left: string; leftSub: string; right: string; rightSub: string; truth: string; avg: string; refused: string; jar: string; spentLabel: (e: string) => string; err: (n: number) => string;
+  strip: string; qs: (q: string) => string; concl: (m: number, l: string, r: string, spent: number) => string; key: { dot: string; avg: string; jar: string }; caption: string;
 }> = {
   th: {
-    title: 'ลากจำนวนคำถามเพื่อดูว่า Epsilon รวม 1 ถูกแบ่งแล้วแต่ละคำตอบเพี้ยนเท่าไร และลองถามคำถามเดิมซ้ำเพื่อดูว่า Noise หายไปเมื่อเฉลี่ยหรือไม่',
-    k: 'จำนวนคำถามที่แบ่ง Epsilon 1', m: 'ถามคำถามเดิมซ้ำ', mode: 'คำตอบ', fresh: 'Noise ใหม่ทุกครั้ง', stored: 'ใช้คำตอบที่เก็บไว้',
-    legend: [{ kind: 'new', text: 'ความคลาดเคลื่อน' }, { kind: 'use', text: 'งบที่ใช้ไป' }],
-    leftTitle: 'แบ่งงบ Epsilon 1 ให้หลายคำถาม', rightTitle: 'ถามคำถามเดียวซ้ำ ๆ (Epsilon 0.1 ต่อครั้ง)',
-    each: 'Epsilon ต่อคำถาม', err: 'ความคลาดเคลื่อนเฉลี่ยต่อคำตอบ', rel: (p) => `คิดเป็น ${p.toFixed(p < 10 ? 1 : 0)}% ของค่าจริง 351`, spent: 'Epsilon ที่ใช้ไปรวม', avgErr: 'ความคลาดเคลื่อนของค่าเฉลี่ย', stillNoisy: 'คำตอบที่เก็บไว้มี Noise ก้อนเดิมก้อนเดียว เฉลี่ยกี่ครั้งก็ไม่ใกล้ความจริงขึ้น', known: 'ผู้โจมตีรู้ค่าจริงเกือบเป๊ะ แต่จ่าย Epsilon ไปแล้ว', budget: 'งบรวม 1',
-    caption: 'ความคลาดเคลื่อนของค่าเฉลี่ยตามจำนวนครั้งที่ถามซ้ำ (เฉลี่ยจาก 30 รอบ) มาจากแบบฝึก 06 ส่วนฝั่งซ้ายเป็นสูตร Scale เท่ากับ 1 หารด้วย Epsilon ต่อคำถาม',
+    title: 'เลือกจำนวนครั้งที่ถามคำถามเดิมซ้ำ แล้วดูว่าค่าเฉลี่ยของคำตอบที่มี Noise เดินเข้าหาความจริงอย่างไร และงบ Epsilon หยุดมันได้ตอนไหน',
+    times: 'ถามซ้ำ', left: 'เครื่องตอบทุกครั้ง', leftSub: 'ไม่มีงบ ถามได้ไม่จำกัด', right: 'เครื่องมีงบ Epsilon 1', rightSub: 'คำตอบละ 0.1 (เหรียญ 1 อัน) หมดแล้วปฏิเสธ',
+    truth: 'จำนวนจริง', avg: 'ค่าเฉลี่ยจนถึงตอนนี้', refused: 'งบหมด ปฏิเสธทุกคำถาม', jar: 'เหรียญงบ', spentLabel: (e) => `ใช้งบไปแล้ว ε ${e}`, err: (n) => `ค่าเฉลี่ยคลาดจากความจริง ${n.toFixed(1)}`,
+    strip: 'แบ่งงบรวม 1 ให้หลายข้อ ความคลาดของแต่ละข้อเพิ่มตามจำนวนข้อ', qs: (q) => `ถาม ${q} ข้อ`,
+    concl: (m, l, r, s) => `ถามซ้ำ ${m} ครั้ง: ฝั่งไม่มีงบ ค่าเฉลี่ยคลาด ${l} ฝั่งมีงบ ค่าเฉลี่ยคลาด ${r} (ใช้งบไป ${s.toFixed(1)} จาก 1)`,
+    key: { dot: 'คำตอบหนึ่งครั้ง (มี Noise)', avg: 'ค่าเฉลี่ยของคำตอบทั้งหมดจนถึงตอนนี้', jar: 'งบที่ใช้ไปแล้ว' },
+    caption: 'คำตอบ 200 ค่าเป็น 200 ค่าแรกของแบบฝึก 06 (จำนวนจริง 351 คน Epsilon 0.1 ต่อคำตอบ) ถังเหรียญคือตัวนับงบของแบบฝึก (รวม 1 ใช้ครั้งละ 0.1 ปฏิเสธข้อที่ 11) และแถบล่างคือที่แบบฝึกคำนวณว่าการแบ่งงบรวม 1 ให้ q ข้อ ทำให้ความคลาดต่อข้อเป็น q เท่า',
   },
   en: {
-    title: 'Slide the number of queries to see how a total epsilon of 1 is split and how far each answer drifts, and ask the same question again to see whether the noise averages away',
-    k: 'queries that share epsilon 1', m: 'repeats of the same question', mode: 'answers', fresh: 'fresh noise each time', stored: 'stored answer',
-    legend: [{ kind: 'new', text: 'error' }, { kind: 'use', text: 'budget spent' }],
-    leftTitle: 'Splitting a budget of epsilon 1 over many queries', rightTitle: 'Asking one question again and again (epsilon 0.1 each time)',
-    each: 'epsilon per query', err: 'average error of each answer', rel: (p) => `${p.toFixed(p < 10 ? 1 : 0)}% of the true count 351`, spent: 'total epsilon spent', avgErr: 'error of the average', stillNoisy: 'The stored answer holds one piece of noise. Averaging it any number of times gets no closer to the truth.', known: 'The attacker knows the true count almost exactly, but the epsilon is spent.', budget: 'total budget 1',
-    caption: 'The error of the average by number of repeats (30 repetitions per point) comes from exercise 06. The left side is the formula scale = 1 / epsilon per query.',
+    title: 'Choose how many times the same question is asked, and watch the average of the noisy answers walk onto the truth, and the epsilon budget stop it',
+    times: 'asked', left: 'the machine answers every time', leftSub: 'no budget, ask as often as you like', right: 'the machine has a budget of epsilon 1', rightSub: 'a coin (0.1) per answer, then it refuses',
+    truth: 'true count', avg: 'average so far', refused: 'budget spent, every question refused', jar: 'budget coins', spentLabel: (e) => `budget spent so far: ε ${e}`, err: (n) => `the average is off by ${n.toFixed(1)}`,
+    strip: 'Splitting the total epsilon of 1 over several questions: the error of each grows', qs: (q) => `${q} ${q === '1' ? 'question' : 'questions'}`,
+    concl: (m, l, r, s) => `Asked ${m} times: with no budget the average is off by ${l}, with the budget it is off by ${r} (${s.toFixed(1)} of 1 spent)`,
+    key: { dot: 'one answer (with noise)', avg: 'average of all the answers so far', jar: 'budget already spent' },
+    caption: 'The 200 answers are the first 200 of exercise 06 (true count 351, epsilon 0.1 per answer). The jar of coins is the accountant of the exercise (1 in total, 0.1 per query, it refuses the 11th), and the strip at the bottom is what the exercise computed for splitting a total epsilon of 1 over q queries: q times the error per query.',
   },
 };
 
 export default function BudgetLab({ lang = 'th' }: { lang?: Lang }) {
   const T = TEXT[lang];
-  const [k, setK] = useState(10);
-  const [mi, setMi] = useState(5); // index into CURVE
-  const [fresh, setFresh] = useState(true);
-  const perQ = 1 / k;
-  const errQ = k;
-  const pt = CURVE[mi];
-  const first = CURVE[0].error;
-  const avgErr = fresh ? pt.error : first;
+  const [m, setM] = useState(10);
+  const rowH = Math.min(7.4, 250 / m), y0 = 118;
+  const panel = (x0: number, limit: number, budget: boolean) => {
+    const W = 410;
+    const X = (v: number) => x0 + 14 + ((Math.min(HI, Math.max(LO, v)) - LO) / (HI - LO)) * (W - 28);
+    const used = Math.min(m, limit);
+    const means: number[] = [];
+    let sum = 0;
+    for (let j = 0; j < used; j++) { sum += ANSWERS[j]; means.push(sum / (j + 1)); }
+    const err = used ? Math.abs(means[used - 1] - TRUE) : 0;
+    const spent = budget ? Math.min(m, COINS) * 0.1 : m * 0.1;
+    const pts = means.map((v, j) => `${X(v).toFixed(1)},${(y0 + j * rowH).toFixed(1)}`).join(' ');
+    return { X, used, err, spent, pts, W, means };
+  };
+  const L = panel(6, 200, false), R = panel(450, COINS, true);
+  const drawPanel = (p: ReturnType<typeof panel>, x0: number, budget: boolean) => (
+    <g>
+      <rect x={x0} y={6} width={p.W + 14} height={394} rx={14} fill="var(--surface)" stroke={budget ? 'var(--accent)' : 'var(--ib-bad)'} strokeWidth={2.5} />
+      <text x={x0 + 14} y={32} className="ib-n" style={{ fontWeight: 700, fontSize: 17 }}>{budget ? T.right : T.left}</text>
+      <text x={x0 + 14} y={54} className="ib-s" style={{ fontSize: 14 }}>{budget ? T.rightSub : T.leftSub}</text>
+      {budget ? (
+        <g>
+          {Array.from({ length: COINS }, (_, c) => (
+            <circle key={c} cx={x0 + 28 + c * 31} cy={78} r={11} style={{ fill: c < Math.min(m, COINS) ? 'var(--ib-bad)' : 'var(--accent-soft)', stroke: 'var(--line-strong)', strokeWidth: 1.5, transition: 'fill .3s' }} />
+          ))}
+        </g>
+      ) : (
+        <text x={x0 + 14} y={82} className="ib-n" style={{ fontSize: 15, fontWeight: 700 }}>{T.spentLabel((m * 0.1).toFixed(1))}</text>
+      )}
+      <line x1={p.X(TRUE)} y1={96} x2={p.X(TRUE)} y2={380} stroke="var(--fg)" strokeWidth={2} strokeDasharray="5 5" />
+      <text x={p.X(TRUE)} y={110} textAnchor="middle" style={{ fontSize: 14, fontWeight: 700 }}>{`${T.truth} ${TRUE}`}</text>
+      {ANSWERS.slice(0, p.used).map((a, j) => <circle key={j} cx={p.X(a)} cy={y0 + j * rowH} r={m > 60 ? 1.7 : 2.9} style={{ fill: 'var(--muted)' }} />)}
+      {p.used > 1 ? <polyline points={p.pts} fill="none" stroke="var(--accent)" strokeWidth={3.5} strokeLinejoin="round" /> : null}
+      {p.used >= 1 ? <circle cx={p.X(p.means[p.used - 1])} cy={y0 + (p.used - 1) * rowH} r={6} style={{ fill: 'var(--accent)', stroke: 'var(--surface)', strokeWidth: 2 }} /> : null}
+      {budget && m > COINS ? (
+        <g>
+          <rect x={x0 + 14} y={y0 + COINS * rowH + 10} width={p.W - 28} height={Math.max(60, 366 - (y0 + COINS * rowH + 14))} rx={10} fill="color-mix(in srgb, var(--ib-bad) 12%, var(--surface))" stroke="var(--ib-bad)" strokeWidth={2.5} />
+          <text x={x0 + p.W / 2 + 7} y={(y0 + COINS * rowH + 10 + 366) / 2} textAnchor="middle" style={{ fontSize: 17, fontWeight: 700, fill: 'var(--ib-bad)' }}>{`✗ ${T.refused}`}</text>
+        </g>
+      ) : null}
+      <text x={x0 + 14} y={388} style={{ fontSize: 15.5, fontWeight: 700, fill: budget ? 'var(--fg)' : 'var(--ib-bad)' }}>{T.err(p.err)}</text>
+    </g>
+  );
   return (
-    <figure className="viz ib-fig">
+    <figure className="viz ib-fig lg">
       <div className="viz-title">{T.title}</div>
-      <Legend items={T.legend} />
-      <Row>
-        <Card style={{ flex: '1 1 320px' }}>
-          <div style={{ fontWeight: 700, marginBottom: 6 }}>{T.leftTitle}</div>
-          <label className="ib-lbl">{`${T.k}: ${k}`}{' '}
-            <input type="range" min={1} max={100} value={k} onChange={(e) => setK(Number(e.target.value))} aria-label={T.k} style={{ width: 200 }} />
-          </label>
-          <Bar label={T.each} value={perQ} max={1} text={perQ.toFixed(perQ < 0.1 ? 3 : 2)} />
-          <Bar label={T.err} value={errQ} max={100} text={num(errQ)} bad />
-          <div style={{ fontSize: 14, color: errQ > 35 ? 'var(--ib-bad)' : 'var(--muted)', fontWeight: 700 }}>{T.rel((errQ / TRUE) * 100)}</div>
-        </Card>
-        <Card style={{ flex: '1 1 320px' }}>
-          <div style={{ fontWeight: 700, marginBottom: 6 }}>{T.rightTitle}</div>
-          <div className="ib-controls" style={{ flexWrap: 'wrap', margin: '0 0 6px' }}>
-            <span className="ib-lbl">{T.mode}</span>
-            <span className="seg" role="group" aria-label={T.mode}>
-              <button type="button" aria-pressed={fresh} onClick={() => setFresh(true)}>{T.fresh}</button>
-              <button type="button" aria-pressed={!fresh} onClick={() => setFresh(false)}>{T.stored}</button>
-            </span>
-          </div>
-          <label className="ib-lbl">{`${T.m}: ${num(pt.m)}`}{' '}
-            <input type="range" min={0} max={CURVE.length - 1} value={mi} onChange={(e) => setMi(Number(e.target.value))} aria-label={T.m} style={{ width: 200 }} />
-          </label>
-          <Bar label={T.avgErr} value={avgErr} max={first} text={avgErr.toFixed(2)} bad={!fresh || avgErr > 3} />
-          <Bar label={T.spent} value={fresh ? pt.m * 0.1 : 0.1} max={200} text={`${(fresh ? pt.m * 0.1 : 0.1).toFixed(1)}  (${T.budget})`} />
-          <div style={{ fontSize: 14, fontWeight: 700, color: fresh && avgErr < 2 ? 'var(--ib-bad)' : 'var(--muted)' }}>{fresh ? (avgErr < 2 ? T.known : '') : T.stillNoisy}</div>
-        </Card>
-      </Row>
+      <div className="ib-controls">
+        <span className="ib-lbl">{T.times}</span>
+        <span className="seg" role="group" aria-label={T.times}>{MS.map((x) => <button key={x} type="button" aria-pressed={m === x} onClick={() => setM(x)}>{x}</button>)}</span>
+      </div>
+      <Key items={[{ color: 'var(--muted)', text: T.key.dot }, { color: 'var(--accent)', text: T.key.avg }, { color: 'var(--ib-bad)', text: T.key.jar }]} />
+      <div className="viz-box">
+        <svg viewBox="0 0 880 570" role="img" aria-label={T.title}>
+          {drawPanel(L, 6, false)}
+          {drawPanel(R, 450, true)}
+          <text x={10} y={426} className="ib-n" style={{ fontWeight: 700, fontSize: 15 }}>{T.strip}</text>
+          {Object.entries(SPLIT).map(([q, e], i) => (
+            <g key={q}>
+              <rect x={10 + i * 144} y={438} width={136} height={50} rx={10} fill="var(--surface)" stroke="var(--line-strong)" strokeWidth={1.5} />
+              <text x={10 + i * 144 + 68} y={459} textAnchor="middle" className="ib-s" style={{ fontSize: 13.5 }}>{T.qs(q)}</text>
+              <text x={10 + i * 144 + 68} y={480} textAnchor="middle" style={{ fontSize: 17, fontWeight: 700 }}>{`± ${e}`}</text>
+            </g>
+          ))}
+          <rect x={6} y={500} width={868} height={60} rx={12} className="ib-banner" />
+          <text x={22} y={536} className="ib-n" style={{ fontWeight: 700, fontSize: 15.5 }}>{T.concl(m, L.err.toFixed(1), R.err.toFixed(1), R.spent)}</text>
+        </svg>
+      </div>
       <figcaption className="viz-caption">{T.caption}</figcaption>
     </figure>
   );
