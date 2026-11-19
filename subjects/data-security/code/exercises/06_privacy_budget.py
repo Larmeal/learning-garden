@@ -137,8 +137,11 @@ if "--write" in sys.argv:
     OUT.parent.mkdir(parents=True, exist_ok=True)
     avg_curve = []
     for m in (1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000):
-        errs = [abs(sum(laplace(random.Random(s), 10) for _ in range(m)) / m) for s in range(30)]
+        errs = []
+        for s in range(30):
+            r = random.Random(s)  # one generator per repetition, so the m answers are different draws
+            errs.append(abs(sum(laplace(r, 10) for _ in range(m)) / m))
         avg_curve.append({"m": m, "error": round(sum(errs) / len(errs), 2)})
-    OUT.write_text(json.dumps({"true": TRUE, "avgCurve": avg_curve, "firstAnswers": [round(a, 1) for a in answers[:40]], "split": {str(k): v for k, v in split.items()}}, indent=1), encoding="utf-8")
+    OUT.write_text(json.dumps({"true": TRUE, "avgCurve": avg_curve, "firstAnswers": [round(a, 1) for a in answers[:200]], "split": {str(k): v for k, v in split.items()}}, indent=1), encoding="utf-8")
     print(f"wrote {OUT}")
 done()
