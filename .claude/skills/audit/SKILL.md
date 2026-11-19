@@ -55,7 +55,7 @@ Work on notes with `status: "open"`. A note whose last reply is from `you` is a 
   `site/`) lists what is out of step.
 - Do not rename a heading without searching the lessons for links to its old id (CLAUDE.md, "Links between lessons").
 - Every mention of another lesson must be a link: `npm run check:refs` (from `site/`) must print 0 references that are not links (see CLAUDE.md, "Links between lessons").
-- `npm run build` from `site/` must pass. Add a line to `CHANGELOG.md` for a change a reader can see.
+- `npm run build` from `site/` must pass. A change a reader can see goes into the commit subject (`fix(spark): ...`, `docs(git): ...`), because `CHANGELOG.md` is made from the commit messages (CLAUDE.md, "Commits and the changelog").
 - Do not commit or push unless the owner asks in that turn.
 
 ## 5. Answer in the file

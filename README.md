@@ -107,6 +107,24 @@ None of these are part of a build, so they never reach the published site.
 - **Notes** (speech bubble in the Astro dev toolbar): click a part of a page or select text, write what is wrong, and the note is saved to `.audit/comments.json` with where it points (the lesson file, the component, the viewport, the theme). The folder is created on the first note and is git-ignored because the repo is public. Code is in `site/dev-notes/`.
 - **Ask** (question mark in the Astro dev toolbar): highlight text on a lesson page and ask Claude what it means, with shortcut buttons for "what does it mean", "an example", "why" and "quiz me". The answer streams into a panel beside the page, in the style of the Claude Code chat: files that Claude reads show as cards you can open, code blocks have a Copy button, you can choose the model, drag the panel wider, move it to the other side, and it follows the site's light or dark theme. It starts the `claude` program of your own computer (install [Claude Code](https://code.claude.com/docs/en/overview) and log in once), so it uses your own Claude Code login, and without it the app says it cannot find `claude`. It stores no chat of its own: the ☰ button lists the sessions that Claude Code already keeps for this folder (`~/.claude/projects/`, which it only reads, apart from renaming), and you can open one, including a chat started in the VS Code extension, and carry on. You can rename a chat (double-click its name, or the pencil in the list): that adds a title line to its session file, which is what `/rename` does, so the new name shows in Claude Code too. Claude can read the repo but cannot edit a file or run a command, and the app switches itself off when the dev server is started with `--host`. Each question counts against your plan like any Claude Code use, and a new chat appears in your Claude Code history. Code is in `site/dev-ask/`.
 
+## Commit messages and the changelog
+
+A commit message is written as `type(scope): subject`, for example `feat(git): add a lab that replays a bisect` or `fix(spark): correct the number of tasks in the AQE lesson`. The types, what each one is for, and the questions of the interactive prompt are in [`.cz.toml`](.cz.toml), which is a [commitizen](https://commitizen-tools.github.io/commitizen/) config (uv is enough, nothing to install):
+
+```bash
+uvx --from commitizen cz commit                          # asks for the type, scope and subject, then commits
+uvx --from commitizen cz schema                          # prints the guide to the types
+uvx --from commitizen cz check --rev-range origin/main..HEAD   # tests the messages that are not pushed yet
+```
+
+[`CHANGELOG.md`](CHANGELOG.md) is made from those messages, so it is short and in the same words as the history: one section per day, then Added (`feat`), Fixed (`fix`), Changed (`refactor`, `perf`, `build`) and Docs (`docs`), each line with its scope and a link to the commit. There are no versions, because the site is published on every push. Housekeeping (`chore`, `ci`, `test`) is left out. To refresh it, run this from `site/` and commit the result as `chore: refresh the changelog`:
+
+```bash
+npm run changelog
+```
+
+Do not edit the file by hand: make the subject of the commit say what changed. The notes that were written by hand before this are kept in [`docs/changelog-handwritten.md`](docs/changelog-handwritten.md).
+
 ## Deploy
 
 A push to `main` triggers GitHub Actions, which checks the music facts and the references between lessons, builds `site/` and publishes it to GitHub Pages. See [.github/workflows/pages.yml](.github/workflows/pages.yml).

@@ -28,9 +28,10 @@ Read [CLAUDE.md](../../../CLAUDE.md) first (layout, languages, links, commands).
   (or in a reference) so that the next subject does not need the same push. That is what this file's own history is.
 - **Keep the owner informed while you work.** A long job needs a short line every few steps ("กำลังทำแบบฝึก 07"), not a silent hour. Do the work with
   your own tools; do not hand it to subagents unless the owner asks.
-- **Never commit or push unless asked in that turn.** When asked to commit, add a `CHANGELOG.md` line (English, newest date first,
-  Added / Changed / Fixed) for anything a reader can see, and end the commit message with the attribution trailer the harness gives. Update
-  `CHANGELOG.md` and the "Current subjects" paragraph of CLAUDE.md as part of the work, not only at the commit.
+- **Never commit or push unless asked in that turn.** When asked to commit, write each message as `type(scope): subject` (CLAUDE.md,
+  "Commits and the changelog"; `.cz.toml` has the types), put the reasons and what was not checked in the body, and end it with the attribution
+  trailer the harness gives. `CHANGELOG.md` is made from those messages, so do not edit it: run `npm run changelog` from `site/` after the last
+  commit and commit the result as `chore: refresh the changelog`. Update the "Current subjects" paragraph of CLAUDE.md as part of the work, not only at the commit.
 - **Do not claim what you did not check.** Say what was run, what was only read, and what nobody looked at (a sound that was never
   listened to, a phone that was never held, a figure of a book that was only a caption). The "Current subjects" paragraph of CLAUDE.md is
   written that way: copy that honesty. Honesty about a gap is not a reason to stop at the gap.
@@ -40,7 +41,7 @@ Read [CLAUDE.md](../../../CLAUDE.md) first (layout, languages, links, commands).
 
 For a subject: every lesson in Thai with a quiz, every lesson in English with a quiz, a `lang`-aware lab for every idea that is a path, a layering, an order,
 a moving pointer or a choice with a visible result (see "Labs"), the `in-depth` pages that reading the source makes possible, exercises that
-assert every number, `docs/` (overview, sources, verified-findings), the subject JSON with its `en` block, CLAUDE.md and CHANGELOG.md, and every check of
+assert every number, `docs/` (overview, sources, verified-findings), the subject JSON with its `en` block, CLAUDE.md and commit messages that follow `.cz.toml`, and every check of
 section 7 green, including the lab screenshots and the crawl. For a single lesson or lab: the same, for that part. If one of these is missing, you are not done, you are at a checkpoint.
 
 ## 1. Plan (short, and the owner can correct it)
@@ -170,7 +171,7 @@ Check that no Thai character is left in `lessons-en` (a quick script is enough).
    `overview.md`, `sources.md` (include the books and the source checkout), `verified-findings.md`; `subjects/<id>/graphs/` if you built one.
 4. `site/src/components/labs/<id>/` for its labs (reuse `components/labs/iceberg/ib.tsx` and the `ib-` classes).
 5. Add the subject to "Current subjects" in CLAUDE.md (what is in it, how it is verified, and **what was not checked**), and the
-   `tools/lesson-refs.mjs` subject list if the subject names books or other subjects. Add the `CHANGELOG.md` entry.
+   `tools/lesson-refs.mjs` subject list if the subject names books or other subjects. The changelog needs no entry of its own: it is made from the commit messages.
 
 ## 7. Check (all of it, from `site/` unless said)
 
@@ -189,5 +190,5 @@ Check that no Thai character is left in `lessons-en` (a quick script is enough).
 
 Report in a few lines: what was built (files), how each claim is backed (counts of ran, source, book, author), what is **not** run or not
 looked at (and why: a server that does not exist here is a reason, "it was a lot of work" is not), what you would do next, and what is uncommitted.
-Name the owner's book and which of its figures you could only read about. `CHANGELOG.md` and CLAUDE.md are already updated. Ask whether to commit; push only when told to.
+Name the owner's book and which of its figures you could only read about. CLAUDE.md is already updated. Ask whether to commit (with messages as `type(scope): subject`); push only when told to.
 After the owner has read it, their notes in the page (`/audit`) are the next round.
