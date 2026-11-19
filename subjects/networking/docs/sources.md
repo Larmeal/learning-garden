@@ -13,10 +13,17 @@ the section starts, for example `TCPIP หัวข้อ 13.7 หน้า 636`
 Pages cited by the lessons: TCPIP 1.3.3 p18, 1.5.3 p22, 8.3.2 p364, 13.5 p620, 13.7 p636 to 637, 17.1 p793 and p796 (and the pages of lessons 1 to 9 listed in `verified-findings.md`); NK chapter 2 pages 74 and 75,
 chapter 3 page 106 and chapter 4 page 162.
 
+## Books that are cited a little
+
+| Short name | Book | Printed page = PDF page minus | Checked on |
+|---|---|---|---|
+| AIO | Networking All-in-One For Dummies (Lowe), Book 2 chapter 1 | 29 | PDF 108 = page 79, 109 = 80, 110 = 81, 117 = 88, 118 = 89; the text was read with PyMuPDF |
+
+Cited only by lesson 1, for the seven OSI layers (page 80), Table 1-1 with the switch as a layer 2 device and the remark that real protocols do not follow OSI to the letter (page 81), and the Presentation layer (pages 88 to 89).
+
 ## Books that are not cited
 
-The owner also has TCP/IP Illustrated Volume 1 1st edition, Networking All-in-One For Dummies (Lowe) and Network Warrior. The first two were converted to text and searched while planning the order of topics,
-Network Warrior was not opened. **No claim of any lesson cites these three**: where the 2nd edition of TCP/IP Illustrated or Networking and Kubernetes covered a topic they were used instead, and Network Warrior
+The owner also has TCP/IP Illustrated Volume 1 1st edition and Network Warrior. The first was converted to text and searched while planning the order of topics, Network Warrior was not opened. **No claim of any lesson cites these two**: where the 2nd edition of TCP/IP Illustrated or Networking and Kubernetes covered a topic they were used instead, and Network Warrior
 is about configuring Cisco devices, which the subject leaves out on purpose (see `overview.md`). The owner asked to use every book by topic, so this is a gap, and a later pass could add Network Warrior to a
 lesson on switches and VLANs.
 

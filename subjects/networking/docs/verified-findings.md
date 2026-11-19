@@ -13,6 +13,11 @@ Every claim of a lesson carries one of four tags: **ran** (an exercise in `code/
 | Type 0x0800, Protocol 6 and the destination port pick the next layer | ran and book: TCPIP section 1.3.2, page 16 |
 | One connection is identified by four numbers | ran and book: TCPIP section 1.3.3, page 17 |
 | Four TCP/IP layers, and the comparison with seven OSI layers | book: TCPIP section 1.3.1, page 13; AIO Book 2 chapter 1, page 80 |
+| The seven OSI layers, and a switch is a layer 2 device | book: AIO Book 2 chapter 1, page 81 (table 1-1) |
+| The Presentation layer converts formats, compresses and encrypts | book: AIO Book 2 chapter 1, pages 88 to 89 |
+| Real protocols do not follow OSI to the letter | book: AIO Book 2 chapter 1, page 81 |
+| L4 spreads whole connections, L7 reads the HTTP message | ran: `exercises/13_proxies_containers.py` (the names are the author's) |
+| JDBC, S3 and Kafka sit at the Application layer over TCP, and walking up through the layers | author (not run) |
 | The end-to-end argument | book: TCPIP section 1.1.2, page 6 |
 | The picture of a parcel and delivery slips | author |
 

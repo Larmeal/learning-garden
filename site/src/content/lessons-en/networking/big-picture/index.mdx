@@ -4,7 +4,7 @@ summary: We open a request that crossed a real network and read it byte by byte,
 facts:
   - "Ran for real in exercises/01_big_picture.py: a client, a router and a server built as Linux network namespaces in WSL, with tcpdump capturing on both sides of the router."
   - "The header sizes, MAC addresses, TTL and ports in the lesson come from the real capture. The client and the server are small Python programs written for the exercise, not a real web server."
-  - "The layers and encapsulation cite TCP/IP Illustrated, 2nd edition, chapter 1, with page numbers. Not run: the real internet and the hardware of cables and devices."
+  - "The layers and encapsulation cite TCP/IP Illustrated, 2nd edition, chapter 1, and the OSI table cites Networking All-in-One For Dummies Book 2 chapter 1, with page numbers. Not run: the real internet and the hardware of cables and devices."
 order: 1
 phase: A
 level: 1
@@ -18,6 +18,7 @@ import Step from '../../../../components/Step.astro';
 import Callout from '../../../../components/Callout.astro';
 import Question from '../../../../components/Question';
 import PacketJourneyLab from '../../../../components/labs/networking/PacketJourneyLab';
+import LayersLab from '../../../../components/labs/networking/LayersLab';
 
 <Step>
 
@@ -124,6 +125,34 @@ Each layer talks only to the same layer on the other side. The TCP of the client
 
 <Step>
 
+## The OSI seven layers, and the words your infra team uses
+
+You may have met the words L4 and L7 on the load balancer page of a cloud, or when talking to an infra team. Those numbers come from the OSI model, which splits a network into seven layers, where the TCP/IP model we just saw has four (book: AIO Book 2 chapter 1, page 80). The table puts the two side by side, with things we have already met in this lesson.
+
+| Layer | Name | What lives here | Matches this TCP/IP layer |
+|---|---|---|---|
+| 7 | Application | HTTP, DNS | Application |
+| 6 | Presentation | converting data formats, compressing and encrypting | Application |
+| 5 | Session | opening and keeping a conversation between two computers | Application |
+| 4 | Transport | TCP, UDP and ports | Transport |
+| 3 | Network | IP addresses and routers | Network |
+| 2 | Data Link | MAC addresses, Ethernet and switches | Link |
+| 1 | Physical | cables, signals and hubs | Link |
+
+The picture below draws the two models as stacks of boxes, OSI on the left and TCP/IP in the middle. You can see that the Application box of TCP/IP is as tall as the top three OSI layers, and the Link box as tall as the bottom two. Pick any of the things and the layers where it lives light up in both stacks. Try the switch first, then compare the L4 and L7 load balancers, or pick TLS to see why it does not fit one box exactly. You can also click a layer to read what it does.
+
+<LayersLab lang="en" client:visible />
+
+The layer numbers became the way people name devices too. A switch, which reads only MAC addresses, is called a layer 2 device (book: AIO Book 2 chapter 1, page 81), a router that reads IP addresses is layer 3, and load balancers borrow the same words. An L4 balancer looks only at the IP address and the port and spreads whole connections, while an L7 balancer reads the HTTP message and picks a backend for each request. We will compare the two in [lesson 13](/en/networking/proxies-and-containers/) (the names are the author's, the behaviour of both kinds was run in that lesson).
+
+For DE work, almost everything we call every day sits at the top layer: JDBC into a database, reading a file from S3 as an HTTP request, and Kafka sending messages over TCP (this is the author's own understanding and was not run in an exercise). But when something breaks, the lower layers that we never write code for can still be the cause, so we can walk up through them one at a time: does a ping reach it (L3), can we open the port (L4), and only then look at the HTTP answer (L7). [Lesson 14](/en/networking/debugging-and-failure/) applies this way of working to real symptoms.
+
+Do not expect every protocol to fit this table exactly. The same book admits that real protocols do not follow OSI to the letter (book: AIO Book 2 chapter 1, page 81). Take TLS, which we meet in [lesson 11](/en/networking/tls/). The job of encrypting belongs to the Presentation layer in the table (book: AIO Book 2 chapter 1, page 88), but the real TLS sits between TCP and HTTP, which matches no single layer. If people argue about which layer TLS is, you do not need to take it seriously. Treat OSI as a shared language for talking, and the author thinks the four TCP/IP layers match the packets we capture better.
+
+</Step>
+
+<Step>
+
 ## A port and one connection
 
 In the exercise the client opens two connections to the same server on port 8080. The first uses source port 50000 and the second 50001. The server can tell them apart because one connection is identified by four numbers together: source IP, source port, destination IP and destination port (ran, book: TCPIP section 1.3.3, page 17).
@@ -173,6 +202,11 @@ The server-side ports that people know are usually low numbers, such as 80 for H
 | Type 0x0800, Protocol 6 and the destination port pick the next layer | ran and book: TCPIP section 1.3.2, page 16 |
 | One connection is identified by four numbers | ran and book: TCPIP section 1.3.3, page 17 |
 | Four TCP/IP layers, and the comparison with seven OSI layers | book: TCPIP section 1.3.1, page 13; AIO Book 2 chapter 1, page 80 |
+| The seven OSI layers, and a switch is a layer 2 device | book: AIO Book 2 chapter 1, page 81 (table 1-1) |
+| The Presentation layer converts formats, compresses and encrypts | book: AIO Book 2 chapter 1, pages 88 to 89 |
+| Real protocols do not follow OSI to the letter | book: AIO Book 2 chapter 1, page 81 |
+| L4 spreads whole connections, L7 reads the HTTP message | ran: `exercises/13_proxies_containers.py` (the names are the author's) |
+| JDBC, S3 and Kafka sit at the Application layer over TCP, and walking up through the layers | author (not run) |
 | The end-to-end argument | book: TCPIP section 1.1.2, page 6 |
 | The picture of a parcel and delivery slips | author |
 
