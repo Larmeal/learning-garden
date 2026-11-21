@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจ Relation ที่ยังไม่รัน รู้ว่า DuckDB หา DataFrame จากชื่อตัวแปรอย่างไร ตีความเวลาของสามเครื่องมือได้ และเลือก UDF ได้ถูก
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="`con.sql('select * from df')` อ่าน DataFrame ที่ชื่อ `df` ได้อย่างไร และเมื่อไรที่มันหาไม่เจอ?"
+  options={[
+    'DuckDB สแกน Memory ทั้งหมดหาชื่อ df ได้เสมอ',
+    'DuckDB หาตัวแปรชื่อ df จากตัวแปรโลคอลของ Function ที่เรียก SQL จึงหาไม่เจอถ้าตัวแปรอยู่ข้างนอกและถูกใช้ผ่าน Closure',
+    'DuckDB อ่านได้เฉพาะ DataFrame ที่ผ่าน `con.register` มาก่อน',
+    'DuckDB หาไม่เจอเสมอ ต้องบันทึกเป็นไฟล์ก่อน'
+  ]}
+  answer={1}
+  why="Replacement Scan หาชื่อจากตัวแปรโลคอลของ Function ที่เรียก SQL ในแบบฝึก การเรียกจาก Lambda ที่ใช้ตัวแปร Big ผ่าน Closure ได้ Catalog Error แก้โดยรับ DataFrame เป็น Parameter ของ Function (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราเทียบ GROUP BY หนึ่งล้านแถวใน DuckDB, Pandas และ Polars ผลที่ได้ในแบบฝึกบอกอะไร?"
+  options={[
+    'DuckDB เร็วที่สุดทุกกรณี เพราะเป็นฐานข้อมูล',
+    'ทั้งสามให้คำตอบเท่ากัน แต่เวลาขึ้นกับว่าข้อมูลอยู่ที่ไหน DuckDB บน DataFrame ใช้ประมาณ 100 ms ส่วนบนตารางของมันเองประมาณ 7 ms',
+    'Pandas เร็วที่สุด เพราะข้อมูลอยู่ใน Memory แล้ว',
+    'ทั้งสามเวลาเท่ากัน เพราะใช้ CPU ตัวเดียวกัน'
+  ]}
+  answer={1}
+  why="ตัวเลขนี้เป็นค่าที่ดีที่สุดจาก 5 รอบบนคอมพิวเตอร์เครื่องเดียว ไม่ได้ Assert ที่แน่นอนคือคำตอบเท่ากัน ที่น่าสนใจคือความต่างระหว่าง DuckDB บน DataFrame กับบนตารางของมันเอง และ Polars เร็วกว่าทั้งคู่ในการรันนี้ (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="UDF สองแบบ ทีละค่ากับทั้ง Vector (Arrow) ได้ผลรวมเท่ากัน แต่แบบทั้ง Vector เร็วกว่า เพราะอะไร?"
+  options={[
+    'แบบ Arrow ไม่ได้คำนวณจริง แค่ประมาณค่า',
+    'การข้ามจาก DuckDB เข้า Python มีราคาต่อครั้ง ส่งเป็นก้อนจึงข้ามน้อยครั้งกว่า',
+    'Python เร็วขึ้นเมื่อรับ Array ของ Arrow เสมอ',
+    'แบบทีละค่าไม่ใช้ Thread ส่วนแบบ Arrow ใช้'
+  ]}
+  answer={1}
+  why="ทั้งสองแบบได้ผลรวมเท่ากัน จึงไม่ได้ประมาณ การเรียก Function ของ Python ทีละค่าต้องข้ามพรมแดนระหว่าง DuckDB กับ Python ต่อแถว แบบ Vector ข้ามหนึ่งครั้งต่อก้อน ในการรันหนึ่งครั้ง 80 ms เทียบกับ 37 ms (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราต้องใส่ค่าที่ผู้ใช้กรอกลงใน Query ควรทำอย่างไร?"
+  options={[
+    'ต่อข้อความ SQL ด้วย F-string แล้วเช็กว่าไม่มีเครื่องหมายคำพูด',
+    'ผูกเป็น Parameter ด้วย `?` หรือ `$ชื่อ` เพื่อให้ค่าถูกตีเป็นค่า ไม่ใช่ส่วนของ SQL',
+    'แปลงเป็นตัวพิมพ์เล็กทั้งหมดก่อน',
+    'เก็บลงไฟล์ CSV แล้วอ่านกลับมา'
+  ]}
+  answer={1}
+  why="ในแบบฝึก ข้อความที่พยายามแทรก SQL (paid' or '1'='1) ถูกผูกเป็นค่าเดียว จึงไม่ตรงกับแถวไหนเลย Parameter แบบมีชื่อก็ได้จำนวนเท่ากับ SQL ที่เขียนค่าตรง ๆ (รัน)"
+/>
+
+</Step>

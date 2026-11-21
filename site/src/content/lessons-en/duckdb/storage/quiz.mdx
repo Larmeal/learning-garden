@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you can explain a row group, know which filters can skip groups, understand the role of the WAL and checkpoint, and read the result of a transaction correctly.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="How many row groups does a table of one million rows have, and how many rows are in each?"
+  options={[
+    '1 group of one million rows',
+    '9 groups: the first eight have 122,880 rows and the last has 16,960',
+    '1,000 groups of 1,000 rows',
+    '488 groups of 2,048 rows'
+  ]}
+  answer={1}
+  why="A row group holds at most 122,880 rows (60 vectors). The 2,048 rows are the size of a vector used when processing, not of a row group (ran, source)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Which of these filters makes the scan look at the fewest rows in an `orders` table whose data is in time order?"
+  options={[
+    '`customer_id = 5`',
+    '`status = \'refunded\'`',
+    '`order_ts >= \'2025-12-26\'`',
+    'No filter'
+  ]}
+  answer={2}
+  why="The min-to-max ranges of order_ts follow each other without overlap, so only the last group covers 26 December, and the scan looked at 16,960 rows. customer_id and status span the same range in every group, so one million rows had to be looked at (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We `INSERT` two rows and have not run `CHECKPOINT`. What extra do we see in the database folder?"
+  options={[
+    'A .wal file that holds the changes before they are merged into the main file',
+    'A CSV file with those two rows',
+    'Nothing, because DuckDB always writes to the main file at once',
+    'A new folder that stores each column separately'
+  ]}
+  answer={0}
+  why="DuckDB writes changes to a write-ahead log first. In the exercise there was a .wal file of 260 bytes for two rows, and it was gone after the CHECKPOINT that merged it into the main file (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Connection A runs `BEGIN` and inserts one row. Now connection B of the same database counts the rows in that table. Does B see the new row?"
+  options={[
+    'Yes, because the data is in the same database',
+    'No, not until A runs COMMIT, and if A runs ROLLBACK the row never appears for B',
+    'Yes, but only while A is still connected',
+    'B gets an error, because the table is locked'
+  ]}
+  answer={1}
+  why="In the exercise the second connection counted 2 rows while A saw 3 rows inside its own transaction. After ROLLBACK A was back at 2, and after COMMIT B saw 3 (ran)."
+/>
+
+</Step>

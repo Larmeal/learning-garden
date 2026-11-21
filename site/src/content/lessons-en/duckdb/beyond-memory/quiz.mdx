@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you understand how a memory limit makes DuckDB spill instead of failing, that spilling is not a way out for every operator, and what limits writing from several processes.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We set `memory_limit` lower than a big GROUP BY needs. What does DuckDB do with the hash aggregate operator?"
+  options={[
+    'It stops with Out of Memory at once, in every case',
+    'It writes part of the data to temporary files in temp_directory and carries on, giving the same answer more slowly',
+    'It drops the data that does not fit and gives an approximate answer',
+    'It moves the whole query to the cloud'
+  ]}
+  answer={1}
+  why="In the exercise, from 2GB down to 100MB the answer was the same every time. At 1GB and up nothing spilled, and below that the temp folder grew to between about 115 and 477 MB (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="When does DuckDB still fail with an Out of Memory Error even though spilling is on?"
+  options={[
+    'Never, because spilling works for every operator',
+    'When an operator must hold one block of state that cannot be split to disk, such as a list gathering 50 million numbers in one cell under a 100 MB limit',
+    'When a Parquet file is bigger than memory_limit',
+    'When more than 8 threads are used'
+  ]}
+  answer={1}
+  why="In the exercise a 365 MB Parquet file was read and summed under a 64 MB limit, because the scan passes vectors on. A single list of 50 million values failed, and the error message gave the fixes (fewer threads, switch off preserve_insertion_order, raise memory_limit) (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Program A has `shop.duckdb` open for writing. Program B, in another process, tries to open the same file read only. What happens?"
+  options={[
+    'It opens, and sees the latest data of A at once',
+    'It cannot open it while A has it open, and the message says the file is open in another process',
+    'It opens, but sees only the data from before A opened the file',
+    'DuckDB makes a copy of the file for B automatically'
+  ]}
+  answer={1}
+  why="In the exercise even read_only failed while the writer was open (the Windows message names the PID of the process that has the file). After A closed, three processes could read at the same time (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The transactions of connections a and b start together. Then a updates the row id = 3, and afterwards b updates the same row id = 3. What happens?"
+  options={[
+    'Both succeed, and the value of b overwrites the value of a',
+    'The statement of b fails at once with Conflict on update, and b has to roll back',
+    'The statement of b waits until a commits, then carries on',
+    'Both fail and both must roll back'
+  ]}
+  answer={1}
+  why="DuckDB uses optimistic concurrency control. In the exercise the second statement got TransactionException: Conflict on update!, and after a committed the value was a's. Updates to different rows both succeeded (ran)."
+/>
+
+</Step>

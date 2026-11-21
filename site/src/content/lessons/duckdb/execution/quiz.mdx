@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่ารู้ขนาดของ Vector และผลของ Filter ต่อ Vector อ่านแผน Query ออก และอธิบายได้ว่าทำไมจำนวน Row Group เป็นเพดานของจำนวน Thread
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราขอผลของ `select * from orders` (หนึ่งล้านแถว) ทีละ Vector จะได้ Chunk กี่อัน และขนาดเท่าไร?"
+  options={[
+    '1 Chunk ที่มีหนึ่งล้านแถว',
+    '489 Chunk คือ 488 อัน อันละ 2,048 แถว กับอีกหนึ่งอันที่ 576 แถว',
+    '1,000,000 Chunk อันละหนึ่งแถว',
+    '9 Chunk อันละหนึ่ง Row group'
+  ]}
+  answer={1}
+  why="Scan ส่งข้อมูลเป็น Vector ละ 2,048 แถว 488 × 2,048 + 576 = 1,000,000 ส่วน 9 คือจำนวน Row Group ของตารางนี้ ซึ่งเป็นหน่วยของการเก็บ ไม่ใช่หน่วยของการส่งต่อ (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ใส่ Filter ที่ผ่าน 70% ของแถว Vector ที่ออกจาก Filter เป็นอย่างไร?"
+  options={[
+    'ถูกเติมให้เต็ม 2,048 แถวเสมอ เพราะ Engine ต้องการ Vector เต็ม',
+    'เล็กลง เฉลี่ยราว 1,431 แถว เพราะ Filter ไม่ได้เติม Vector ใหม่ มันแค่ส่งต่อแถวที่ผ่าน',
+    'ใหญ่ขึ้นเกิน 2,048 แถว',
+    'ว่างเปล่าทั้งหมด'
+  ]}
+  answer={1}
+  why="ในแบบฝึก ผลหลัง Filter มี 489 Chunk เท่าเดิม ไม่ใช่ 342 และไม่มีอันเกิน 2,048 แถว เฉลี่ย 1,431 แถว (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ในแผนของ `select sum(qty * unit_price) from orders where qty >= 3` เงื่อนไข `qty >= 3` อยู่ที่ไหน?"
+  options={[
+    'เป็น Operator FILTER แยกต่างหากเหนือ Scan',
+    'อยู่ใน Aggregate ตัวบนสุด',
+    'อยู่ข้างใน Scan เอง จึงคืนเฉพาะ 600,389 แถวที่ผ่าน',
+    'ไม่ถูกใช้ เพราะ Aggregate ไม่ต้องการ Filter'
+  ]}
+  answer={2}
+  why="ในแผนมี Operator สามตัวคือ UNGROUPED_AGGREGATE, PROJECTION และ SEQ_SCAN Scan คืน 600,389 แถว เท่ากับจำนวนแถวที่ Qty >= 3 จริง เพราะ Optimizer ย้าย Filter เข้าไปใน Scan (รัน) เรื่องนี้เจาะลึกอีกในบท [Optimizer](/duckdb/optimizer/)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ตาราง 9 Row Group รัน Query หนักที่ `threads = 8` ได้ CPU ÷ เวลาจริง ราว 6.4 ตัวเลขนี้บอกอะไร?"
+  options={[
+    'Query ใช้ CPU ช้าลงหกเท่า',
+    'โดยเฉลี่ยมีราว 6 Thread ทำงานพร้อมกันตลอด Query',
+    'ผลลัพธ์ผิดพลาดเพราะ CPU ไม่ควรเกินเวลาจริง',
+    'มีการ Spill ลงดิสก์ 6 ครั้ง'
+  ]}
+  answer={1}
+  why="เวลา CPU คือผลรวมของเวลาที่ทุก Thread ทำงาน ถ้า Thread เดียวค่านี้เท่ากับเวลาจริง (1.0) พอหลาย Thread ทำงานซ้อนกันค่ามากกว่า 1 ได้ ในแบบฝึกตารางเก้า Row Group ได้ 6.4 ที่ 8 Thread ส่วนตารางหนึ่ง Row Group ได้ 1.0 (รัน)"
+/>
+
+</Step>

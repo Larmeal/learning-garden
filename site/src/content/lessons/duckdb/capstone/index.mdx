@@ -1,0 +1,176 @@
+---
+title: Capstone
+summary: เรารับไฟล์ CSV สิบวันที่มี Order ซ้ำและข้อมูลเสียห้าแบบที่ใส่ไว้ในจำนวนที่กำหนด แล้วเขียน Script เดียวที่อ่านทุกอย่างเป็นข้อความ แปลงชนิดด้วย try_cast ตัดซ้ำ แยกแถวเสียเข้า Quarantine พร้อมเหตุผล โหลดแถวที่ดีเข้าตาราง ทำให้รันซ้ำได้ เขียน Parquet แยกเดือนและเทียบผลกับ Pandas
+facts:
+  - "รันจริงใน exercises/12_capstone_pipeline.py กับ DuckDB 1.5.6 และ pandas: ไฟล์ CSV 10 ไฟล์จาก Order 27,429 แถวที่ใส่ข้อมูลซ้ำ 137 แถวและข้อมูลเสียห้าแบบ (27, 36, 8, 36 และ 12 แถว) โดยกำหนดจากเลข order_id, การอ่านด้วย read_csv แบบ all_varchar, try_cast, QUALIFY ตัดซ้ำ, ตารางสองตัว (clean กับ quarantine), Transaction ที่ล้มกลางทางแล้วไม่ทิ้งอะไรไว้, การรันซ้ำที่ไม่เพิ่มแถว, Parquet แยกเดือนที่อ่านกลับได้ผลเท่าเดิม และ pandas ที่ใช้กฎเดียวกันได้ 27,310 แถวเท่ากัน"
+  - "ข้อมูลทั้งหมดสังเคราะห์ และข้อเสียถูกวางตามเลข order_id จึงไม่ได้เป็นตัวแทนของข้อมูลจริง ไม่ได้ลองไฟล์ที่ใหญ่กว่าหลักหมื่นแถว ไม่ได้ลองรันตามเวลาด้วยตัวจัดตารางงานอย่าง cron หรือ Airflow และไม่ได้ลอง dbt, dlt หรือ Dagster ที่หนังสือสอนในหัวข้อ 8.2 ถึง 8.4"
+order: 12
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [extensions]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import PipelineLab from '../../../../components/labs/duckdb/PipelineLab';
+
+<Step>
+
+## โจทย์: ไฟล์รายวันที่ไว้ใจไม่ได้
+
+ทุกเช้ามีไฟล์ CSV ของ Order วันก่อนหน้ามาวางไว้ในโฟลเดอร์ ข้อมูลมาจากหลายระบบจึงไม่สะอาด เราจำลองด้วยสิบไฟล์ (`orders_2025-01-01.csv` ถึง `orders_2025-01-10.csv`) ที่รวมกันมี 27,429 Order และเราใส่ความผิดปกติไว้ในจำนวนที่กำหนดล่วงหน้า โดยดูจากเลข `order_id`
+
+| ความผิดปกติ | ลักษณะ | จำนวนที่ใส่ |
+|---|---|---|
+| `duplicate` | Order เดียวกันถูกส่งซ้ำอีกครั้งในไฟล์ของวันเดียวกัน | 137 แถว |
+| `missing_customer` | `customer_id` เป็นช่องว่าง | 27 แถว |
+| `negative_qty` | `qty` ติดลบ | 36 แถว |
+| `bad_price` | `unit_price` เป็นข้อความ `N/A` | 8 แถว |
+| `unknown_status` | `status` เป็น `PAID ` (มีช่องว่างท้าย) หรือ `delivered` | 36 แถว |
+| `future_date` | `order_ts` เลื่อนไปสิบปีข้างหน้า | 12 แถว |
+
+ตัวเลขของห้าแบบหลังนับแบบ "กฎแรกที่ไม่ผ่านเป็นฝ่ายชนะ" เพราะแถวหนึ่งอาจเสียหลายอย่างพร้อมกัน เราต้องการ Script เดียวที่ทำให้ได้ว่า ทุกแถวที่เข้ามาไปจบที่ใดที่หนึ่งเท่านั้น คือตาราง `clean`, ตาราง `quarantine` (พร้อมเหตุผล) หรือถูกตัดทิ้งเพราะซ้ำ และต้องรันซ้ำได้โดยไม่ทำให้ข้อมูลซ้ำ กด Lab ด้านล่างเพื่อดูแถวไหลผ่านแต่ละขั้น
+
+<PipelineLab client:visible />
+
+</Step>
+
+<Step>
+
+## ขั้นแรก: อ่านทุกอย่างเป็นข้อความ
+
+ถ้าให้ `read_csv` เดาชนิดเอง ไฟล์ที่มี `N/A` ในคอลัมน์ราคาจะทำให้ทั้งคอลัมน์เป็นข้อความ ซึ่งบางครั้งก็ดีแต่บางครั้งก็ Error แทนที่จะเดา เราเลือกอ่านทุกคอลัมน์เป็นข้อความก่อน แล้วค่อยแปลงชนิดเองด้วยกฎของเรา
+
+```sql
+create temp table raw as
+select * from read_csv('landing/orders_*.csv', all_varchar = true, union_by_name = true, filename = true)
+```
+
+`all_varchar` ปิดการเดาชนิด `union_by_name` เรียงคอลัมน์ตามชื่อเผื่อบางไฟล์มีคอลัมน์ไม่ครบ (เหมือนที่ `union all by name` ช่วยไว้ในบท [SQL ที่พิมพ์น้อยลง](/duckdb/friendly-sql/)) และ `filename = true` เพิ่มคอลัมน์ที่บอกว่าแถวมาจากไฟล์ไหน ซึ่งเราจะใช้ตอนตามหาต้นทางของข้อมูลเสีย และใช้เลือกว่าจะเก็บแถวซ้ำอันไหน ได้ 27,566 แถว เท่ากับ 27,429 บวกกับ 137 ที่ซ้ำ (รัน) เทคนิค Glob และ `filename` ที่ใช้นี้ตรงกับที่เห็นในบท [Query ไฟล์ได้เลยโดยไม่ต้องโหลด](/duckdb/query-files/)
+
+</Step>
+
+<Step>
+
+## แปลงชนิด ตัดซ้ำ แล้วตัดสินรายแถว
+
+```sql
+create temp table typed as
+select order_id::bigint as order_id,
+       try_cast(nullif(customer_id, '') as bigint) as customer_id,
+       product_id::bigint as product_id, qty::int as qty,
+       try_cast(unit_price as double) as unit_price, status,
+       try_cast(order_ts as timestamp) as order_ts, filename
+from raw;
+
+create temp table dedup as
+select * from typed qualify row_number() over (partition by order_id order by filename) = 1;
+```
+
+`try_cast` ต่างจาก `cast` ตรงที่ถ้าแปลงไม่ได้จะให้ `NULL` แทนที่จะ Error ทำให้ `N/A` กลายเป็น `NULL` ของ `unit_price` และช่องว่างของ `customer_id` ก็เป็น `NULL` เช่นกัน ส่วน `QUALIFY row_number()` ที่เราเรียนในบท [SQL ที่พิมพ์น้อยลง](/duckdb/friendly-sql/) เก็บแถวแรกของแต่ละ `order_id` ทิ้งแถวซ้ำ 137 แถว เหลือ 27,429 (รัน) จากนั้นตัดสินว่าแถวไหนเสียด้วย `CASE` ที่เรียงกฎตามลำดับ
+
+```sql
+case when customer_id is null then 'missing_customer'
+     when qty <= 0 then 'negative_qty'
+     when unit_price is null then 'bad_price'
+     when status not in ('paid', 'shipped', 'cancelled', 'refunded') then 'unknown_status'
+     when order_ts > timestamp '2025-12-31 23:59:59' then 'future_date' end as reason
+```
+
+แถวที่ `reason` เป็น `NULL` คือแถวดี แถวที่มีเหตุผลไปตาราง `quarantine` พร้อมชื่อไฟล์ต้นทาง ผลคือ 27,310 แถวดี และ 119 แถวเข้า Quarantine (รัน)
+
+| เหตุผล | แถว | ที่ใส่ไว้ |
+|---|---|---|
+| `missing_customer` | 27 | 27 |
+| `negative_qty` | 36 | 36 |
+| `bad_price` | 8 | 8 |
+| `unknown_status` | 36 | 36 |
+| `future_date` | 12 | 12 |
+
+จำนวนที่พบตรงกับที่ใส่ไว้ทุกแถว และ 27,310 + 119 = 27,429 ตรงกับจำนวนแถวหลังตัดซ้ำ (รัน) แปลว่าไม่มีแถวไหนหายไประหว่างทาง ลำดับของ `CASE` สำคัญ ถ้าสลับให้ตรวจ `status` ก่อน แถวที่เสียสองอย่างก็จะถูกนับเป็นเหตุผลคนละอย่างและตัวเลขเปลี่ยนตาม (ข้อนี้เป็นการอนุมานของผู้เขียน ไม่ได้ลองสลับ) เรื่องการออกแบบกฎอย่างนี้ต่อยอดได้ในบท [การออกแบบ Rule](/data-quality/rule-design/) ของ Data Quality
+
+</Step>
+
+<Step>
+
+## ทั้งหมดอยู่ใน Transaction เดียว
+
+ถ้าไฟล์วันหนึ่งมีแถวที่อ่านไม่ได้เลย เช่น `order_id` เป็นข้อความ `not-a-number` การโหลดควรล้มทั้งชุดโดยไม่ทิ้งของค้างครึ่ง ๆ กลาง ๆ เราห่อทุกขั้นด้วย `begin` ... `commit` ทดลองโหลดไฟล์ที่มีแถวแบบนั้น ได้ Conversion Error ที่ระบุค่า `not-a-number` และหลังสั่ง `rollback` จำนวนแถวของ `clean` กับ `quarantine` เท่าเดิมทุกตัว (รัน) การเรียนรู้เรื่อง Transaction จากบท [ข้อมูลถูกเก็บอย่างไร](/duckdb/storage/) นำมาใช้ได้ตรง ๆ
+
+</Step>
+
+<Step>
+
+## รันซ้ำได้โดยไม่ซ้ำ
+
+Pipeline รายวันจะถูกรันซ้ำแน่ ๆ เช่นเมื่อคนสั่งรันสองครั้ง หรือรันใหม่หลังแก้ปัญหา ตาราง `clean` ประกาศ `order_id` เป็น `primary key` และเราใช้ `insert ... on conflict do nothing` กับตารางนี้ ส่วน `quarantine` เราตรวจก่อนเพิ่มว่า `order_id` ยังไม่อยู่ในตารางอยู่แล้ว ผลของการรันไฟล์ชุดเดิมอีกรอบคือ ไม่เพิ่มแถวใน `clean` เลย และ `quarantine` ยังมี 119 แถว (รัน) เรียกว่าการโหลดที่เป็น Idempotent ซึ่งสำคัญมากกับงานที่ถูกรันตามเวลา
+
+</Step>
+
+<Step>
+
+## เขียน Parquet แยกเดือน และรายงาน
+
+แถวดีเขียนต่อเป็น Parquet โฟลเดอร์ละเดือนตามที่เรียนในบท [Query ไฟล์ได้เลยโดยไม่ต้องโหลด](/duckdb/query-files/) และอ่านกลับได้จำนวนแถวกับรายได้เท่ากับตาราง `clean` ทุกตัว (รัน) ส่วนรายงานรายได้ตามสถานะจากตาราง `clean` ได้เฉพาะสี่สถานะจริง ไม่มี `PAID ` หรือ `delivered` ปนมา
+
+| status | orders | revenue |
+|---|---|---|
+| cancelled | 1,970 | 288,022.95 |
+| paid | 19,181 | 2,732,772.75 |
+| refunded | 816 | 113,781.86 |
+| shipped | 5,343 | 780,429.37 |
+
+(รัน) ตารางนี้คือเหตุผลที่เรากรองก่อน ถ้าเราไม่ตัด `unknown_status` สถานะที่สะกดผิดจะกลายเป็นหมวดเพิ่มในรายงานและรายได้ของแต่ละหมวดจะเพี้ยน
+
+</Step>
+
+<Step>
+
+## เทียบกับ Pandas ที่ใช้กฎเดียวกัน
+
+เราเขียนขั้นตอนเดียวกันซ้ำด้วย Pandas (อ่านทุกไฟล์เป็นข้อความ, `drop_duplicates`, `to_numeric(errors="coerce")` และกรองด้วยกฎเดียวกัน) ผลคือได้ 27,310 แถวดีเท่ากัน และรายได้ตรงกันถึงสตางค์ (รัน) มีจุดเดียวที่ Pandas ต้องการคำใบ้ เมื่อแปลง `order_ts` ซึ่งบางค่ามีครึ่งวินาที (`...:00.5`) และบางค่าไม่มี Pandas หยุดด้วย Error จนกว่าเราจะบอก `format="ISO8601"` ส่วน `try_cast` ของ DuckDB รับทั้งสองแบบโดยไม่ต้องบอก (รัน) ผลลัพธ์ของสองเครื่องมือจึงถูกต้องเท่ากัน สิ่งที่ต่างกันคือต้องเขียนอะไรเพิ่ม และทีมคุ้นกับเครื่องมือตัวไหนอยู่แล้ว
+
+<Callout type="note" title="สิ่งที่ Capstone นี้ไม่ได้ทำ">
+ข้อมูลทั้งหมดสังเคราะห์และข้อเสียถูกวางตามเลข `order_id` จึงเป็นข้อเสียที่ตรวจเจอง่ายกว่าของจริง ไม่ได้ลองไฟล์ที่ใหญ่หลายล้านแถว ไม่ได้รันด้วยตัวจัดตารางงาน และไม่ได้ลองเครื่องมืออย่าง Dbt, Dlt หรือ Dagster ที่หนังสืออธิบายไว้ในหัวข้อ 8.2 ถึง 8.4
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Script ของเรา Insert แถวดีเข้าตาราง `clean` ที่มี Primary Key เป็น order_id ถ้าผู้ใช้รัน Script กับโฟลเดอร์เดิมซ้ำเป็นครั้งที่สอง ผลควรเป็นอย่างไร?"
+  options={[
+    'ตาราง Clean มีแถวเป็นสองเท่า',
+    'ตาราง Clean เท่าเดิม เพราะ on conflict do nothing ข้ามแถวที่ order_id มีอยู่แล้ว และ Quarantine ก็ไม่เพิ่มเพราะเช็กก่อน',
+    'Script ล้มด้วย Constraint Error ทุกครั้ง',
+    'ตาราง Clean ถูกล้างแล้วโหลดใหม่ ซึ่งทำให้ได้ผลเท่าเดิมโดยบังเอิญ'
+  ]}
+  answer={1}
+  why="ในแบบฝึก การรันซ้ำไม่เพิ่มแถวใน Clean เลย และ Quarantine ยังมี 119 แถวเท่าเดิม การโหลดแบบนี้เรียกว่า Idempotent (รัน)"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| ไฟล์ 10 ไฟล์ 27,429 Order ซ้ำ 137 แถว และอ่านรวมได้ 27,566 แถว | รัน: `exercises/12_capstone_pipeline.py` |
+| ตัดซ้ำด้วย QUALIFY ได้ 27,429 แถว แล้วได้ Clean 27,310 กับ Quarantine 119 | รัน: `exercises/12_capstone_pipeline.py` |
+| จำนวนที่พบของข้อเสียห้าแบบ (27, 36, 8, 36, 12) ตรงกับที่ใส่ไว้ | รัน: `exercises/12_capstone_pipeline.py` |
+| โหลดที่ล้มกลางทางแล้ว Rollback ไม่ทิ้งอะไรไว้ (Clean กับ Quarantine เท่าเดิม) | รัน: `exercises/12_capstone_pipeline.py` |
+| รันไฟล์ชุดเดิมซ้ำไม่เพิ่มแถวใน Clean หรือ Quarantine | รัน: `exercises/12_capstone_pipeline.py` |
+| Parquet แยกเดือนอ่านกลับได้จำนวนแถวและรายได้เท่า Clean และรายงานมีสี่สถานะจริง | รัน: `exercises/12_capstone_pipeline.py` |
+| Pandas ที่ใช้กฎเดียวกันได้ 27,310 แถวและรายได้เท่ากัน (ต้องใส่ Format ISO8601 ตอนแปลงเวลา) | รัน: `exercises/12_capstone_pipeline.py` |
+| ข้อมูลทั้งหมดและตำแหน่งที่ใส่ข้อเสีย | ผู้เขียน: ข้อมูลสังเคราะห์ที่สร้างเอง |
+| Dlt, Dbt และ Dagster ที่หนังสืออธิบายไว้ (ไม่ได้รัน) | หนังสือ: DuckDB in Action หัวข้อ 8.2 หน้า 165 ถึงหัวข้อ 8.4 หน้า 182 |
+
+</Step>

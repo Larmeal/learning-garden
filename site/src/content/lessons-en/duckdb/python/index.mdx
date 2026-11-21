@@ -1,0 +1,177 @@
+---
+title: Using DuckDB from Python
+summary: We build a query with methods and nothing runs yet, let SQL read a pandas or Polars DataFrame by its variable name, compare one GROUP BY in three tools and see that the timings are not what one might expect, and write a Python function that SQL can call.
+facts:
+  - "Ran in exercises/06_python.py with DuckDB 1.5.6, pandas, Polars and PyArrow from uv.lock: a relation that does not run until it is fetched, the methods filter, aggregate, order and limit against SQL, replacement scans of pandas, Polars and Arrow, one GROUP BY in three tools giving the same answer, the result as pandas, Arrow, Polars and NumPy, Python functions called one value at a time and one vector at a time, and bound parameters."
+  - "The times of each tool are the best of 5 runs on this computer and are not asserted. The reason why DuckDB on a DataFrame is slower than DuckDB on its own table was not investigated: the reason given is the author's guess. Zero-copy with Arrow follows the book DuckDB in Action, chapter 6, and memory use was not measured."
+order: 6
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [nested-data]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import LazyLab from '../../../../components/labs/duckdb/LazyLab';
+
+<Step>
+
+## A relation is a query that has not run yet
+
+In Python we can write SQL as text, or chain a query as methods. The second is called the relational API.
+
+```python
+rel = con.table("orders").filter("status = 'paid'")
+con.execute("insert into t values (3)")
+```
+
+The real example in the exercise uses a small table `t` with two rows. We make `rel = con.table("t").filter("x > 0")`, insert one more row, and only then count with `rel.count("*")`. The answer is 3, not 2 (ran). So `rel` did not hold the result from the time it was made. It holds a plan, "read table `t` and filter `x > 0`", and runs it for real when we ask for the result with `fetchall()`, `df()` or `count()`.
+
+Printing a relation shows only the first rows with the column types (such as `int64`, `varchar`), and does not hold the whole result (ran). Step through the lab below to see what each method adds to the plan, and when DuckDB reads the data for real.
+
+<LazyLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## Methods and SQL give the same rows
+
+```python
+api = (con.table("orders").filter("status = 'paid'")
+          .aggregate("customer_id, count(*) as n, round(sum(qty * unit_price), 2) as revenue", "customer_id")
+          .order("revenue desc, customer_id").limit(3))
+```
+
+`filter`, `aggregate`, `order` and `limit` chained give the same three rows as the SQL written as text (ran).
+
+| customer_id | orders | revenue |
+|---|---|---|
+| 1044 | 181 | 27468.37 |
+| 144 | 163 | 27222.07 |
+| 4109 | 163 | 27213.03 |
+
+There is a small thing we found while writing the exercise. At first we summed `sum(qty * unit_price)` without rounding, and in some runs the two forms did not compare equal. The cause is that DuckDB adds floating point numbers with several threads in a different order from run to run, so the last digits of a `DOUBLE` can differ. We therefore rounded to cents before comparing. If we assert a sum of decimals in our own work, round first.
+
+</Step>
+
+<Step>
+
+## A DataFrame in a variable is a table
+
+If a pandas DataFrame sits in a variable, we can query it by the variable name.
+
+```python
+df = con.sql("select * from orders where order_id <= 1000").df()
+con.sql("select count(*), sum(qty) from df").fetchone()
+```
+
+SQL looks for a Python variable called `df` and reads it as a table. This is called a replacement scan. It gives the same numbers as pandas computing them itself, and it reads a Polars DataFrame and an Arrow table by their variable names in the same way (ran).
+
+<Callout type="warn" title="The variable must be in the function that runs the SQL">
+While writing the exercise we hit `Catalog Error: Table with name big does not exist` when SQL referring to a variable `big` was called from inside a `lambda`. DuckDB looks the name up among the local variables of the function that calls SQL. If the variable lives outside and is reached through a closure, it is not found. The fix is to take the DataFrame as a parameter of the function, or to call `con.register("name", df)` explicitly. A variable called `full` does not work either, because `FULL` is a reserved word (`FULL JOIN`).
+</Callout>
+
+</Step>
+
+<Step>
+
+## One GROUP BY in three tools
+
+We asked the same question (the number of orders and the revenue per status, over one million orders) of DuckDB, pandas and Polars, with the data already in memory as a DataFrame. All three tools gave the same four counts, and the revenue matched to the cent (ran). The times on this computer, best of 5 runs, were:
+
+| Tool | Time |
+|---|---|
+| DuckDB reading a pandas DataFrame | about 100 ms |
+| DuckDB reading its own table | about 7 ms |
+| pandas | about 40 ms |
+| Polars | about 3 ms |
+
+The numbers are not what many people expect, which is that DuckDB is the fastest. When DuckDB reads from a pandas DataFrame it is two and a half times slower than pandas itself, yet on its own table it is more than fourteen times faster than that. The author guesses that most of the time goes on reading the `status` column, which pandas keeps as Python objects, one value at a time, but did not try to prove it. Polars in this run was even faster than DuckDB on its own table (the numbers are not asserted, and come from one computer, one dataset and one query).
+
+So the lesson to take is not which one is faster. It is that the speed of DuckDB seen in the first lesson is its speed on its own table. When the data sits in a DataFrame that has to be converted each time, the price of the conversion is part of the cost. The book explains that DuckDB reads pandas and Polars DataFrames directly without copying (book: DuckDB in Action section 6.3, page 134), and the author did not measure memory to confirm it.
+
+</Step>
+
+<Step>
+
+## One result, many shapes
+
+A single relation can be sent out in whatever form the next tool wants.
+
+```python
+r = con.sql("select order_id, qty, status from orders where order_id <= 5 order by order_id")
+r.fetchall()      # a list of tuples
+r.df()            # a pandas DataFrame
+r.arrow()         # an Arrow table
+r.pl()            # a Polars DataFrame
+r.fetchnumpy()    # a dict of NumPy arrays (keys order_id, qty, status)
+```
+
+All five ran (ran), and the Arrow table keeps the types: the `BIGINT` of DuckDB is an `int64` in Arrow (ran). Arrow is a common format that Polars, pandas and other tools read next, so it is a way to pass data between tools with little conversion (book: DuckDB in Action section 6.5, page 141).
+
+</Step>
+
+<Step>
+
+## A Python function that SQL can call
+
+When SQL lacks a function we need, we can register one from Python, in two ways.
+
+```python
+def with_tax(x: float) -> float:
+    return round(x * 1.07, 2)
+
+con.create_function("with_tax", with_tax, [DOUBLE], DOUBLE)            # one value at a time
+
+def with_tax_vec(x):                                                   # a whole vector
+    return pc.round(pc.multiply(x, 1.07), 2)
+con.create_function("with_tax_vec", with_tax_vec, [DOUBLE], DOUBLE, type="arrow")
+```
+
+In the first, DuckDB calls our function one value at a time. In the second it sends a whole chunk as an Arrow array, so the function is called once per chunk. Both give the same sum over 200,000 rows (ran), but the times differ. In one run the one-value version took about 80 ms and the vector version about 37 ms (the exercise asserts that the vector version is faster, though the numbers change with the computer). The reason is that every crossing from DuckDB into Python has a price per call, so fewer crossings cost less (book: DuckDB in Action section 6.4, page 136).
+
+Values that go into SQL should always be bound as parameters, never pasted in as text. In the exercise the text `paid' or '1'='1` passed through `?` was treated as one value and matched no row (0 rows), and named parameters (`$s`, `$q`) gave the same count as SQL with the values written in (ran).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We keep in a variable rel a relation that filters the orders table to the rows whose status is paid, then insert one more paid order, and then call rel.count. What is the result?"
+  options={[
+    'It counts only the rows that existed when rel was made, because rel kept its result from creation',
+    'It counts the newly inserted row too, because rel is a plan that runs when the result is asked for',
+    'An error, because rel is locked once it is made',
+    '0, because rel must be made again after the insert'
+  ]}
+  answer={1}
+  why="A relation does not hold a result. It holds the plan of the query and runs it when we ask. In the exercise a table with two rows, plus one inserted after the relation was made, counted 3 (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A relation does not run until the result is asked for (it sees a row inserted later), and printing shows the first rows and the types | ran: `exercises/06_python.py` |
+| filter, aggregate, order and limit give the same rows as SQL, and sums of decimals must be rounded before comparing | ran: `exercises/06_python.py` |
+| SQL reads a pandas DataFrame, a Polars DataFrame and an Arrow table by variable name, which must be a local of the function that runs the SQL | ran: `exercises/06_python.py` |
+| DuckDB, pandas and Polars give the same count and revenue per status | ran: `exercises/06_python.py` |
+| Times of 100 ms, 7 ms, 40 ms, 3 ms (best of 5, not asserted) | ran: `exercises/06_python.py` |
+| The result as pandas, Arrow (int64), Polars and NumPy | ran: `exercises/06_python.py` |
+| A one-value UDF and an Arrow UDF give the same sum, and the Arrow one is faster | ran: `exercises/06_python.py` |
+| Parameters are bound as one value and are not read as SQL | ran: `exercises/06_python.py` |
+| Why DuckDB on a DataFrame is slower than on its own table | author: a guess, not proven |
+| Reading a DataFrame without copying, Arrow as the common format, and UDFs | book: DuckDB in Action sections 6.3 (page 134), 6.5 (page 141), 6.4 (page 136) |
+
+</Step>

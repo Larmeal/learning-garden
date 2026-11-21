@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าใช้ EXCLUDE, GROUP BY ALL, QUALIFY และ SUMMARIZE ได้ถูก และไม่เอา approx_unique ไปใช้เป็นจำนวนแน่นอน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="`select * exclude (qty, unit_price) from orders` ให้อะไร?"
+  options={[
+    'ทุกคอลัมน์ รวม Qty กับ unit_price แต่ตั้งค่าเป็น NULL',
+    'ทุกคอลัมน์ยกเว้น Qty กับ unit_price ในลำดับเดิม',
+    'เฉพาะ Qty กับ unit_price',
+    'Error เพราะ SELECT * ใช้ร่วมกับ Exclude ไม่ได้'
+  ]}
+  answer={1}
+  why="EXCLUDE ตัดคอลัมน์ที่ระบุออกและคงลำดับที่เหลือไว้ ในแบบฝึก ตาราง Order เจ็ดคอลัมน์เหลือห้าคอลัมน์ ส่วน REPLACE เป็นคู่กันที่เปลี่ยนค่าของคอลัมน์ในตำแหน่งเดิม (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="`select status, count(*) from orders group by all order by all` จัดกลุ่มตามอะไร?"
+  options={[
+    'ทุกคอลัมน์ของตาราง Order',
+    'เฉพาะคอลัมน์แรกใน SELECT',
+    'ทุกคอลัมน์ใน SELECT ที่ไม่ใช่ Aggregate ซึ่งในที่นี้คือ status',
+    'ไม่จัดกลุ่ม เพราะ All หมายถึงไม่มีเงื่อนไข'
+  ]}
+  answer={2}
+  why="GROUP BY ALL เก็บทุกคอลัมน์ใน SELECT ที่ไม่ใช่ Aggregate มาเป็นคีย์ของกลุ่ม ในแบบฝึกผลเท่ากับการเขียน group by status ตรง ๆ ทุกแถว (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ตาราง Order ที่ `order_id` ไม่ซ้ำกันเลยหนึ่งล้านค่า `summarize` รายงาน `approx_unique` ของ order_id เป็น 953,281 ควรสรุปอย่างไร?"
+  options={[
+    'มี order_id ซ้ำกันอยู่ประมาณ 47,000 แถว',
+    'SUMMARIZE ทำงานผิดพลาด ต้องรายงานเป็น Bug',
+    '`approx_unique` เป็นค่าประมาณ ถ้าต้องการรู้ว่าซ้ำจริงไหมให้ใช้ `count(distinct order_id)`',
+    'ตาราง Order ถูกแก้หลังสร้าง'
+  ]}
+  answer={2}
+  why="approx_unique นับแบบประมาณ จึงคลาดเคลื่อนเมื่อมีค่าต่างกันเยอะ (customer_id ที่มี 5,000 ค่าก็ได้ 5,618) แต่ตรงเมื่อมีค่าน้อยอย่าง Status (4) ในแบบฝึก order_id ไม่ซ้ำกันเลย (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ไฟล์ CSV สองไฟล์มีคอลัมน์ไม่เหมือนกัน ไฟล์ใหม่เพิ่มคอลัมน์ `c` ที่ท้ายตาราง เราจะรวมสองผลลัพธ์โดยจับคู่ตามชื่อและเติม NULL ให้ช่องที่ไม่มี ควรใช้อะไร?"
+  options={[
+    '`union all by name`',
+    '`union all` ธรรมดา เพราะจับคู่ตามชื่ออยู่แล้ว',
+    '`insert by name` ใช้รวมผลลัพธ์สอง Query',
+    '`group by all`'
+  ]}
+  answer={0}
+  why="`union all by name` เรียงคอลัมน์ตามชื่อและเติม NULL ในช่องที่อีกฝั่งไม่มี ส่วน `union all` ธรรมดาจับคู่ตามตำแหน่ง ในแบบฝึกผลคือ (1, 'x', NULL) กับ (NULL, 'y', 2.5) ส่วน `insert by name` ใช้ตอน Insert เข้าตาราง (รัน)"
+/>
+
+</Step>

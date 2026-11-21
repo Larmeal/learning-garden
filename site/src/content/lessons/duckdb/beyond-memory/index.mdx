@@ -1,0 +1,164 @@
+---
+title: Beyond Memory
+summary: เราจำกัด Memory ของ DuckDB แล้วดูว่า GROUP BY ที่มี 7.3 ล้านกลุ่มเริ่มเขียนไฟล์ชั่วคราวลงดิสก์ที่ขีดไหน แต่ยังได้คำตอบเดิม ดูสิ่งที่ Spill ไม่ได้ ดูว่าไฟล์ Parquet ใหญ่กว่า Limit ก็ยังอ่านได้ และลองเปิดไฟล์ฐานข้อมูลเดียวกันจากหลาย Process เพื่อดูว่าเขียนได้ทีละ Process
+facts:
+  - "รันจริงใน exercises/10_beyond_memory.py กับ DuckDB 1.5.6: GROUP BY 20 ล้านแถวที่มี 7.3 ล้านกลุ่มภายใต้ memory_limit หกค่า (อ่านขนาดโฟลเดอร์ชั่วคราวสูงสุดจาก Profile), List ที่ใหญ่เกิน Limit จน Out of Memory, ไฟล์ Parquet 365 MB ที่รวมค่าได้ใต้ Limit 64 MB, การเปิดไฟล์ฐานข้อมูลจากสอง Process และสาม Process ที่อ่านพร้อมกันหลัง Writer ปิด และ Transaction สองตัวที่แก้แถวเดียวกัน"
+  - "เวลาของแต่ละ Limit เปลี่ยนมากระหว่างการรัน (เห็นทั้ง 5 วินาทีและ 2 วินาทีที่ Limit 100 MB บนเครื่องเดียวกัน) แบบฝึกจึง Assert เฉพาะทิศทาง ข้อความ Error ของ Lock ในบทนี้เป็นของ Windows ไม่ได้ลองบน Linux หรือ macOS ซึ่งข้อความอาจต่างกัน ไม่ได้ลองฐานข้อมูลที่ใหญ่กว่าดิสก์ว่าง"
+order: 10
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [optimizer]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import SpillLab from '../../../../components/labs/duckdb/SpillLab';
+import WritersLab from '../../../../components/labs/duckdb/WritersLab';
+
+<Step>
+
+## เมื่อ Memory ไม่พอ DuckDB เขียนลงดิสก์
+
+หนังสือบอกไว้ในบทแรกว่า ปริมาณข้อมูลที่ DuckDB ประมวลผลได้ถูกจำกัดโดย Memory หลักของคอมพิวเตอร์เป็นหลัก แต่มันรองรับการ Spill ไปดิสก์ซึ่งตั้งใจไว้สำหรับกรณีพิเศษ (หนังสือ: DuckDB in Action หัวข้อ 1.4 หน้า 5) เราลองให้เห็นของจริง ด้วยคำถามที่หนักต่อ Memory คือ `GROUP BY` ข้อมูล 20 ล้านแถวที่ได้ 7,344,514 กลุ่ม (เราเอา `hash(i) % 8000000` เป็นคีย์ จึงไม่ถึง 8 ล้านเต็ม)
+
+```sql
+select count(*), sum(c) from (
+  select hash(i) % 8000000 as k, count(*) as c from range(20000000) t(i) group by k)
+```
+
+เราสั่ง `set memory_limit = ...` ให้ DuckDB ใช้ Memory ได้น้อยลงเรื่อย ๆ แล้วอ่านขนาดสูงสุดของโฟลเดอร์ไฟล์ชั่วคราว (`temp_directory`) จาก Profile ของ Engine ผลคือ
+
+| memory_limit | โฟลเดอร์ชั่วคราวสูงสุด (MB) | เวลา (วินาที) |
+|---|---|---|
+| 2GB | 0 | 0.75 |
+| 1GB | 0 | 0.93 |
+| 600MB | 115 | 1.26 |
+| 400MB | 268 | 1.75 |
+| 200MB | 444 | 2.26 |
+| 100MB | 477 | 2.30 |
+
+ทุก Limit ให้คำตอบเดียวกัน คือ 7,344,514 กลุ่ม จาก 20,000,000 แถว (รัน) ที่ 1 GB ขึ้นไปไม่มีอะไรถูกเขียนลงดิสก์ พอ Limit ต่ำกว่านั้นมีไฟล์ชั่วคราวเกิดขึ้น ยิ่ง Limit ต่ำก็ยิ่ง Spill มาก และโฟลเดอร์ชั่วคราวว่างเปล่ากลับมาหลัง Query จบ (รัน) ลองเลื่อน Limit ใน Lab ด้านล่างแล้วดูว่า Memory เต็มตอนไหน
+
+<SpillLab client:visible />
+
+คอลัมน์เวลาต้องอ่านอย่างระวัง การรันหนึ่งครั้งก่อนหน้านี้ที่ Limit 100 MB ใช้ 5 วินาที ส่วนครั้งนี้ใช้ 2.3 วินาที บนคอมพิวเตอร์เครื่องเดียวกัน เวลาเปลี่ยนมากตามสภาพของเครื่องในตอนนั้น แบบฝึกจึง Assert เฉพาะว่า Limit 200 MB ช้ากว่า 1 GB เท่านั้น ไม่ได้ Assert ตัวเลข ส่วนขนาดของไฟล์ชั่วคราวนิ่งกว่า (ประมาณ 434 ถึง 444 MB ที่ 200 MB ในสองการรัน)
+
+</Step>
+
+<Step>
+
+## สิ่งที่ Spill ไม่ได้
+
+Operator บางตัวเก็บสถานะก้อนเดียวที่แบ่งไปดิสก์ไม่ได้ ตัวอย่างในแบบฝึกคือรวมตัวเลข 50 ล้านค่าเป็น List เดียวในเซลล์เดียวภายใต้ Limit 100 MB
+
+```sql
+set memory_limit = '100MB';
+select len(list(i)) from range(50000000) t(i);
+```
+
+```text
+Out of Memory Error: failed to allocate data of size 16.0 MiB (80.5 MiB/95.3 MiB used)
+
+Possible solutions:
+* Reducing the number of threads (SET threads=X)
+* Disabling insertion-order preservation (SET preserve_insertion_order=false)
+* Increasing the memory limit (SET memory_limit='...GB')
+```
+
+คำสั่งหยุดด้วย Out of Memory Error ที่บอกว่ากำลังขอ Memory ก้อนเท่าไรและใช้ไปแล้วเท่าไร พร้อมทางแก้สามข้อ ลดจำนวน Thread, ปิด `preserve_insertion_order` หรือเพิ่ม `memory_limit` (รัน) ขอบ Limit 95.3 MiB ในข้อความต่างจากที่เราตั้ง 100MB เล็กน้อย (เราไม่ได้ตรวจสาเหตุ) หลัง Error การเชื่อมต่อยังใช้งานต่อได้ (รัน) บทเรียนคือ Spill ช่วยกับ Operator ที่ออกแบบให้แบ่งงานได้ เช่นการเรียง การ Join และ Aggregate แบบ Hash ไม่ได้ช่วยทุกคำสั่ง ถ้าเก็บทุกอย่างรวมเป็นเซลล์เดียวก็เกินได้
+
+</Step>
+
+<Step>
+
+## ไฟล์ที่ใหญ่กว่า Limit ยังอ่านได้
+
+ถ้าแค่อ่านแล้วรวมค่า DuckDB ไม่ต้องถือไฟล์ทั้งไฟล์ใน Memory เราเขียนไฟล์ Parquet ที่มีข้อมูล 30 ล้านแถวได้ขนาด 365 MB แล้วตั้ง `memory_limit = '64MB'` ก่อนรวมค่า
+
+```sql
+select count(*), sum(g) from 'big.parquet'
+```
+
+ได้ผล (30,000,000 แถว และผลรวมถูกต้อง) โดยไม่มี Error (รัน) เพราะ Scan อ่านเป็น Vector แล้วทิ้งไปทีละก้อนเหมือนที่เราเห็นในบท [Query รันอย่างไร](/duckdb/execution/) Memory ที่ต้องใช้จึงไม่ขึ้นกับขนาดไฟล์ แต่ขึ้นกับ Operator ที่ต้องเก็บสถานะ ผลรวมค่าเดียวเก็บสถานะแค่ตัวเลขตัวเดียว
+
+</Step>
+
+<Step>
+
+## เขียนได้ทีละ Process
+
+มาถึงเรื่องที่สอง คือใช้ไฟล์เดียวกันหลายคน ไฟล์ `shop.duckdb` ถูกเปิดเขียนอยู่ในโปรแกรมแรก แล้วเราเปิดไฟล์เดียวกันจากโปรแกรมที่สอง ผลคือ
+
+```text
+The process cannot access the file because it is being used by another process.
+
+File is already open in
+C:\...\python.exe (PID 51536)
+```
+
+โปรแกรมที่สองเปิดไม่ได้และข้อความบอกว่าไฟล์ถูกเปิดอยู่ใน Process ไหน (รัน บน Windows ข้อความบน Linux หรือ macOS อาจต่างออกไป ไม่ได้ลอง) ที่น่าสนใจคือ แม้ขอเปิดแบบอ่านอย่างเดียว (`read_only=True`) ก็เปิดไม่ได้ในขณะที่ Writer ยังเปิดอยู่ (รัน) แต่เมื่อ Writer ปิดแล้ว Process สามตัวเปิดแบบอ่านอย่างเดียวพร้อมกันได้ ทุกตัวนับได้ 10 แถวเท่ากัน (รัน)
+
+ตรงกับที่หนังสือสรุปไว้ว่ามีสองแบบ คือ Process เดียวอ่านและเขียนได้ หรือหลาย Process อ่านได้แต่ไม่มีใครเขียน (หนังสือ: DuckDB in Action ภาคผนวก A หัวข้อ A.2 หน้า 267) ส่วนหลาย Thread ใน Process เดียวใช้ฐานข้อมูลเดียวกันเขียนได้ปกติ กด Lab ด้านล่างเพื่อเปิดไฟล์จากหลาย Process ตามลำดับแล้วดูว่าใครเข้าได้
+
+<WritersLab client:visible />
+
+</Step>
+
+<Step>
+
+## สองคนแก้แถวเดียวกัน
+
+ภายใน Process เดียว ใช้ Transaction หลายตัวพร้อมกันได้ เหมือนที่เห็นในบท [ข้อมูลถูกเก็บอย่างไร](/duckdb/storage/) ถ้าสอง Transaction แก้คนละแถว ทั้งสองสำเร็จ แต่ถ้าแก้แถวเดียวกัน
+
+```python
+a.execute("begin"); b.execute("begin")
+a.execute("update t set v = 1 where id = 3")
+b.execute("update t set v = 2 where id = 3")
+```
+
+คำสั่งของ `b` ล้มทันทีด้วย `TransactionException: Conflict on update!` (รัน) เมื่อ `b` ทำ `rollback` และ `a` ทำ `commit` ค่าของแถวนั้นเป็น 1 ตามของ `a` ส่วนการแก้คนละแถว (id 4 กับ 5) สำเร็จทั้งคู่ ได้ 5 กับ 6 (รัน) หนังสือเรียกวิธีนี้ว่า Optimistic Concurrency Control คือปล่อยให้ทำพร้อมกันแล้วมาตรวจ Conflict ตอนท้าย (หนังสือ: DuckDB in Action ภาคผนวก A หัวข้อ A.2 หน้า 267)
+
+<Callout type="tip" title="ออกแบบแอปให้ตรงกับข้อจำกัดนี้">
+ถ้าหลาย Process ต้องเขียนลงที่เดียวกัน ให้ Process เดียวเป็นเจ้าของไฟล์ฐานข้อมูล แล้วให้คนอื่นส่งงานมาให้ หรือให้แต่ละ Process เขียนไฟล์ Parquet ของตัวเอง แล้วให้ DuckDB อ่านทั้งโฟลเดอร์ตามที่ทำในบท [Query ไฟล์ได้เลยโดยไม่ต้องโหลด](/duckdb/query-files/)
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราตั้ง `memory_limit = '200MB'` แล้วรัน GROUP BY ที่มี 7.3 ล้านกลุ่ม ผลเป็นอย่างไรเมื่อเทียบกับตอนตั้ง 2GB?"
+  options={[
+    'Query ล้มด้วย Out of Memory ทุกครั้งเพราะ 200 MB ไม่พอ',
+    'ได้คำตอบเดิม แต่ DuckDB เขียนไฟล์ชั่วคราวหลายร้อย MB ลงดิสก์ และช้าลง',
+    'ได้คำตอบที่ประมาณการ เพราะถูกสุ่มข้อมูลให้พอดี Memory',
+    'ได้คำตอบเดิมโดยไม่เขียนอะไรลงดิสก์เลย'
+  ]}
+  answer={1}
+  why="ในแบบฝึก ทุก Limit ตั้งแต่ 2GB ถึง 100MB ให้คำตอบเดียวกัน ที่ 200 MB โฟลเดอร์ชั่วคราวสูงสุดประมาณ 444 MB ส่วนที่ 2GB ไม่มีอะไรถูกเขียน Out of Memory เกิดกับ Operator ที่ Spill ไม่ได้ เช่น List ก้อนเดียวที่ใหญ่เกิน Limit (รัน)"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| GROUP BY 7.3 ล้านกลุ่มภายใต้ memory_limit หกค่าให้คำตอบเดียวกัน (7,344,514 กลุ่ม) และ Spill เมื่อ Limit ต่ำกว่า 1 GB | รัน: `exercises/10_beyond_memory.py` |
+| โฟลเดอร์ชั่วคราวว่างเปล่าหลัง Query จบ | รัน: `exercises/10_beyond_memory.py` |
+| List 50 ล้านค่าใต้ Limit 100 MB ได้ Out of Memory Error ที่บอกทางแก้ และการเชื่อมต่อยังใช้ได้ต่อ | รัน: `exercises/10_beyond_memory.py` |
+| ไฟล์ Parquet 365 MB อ่านและรวมค่าได้ใต้ Limit 64 MB | รัน: `exercises/10_beyond_memory.py` |
+| Process ที่สองเปิดไฟล์ที่ Writer เปิดอยู่ไม่ได้ (แม้ read_only) และสาม Process อ่านพร้อมกันได้หลัง Writer ปิด (ข้อความบน Windows) | รัน: `exercises/10_beyond_memory.py` |
+| สอง Transaction แก้แถวเดียวกัน ตัวที่สองได้ Conflict on update และคนละแถวสำเร็จทั้งคู่ | รัน: `exercises/10_beyond_memory.py` |
+| รองรับ Spill แต่ตั้งใจไว้สำหรับกรณีพิเศษ | หนังสือ: DuckDB in Action หัวข้อ 1.4 หน้า 5 |
+| Process เดียวอ่านเขียนได้ หรือหลาย Process อ่านอย่างเดียว และ Optimistic Concurrency Control | หนังสือ: DuckDB in Action ภาคผนวก A หัวข้อ A.2 หน้า 267 |
+| ข้อความ Lock บน Linux และ macOS | ผู้เขียน: ไม่ได้ลอง |
+
+</Step>

@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you know which extensions ship in the package and what to do for the rest, understand that httpfs asks for only the bytes a query needs, and can join across databases.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We have just installed DuckDB with pip and want to read Parquet and JSON files. What must we do first?"
+  options={[
+    '`install parquet; load parquet;` every time',
+    'Nothing, because parquet and json are built into the package',
+    'Download the extension from GitHub by hand',
+    'It cannot be done, we must convert to CSV first'
+  ]}
+  answer={1}
+  why="In the exercise the extensions that are STATICALLY_LINKED were four: core_functions, icu, json and parquet. httpfs, sqlite_scanner and fts must be INSTALLed (downloaded once) and then LOADed (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="How much does `select count(*) from 'http://.../orders.parquet'` ask of the server through httpfs, compared with `select *`?"
+  options={[
+    'The same, because the whole file must be downloaded in both cases',
+    'Under 1% of the file, because it reads only the footer, while select * asks for nearly the whole file',
+    'More than select *, because it has to count row by row',
+    'Nothing, because DuckDB keeps the row count in its own database file'
+  ]}
+  answer={1}
+  why="In the exercise count(*) sent 65,536 bytes (0.4%) and select * sent 16,771,333 bytes (99.2%), because the row count is in the metadata of the Parquet file (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Of `sum(qty)` and `sum(qty)` with a filter on `order_ts` at the end of the year, over HTTP, which asks for fewer bytes and why?"
+  options={[
+    'The same, because the qty column must always be read',
+    'The one with the filter asks for fewer, because DuckDB uses the min and max of each row group to skip the unrelated groups',
+    'The one without the filter asks for fewer, because the filter needs extra reading',
+    'It depends only on the speed of the network'
+  ]}
+  answer={1}
+  why="In the exercise sum(qty) sent 445,319 bytes (11 requests) and with the filter at the end of the year it sent 190,929 bytes (4 requests), because it skipped seven of the nine row groups whose order_ts range does not overlap the filter (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Old customer data is still in SQLite, and the orders are in Parquet. We want to count orders by customer tier. What should we do with DuckDB?"
+  options={[
+    'Export the SQLite table to CSV every time, then join',
+    '`attach` the SQLite file with sqlite_scanner and join it with `read_parquet` in one query',
+    'It cannot be done, because DuckDB cannot join across kinds of source',
+    'Move both into PostgreSQL first'
+  ]}
+  answer={1}
+  why="In the exercise one statement joined a Parquet file of one million rows with a SQLite table and gave a total of one million rows, and the number of gold matched the count from the original table (ran)."
+/>
+
+</Step>

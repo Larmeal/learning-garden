@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you understand why we read as text first, how try_cast differs from cast, why a quarantine is needed, and why a pipeline must be rerunnable.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Why does our pipeline read the CSV files with `all_varchar = true` before converting types itself?"
+  options={[
+    'Because DuckDB stores text faster than numbers',
+    'To control how a value that cannot be converted (such as N/A) is handled, instead of letting the type guess decide for the whole column',
+    'Because CSV does not support numbers',
+    'To make the Parquet file that comes out smaller'
+  ]}
+  answer={1}
+  why="If DuckDB guesses the type, a single N/A cell can make the whole price column text or an error. Reading as text first lets us decide with try_cast and send rows that cannot be converted to a quarantine with a reason (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="How does `try_cast(unit_price as double)` differ from `cast(unit_price as double)` when it meets the value `N/A`?"
+  options={[
+    'try_cast gives 0 and cast gives NULL',
+    'try_cast gives NULL and cast stops with a Conversion Error',
+    'Both give NULL',
+    'Both stop with an error'
+  ]}
+  answer={1}
+  why="try_cast returns NULL when it cannot convert, which lets us test for NULL and send the row to quarantine, whereas cast stops the whole query. In the exercise a file with the text not-a-number as an order_id made the load fail with a Conversion Error because it used a plain cast (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="After a run we have 27,310 clean rows and 119 quarantine rows from 27,429 rows after removing duplicates. Which fact says the pipeline lost no row?"
+  options={[
+    'clean is bigger than quarantine',
+    'clean + quarantine = 27,310 + 119 = 27,429, which equals the number of rows after removing duplicates',
+    'quarantine has at least one row for every reason',
+    'The run took under a second'
+  ]}
+  answer={1}
+  why="Every row must end in exactly one place (clean, quarantine, or dropped as a duplicate). A matching total is the evidence that none was lost, and the exercise checks it together with comparing the faults found against those planted (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A daily pipeline is accidentally run again on the same files. Which choice keeps the result unchanged?"
+  options={[
+    'Empty the clean table before every load, whatever round the data came from',
+    'Make order_id the primary key and use insert ... on conflict do nothing, and check before inserting into quarantine',
+    'Forbid reruns with no way of preventing them',
+    'Add a load-date column so that the rows differ'
+  ]}
+  answer={1}
+  why="An idempotent load gives the same result however many times it runs. In the exercise a rerun of the same files added nothing to clean, and quarantine stayed at 119 rows. Adding a load-date column would make the repeated rows look new (ran)."
+/>
+
+</Step>

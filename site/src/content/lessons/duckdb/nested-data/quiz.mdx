@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าใช้ List กับ Unnest ได้ถูก อ่านค่าใน STRUCT กับ MAP ได้ เข้าใจว่า JSON ที่เป็นข้อความต้อง Parse และรู้ว่า ENUM ทำอะไร
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="`select list_filter([1, 2, 3, 4], x -> x % 2 = 0)` ให้อะไร และ List ใน DuckDB เริ่มนับ Index ที่เท่าไร?"
+  options={[
+    '[1, 3] และเริ่มนับที่ 0',
+    '[2, 4] และเริ่มนับที่ 1',
+    '[2, 4] และเริ่มนับที่ 0',
+    '[1, 3] และเริ่มนับที่ 1'
+  ]}
+  answer={1}
+  why="list_filter เก็บค่าที่ทำให้เงื่อนไขเป็นจริง คือเลขคู่ [2, 4] และ List ของ DuckDB เริ่มนับที่ 1 ในแบบฝึก ([10, 20, 30, 40])[2] ได้ 20 และ Slice [2:3] ได้ [20, 30] รวมสองปลาย (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="`map {'a': 1}['z']` ให้อะไร และต่างจากการอ่านฟิลด์ที่ไม่มีของ STRUCT อย่างไร?"
+  options={[
+    'ได้ NULL ส่วนการอ่านฟิลด์ที่ไม่มีของ STRUCT ได้ Binder Error ตอนสร้างคำสั่ง',
+    'ได้ Error ทั้งสองกรณี',
+    'ได้ 0 ทั้งสองกรณี',
+    'ได้ NULL ทั้งสองกรณี'
+  ]}
+  answer={0}
+  why="MAP หา Key ที่ไม่มีแล้วได้ NULL ในแบบฝึก ส่วน STRUCT มีชุดฟิลด์ที่แน่นอนตั้งแต่ตอนสร้าง จึงอ้างฟิลด์ที่ไม่มีไม่ได้ ในแบบฝึก การอ่านฟิลด์ z ที่ไม่มีใน STRUCT ได้ Binder Error ที่บอกว่าหา Key z ไม่เจอ (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ตาราง `events` เก็บ JSON เป็นข้อความ ถ้าคีย์ `age` ไม่มีในแถวที่สอง `(payload->>'$.user.age')::int` ให้อะไรกับแถวนั้น?"
+  options={[
+    'Error เพราะแปลงข้อความว่างเป็นตัวเลขไม่ได้',
+    '0 เพราะ Int ตั้งต้นเป็น 0',
+    'NULL เพราะเส้นทางที่ไม่มีใน JSON ให้ NULL',
+    'ข้ามแถวนั้นไปทั้งแถว'
+  ]}
+  answer={2}
+  why="->> ที่หาเส้นทางไม่เจอคืน NULL และ NULL ที่แปลงเป็น Int ยังเป็น NULL ในแบบฝึกผลของสามแถวคือ 31, NULL และ 40 (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="คอลัมน์ `status` เป็น ENUM ที่มีค่า Paid, Shipped, Cancelled, Refunded เราสั่ง `insert ... values (1, 'lost')` จะเกิดอะไรขึ้น?"
+  options={[
+    'Insert สำเร็จ และ `lost` กลายเป็นค่าใหม่ของ ENUM',
+    'Insert สำเร็จ แต่ค่าเป็น NULL',
+    'ถูกปฏิเสธด้วย Conversion Error ที่ระบุค่า `lost`',
+    'DuckDB เลือกค่าที่ใกล้เคียงที่สุดให้ เช่น paid'
+  ]}
+  answer={2}
+  why="ENUM บอกชุดค่าที่ยอมรับ ค่านอกชุดถูกปฏิเสธและข้อความ Error บอกค่าที่ผิด ในแบบฝึกยังเห็นว่าการเรียงตาม ENUM ใช้ลำดับที่ประกาศ ทำให้ Paid ก่อน Refunded (รัน)"
+/>
+
+</Step>

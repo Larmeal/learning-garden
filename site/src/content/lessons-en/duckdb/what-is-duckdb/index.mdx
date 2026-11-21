@@ -1,0 +1,158 @@
+---
+title: What DuckDB is
+summary: We build one million orders in Python and see that DuckDB opens no new process or port, that the whole database is one file, and why it beats SQLite at summary queries while inserting one row at a time is the job it does not like.
+facts:
+  - "Ran in exercises/01_what_is_duckdb.py with DuckDB 1.5.6: no child process and no listening port, a closed database leaves one file, a GROUP BY over one million rows gives the same answer as the SQLite of Python, and one INSERT per row is compared with one batch. The times are from this computer and are not asserted."
+  - "The history of DuckDB at CWI, the range it suits (data under a few hundred GB, not streams) and the work it does not suit come from the book DuckDB in Action, chapter 1, and were not run. PostgreSQL was not installed for comparison: the lesson describes how a client-server database works in general."
+order: 1
+phase: A
+level: 1
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import InProcessLab from '../../../../components/labs/duckdb/InProcessLab';
+
+<Step>
+
+## Open Python and ask about one million orders
+
+Let us start with the real thing. Say we have an `orders` table with one million orders. It has `order_id`, `customer_id`, `qty`, `unit_price`, `status` and `order_ts`. The exercises of this path build the table with DuckDB itself, so the numbers are the same on every run. All of the data is synthetic.
+
+```python
+import duckdb
+
+con = duckdb.connect()                      # a database in memory
+# ... create the orders table with one million rows (see ddb.py)
+con.sql("select status, count(*) from orders group by status order by status").fetchall()
+```
+
+```text
+status     orders  revenue
+---------  ------  -----------
+cancelled  70156   10026036.39
+paid       699821  99866243.04
+refunded   30104   4284700.24
+shipped    199919  28559172.37
+```
+
+`duckdb.connect()` opens one database, and with no file name it lives in memory. `con.sql(...)` sends the SQL, and `.fetchall()` brings the result back as a list of tuples. Notice what did not happen. We installed no server, set no password and wrote no host or port anywhere (ran).
+
+</Step>
+
+<Step>
+
+## DuckDB lives inside our process
+
+So where is the program that answers us? Let us check. Before we build the table we note how many child processes this Python has, how many ports it listens on, and how much memory it uses. Then we build one million rows and measure again. On this computer we get:
+
+| What we measured | Before the table | After the table |
+|---|---|---|
+| Child processes | 0 | 0 |
+| Listening ports | none | none |
+| Memory of this Python process | (starting value) | grew by about 84 MB |
+
+There is no new process and no new port, yet the memory of the Python process itself grew. DuckDB is a library that was loaded into our process (ran). The book calls this an embedded database: one that runs inside another process, such as our application or notebook, and is not reached over a network (book: DuckDB in Action section 1.1, page 2).
+
+To picture it, think of a database like PostgreSQL as a restaurant we have to phone. The order travels to the restaurant, the kitchen cooks, and a courier brings the food back. DuckDB is a small kitchen in our own house, and we open the fridge ourselves with nobody travelling. Press through the lab below and compare, step by step, how many times the data is copied.
+
+<InProcessLab client:visible lang="en" />
+
+<Callout type="note" title="PostgreSQL in this picture was not run">
+The client-server side of the picture follows how a database with a server generally works (the command goes over a socket and the result comes back as rows). The author did not install PostgreSQL to measure against it. The numbers that were run in this lesson belong to DuckDB and SQLite only.
+</Callout>
+
+</Step>
+
+<Step>
+
+## A database is one file
+
+To store a DuckDB database on disk we give `connect` a file name. This example keeps 100,000 orders and the customer table in a file called `shop.duckdb`.
+
+```python
+con = duckdb.connect("shop.duckdb")
+# ... create the tables ...
+con.close()
+```
+
+After closing the connection and looking in the folder, we see one file, `shop.duckdb`, of 1,323,008 bytes. There is no log file or config file beside it (ran). Opening it again with `duckdb.connect("shop.duckdb", access_mode="read_only")` finds all 100,000 orders. We can copy the file to a friend or upload it to the cloud like any other file, which is unlike PostgreSQL, where the data sits in many files inside the folder of the server.
+
+How the file is laid out inside is the subject of the lesson [How the data is stored](/en/duckdb/storage/).
+
+</Step>
+
+<Step>
+
+## Against SQLite on a summary query
+
+SQLite is also a database inside the process, and it also keeps one file. Python ships it as the `sqlite3` module. So we gave both engines the same question over the same one million rows.
+
+```sql
+select status, count(*), round(sum(qty * unit_price), 2)
+from orders group by status order by status
+```
+
+Both returned the same four rows, the same counts, and the same revenue to the cent (ran). They differ in time. In one run on this computer DuckDB took about 22 ms and SQLite about 1,477 ms. The times are not asserted because they depend on the computer, and the SQLite in this test had no index, just as the DuckDB table had none.
+
+The reason for such a gap is not anybody's skill. SQLite stores data row by row, which suits reading or changing one whole row. DuckDB stores data column by column and processes groups of rows at a time, which suits a question that reads many rows but uses few columns. We open both ideas in the lessons [How the data is stored](/en/duckdb/storage/) and [How a query runs](/en/duckdb/execution/).
+
+The book sums it up: use DuckDB for analysis that can be written in SQL, on data that already exists (not data that keeps flowing in), up to a few hundred GB (book: DuckDB in Action section 1.3, page 4).
+
+</Step>
+
+<Step>
+
+## What DuckDB does not like
+
+Picture a web shop where every customer click inserts one row. We imitate that by inserting 2,000 rows with one statement each, against sending all 2,000 rows at once with `executemany`. On this computer:
+
+| Method | Time |
+|---|---|
+| 2,000 separate `INSERT` statements | about 9,253 ms |
+| `executemany` with 2,000 rows | about 749 ms |
+
+The rows are the same, and the gap is more than ten times (ran). Each statement has to be parsed, planned and committed on its own, which DuckDB was not built for. The book says plainly that DuckDB has limited support for transactions and parallel writes, so it does not suit an application that stores input arriving at arbitrary moments, and it is not a streaming database (book: DuckDB in Action section 1.4, page 5).
+
+If the data really does arrive row by row, collect it in small batches first and load a batch at a time. We try several processes writing at once in the lesson [Data bigger than memory, and many users](/en/duckdb/beyond-memory/).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A web shop wants to store each order, as the customer clicks, into DuckDB from Python, with several web processes writing into the same file at once, and then answer a daily report from DuckDB. Which plan fits best?"
+  options={[
+    'Use it as it is, because DuckDB already supports writes from many processes at once',
+    'Let the web app store orders in a database built for row-at-a-time writes, then load them in batches into DuckDB for the reports',
+    'Switch to the DuckDB server, because DuckDB ships with one',
+    'Use it as it is, but give it more threads so the writes are faster'
+  ]}
+  answer={1}
+  why="A DuckDB file can be opened for writing by one process at a time (we try this in the lesson on data bigger than memory), and inserting row by row was more than ten times slower than writing a batch in our exercise. DuckDB has no built-in server. The fitting job is to take rows one at a time with a system that is good at that, then load batches into DuckDB for analysis, which is what the book says in section 1.4 (book, ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| DuckDB runs inside the Python process: no child process, no listening port, the memory of the process grows | ran: `exercises/01_what_is_duckdb.py` |
+| A closed database leaves one file (`shop.duckdb`, 1,323,008 bytes for 100,000 orders) and it opens again | ran: `exercises/01_what_is_duckdb.py` |
+| A GROUP BY over one million rows gives the same answer in DuckDB and SQLite (22 ms against 1,477 ms is one run) | ran: `exercises/01_what_is_duckdb.py` |
+| One INSERT per statement for 2,000 rows is more than ten times slower than executemany (9,253 ms against 749 ms in one run) | ran: `exercises/01_what_is_duckdb.py` |
+| DuckDB is an embedded database that CWI began building in 2018 | book: DuckDB in Action section 1.1, page 2 |
+| It suits SQL analysis of existing data up to a few hundred GB | book: DuckDB in Action section 1.3, page 4 |
+| It does not suit concurrent writes or streaming data | book: DuckDB in Action section 1.4, page 5 |
+| The client-server picture in the lab | author: PostgreSQL was not run |
+
+</Step>

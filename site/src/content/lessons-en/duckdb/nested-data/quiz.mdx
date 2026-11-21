@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you use list and unnest correctly, can read a value out of STRUCT and MAP, know that JSON held as text must be parsed, and know what an ENUM does.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="What does `select list_filter([1, 2, 3, 4], x -> x % 2 = 0)` give, and where does a DuckDB list start counting its index?"
+  options={[
+    '[1, 3] and it starts at 0',
+    '[2, 4] and it starts at 1',
+    '[2, 4] and it starts at 0',
+    '[1, 3] and it starts at 1'
+  ]}
+  answer={1}
+  why="list_filter keeps the values that make the condition true, the even numbers [2, 4], and a DuckDB list starts at 1. In the exercise ([10, 20, 30, 40])[2] gave 20 and the slice [2:3] gave [20, 30], both ends included (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="What does `map {'a': 1}['z']` give, and how does it differ from reading a field that does not exist in a STRUCT?"
+  options={[
+    'It gives NULL, whereas reading a missing STRUCT field is a Binder Error when the statement is built',
+    'It is an error in both cases',
+    'It gives 0 in both cases',
+    'It gives NULL in both cases'
+  ]}
+  answer={0}
+  why="Looking up a key that is not in a MAP gives NULL in the exercise. A STRUCT has an exact set of fields from the moment it is created, so a field that does not exist cannot be named. In the exercise, reading a field z that is not in the STRUCT gave a Binder Error saying key z was not found (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The `events` table keeps JSON as text. If the second row has no `age` key, what does `(payload->>'$.user.age')::int` give for that row?"
+  options={[
+    'An error, because empty text cannot be cast to a number',
+    '0, because the default int is 0',
+    'NULL, because a path that is not in the JSON gives NULL',
+    'The whole row is skipped'
+  ]}
+  answer={2}
+  why="->> returns NULL when it cannot find the path, and a NULL cast to int stays NULL. In the exercise the three rows gave 31, NULL and 40 (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The column `status` is an ENUM with the values paid, shipped, cancelled, refunded. We run `insert ... values (1, 'lost')`. What happens?"
+  options={[
+    'The insert succeeds and `lost` becomes a new value of the ENUM',
+    'The insert succeeds but the value is NULL',
+    'It is refused with a Conversion Error that names the value `lost`',
+    'DuckDB picks the closest value, such as paid'
+  ]}
+  answer={2}
+  why="An ENUM states the set of accepted values. A value outside it is refused and the error message names the bad value. The exercise also showed that sorting an ENUM uses the declared order, so paid comes before refunded (ran)."
+/>
+
+</Step>

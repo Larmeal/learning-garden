@@ -1,0 +1,177 @@
+---
+title: Capstone, loading daily CSV files with bad rows into a pipeline
+summary: We take ten daily CSV files that hold repeated orders and five kinds of bad data planted in set numbers, and write one script that reads everything as text, converts types with try_cast, removes duplicates, sends bad rows to a quarantine with a reason, loads the good rows, can be rerun, writes Parquet by month, and is checked against pandas.
+facts:
+  - "Ran in exercises/12_capstone_pipeline.py with DuckDB 1.5.6 and pandas: 10 CSV files from 27,429 orders with 137 duplicates and five kinds of bad data (27, 36, 8, 36 and 12 rows) placed by order_id, reading with read_csv all_varchar, try_cast, QUALIFY for duplicates, two tables (clean and quarantine), a transaction that fails halfway and leaves nothing behind, a rerun that adds no rows, Parquet by month that reads back the same, and pandas with the same rules giving the same 27,310 rows."
+  - "All the data is synthetic and the faults are placed by order_id, so it does not represent real data. Files bigger than tens of thousands of rows were not tried, nor running on a schedule with something like cron or Airflow, nor dbt, dlt or Dagster, which the book teaches in sections 8.2 to 8.4."
+order: 12
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [extensions]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import PipelineLab from '../../../../components/labs/duckdb/PipelineLab';
+
+<Step>
+
+## The task: daily files we cannot trust
+
+Every morning a CSV file of yesterday's orders is dropped in a folder. The data comes from several systems, so it is not clean. We imitate it with ten files (`orders_2025-01-01.csv` to `orders_2025-01-10.csv`) that together hold 27,429 orders, and we put faults in set numbers, decided in advance from the `order_id`.
+
+| Fault | What it looks like | How many planted |
+|---|---|---|
+| `duplicate` | The same order is sent again in the file of the same day | 137 rows |
+| `missing_customer` | `customer_id` is empty | 27 rows |
+| `negative_qty` | `qty` is negative | 36 rows |
+| `bad_price` | `unit_price` is the text `N/A` | 8 rows |
+| `unknown_status` | `status` is `PAID ` (with a trailing space) or `delivered` | 36 rows |
+| `future_date` | `order_ts` is moved ten years ahead | 12 rows |
+
+The numbers of the last five are counted as "the first rule that fails wins", because a row can be bad in several ways at once. We want a single script that guarantees every incoming row ends in exactly one place: the `clean` table, the `quarantine` table (with a reason), or dropped as a duplicate. It must also be rerunnable without duplicating data. Press through the lab below to see the rows flow through each stage.
+
+<PipelineLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## First step: read everything as text
+
+If we let `read_csv` guess the types, a file with `N/A` in the price column may turn the whole column into text, which is sometimes fine and sometimes an error, instead of a guess. We choose to read every column as text first, and then convert the types ourselves with our own rules.
+
+```sql
+create temp table raw as
+select * from read_csv('landing/orders_*.csv', all_varchar = true, union_by_name = true, filename = true)
+```
+
+`all_varchar` switches off type guessing. `union_by_name` lines columns up by name in case some file has missing columns (just as `union all by name` helped in [SQL that takes less typing](/en/duckdb/friendly-sql/)). `filename = true` adds a column that says which file a row came from, which we use to trace where bad data came from and to choose which of the repeated rows to keep. It gives 27,566 rows, which is 27,429 plus the 137 repeats (ran). The glob and `filename` technique used here is the one in [Query files without loading them](/en/duckdb/query-files/).
+
+</Step>
+
+<Step>
+
+## Convert types, remove duplicates, then judge each row
+
+```sql
+create temp table typed as
+select order_id::bigint as order_id,
+       try_cast(nullif(customer_id, '') as bigint) as customer_id,
+       product_id::bigint as product_id, qty::int as qty,
+       try_cast(unit_price as double) as unit_price, status,
+       try_cast(order_ts as timestamp) as order_ts, filename
+from raw;
+
+create temp table dedup as
+select * from typed qualify row_number() over (partition by order_id order by filename) = 1;
+```
+
+`try_cast` differs from `cast` in that when it cannot convert it gives `NULL` instead of an error, so `N/A` becomes a `NULL` price and the empty `customer_id` is `NULL` too. The `QUALIFY row_number()` that we learned in [SQL that takes less typing](/en/duckdb/friendly-sql/) keeps the first row of each `order_id` and drops the 137 repeats, leaving 27,429 (ran). Then we judge which rows are bad with a `CASE` whose rules are in order.
+
+```sql
+case when customer_id is null then 'missing_customer'
+     when qty <= 0 then 'negative_qty'
+     when unit_price is null then 'bad_price'
+     when status not in ('paid', 'shipped', 'cancelled', 'refunded') then 'unknown_status'
+     when order_ts > timestamp '2025-12-31 23:59:59' then 'future_date' end as reason
+```
+
+A row whose `reason` is `NULL` is good. A row with a reason goes to the `quarantine` table with the name of its source file. The result is 27,310 good rows and 119 rows in quarantine (ran).
+
+| Reason | Rows | Planted |
+|---|---|---|
+| `missing_customer` | 27 | 27 |
+| `negative_qty` | 36 | 36 |
+| `bad_price` | 8 | 8 |
+| `unknown_status` | 36 | 36 |
+| `future_date` | 12 | 12 |
+
+The number found matches the number planted in every row, and 27,310 + 119 = 27,429 equals the number of rows after removing duplicates (ran), so no row was lost on the way. The order of the `CASE` matters. If we swapped it to check `status` first, a row that is bad in two ways would be counted under a different reason and the numbers would change with it (this is the author's inference, we did not try the swap). Designing rules like this is carried further in [Rule design](/en/data-quality/rule-design/) of the Data Quality path.
+
+</Step>
+
+<Step>
+
+## Everything in one transaction
+
+If one day's file has a row that cannot be read at all, for example an `order_id` that is the text `not-a-number`, the load should fail as a whole and leave nothing half done. We wrap every step in `begin` ... `commit`. Trying to load a file with such a row gave a Conversion Error that names the value `not-a-number`, and after `rollback` the row counts of `clean` and `quarantine` were exactly as before (ran). What we learned about transactions in [How the data is stored](/en/duckdb/storage/) applies directly.
+
+</Step>
+
+<Step>
+
+## Rerunnable without duplicates
+
+A daily pipeline will certainly be run again, for example when someone starts it twice, or runs it again after fixing a problem. The `clean` table declares `order_id` as a `primary key` and we use `insert ... on conflict do nothing` on it, while for `quarantine` we check before inserting that the `order_id` is not already there. Running the same set of files once more added no row to `clean` at all, and `quarantine` still held 119 rows (ran). A load like this is called idempotent, and it matters a great deal for work that runs on a schedule.
+
+</Step>
+
+<Step>
+
+## Parquet by month, and a report
+
+The good rows are written on as Parquet, one folder per month as in [Query files without loading them](/en/duckdb/query-files/), and they read back with the same row count and the same revenue as the `clean` table (ran). The report of revenue by status from `clean` has only the four real statuses, with no `PAID ` or `delivered` mixed in.
+
+| status | orders | revenue |
+|---|---|---|
+| cancelled | 1,970 | 288,022.95 |
+| paid | 19,181 | 2,732,772.75 |
+| refunded | 816 | 113,781.86 |
+| shipped | 5,343 | 780,429.37 |
+
+(ran) This table is the reason we filter first. If we did not remove `unknown_status`, a misspelled status would become an extra category in the report and the revenue of each category would be off.
+
+</Step>
+
+<Step>
+
+## Against pandas with the same rules
+
+We wrote the same steps again in pandas (reading every file as text, `drop_duplicates`, `to_numeric(errors="coerce")` and filtering with the same rules). It gave the same 27,310 good rows and the same revenue to the cent (ran). There was one place where pandas needed a hint, when converting `order_ts`, because some values have half a second (`...:00.5`) and some do not, and pandas stopped with an error until we said `format="ISO8601"`, whereas the `try_cast` of DuckDB accepted both without being told (ran). So the choice between the two tools is not about a correct result. It is about what has to be written extra and which tool the team already uses.
+
+<Callout type="note" title="What this capstone did not do">
+All the data is synthetic and the faults are placed by `order_id`, so they are easier to find than real ones. We did not try files of many millions of rows, did not run it with a scheduler, and did not try tools such as dbt, dlt or Dagster that the book describes in sections 8.2 to 8.4.
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Our script inserts the good rows into the `clean` table, which has `order_id` as primary key. If a user runs the script on the same folder a second time, what should the result be?"
+  options={[
+    'The clean table has twice as many rows',
+    'The clean table stays the same, because on conflict do nothing skips rows whose order_id already exists, and quarantine does not grow because it checks first',
+    'The script fails with a constraint error every time',
+    'The clean table is emptied and reloaded, which happens to give the same result'
+  ]}
+  answer={1}
+  why="In the exercise the rerun added no row to clean and quarantine still held 119 rows. A load like this is called idempotent (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| 10 files, 27,429 orders with 137 repeats, reading together gives 27,566 rows | ran: `exercises/12_capstone_pipeline.py` |
+| Removing duplicates with QUALIFY gives 27,429 rows, then clean 27,310 and quarantine 119 | ran: `exercises/12_capstone_pipeline.py` |
+| The five kinds of fault found (27, 36, 8, 36, 12) equal those planted | ran: `exercises/12_capstone_pipeline.py` |
+| A load that fails halfway and rolls back leaves nothing behind (clean and quarantine unchanged) | ran: `exercises/12_capstone_pipeline.py` |
+| Running the same files again adds no row to clean or quarantine | ran: `exercises/12_capstone_pipeline.py` |
+| Parquet by month reads back with the same count and revenue as clean, and the report has the four real statuses | ran: `exercises/12_capstone_pipeline.py` |
+| pandas with the same rules gives 27,310 rows and the same revenue (a format of ISO8601 is needed to convert the times) | ran: `exercises/12_capstone_pipeline.py` |
+| All the data and where the faults are placed | author: synthetic data we made |
+| dlt, dbt and Dagster as the book describes them (not run) | book: DuckDB in Action section 8.2 (page 165) to section 8.4 (page 182) |
+
+</Step>

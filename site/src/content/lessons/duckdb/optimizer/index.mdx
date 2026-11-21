@@ -1,0 +1,150 @@
+---
+title: Optimizer
+summary: เราปิด Optimizer แล้วเทียบแผนเดียวกันทั้งสองแบบ เห็น Filter ที่เขียนไว้หลัง Join ถูกย้ายเข้าไปใน Scan ของตาราง Customer จนเหลือ 642 แถวจาก 5,000 คอลัมน์ที่ไม่ได้ใช้ไม่ถูกอ่าน ค่าคงที่ถูกคำนวณล่วงหน้า และ Optimizer ก็คาดจำนวนแถวผิดไปมากเมื่อ Filter อยู่บนคอลัมน์ข้อความ
+facts:
+  - "รันจริงใน exercises/09_optimizer.py กับ DuckDB 1.5.6: แผนของ Join ระหว่าง orders กับ customers ที่เปิดและปิด Optimizer (อ่านจาก Profile ที่ Engine เขียนเอง), คอลัมน์ที่ Scan อ่านเมื่อเปิดและปิดกฎ unused_columns, การคำนวณ 2 + 1 ล่วงหน้า, จำนวนแถวที่ Optimizer คาดเทียบกับที่ Scan คืนจริงของ Filter สี่แบบ และผลลัพธ์ที่ยังเท่าเดิมเมื่อปิดกฎทีละข้อหกข้อ"
+  - "ชื่อกฎที่ปิดได้ด้วย disabled_optimizers และไฟล์ของแต่ละกฎใน src/optimizer ตรวจกับ Source ของ DuckDB v1.5.6 ด้วย ls และ grep ไม่ได้อ่านโค้ดของกฎแต่ละข้อ จึงไม่ได้ยืนยันวิธีที่ Optimizer ประมาณจำนวนแถว สาเหตุที่คาดผิดเป็นข้อสังเกตของผู้เขียนจากตัวเลขที่รัน"
+order: 9
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [execution]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import PlanLab from '../../../../components/labs/duckdb/PlanLab';
+
+<Step>
+
+## Query ที่เขียนไม่ใช่ Query ที่รัน
+
+ลองเขียน Query ที่หาจำนวน Order และรายได้ของลูกค้าที่อยู่ประเทศ TH โดย Join Order หนึ่งล้านแถวกับตาราง Customer แล้วกรองประเทศหลัง Join
+
+```sql
+select count(*), sum(o.qty * o.unit_price)
+from orders o join customers c using (customer_id)
+where c.country = 'TH'
+```
+
+ถ้าอ่านตรง ๆ ลำดับที่เขียนคือ Join ทั้งสองตารางก่อน แล้วค่อยกรอง แต่ DuckDB ไม่ได้รันตามนั้น เราเปรียบเทียบแผนเมื่อเปิดและปิด Optimizer (`pragma disable_optimizer`) จาก Profile ของ Engine
+
+**เปิด Optimizer**
+
+| Operator | ตาราง | แถวที่คืน | Filter |
+|---|---|---|---|
+| UNGROUPED_AGGREGATE | | 1 | |
+| PROJECTION | | 128,403 | |
+| HASH_JOIN | | 128,403 | |
+| SEQ_SCAN | orders | 1,000,000 | |
+| SEQ_SCAN | customers | 642 | `country='TH'` |
+
+**ปิด Optimizer**
+
+| Operator | ตาราง | แถวที่คืน | Filter |
+|---|---|---|---|
+| UNGROUPED_AGGREGATE | | 1 | |
+| PROJECTION | | 128,403 | |
+| FILTER | | 128,403 | |
+| HASH_JOIN | | 1,000,000 | |
+| SEQ_SCAN | orders | 1,000,000 | |
+| SEQ_SCAN | customers | 5,000 | |
+
+คำตอบเหมือนกันทั้งสองแบบ คือ 128,403 Order (รัน) ที่ต่างคือเส้นทาง เมื่อเปิด Optimizer เงื่อนไข `country = 'TH'` ถูกย้ายลงไปอยู่ใน Scan ของตาราง `customers` ซึ่งคืนแค่ 642 แถวจาก 5,000 แล้ว Join จึงคืน 128,403 แถวตั้งแต่แรก เมื่อปิด Optimizer Join ต้องจับคู่ทั้งหนึ่งล้านแถวกับ 5,000 แถว ได้หนึ่งล้านแถวออกมา แล้ว Operator `FILTER` ค่อยตัดเหลือ 128,403 (รัน) การย้ายนี้เรียกว่า Filter Pushdown ใน Source มีไฟล์ `src/optimizer/filter_pushdown.cpp` สำหรับกฎนี้ กด Lab ด้านล่างเพื่อสลับดูแผนทั้งสองแบบ
+
+<PlanLab client:visible />
+
+</Step>
+
+<Step>
+
+## ฝั่งไหนถูกสร้างเป็นตาราง Hash
+
+Hash Join สร้างตารางค้นหาจากตารางด้านหนึ่ง (ฝั่ง Build) แล้วเอาแถวของอีกด้าน (ฝั่ง Probe) มาไล่ค้น ฝั่ง Build ควรเป็นฝั่งที่เล็กกว่าเพราะตารางค้นหาต้องอยู่ใน Memory ในแผนข้างบน ลูกคนแรกของ `HASH_JOIN` คือ `orders` (Probe) และลูกคนที่สองคือ `customers` (Build) เป็นฝั่งที่ถูกกรองจนเหลือ 642 แถว (รัน) DuckDB มี Optimizer ที่ตัดสินใจเรื่องนี้โดยเฉพาะ ไฟล์ `src/optimizer/build_probe_side_optimizer.cpp` มีชื่อฟังก์ชันเช่น `TryFlipJoinChildren` ซึ่งสลับฝั่งเมื่อจำเป็น (Source) ผู้เขียนไม่ได้ไล่อ่านว่าสลับด้วยเกณฑ์อะไร
+
+</Step>
+
+<Step>
+
+## อ่านเฉพาะคอลัมน์ที่ใช้ และคำนวณค่าคงที่ล่วงหน้า
+
+`select sum(qty) from orders` ต้องการคอลัมน์เดียว ในแผน Scan บอก `Projections: qty` และ `select *` อ่านทั้งเจ็ดคอลัมน์ (รัน) ถ้าปิดกฎ `unused_columns` ข้อความของแผนที่เห็นไม่มีรายการ Projections อีก แปลว่า Scan ไม่ได้ถูกจำกัดคอลัมน์อีกแล้ว และคำตอบก็ยังเท่าเดิม (รัน) ในตารางที่เก็บเป็นคอลัมน์ การอ่านน้อยคอลัมน์หมายถึงการเปิดข้อมูลน้อยลงโดยตรง เราจึงเห็นผลชัดมาก
+
+อีกเรื่องคือค่าคงที่ ถ้าเขียนว่า
+
+```sql
+select count(*) from orders
+where status = 'paid' and qty = 2 + 1 and 1 + 1 = 2
+```
+
+ใน Scan เหลือเงื่อนไขแค่สองข้อ `status='paid'` และ `qty = 3` ส่วน `1 + 1 = 2` ที่เป็นจริงเสมอหายไป และ `2 + 1` ถูกคำนวณเป็น 3 ก่อนรัน (รัน) Scan คืน 139,611 แถวที่ผ่านทั้งสองข้อ (รัน) กฎนี้อยู่ใน `expression_rewriter.cpp` ที่เห็นในรายการไฟล์ของ Optimizer
+
+</Step>
+
+<Step>
+
+## Optimizer คาดจำนวนแถวไว้เท่าไร
+
+Optimizer ตัดสินใจหลายอย่างโดยดูจากจำนวนแถวที่คาดว่าแต่ละ Operator จะคืน (ในแผนเรียกว่า Estimated Cardinality) ถ้าคาดผิดมาก การตัดสินใจเรื่องลำดับ Join และฝั่ง Build ก็อาจผิดตาม เราเทียบที่คาดกับที่ Scan คืนจริงของ Filter สี่แบบบนตาราง `orders`
+
+| Filter | ที่คาด | ที่คืนจริง |
+|---|---|---|
+| `customer_id = 5` | 178 | 189 |
+| `qty = 3 and status = 'paid'` | 200,000 | 139,611 |
+| `status = 'refunded'` | 250,000 | 30,104 |
+| `unit_price > 90` | 200,000 | 53,525 |
+
+`customer_id = 5` คาดได้ใกล้มาก (178 กับ 189) แต่ `status = 'refunded'` คาดไว้ 250,000 ขณะที่จริงมี 30,104 ผิดไปแปดเท่า และช่วงของ `unit_price` คาดไว้เกือบสี่เท่าของที่เป็นจริง (รัน) ตรงนี้ผู้เขียนมีข้อสังเกตว่า การประมาณที่ดีสำหรับ `customer_id` ได้จากช่วงและจำนวนค่าที่ต่างกันของคอลัมน์นั้น แต่สำหรับข้อความและช่วงของตัวเลขทศนิยมคำตอบดูเหมือนมาจากสัดส่วนคงที่ เพราะเลข 200,000 กับ 250,000 โผล่ซ้ำกันหลายครั้ง นี่เป็นข้อสังเกตจากตัวเลข ไม่ได้ยืนยันกับโค้ดของ Optimizer
+
+<Callout type="tip" title="ถ้าแผนดูแปลก ให้เทียบที่คาดกับที่จริง">
+`EXPLAIN ANALYZE` แสดงทั้งจำนวนแถวที่คาดและจำนวนแถวที่คืนจริงของแต่ละ Operator หนังสืออธิบายการอ่านผลของ `EXPLAIN` กับ `EXPLAIN ANALYZE` ไว้ในหัวข้อ 10.2.3 (หนังสือ: DuckDB in Action หัวข้อ 10.2.3 หน้า 245) ตัวเลขที่ต่างกันมากเป็นเบาะแสแรกของแผนที่ไม่ดี
+</Callout>
+
+</Step>
+
+<Step>
+
+## ปิดกฎทีละข้อดูว่าอะไรเปลี่ยน
+
+ตัวเลือก `disabled_optimizers` ปิดกฎได้ทีละชื่อ เราลองปิดหกข้อ คือ `filter_pushdown`, `join_order`, `statistics_propagation`, `unused_columns`, `expression_rewriter` และ `build_side_probe_side` แล้วรัน Query ของ Join เดิม ทุกครั้งคำตอบยังเป็น 128,403 (รัน) และเมื่อปิดเฉพาะ `filter_pushdown` Operator `FILTER` กลับมาอยู่เหนือ Join ในแผน (รัน) Optimizer จึงเปลี่ยนเส้นทางที่ใช้ ไม่ได้เปลี่ยนคำตอบ ใน Source ของ v1.5.6 โฟลเดอร์ `src/optimizer` มีไฟล์ของกฎอีกหลายข้อ เช่น `join_order/`, `remove_unused_columns.cpp`, `statistics_propagator.cpp`, `topn_optimizer.cpp`, `limit_pushdown.cpp` และ `row_group_pruner.cpp` (Source: `ls src/optimizer`) ผู้เขียนไม่ได้ไล่อ่านโค้ดของแต่ละข้อ
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ปิด Optimizer แล้วรัน Join ระหว่าง Orders กับ Customers ที่กรอง `country = 'TH'` ผลต่างจากตอนเปิดคืออะไร?"
+  options={[
+    'คำตอบต่างกัน เพราะ Optimizer เปลี่ยนความหมายของ Query',
+    'คำตอบเท่ากัน (128,403 Order) แต่ Join ต้องจับคู่หนึ่งล้านแถวแล้วค่อยกรอง แทนที่จะรับแค่ 642 แถวของ customers',
+    'Query รันไม่ได้ เพราะ DuckDB ต้องใช้ Optimizer',
+    'คำตอบเท่ากันและแผนเหมือนกัน เพราะ Optimizer ไม่มีผลกับ Join'
+  ]}
+  answer={1}
+  why="Optimizer ไม่เปลี่ยนความหมายของ Query แค่เลือกเส้นทางที่ถูกกว่า ในแบบฝึก คำตอบเป็น 128,403 ทั้งสองแบบ แต่ Join คืนหนึ่งล้านแถวเมื่อปิด และ 128,403 เมื่อเปิด เพราะ Filter ถูกย้ายเข้าไปใน Scan ของ Customers (รัน)"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| คำตอบของ Join เท่ากัน (128,403) เมื่อเปิดและปิด Optimizer | รัน: `exercises/09_optimizer.py` |
+| เมื่อเปิด Filter อยู่ใน Scan ของ Customers (642 แถว) และ Join คืน 128,403 เมื่อปิดมี FILTER เหนือ Join ที่ Join คืนหนึ่งล้านแถว | รัน: `exercises/09_optimizer.py` |
+| ลูกคนแรกของ Hash Join คือ Orders และลูกคนที่สองคือ Customers | รัน: `exercises/09_optimizer.py` |
+| `sum(qty)` อ่านคอลัมน์เดียว `select *` อ่านเจ็ดคอลัมน์ ปิด unused_columns แล้วไม่มีรายการ Projections | รัน: `exercises/09_optimizer.py` |
+| `2 + 1` ถูกคำนวณเป็น 3 และ `1 + 1 = 2` หายไป Scan คืน 139,611 แถว | รัน: `exercises/09_optimizer.py` |
+| จำนวนแถวที่คาดกับที่จริง: 178 กับ 189, 200,000 กับ 139,611, 250,000 กับ 30,104, 200,000 กับ 53,525 | รัน: `exercises/09_optimizer.py` |
+| ปิดกฎหกข้อทีละข้อ คำตอบยังเป็น 128,403 และปิดเฉพาะ filter_pushdown แล้ว FILTER กลับมา | รัน: `exercises/09_optimizer.py` |
+| ชื่อไฟล์ของกฎใน `src/optimizer` (filter_pushdown, build_probe_side_optimizer, expression_rewriter, row_group_pruner ฯลฯ) | Source: `ls src/optimizer` ของ v1.5.6 |
+| อ่านผล EXPLAIN และ EXPLAIN ANALYZE | หนังสือ: DuckDB in Action หัวข้อ 10.2.3 หน้า 245 |
+| Optimizer คาดจำนวนแถวจากสัดส่วนคงที่สำหรับข้อความและช่วงทศนิยม | ผู้เขียน: ข้อสังเกตจากตัวเลข ไม่ได้ตรวจกับโค้ด |
+
+</Step>

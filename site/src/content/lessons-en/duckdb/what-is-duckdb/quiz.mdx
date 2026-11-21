@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you can say where DuckDB runs, how it stores data, how it differs from SQLite, and which jobs it should not be used for.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We call `duckdb.connect()` in a notebook and run a query on a table of one million rows. If we open Task Manager, what do we see about DuckDB?"
+  options={[
+    'A new process called duckdb-server, and Python talks to it over a port',
+    'No new process, but the memory of the Python process that runs the notebook grows, because the engine works inside it',
+    'Nothing changes at all, because DuckDB reads from disk every time and uses no memory',
+    'A new process appears only while the query runs and disappears when it ends'
+  ]}
+  answer={1}
+  why="The exercise measured no child process and no listening port, yet the memory of the Python process grew by about 84 MB after the table was built, because DuckDB is a library working inside our process. The first option is the picture of a client-server database such as PostgreSQL (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A team stores one million orders in shop.duckdb and closes the connection. What do they find in the folder?"
+  options={[
+    'One file called shop.duckdb',
+    'A server folder with many data files and config files',
+    'shop.duckdb and a shop.log that must always be kept together',
+    'One CSV file per table'
+  ]}
+  answer={0}
+  why="After a normal close one file is left, shop.duckdb. A .wal file is visible only while there are changes that have not yet been checkpointed into the main file (the lesson on storage shows it), so a single file can be handed to someone else (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="DuckDB and SQLite give the same answer to a GROUP BY over one million rows, but DuckDB takes far less time. What is the main reason?"
+  options={[
+    'DuckDB gives an approximate answer, so it is faster',
+    'SQLite cannot do a complex GROUP BY, so it loops in Python',
+    'DuckDB stores data by column and processes groups of rows, which suits a question that reads many rows but few columns',
+    'DuckDB always keeps everything in memory, and SQLite always keeps it on disk'
+  ]}
+  answer={2}
+  why="Both returned the same four rows and the same revenue to the cent, so nothing was approximated, and SQLite runs GROUP BY by itself. The difference comes from how the data is stored and how it is processed, which the lessons on storage and execution open up. On memory, DuckDB can store to disk too (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="An app inserts customers one row at a time with 2,000 separate `INSERT` statements, against sending 2,000 rows at once. How do the two compare?"
+  options={[
+    'They are equal, because in the end the same number of rows is written',
+    'One at a time is faster, because DuckDB is tuned for single rows',
+    'One at a time is more than ten times slower, because each statement is parsed, planned and committed by itself',
+    'One at a time cannot be done, because DuckDB does not support INSERT for a single row'
+  ]}
+  answer={2}
+  why="In our exercise 2,000 statements took about 9,253 ms and one executemany took about 749 ms. The times change with the computer but the direction is the same every time. It is the reason the book says DuckDB does not suit an app that takes data in row by row (ran, book)."
+/>
+
+</Step>

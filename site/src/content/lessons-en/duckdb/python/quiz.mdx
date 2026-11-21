@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you understand a relation that has not run, know how DuckDB finds a DataFrame by variable name, can read the times of three tools, and choose a UDF correctly.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="How does `con.sql('select * from df')` read a DataFrame called `df`, and when can it not find it?"
+  options={[
+    'DuckDB scans all of memory for the name df and always finds it',
+    'DuckDB looks for the variable df among the local variables of the function that calls SQL, so it fails if the variable lives outside and is reached through a closure',
+    'DuckDB can read only a DataFrame that went through `con.register` first',
+    'DuckDB never finds it, and it has to be saved as a file first'
+  ]}
+  answer={1}
+  why="A replacement scan looks the name up among the local variables of the function that calls SQL. In the exercise a call from a lambda that used the variable big through a closure got a Catalog Error. The fix was to take the DataFrame as a parameter of the function (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We compared one GROUP BY over one million rows in DuckDB, pandas and Polars. What does the result of the exercise say?"
+  options={[
+    'DuckDB is fastest in every case, because it is a database',
+    'All three give the same answer, but the time depends on where the data lives: DuckDB on a DataFrame took about 100 ms and on its own table about 7 ms',
+    'pandas is fastest, because the data is already in memory',
+    'All three take the same time, because they use the same CPU'
+  ]}
+  answer={1}
+  why="The numbers are the best of 5 runs on one computer and are not asserted. What is certain is that the answers are equal. The interesting part is the gap between DuckDB on a DataFrame and on its own table, and that Polars was faster than both in this run (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Two UDFs, one value at a time and one vector (Arrow) at a time, give the same sum, but the vector one is faster. Why?"
+  options={[
+    'The Arrow one does not really compute, it estimates',
+    'Each crossing from DuckDB into Python has a price per call, and sending a chunk crosses fewer times',
+    'Python is always faster when it receives an Arrow array',
+    'The one-value version uses no threads and the Arrow version does'
+  ]}
+  answer={1}
+  why="Both give the same sum, so nothing is estimated. Calling a Python function one value at a time crosses the border between DuckDB and Python once per row, and the vector version crosses once per chunk. In one run it was 80 ms against 37 ms (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We have to put a value typed by a user into a query. What should we do?"
+  options={[
+    'Build the SQL text with an f-string and check that it holds no quote',
+    'Bind it as a parameter with `?` or `$name`, so that the value is a value and not part of the SQL',
+    'Lower-case everything first',
+    'Save it to a CSV file and read it back'
+  ]}
+  answer={1}
+  why="In the exercise a text that tried to inject SQL (paid' or '1'='1) was bound as a single value, so it matched no row. Named parameters gave the same count as SQL with the values written in (ran)."
+/>
+
+</Step>

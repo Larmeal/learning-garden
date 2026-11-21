@@ -1,0 +1,175 @@
+---
+title: Aggregates, windows and special joins
+summary: We make subtotal rows with ROLLUP, see how a ROWS frame and a RANGE frame pick different rows when two rows share a day, turn a table with PIVOT, match the latest price with ASOF JOIN, and use LATERAL so that a subquery can see the row on its left.
+facts:
+  - "Ran in exercises/04_analysis.py with DuckDB 1.5.6: ROLLUP, CUBE and GROUPING SETS over one million orders joined to the country of the customer, FILTER against CASE, three window frames over a table of six rows, PIVOT and UNPIVOT, an ASOF JOIN of prices against four trades, and LATERAL against QUALIFY. The numbers of the window and ASOF labs come from the analysis.json that the exercise writes."
+  - "The six-row window table and the four trades of the ASOF example are small tables the author made up, not real data. The data behind ROLLUP and PIVOT is the synthetic one million orders with 5,000 customers. The content follows the book DuckDB in Action, chapter 4."
+order: 4
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [friendly-sql]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import WindowLab from '../../../../components/labs/duckdb/WindowLab';
+import AsofLab from '../../../../components/labs/duckdb/AsofLab';
+
+<Step>
+
+## Subtotal rows without a UNION
+
+A sales report often wants the figures by country and status, the total per country, and the grand total. In plain SQL that is three queries glued with `UNION`. DuckDB has `ROLLUP`, `CUBE` and `GROUPING SETS` to do it in one statement.
+
+```sql
+select country, status, count(*) n
+from o group by rollup (country, status)
+```
+
+The table `o` is the orders joined to the country of the customer (8 countries, 4 statuses). The result of `rollup` is 32 rows for each country and status pair, plus 8 subtotal rows per country (status is `NULL`), plus 1 grand total row (both are `NULL`), 41 rows in all. The grand total row counts 1,000,000, the number of orders (ran).
+
+| Form | Rows | What it adds to `group by country, status` |
+|---|---|---|
+| `rollup (country, status)` | 41 | a subtotal per country and the grand total |
+| `cube (country, status)` | 45 | also a subtotal per status, 4 more rows |
+| `grouping sets ((country), (status), ())` | 13 | only the groups we list (8 + 4 + 1) |
+
+How do we tell whether a `NULL` is a subtotal row or a real `NULL` in the data? Use the function `grouping(country)`, which is 1 on a row that was rolled up and 0 on an ordinary row. In the exercise the grand total row gave 1 and every other row gave 0 (ran) (book: DuckDB in Action section 4.4, page 66).
+
+</Step>
+
+<Step>
+
+## FILTER inside an aggregate
+
+Sometimes we want to count only some rows in the same statement that counts all of them, for example the refunded orders together with the item count of the paid orders. In older SQL we wrap the values in `CASE`.
+
+```sql
+select count(*) filter (where status = 'refunded'),
+       sum(qty)  filter (where status = 'paid')
+from orders
+```
+
+The result is 30,104 refunded orders and 2,099,046 items in paid orders, the same as the `sum(case when ... then ... end)` written the old way (ran). `filter` reads better because the condition sits next to the aggregate it restricts (book: DuckDB in Action section 4.6.3, page 81).
+
+</Step>
+
+<Step>
+
+## Window frames pick rows differently
+
+A window function computes a value for each row by looking at the rows around it, which is called its frame. This example uses a table of daily sales with six rows (made up by us), where day 3 has two rows, 5 and 30.
+
+| day | amount | `rows between 1 preceding and 1 following` | `range between interval 1 day preceding and current row` | running total |
+|---|---|---|---|---|
+| 2025-03-01 | 10 | 30 | 10 | 10 |
+| 2025-03-02 | 20 | 35 | 30 | 30 |
+| 2025-03-03 | 5 | 55 | 55 | 35 |
+| 2025-03-03 | 30 | 75 | 55 | 65 |
+| 2025-03-06 | 40 | 120 | 40 | 105 |
+| 2025-03-07 | 50 | 90 | 90 | 155 |
+
+In the `ROWS` column the frame counts rows, so every row adds one neighbour on the left and one on the right. In the `RANGE` column it counts days. Rows three and four are the same day, so they see each other (they are called peers) and the day before, and both give 55. Day 6 looks back one day, finds nothing, and gets only its own 40 (ran). Pick the current row and change the kind of frame in the lab and see which rows are counted.
+
+<WindowLab client:visible lang="en" />
+
+A window function can also read the neighbouring rows with `lag` and `lead`, and when the same window is used in several places we name it once with `window w as (order by ...)` and write `over w`. In the exercise `lag` of the first row was `NULL` and `lead` was 20 (ran) (book: DuckDB in Action section 4.5, page 69). A running total such as `sum(...) over (partition by customer_id order by order_id)` ends, for each customer, at exactly the total of that customer (ran).
+
+</Step>
+
+<Step>
+
+## PIVOT turns values into columns
+
+A table with a row for each country and status pair is too long for a report. We usually want the status as columns.
+
+```sql
+pivot (select country, status, qty from o) on status using sum(qty) group by country
+```
+
+The result is one row per country (8 rows) with the columns `country, cancelled, paid, refunded, shipped`. The value in each cell equals `sum(qty)` in the long table for that country and status, in every cell (ran). `unpivot` does the reverse and gives back 32 rows (book: DuckDB in Action section 4.7, page 82).
+
+</Step>
+
+<Step>
+
+## ASOF JOIN matches the latest price
+
+Data with timestamps, such as a share price that changes now and then and trades that happen at any time, rarely has timestamps that match exactly. We want to know what the latest announced price was at the moment of a trade. Both tables are small ones that we made up.
+
+```sql
+select t.ts, t.qty, p.ts as price_ts, p.price
+from trades t asof left join prices p on t.ts >= p.ts
+```
+
+| Trade at | Qty | Price announced at | Price |
+|---|---|---|---|
+| 08:59 | 1 | (none) | NULL |
+| 09:00 | 2 | 09:00 | 10.00 |
+| 09:45 | 3 | 09:30 | 10.50 |
+| 11:00 | 4 | 10:15 | 9.80 |
+
+The trade at 08:59 has no earlier price, so a plain `asof join` drops that row (3 rows are left), while `asof left join` keeps it with `NULL`. The trade at 09:00 gets the 09:00 price because `>=` includes equality. A plain join on the same condition (`p.ts <= t.ts`) gives 6 rows (0 + 1 + 2 + 3), every earlier price and not only the latest one (ran). Press through the trades in the lab and see which price the arrow points to.
+
+<AsofLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## LATERAL lets a subquery see the row on its left
+
+When we want the two biggest orders of each customer we have already seen `QUALIFY`. The other way is `LATERAL`.
+
+```sql
+select c.customer_id, top.order_id, top.total
+from customers c,
+     lateral (select order_id, qty * unit_price as total from orders o
+              where o.customer_id = c.customer_id
+              order by total desc, order_id limit 2) top
+where c.customer_id <= 2
+```
+
+The subquery inside `lateral` can refer to `c.customer_id` of the row on its left, so the `limit 2` runs separately for each customer. The result is two rows per customer (two for customer 1, two for customer 2), and the orders are the same as those of `QUALIFY row_number() ... <= 2` in every case (ran) (book: DuckDB in Action section 4.10, page 93).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A table of daily sales has two rows on day 3 (5 and 30). We compute `sum(amount) over (order by day range between interval 1 day preceding and current row)`. What does each of the two rows of day 3 get?"
+  options={[
+    '25 for the row with 5 and 55 for the row with 30',
+    '55 for both, because they see each other and the day before',
+    '35 for both, because only the same day is counted',
+    '5 and 30 respectively, because the frame looks only at the row itself'
+  ]}
+  answer={1}
+  why="RANGE counts by the value of the day, not by the number of rows. The two rows of day 3 are peers of each other, so the frame holds both of them and the row of day 2 (20), giving 20 + 5 + 30 = 55 for each. ROWS would give different values to the two rows (55 and 75) (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| ROLLUP gives 41 rows, CUBE 45, GROUPING SETS 13, and `grouping()` tells a subtotal from a real NULL | ran: `exercises/04_analysis.py` |
+| `count(*) filter (...)` equals `sum(case ...)` (30,104 and 2,099,046) | ran: `exercises/04_analysis.py` |
+| ROWS, RANGE and the running total of the six-row table have the values shown | ran: `exercises/04_analysis.py` |
+| `lag`, `lead` and a named window | ran: `exercises/04_analysis.py` |
+| PIVOT gives 4 columns by status, and UNPIVOT gives 32 rows | ran: `exercises/04_analysis.py` |
+| ASOF JOIN drops the 08:59 trade, ASOF LEFT JOIN keeps it as NULL, and a plain join gives 6 rows | ran: `exercises/04_analysis.py` |
+| LATERAL gives two rows per customer, equal to QUALIFY | ran: `exercises/04_analysis.py` |
+| Grouping sets, windows, FILTER, PIVOT and LATERAL as the book presents them | book: DuckDB in Action sections 4.4 (page 66), 4.5 (page 69), 4.6.3 (page 81), 4.7 (page 82), 4.10 (page 93) |
+| The six-row table and the four trades | author: data made up by us |
+
+</Step>

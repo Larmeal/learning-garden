@@ -1,0 +1,216 @@
+---
+title: Query files without loading them
+summary: We hand DuckDB a CSV with odd separators and let it guess the layout, see what we must tell it when it cannot, then compare with Parquet, which is smaller and carries its own types, before using a Hive-named folder so that a filter can skip whole files.
+facts:
+  - "Ran in exercises/02_query_files.py with DuckDB 1.5.6: sniff_csv on a file that uses ; as delimiter and a decimal comma, the options types, decimal_separator, nullstr and store_rejects, the size of a CSV against a Parquet file of one million orders, a Hive folder of 12 files and how many files each filter opens (read from the profile the engine writes), and a JSON file with a nested object."
+  - "The options of the CSV sniffer and the meaning of Hive partitions follow the book DuckDB in Action, chapter 5. Excel files, gzip files and files on S3 were not tried: this lesson reads files on this computer only."
+order: 2
+phase: A
+level: 1
+stage: sprout
+format: steps
+requires: [what-is-duckdb]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import GlobLab from '../../../../components/labs/duckdb/GlobLab';
+
+<Step>
+
+## A CSV that is not tidy
+
+Data usually reaches us as files, not as a table that is ready to use. Look at a small CSV where every line has something odd in it. It separates fields with `;`, writes decimals with a comma, has a field that says `n/a`, and has a date that does not exist.
+
+```text
+id;name;joined;score;note
+1;Anna;2025-01-03;7,5;"likes ""quotes"""
+2;Bo;2025-02-03;8,0;
+3;Chai;2025-02-30;n/a;multi
+4;Dee;2025-03-01;9,25;ok
+```
+
+DuckDB has a function, `sniff_csv`, that shows how it guessed the layout of a file.
+
+```sql
+select Delimiter, Quote, HasHeader, Columns from sniff_csv('messy.csv')
+```
+
+The result is a `;` delimiter, a `"` quote, and a header on the first line, all right without our saying anything (ran). The `id` column is guessed as `BIGINT`, but `joined` and `score` are guessed as text, `VARCHAR`, because the date `2025-02-30` does not exist and `7,5` is not a decimal number that DuckDB reads by default. The field with doubled quotes (`"likes ""quotes"""`) is read correctly as the text `likes "quotes"`, and the empty field of Bo is read as `NULL`.
+
+</Step>
+
+<Step>
+
+## Tell it what it cannot guess, and watch what changes
+
+If we force `score` to be a `DOUBLE`, the result is an error that names the line and the value it could not read.
+
+```sql
+select * from read_csv('messy.csv', types = {'score': 'DOUBLE'})
+```
+
+```text
+Conversion Error: CSV Error on Line: 2
+Error when converting column "score". Could not convert string "7,5" to 'DOUBLE'
+```
+
+The message names the column, the line and the value (`"7,5"`), which makes the fault quick to find (ran). The fix is to say that the comma is the decimal mark and that `n/a` means `NULL`.
+
+```sql
+select * from read_csv('messy.csv', decimal_separator = ',', nullstr = 'n/a')
+```
+
+Now `score` comes out as 7.5, 8.0, `NULL` and 9.25, as it should. There is one surprise, though. Before we set `nullstr`, the empty field of Bo was `NULL`. After we set `nullstr = 'n/a'` it became an empty string `''`, because the `nullstr` we give replaces the default one and does not add to it (ran). If we want both to be `NULL` we have to say so ourselves.
+
+For the date `2025-02-30` that does not exist we have two choices. The first is to let DuckDB skip that row and keep the reason for us to look at.
+
+```sql
+select * from read_csv('messy.csv', decimal_separator = ',', nullstr = 'n/a',
+                       types = {'joined': 'DATE'}, ignore_errors = true, store_rejects = true)
+select line, column_name, error_type from reject_errors
+```
+
+Three rows are read (Anna, Bo and Dee), and the `reject_errors` table says the row that dropped out is line 4, column `joined`, an error of type `CAST` (ran). The skipped row is not lost in silence, so we can go back and decide what to do with it. In the [capstone](/en/duckdb/capstone/) we use this table for real.
+
+<Callout type="tip" title="Read the error before changing options">
+A CSV error names the line and the value, and often suggests the option to try (for example `nullstr`). Reading it first is faster than guessing options.
+</Callout>
+
+</Step>
+
+<Step>
+
+## The same table as Parquet is smaller and knows its types
+
+Now take our one million orders and write them out twice, once as CSV and once as Parquet, and compare.
+
+```sql
+copy orders to 'orders.csv' (header);
+copy orders to 'orders.parquet' (format parquet);
+```
+
+| File | Size (bytes) | Against the CSV |
+|---|---|---|
+| `orders.csv` | 49,994,465 | 100% |
+| `orders.parquet` | 16,911,937 | 34% |
+
+The Parquet file is less than half the size of the CSV (ran). And when we ask DuckDB for the type of each column, the CSV types have to be guessed from the values inside, while Parquet keeps its types in the file.
+
+| Column | From the CSV (guessed) | From the Parquet (stored) |
+|---|---|---|
+| `order_id` | BIGINT | BIGINT |
+| `customer_id` | BIGINT | UBIGINT |
+| `qty` | BIGINT | UBIGINT |
+| `unit_price` | DOUBLE | DOUBLE |
+| `status` | VARCHAR | VARCHAR |
+| `order_ts` | TIMESTAMP | TIMESTAMP |
+
+The guess from the CSV is an integer that can be negative (`BIGINT`), while Parquet kept an integer that cannot be negative (`UBIGINT`), as the source table really is. That is a point to watch when a CSV is used as permanent storage, because a CSV does not know what each column should be (ran).
+
+Reading is direct. We put the file name in `FROM`.
+
+```sql
+select count(*) from 'orders.parquet'     -- 1,000,000
+select count(*) from 'orders.csv'         -- 1,000,000
+```
+
+Both statements answer one million rows. No `CREATE TABLE` and no loading first (ran). The book explains that Parquet compresses better than a text file such as CSV and lets the storage layer fetch only the columns or the parts of the data that a query needs (book: DuckDB in Action section 5.4, page 108).
+
+</Step>
+
+<Step>
+
+## A folder can be a table too
+
+Data that grows is rarely in one file. It is split into several files by month or by day. DuckDB reads a whole folder as one table with a glob, and if the folders are named in the Hive style (`y=2025/m=3/`) it turns the `y` and `m` in the folder names into columns.
+
+```sql
+copy (select *, year(order_ts) as y, month(order_ts) as m from orders)
+to 'by_month' (format parquet, partition_by (y, m));
+
+select count(*) from read_parquet('by_month/*/*/*.parquet', hive_partitioning = true)
+where m = 3
+```
+
+The `COPY` creates the folders `y=2025/m=1` to `y=2025/m=12`, one file in each, 12 files in all (ran). When we filter with `m = 3`, DuckDB does not open the other 11 files at all, because the month is in the folder name and it knows by the name alone. The table below is the number of files each filter opened, read from the profile that the engine writes itself.
+
+| Filter | Files opened (of 12) | Rows the scan returned |
+|---|---|---|
+| no filter | 12 | 1,000,000 |
+| `m = 3` | 1 | 85,029 |
+| `m in (3, 4)` | 2 | 167,314 |
+| `y = 2024` | 0 | 0 |
+| `order_ts >= '2025-12-01'` | 12 | 83,885 |
+| `status = 'refunded'` | 12 | 30,104 |
+
+The last two rows need care. `order_ts` and `status` are columns inside the files, not in the folder names, so DuckDB has to open all 12 files and then cut away the unwanted rows inside. Pick a filter in the lab below and see which files are opened.
+
+<GlobLab client:visible lang="en" />
+
+The rows of month 3 read from the folder equal the rows of month 3 counted from the table, and with `filename = true` we get a column that says which file each row came from (ran), which helps a lot when tracing where bad data came from. Inside each Parquet file there is one more layer of skipping, by row group, which we look at in [How the data is stored](/en/duckdb/storage/).
+
+</Step>
+
+<Step>
+
+## JSON with nesting
+
+A JSON file with one object per line reads as a table too.
+
+```text
+{"id": 1, "user": {"name": "Anna", "tags": ["a", "b"]}, "amount": 12.5}
+{"id": 2, "user": {"name": "Bo", "tags": []}, "amount": 3}
+{"id": 3, "user": {"name": "Chai", "tags": ["c"]}, "amount": null}
+```
+
+```sql
+describe select * from 'events.json'
+```
+
+| Column | Type |
+|---|---|
+| `id` | BIGINT |
+| `user` | STRUCT("name" VARCHAR, tags VARCHAR[]) |
+| `amount` | DOUBLE |
+
+The object inside became a `STRUCT` and the array became a list (`VARCHAR[]`), with nothing said by us. A dot reaches into a field, so `select user.name from 'events.json'` gives Anna, Bo and Chai (ran). STRUCT and lists get their own lesson, [Nested data](/en/duckdb/nested-data/).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Parquet files are kept in Hive-style folders by month (`m=1` to `m=12`). Which statement lets DuckDB open the fewest files?"
+  options={[
+    '`where m = 3`',
+    '`where status = \'refunded\'`',
+    '`where order_ts >= \'2025-12-01\'`',
+    'All of them open the same number of files, because every file must be checked first'
+  ]}
+  answer={0}
+  why="The value of m is in the folder name, so DuckDB knows which file to open without opening any. In the run, `m = 3` opened 1 file and the other two opened all 12, because status and order_ts are inside the files (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The sniffer finds the `;` delimiter, the quote and the header by itself, while a date that does not exist and a decimal comma make the columns VARCHAR | ran: `exercises/02_query_files.py` |
+| Forcing DOUBLE on `7,5` gives an error naming the line and value, and `decimal_separator` with `nullstr` fix it | ran: `exercises/02_query_files.py` |
+| A `nullstr` we set replaces the default, so the empty field is `''` and not `NULL` | ran: `exercises/02_query_files.py` |
+| `store_rejects` keeps the skipped row in `reject_errors` (line 4, column joined, CAST) | ran: `exercises/02_query_files.py` |
+| Parquet 16,911,937 bytes against CSV 49,994,465 bytes, and Parquet keeps its types | ran: `exercises/02_query_files.py` |
+| A 12-file Hive layout: `m = 3` opens 1 file, `m in (3, 4)` opens 2, a filter on a column inside opens all 12 | ran: `exercises/02_query_files.py` |
+| Nested JSON becomes a STRUCT and a list | ran: `exercises/02_query_files.py` |
+| Parquet compresses well and lets the storage layer fetch only the needed columns or parts, unlike CSV | book: DuckDB in Action section 5.4, page 108 |
+
+</Step>

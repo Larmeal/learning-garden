@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you use EXCLUDE, GROUP BY ALL, QUALIFY and SUMMARIZE correctly, and do not treat approx_unique as an exact count.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="What does `select * exclude (qty, unit_price) from orders` return?"
+  options={[
+    'Every column, including qty and unit_price, but with their values set to NULL',
+    'Every column except qty and unit_price, in the original order',
+    'Only qty and unit_price',
+    'An error, because SELECT * cannot be combined with exclude'
+  ]}
+  answer={1}
+  why="EXCLUDE removes the named columns and keeps the order of the rest. In the exercise the seven columns of the orders table became five. REPLACE is its partner that changes the value of a column in place (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="What does `select status, count(*) from orders group by all order by all` group by?"
+  options={[
+    'Every column of the orders table',
+    'Only the first column in SELECT',
+    'Every column in SELECT that is not an aggregate, which here is status',
+    'Nothing, because all means no condition'
+  ]}
+  answer={2}
+  why="GROUP BY ALL takes every non-aggregate column of SELECT as the key of the group. In the exercise the result equalled writing group by status in every row (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="In an orders table where order_id has one million different values and no duplicates, `summarize` reports an `approx_unique` of 953,281 for order_id. What should we conclude?"
+  options={[
+    'About 47,000 rows have a repeated order_id',
+    'SUMMARIZE went wrong and it should be reported as a bug',
+    '`approx_unique` is an estimate. To know whether values repeat, use `count(distinct order_id)`',
+    'The orders table was changed after it was created'
+  ]}
+  answer={2}
+  why="approx_unique counts approximately, so it drifts when there are many different values (customer_id with 5,000 values gives 5,618), but it is exact for few values such as status (4). In the exercise order_id has no duplicates at all (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Two CSV files have different columns, because the newer one added a column `c` at the end. We want to combine the two results by matching names and filling NULL where a column is missing. What do we use?"
+  options={[
+    '`union all by name`',
+    'A plain `union all`, because it already matches by name',
+    '`insert by name`, which combines the results of two queries',
+    '`group by all`'
+  ]}
+  answer={0}
+  why="`union all by name` lines columns up by name and fills NULL where the other side has none, whereas a plain `union all` matches by position. In the exercise the result was (1, 'x', NULL) and (NULL, 'y', 2.5). `insert by name` is for inserting into a table (ran)."
+/>
+
+</Step>

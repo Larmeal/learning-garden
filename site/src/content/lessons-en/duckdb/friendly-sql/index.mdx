@@ -1,0 +1,201 @@
+---
+title: SQL that takes less typing
+summary: We write the same query twice, once in long SQL and once in the short DuckDB way (EXCLUDE, GROUP BY ALL, QUALIFY, SUMMARIZE), check that both give the same result, and look at the small trap in approx_unique.
+facts:
+  - "Ran in exercises/03_friendly_sql.py with DuckDB 1.5.6: EXCLUDE, REPLACE, COLUMNS, GROUP BY ALL, ORDER BY ALL, FROM first, an alias used in SELECT and WHERE, QUALIFY against a long subquery, USING SAMPLE with a seed, INSERT BY NAME, UNION BY NAME and SUMMARIZE on the one-million-row orders table. In every case the short form is compared with the long form."
+  - "The list of SQL extensions follows the book DuckDB in Action, sections 3.5 and 4.6. Not every feature that the book mentions was tried, for example some functions with optional parameters."
+order: 3
+phase: A
+level: 2
+stage: sprout
+format: steps
+requires: [query-files]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## SELECT * that can say what it does not want
+
+The `orders` table has seven columns. If we want every column except `qty` and `unit_price`, plain SQL makes us type five names. In DuckDB we write:
+
+```sql
+select * exclude (qty, unit_price) from orders limit 1
+```
+
+The result is the five remaining columns in their original order (ran). To change the value of some column without disturbing its position we use `replace`.
+
+```sql
+select * replace (qty * 10 as qty) from orders where order_id = 1
+```
+
+The `qty` of row 1 is multiplied by ten and the other columns stay where they were (ran). And to choose columns by a pattern in their names we use `columns` with a regular expression.
+
+```sql
+select max(columns('.*_id')) from orders
+```
+
+This gives the maximum of `order_id`, `customer_id` and `product_id` together, 1,000,000, 5,000 and 200 (ran). The aggregate runs once for every column whose name matches, which is a real help on a table with hundreds of columns (book: DuckDB in Action section 3.5, page 50).
+
+</Step>
+
+<Step>
+
+## GROUP BY ALL, ORDER BY ALL and FROM first
+
+When we write `GROUP BY` we usually repeat every non-aggregate column. DuckDB lets us write `all` instead.
+
+```sql
+select status, 'x' as tag, count(*) from orders group by all order by all
+```
+
+It groups by every column that is not an aggregate and sorts by every column. The result is exactly that of the long form `group by status, tag order by status, tag` (ran). `FROM` may also come first, and `SELECT` may be left out completely.
+
+```sql
+from orders select status, count(*) as n group by all order by n desc limit 1   -- ('paid', 699821)
+from orders limit 3                                                              -- a complete query
+```
+
+This helps more when exploring data than in finished work, because we can type `from orders` first and think afterwards (ran).
+
+</Step>
+
+<Step>
+
+## Aliases that can be reused, and QUALIFY
+
+In standard SQL a name such as `total` that we give in `SELECT` cannot be used in `WHERE` or in the next expression. In DuckDB it can.
+
+```sql
+select qty * unit_price as total, total * 0.07 as vat
+from orders where total > 450 order by order_id limit 3
+```
+
+The result matches writing out `qty * unit_price` everywhere (ran). Another big help is `QUALIFY`, which filters straight from the result of a window function. Say we want the biggest order of each customer.
+
+```sql
+select customer_id, order_id, qty * unit_price as total
+from orders
+qualify row_number() over (partition by customer_id order by qty * unit_price desc, order_id) = 1
+```
+
+It gives one row per customer, 5,000 rows, the same as the long subquery that wraps `row_number()` inside and then says `where rn = 1` (ran).
+
+| customer_id | order_id | total |
+|---|---|---|
+| 1 | 326154 | 461.75 |
+| 2 | 230775 | 474.75 |
+| 3 | 107808 | 464.05 |
+
+The reason `QUALIFY` exists is that `WHERE` cannot filter on a window result, because it would remove rows that ought to be inside the window first, and `HAVING` filters after an aggregate. `QUALIFY` is the filter that can use the result of a window function directly (book: DuckDB in Action section 4.6.2, page 80). We go deeper into window functions in [Aggregates, windows and special joins](/en/duckdb/analysis/).
+
+</Step>
+
+<Step>
+
+## Sampling, and inserting by column name
+
+When the data is large we want to try a query on a small piece first. `using sample` picks rows.
+
+```sql
+select order_id from orders using sample reservoir(1000 rows) repeatable (42)
+```
+
+It returns exactly 1,000 rows, and with `repeatable (42)`, the seed, two samples are the same set of rows (ran). Without a seed the result differs each time.
+
+For an insert whose columns are not in the same order as the table, it is easy to swap two by mistake. `by name` makes DuckDB match by name instead.
+
+```sql
+create table t (a int, b varchar, c double);
+insert into t by name select 'x' as b, 1 as a;     -- (1, 'x', NULL)
+select 1 as a, 'x' as b union all by name select 2.5 as c, 'y' as b;
+```
+
+`insert ... by name` places each value by its column name, and a column that was not given is `NULL`. `union all by name` lines columns up by name and fills `NULL` where the other side has none, giving `(1, 'x', NULL)` and `(NULL, 'y', 2.5)` (ran). It helps a lot when merging files that gained a column later.
+
+</Step>
+
+<Step>
+
+## SUMMARIZE looks at a whole table in one statement
+
+```sql
+summarize orders
+```
+
+This returns one row per column with the minimum, the maximum, an approximate count of distinct values, the average, the standard deviation, the quartiles, the row count and the percentage of `NULL` (ran). For the orders table it shows:
+
+| column_name | column_type | min | max | approx_unique |
+|---|---|---|---|---|
+| order_id | BIGINT | 1 | 1000000 | 953281 |
+| customer_id | UBIGINT | 1 | 5000 | 5618 |
+| product_id | UBIGINT | 1 | 200 | 223 |
+| qty | UBIGINT | 1 | 5 | 5 |
+| unit_price | DOUBLE | 0.05 | 95.04 | 7644 |
+| status | VARCHAR | cancelled | shipped | 4 |
+| order_ts | TIMESTAMP | 2025-01-01 00:00:00 | 2025-12-31 13:59:28.5 | 1065393 |
+
+Ask yourself something here. `order_id` has one million different values, so why is `approx_unique` 953,281, and why does `customer_id`, with only 5,000 values, show 5,618? The answer is that `approx_unique` is an estimate, made by an algorithm that counts without remembering every value. With few distinct values such as `status` it gets 4 exactly, but the more values there are the further it drifts (ran). So to find out whether a column really has duplicates, use `count(distinct ...)`, not `SUMMARIZE`.
+
+<Callout type="warn" title="approx_unique is not an exact count">
+In this example `order_id` has no duplicates at all among one million values, and `approx_unique` still says 953,281. Use it as a hint that a column is close to a key or to a category, but do not use it to decide whether values repeat.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Small things that read better
+
+The rest are small touches that make SQL read naturally. Each one ran with the result shown (ran).
+
+```sql
+select [x * 2 for x in [1, 2, 3] if x > 1];   -- [4, 6]  (list comprehension)
+select 'DuckDB'[1:4];                          -- 'Duck'  (a slice starts at 1 and includes both ends)
+select ('duck').upper();                       -- 'DUCK'  (call a function after a value with a dot)
+select 1 as a, 2 as b, ;                       -- (1, 2)  (a trailing comma is allowed)
+```
+
+Remember that this SQL belongs to DuckDB. When we move a query to another database most of it has to be turned back into the long form. Use it for exploring and for pipelines that we know will run on DuckDB.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We want the biggest order of each customer, and write `QUALIFY row_number() over (partition by customer_id order by total desc) = 1`. How does it differ from wrapping `row_number()` in a subquery and then writing `where rn = 1`?"
+  options={[
+    'It gives the same result and is shorter, because QUALIFY filters on a window result directly',
+    'QUALIFY gives only the first row of the whole table, not of each customer',
+    'QUALIFY runs before WHERE, so the results differ',
+    'It cannot be used, because a window function must appear in SELECT only'
+  ]}
+  answer={0}
+  why="In the exercise the result of QUALIFY and the long subquery matched on all 5,000 rows. QUALIFY is the last filtering step, so it can use the result of a window function. The option that says WHERE runs after has it backwards, because WHERE runs before the window is calculated (ran, book)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| EXCLUDE, REPLACE and `columns('.*_id')` behave as written, and `max(columns(...))` is 1,000,000, 5,000, 200 | ran: `exercises/03_friendly_sql.py` |
+| GROUP BY ALL and ORDER BY ALL equal the long form, and FROM may come first | ran: `exercises/03_friendly_sql.py` |
+| An alias can be reused in SELECT and WHERE with the same result as repeating the expression | ran: `exercises/03_friendly_sql.py` |
+| QUALIFY gives 5,000 rows, equal to the long subquery | ran: `exercises/03_friendly_sql.py` |
+| `using sample` gives 1,000 rows and the same seed gives the same rows | ran: `exercises/03_friendly_sql.py` |
+| `insert by name` and `union all by name` match by name and fill NULL | ran: `exercises/03_friendly_sql.py` |
+| `summarize` returns one row per column, and the `approx_unique` of order_id is 953,281 | ran: `exercises/03_friendly_sql.py` |
+| The SQL extensions that DuckDB adds (EXCLUDE, REPLACE, ALL, PIVOT) | book: DuckDB in Action section 3.5, page 50 |
+| QUALIFY filters straight from a window function, which WHERE and HAVING cannot do | book: DuckDB in Action section 4.6.2, page 80 |
+
+</Step>

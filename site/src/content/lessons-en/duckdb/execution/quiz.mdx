@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you know the size of a vector and what a filter does to it, can read the plan of a query, and can explain why the number of row groups caps the number of threads.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We ask for the result of `select * from orders` (one million rows) one vector at a time. How many chunks do we get and how big are they?"
+  options={[
+    '1 chunk of one million rows',
+    '489 chunks: 488 of 2,048 rows and one of 576 rows',
+    '1,000,000 chunks of one row each',
+    '9 chunks, one per row group'
+  ]}
+  answer={1}
+  why="A scan hands data over as vectors of 2,048 rows, and 488 × 2,048 + 576 = 1,000,000. The 9 is the number of row groups of this table, which is the unit of storage and not the unit of passing data on (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We add a filter that passes 70% of the rows. What do the vectors that leave the filter look like?"
+  options={[
+    'They are always refilled to 2,048 rows, because the engine needs full vectors',
+    'They are smaller, about 1,431 rows on average, because the filter does not build new vectors, it passes on the rows that got through',
+    'They are larger than 2,048 rows',
+    'They are all empty'
+  ]}
+  answer={1}
+  why="In the exercise the result after the filter was the same 489 chunks, not 342, with none above 2,048 rows and an average of 1,431 (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="In the plan of `select sum(qty * unit_price) from orders where qty >= 3`, where is the condition `qty >= 3`?"
+  options={[
+    'In a separate FILTER operator above the scan',
+    'In the top aggregate',
+    'Inside the scan itself, so the scan returns only the 600,389 rows that pass',
+    'Nowhere, because an aggregate needs no filter'
+  ]}
+  answer={2}
+  why="The plan has three operators, UNGROUPED_AGGREGATE, PROJECTION and SEQ_SCAN. The scan returned 600,389 rows, the real number of rows with qty >= 3, because the optimizer moved the filter into the scan (ran). The optimizer lesson goes deeper into this."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A table of 9 row groups runs a heavy query at `threads = 8` and gets a CPU ÷ wall time of about 6.4. What does the number say?"
+  options={[
+    'The query used the CPU six times more slowly',
+    'On average about 6 threads were working at the same time throughout the query',
+    'The result is wrong because CPU time should not exceed wall time',
+    'It spilled to disk 6 times'
+  ]}
+  answer={1}
+  why="CPU time is the sum of the time of all threads. With one thread it equals the wall time (1.0), and with several threads working at once it can be above 1. In the exercise the nine-row-group table gave 6.4 at 8 threads and the one-row-group table gave 1.0 (ran)."
+/>
+
+</Step>

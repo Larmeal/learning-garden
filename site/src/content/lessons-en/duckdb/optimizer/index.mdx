@@ -1,0 +1,151 @@
+---
+title: The optimizer changes the query before it runs
+summary: We switch the optimizer off and compare the same plan both ways, and see a filter written after a join moved into the scan of the customer table, which then returns 642 rows of 5,000, unused columns not read, constants computed ahead of time, and the optimizer expecting far too many rows when the filter is on a text column.
+facts:
+  - "Ran in exercises/09_optimizer.py with DuckDB 1.5.6: the plan of a join between orders and customers with the optimizer on and off (read from the profile the engine writes itself), the columns the scan reads with the unused_columns rule on and off, the folding of 2 + 1, the rows the optimizer expected against the rows the scan really returned for four filters, and answers that stay the same when six rules are switched off one at a time."
+  - "The names of the rules that disabled_optimizers accepts and the file of each rule in src/optimizer were checked against the DuckDB v1.5.6 source with ls and grep. The code of each rule was not read, so how the optimizer estimates rows was not confirmed. The reason for the wrong guesses is the author's observation from the numbers that ran."
+order: 9
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [execution]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import PlanLab from '../../../../components/labs/duckdb/PlanLab';
+
+<Step>
+
+## The query we write is not the query that runs
+
+Let us write a query that finds the number of orders and the revenue of customers in the country TH, by joining one million orders with the customer table and filtering the country after the join.
+
+```sql
+select count(*), sum(o.qty * o.unit_price)
+from orders o join customers c using (customer_id)
+where c.country = 'TH'
+```
+
+Read literally, the order written is to join the two tables first and filter afterwards, but DuckDB does not run it that way. We compare the plan with the optimizer on and off (`pragma disable_optimizer`), from the profile of the engine.
+
+**Optimizer on**
+
+| Operator | Table | Rows returned | Filter |
+|---|---|---|---|
+| UNGROUPED_AGGREGATE | | 1 | |
+| PROJECTION | | 128,403 | |
+| HASH_JOIN | | 128,403 | |
+| SEQ_SCAN | orders | 1,000,000 | |
+| SEQ_SCAN | customers | 642 | `country='TH'` |
+
+**Optimizer off**
+
+| Operator | Table | Rows returned | Filter |
+|---|---|---|---|
+| UNGROUPED_AGGREGATE | | 1 | |
+| PROJECTION | | 128,403 | |
+| FILTER | | 128,403 | |
+| HASH_JOIN | | 1,000,000 | |
+| SEQ_SCAN | orders | 1,000,000 | |
+| SEQ_SCAN | customers | 5,000 | |
+
+The answer is the same both ways, 128,403 orders (ran). What differs is the route. With the optimizer on, the condition `country = 'TH'` has been moved down into the scan of the `customers` table, which returns only 642 of 5,000 rows, so the join returns 128,403 rows from the start. With the optimizer off, the join has to match one million rows against 5,000 and produces a million rows, and only then does a `FILTER` operator cut it to 128,403 (ran). This move is called filter pushdown, and the source has a file `src/optimizer/filter_pushdown.cpp` for the rule. Switch between the two plans in the lab below.
+
+<PlanLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## Which side is built into a hash table
+
+A hash join builds a lookup table from one side (the build side) and probes it with the rows of the other (the probe side). The build side should be the smaller one, because the lookup table has to live in memory. In the plan above, the first child of `HASH_JOIN` is `orders` (probe) and the second is `customers` (build), the side that was filtered down to 642 rows (ran). DuckDB has an optimizer for exactly this decision. The file `src/optimizer/build_probe_side_optimizer.cpp` has a function named `TryFlipJoinChildren` that swaps the sides when needed (source). The author did not read what rule it uses to swap.
+
+</Step>
+
+<Step>
+
+## Read only the columns used, and compute constants ahead
+
+`select sum(qty) from orders` needs one column. In the plan the scan says `Projections: qty`, and `select *` reads all seven (ran). If we switch off the `unused_columns` rule, the plan text has no list of projections any more, meaning the scan is no longer restricted to columns, and the answer is still the same (ran). In a table stored by column, reading fewer columns means opening less data directly, so the effect is large.
+
+The other point is constants. If we write
+
+```sql
+select count(*) from orders
+where status = 'paid' and qty = 2 + 1 and 1 + 1 = 2
+```
+
+only two conditions are left in the scan, `status='paid'` and `qty = 3`. The `1 + 1 = 2`, which is always true, is gone, and `2 + 1` was computed into 3 before running (ran). The scan returns the 139,611 rows that pass both (ran). This rule lives in `expression_rewriter.cpp`, which appears in the list of optimizer files.
+
+</Step>
+
+<Step>
+
+## How many rows the optimizer expects
+
+The optimizer decides many things from the number of rows it expects each operator to return (called Estimated Cardinality in the plan). If the guess is far off, the decisions about join order and the build side can go wrong with it. We compared the expected rows against what the scan really returned for four filters on the `orders` table.
+
+| Filter | Expected | Really returned |
+|---|---|---|
+| `customer_id = 5` | 178 | 189 |
+| `qty = 3 and status = 'paid'` | 200,000 | 139,611 |
+| `status = 'refunded'` | 250,000 | 30,104 |
+| `unit_price > 90` | 200,000 | 53,525 |
+
+`customer_id = 5` is guessed very close (178 against 189), but `status = 'refunded'` is expected at 250,000 when there are really 30,104, eight times too many, and the range on `unit_price` is expected at almost four times the real figure (ran). Here the author has an observation. The good guess for `customer_id` could come from the range and the number of distinct values of that column, but for text and for a range on a decimal the answer looks like a fixed fraction, because the numbers 200,000 and 250,000 show up several times. This is an observation from the numbers and was not confirmed against the optimizer code.
+
+<Callout type="tip" title="If a plan looks odd, compare expected with real">
+`EXPLAIN ANALYZE` shows both the rows expected and the rows really returned for each operator. The book explains how to read the output of `EXPLAIN` and `EXPLAIN ANALYZE` in section 10.2.3 (book: DuckDB in Action section 10.2.3, page 245). A large gap between the two is the first clue of a poor plan.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Switch the rules off one at a time and see what changes
+
+The setting `disabled_optimizers` switches rules off by name. We tried six, `filter_pushdown`, `join_order`, `statistics_propagation`, `unused_columns`, `expression_rewriter` and `build_side_probe_side`, and ran the same join query. Every time the answer was still 128,403 (ran), and with only `filter_pushdown` off, the `FILTER` operator came back above the join in the plan (ran). So the optimizer changes the route taken and not the answer. In the v1.5.6 source the folder `src/optimizer` holds files for many more rules, for example `join_order/`, `remove_unused_columns.cpp`, `statistics_propagator.cpp`, `topn_optimizer.cpp`, `limit_pushdown.cpp` and `row_group_pruner.cpp` (source: `ls src/optimizer`). The author did not read the code of each one.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We switch the optimizer off and run the join between orders and customers filtered on `country = 'TH'`. What is different from when it was on?"
+  options={[
+    'The answer is different, because the optimizer changes the meaning of the query',
+    'The answer is the same (128,403 orders), but the join has to match a million rows and then filter, instead of receiving only the 642 rows of customers',
+    'The query cannot run, because DuckDB needs the optimizer',
+    'The answer and the plan are the same, because the optimizer has no effect on joins'
+  ]}
+  answer={1}
+  why="The optimizer does not change the meaning of a query, it only chooses a cheaper route. In the exercise the answer was 128,403 both ways, but the join returned a million rows with it off and 128,403 with it on, because the filter was moved into the scan of customers (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The join gives the same answer (128,403) with the optimizer on and off | ran: `exercises/09_optimizer.py` |
+| With it on the filter is in the scan of customers (642 rows) and the join returns 128,403. With it off a FILTER sits above a join of a million rows | ran: `exercises/09_optimizer.py` |
+| The first child of the hash join is orders and the second is customers | ran: `exercises/09_optimizer.py` |
+| `sum(qty)` reads one column and `select *` reads seven, and with unused_columns off there is no list of projections | ran: `exercises/09_optimizer.py` |
+| `2 + 1` is computed as 3 and `1 + 1 = 2` is gone, and the scan returns 139,611 rows | ran: `exercises/09_optimizer.py` |
+| Rows expected against real: 178 and 189, 200,000 and 139,611, 250,000 and 30,104, 200,000 and 53,525 | ran: `exercises/09_optimizer.py` |
+| Six rules switched off one at a time give 128,403 every time, and only filter_pushdown off brings FILTER back | ran: `exercises/09_optimizer.py` |
+| The file names of the rules in `src/optimizer` (filter_pushdown, build_probe_side_optimizer, expression_rewriter, row_group_pruner and others) | source: `ls src/optimizer` of v1.5.6 |
+| Reading the output of EXPLAIN and EXPLAIN ANALYZE | book: DuckDB in Action section 10.2.3, page 245 |
+| The optimizer guesses from a fixed fraction for text and decimal ranges | author: an observation from the numbers, not checked in the code |
+
+</Step>

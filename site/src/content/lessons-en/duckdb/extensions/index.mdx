@@ -1,0 +1,134 @@
+---
+title: Extensions, and reading files over a network
+summary: We see which extensions ship in the package, install three more, and use httpfs to read a Parquet file from a web server while counting the bytes the server really sends for each query. Then we join a Parquet file with a SQLite file and search text with full-text search.
+facts:
+  - "Ran in exercises/11_extensions.py with DuckDB 1.5.6: the list of extensions in the package (4 of 30 built in), INSTALL and LOAD of httpfs, sqlite_scanner and fts (the internet is needed the first time), a small web server written for the exercise that understands Range, counting the bytes sent for five queries on a Parquet file of 16,911,937 bytes, a join of Parquet with a SQLite file, and full-text search with match_bm25."
+  - "The remote file was a web server on 127.0.0.1, not S3 or HTTPS, so authentication, caching and real network time were not tried. Other extensions such as spatial, iceberg, delta, postgres_scanner and ducklake were not tried."
+order: 11
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [beyond-memory]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import RangeReadLab from '../../../../components/labs/duckdb/RangeReadLab';
+
+<Step>
+
+## A small core, and extensions that load on demand
+
+DuckDB keeps its core small and puts other abilities in extensions that load when needed. We can ask with `duckdb_extensions()`.
+
+```sql
+select extension_name, loaded, installed, install_mode from duckdb_extensions()
+```
+
+The list holds 30 extensions in the Python package of DuckDB 1.5.6 (ran), but only four are built into the package itself in `STATICALLY_LINKED` mode: `core_functions`, `icu`, `json` and `parquet` (ran). That is why we could read Parquet and JSON files in the earlier lessons without installing anything. The others, such as `httpfs`, `sqlite_scanner` and `fts`, are not built in. They are downloaded from the DuckDB repository the first time with `INSTALL`, and turned on with `LOAD`.
+
+```sql
+install httpfs; load httpfs;
+```
+
+After `INSTALL` and `LOAD` all three show as `loaded` (ran). An installed extension is a real file on our disk, in the folder `~/.duckdb/extensions` (ran). The first time needs the internet, and later runs use the file already downloaded. The book describes the extension system in section 2.4 (book: DuckDB in Action section 2.4, page 15).
+
+</Step>
+
+<Step>
+
+## Reading Parquet over HTTP: ask for little, get little
+
+`httpfs` lets us put a URL where a file name goes. The interesting question is this: if a 16.9 MB Parquet file sits on a server, do we have to download all of it for every query? We tried it with a small web server that we wrote on this computer. It understands the header `Range: bytes=a-b`, and we counted the bytes it sent for each query, with the file cache switched off and a fresh connection every time.
+
+| Query | Requests | Bytes the server sent | Against the file |
+|---|---|---|---|
+| `count(*)` | 2 | 65,536 | 0.4% |
+| `sum(qty)` | 11 | 445,319 | 2.6% |
+| `sum(qty)` with `order_ts >= '2025-12-26'` | 4 | 190,929 | 1.1% |
+| `sum(qty), sum(unit_price)` | 11 | 2,606,099 | 15.4% |
+| `select *` | 11 | 16,771,333 | 99.2% |
+
+Read the table line by line. `count(*)` uses only the end of the file (the footer), which holds the metadata of every row group and already tells the number of rows, so it uses under 1% of the file. `sum(qty)` has to read the `qty` column of all nine row groups, 2.6%. Adding the column `unit_price` takes it to 15.4%, because decimal prices compress less well, and `select *` has to read nearly the whole file. The most interesting is the third row. When we add a filter on `order_ts` at the end of the year, DuckDB uses the minimum and maximum of each row group that we saw in [How the data is stored](/en/duckdb/storage/) to skip the unrelated groups, so it asks for only 4 requests and 190,929 bytes, less than half of the `sum(qty)` without a filter (ran). Pick a query in the lab below and see which parts of the file are asked for.
+
+<RangeReadLab client:visible lang="en" />
+
+The answers that came back through the server are the same as querying the table directly (ran). All of the numbers come from a web server on the same computer, not from S3 or a real network, so there is no network delay, no HTTPS and no authentication. What the exercise confirms is the number of bytes asked for. On S3 the number of requests could differ, because of caching and request merging.
+
+<Callout type="note" title="The book and cloud storage">
+The book explains that letting the storage layer fetch only the columns or parts of the data a query needs is especially useful in distributed environments (book: DuckDB in Action section 5.4, page 108), and it uses the New York taxi data read from S3 as an example in section 10.4 (book: DuckDB in Action section 10.4, page 251). The author did not try it with a real S3.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Reading another database in place
+
+Another common case is that part of the data still lives in an old database. We made a SQLite file with a table `customers_legacy` of 5,000 customers (the tier `gold` for customers whose id divides by 10, everyone else `basic`), and let DuckDB open it as an attached database.
+
+```sql
+install sqlite_scanner; load sqlite_scanner;
+attach 'legacy.db' as legacy (type sqlite, read_only);
+select l.tier, count(*)
+from read_parquet('orders.parquet') o join legacy.customers_legacy l using (customer_id)
+group by all order by all
+```
+
+One statement joined the Parquet file with a table inside SQLite, giving a total of one million rows split between `basic` and `gold`, and the number of `gold` equals the orders of customers 10, 20, 30 and so on counted from the original table (ran). If we want to bring the data into our own file, `create table customers_copy as select * from legacy.customers_legacy` copies all 5,000 rows (ran). The book teaches querying SQLite and other databases in section 5.6 (book: DuckDB in Action section 5.6, page 116). The author did not try `postgres_scanner` or `mysql_scanner`.
+
+</Step>
+
+<Step>
+
+## Searching text with full-text search
+
+Another extension, `fts`, builds a text index and ranks results with BM25. The example has a table `docs` of four rows that we wrote.
+
+```sql
+install fts; load fts;
+pragma create_fts_index('docs', 'id', 'body', stemmer = 'english', stopwords = 'english', overwrite = 1);
+select id, fts_main_docs.match_bm25(id, 'duckdb parquet') as score from docs order by score desc nulls last
+```
+
+The document that has both words (`duckdb reads parquet files and csv files`) ranks first, next comes the document with only `duckdb`, and the document with neither word scores `NULL` (ran). The example is tiny, and we did not measure how fast a large table can be searched.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A 16.9 MB Parquet file sits on a web server that supports Range. We run `select count(*) from 'http://.../orders.parquet'`. About how much should the server send?"
+  options={[
+    'The whole file, because it has to be downloaded before counting',
+    'Under 1% of the file, because the row count is in the footer, where the metadata of every row group is kept at the end of the file',
+    'About half of the file',
+    '0 bytes, because DuckDB remembers the row count in advance'
+  ]}
+  answer={1}
+  why="In the exercise count(*) used 2 requests and 65,536 bytes, 0.4% of the file, while select * sent 99.2%, sum(qty) sent 2.6%, and sum(qty) with a filter at the end of the year sent 1.1% (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| 30 extensions are listed and 4 are built into the package (core_functions, icu, json, parquet) | ran: `exercises/11_extensions.py` |
+| INSTALL and LOAD make httpfs, sqlite_scanner and fts loaded, and they are files on disk | ran: `exercises/11_extensions.py` |
+| Bytes the server sent: count(*) 0.4%, sum(qty) 2.6%, with a filter at the end of the year 1.1%, two columns 15.4%, select * 99.2% | ran: `exercises/11_extensions.py` |
+| A Parquet file joined with a table in SQLite, and copied in with CREATE TABLE AS | ran: `exercises/11_extensions.py` |
+| Full-text search ranks the document with both words first | ran: `exercises/11_extensions.py` |
+| The extension system and querying SQLite | book: DuckDB in Action section 2.4 (page 15) and section 5.6 (page 116) |
+| The benefit of fetching only the needed parts in distributed settings | book: DuckDB in Action section 5.4, page 108 |
+| S3, HTTPS, caching and real network time | author: not tried, the remote file is a web server on the same computer |
+
+</Step>

@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you can read a CSV error, set nullstr correctly, choose between CSV and Parquet, and tell which filters can skip files.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A CSV uses `;` between fields and writes the price as `7,5`. We call `read_csv` with no options. What type will the price column have?"
+  options={[
+    'DOUBLE, because DuckDB knows a comma is a decimal point',
+    'INTEGER, because DuckDB drops what follows the comma',
+    'VARCHAR, because `7,5` is not a decimal number that DuckDB reads by default',
+    'It cannot be read at all and the query stops at once'
+  ]}
+  answer={2}
+  why="The sniffer finds the delimiter and the quote by itself, but `7,5` is not yet a number for it, so it keeps text. If we force DOUBLE we get an error that names line 2 and the value `7,5`. The fix is `decimal_separator = ','` (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The file has empty fields and fields that say `n/a`. We set `nullstr = 'n/a'`. What do the empty fields become?"
+  options={[
+    'NULL as before, because an empty field is always NULL',
+    'An empty string `\'\'`, because the `nullstr` we set replaces the default',
+    'The whole row is skipped automatically',
+    'An error, because only one `nullstr` is allowed per file'
+  ]}
+  answer={1}
+  why="In the exercise the empty field of Bo was NULL before nullstr was set, and became an empty string once nullstr = 'n/a' was set, because the value we give replaces the default and does not add to it. To get NULL for both we handle it ourselves, for example with `nullif` in the query (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We often read the `qty` and `status` columns of an orders table with one million rows, and the source is a 50 MB CSV. What do we gain by storing it as Parquet?"
+  options={[
+    'The file shrinks to about a third, and the types are stored in the file instead of being guessed each time',
+    'The file grows, because Parquet stores extra data for every column',
+    'The same size, but it reads faster because it is a binary file',
+    'No difference, because DuckDB converts a CSV to Parquet by itself every time it reads'
+  ]}
+  answer={0}
+  why="In the exercise the Parquet file of this table was 16,911,937 bytes against 49,994,465 bytes for the CSV (about 34%), and it keeps types such as UBIGINT and TIMESTAMP in the file, whereas the CSV types are guessed from the values every time it is read (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Hive folders are split by month (`m=1` to `m=12`). If we write `where order_ts >= '2025-12-01'`, what happens to the number of files opened?"
+  options={[
+    'Only the file of month 12 is opened, because DuckDB can guess from the date',
+    'All 12 files are opened, because order_ts is inside the files and not in the folder names',
+    'No file is opened until there is an index',
+    '6 files are opened, half of the year'
+  ]}
+  answer={1}
+  why="Skipping files by folder name works only for the columns that are in the folder name (y and m). In the run, order_ts >= '2025-12-01' opened all 12 files and the scan returned 83,885 rows. To skip files we must also write `where m = 12` (ran)."
+/>
+
+</Step>

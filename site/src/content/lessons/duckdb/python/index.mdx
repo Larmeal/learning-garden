@@ -1,0 +1,176 @@
+---
+title: DuckDB กับ Python
+summary: เราสร้าง Query ด้วยเมธอดโดยที่ยังไม่มีอะไรรัน, ให้ SQL อ่าน DataFrame ของ Pandas และ Polars จากชื่อตัวแปร, เทียบ GROUP BY เดียวกันในสามเครื่องมือพร้อมดูว่าเวลาไม่ได้เป็นไปตามที่คาด และเขียน Function ของ Python ให้ SQL เรียก
+facts:
+  - "รันจริงใน exercises/06_python.py กับ DuckDB 1.5.6, pandas, Polars และ PyArrow ตาม uv.lock: Relation ที่ไม่รันจนกว่าจะ fetch, เมธอด filter, aggregate, order, limit เทียบกับ SQL, Replacement scan ของ pandas, Polars และ Arrow, GROUP BY เดียวกันในสามเครื่องมือให้คำตอบเท่ากัน, ผลลัพธ์เป็น pandas, Arrow, Polars และ NumPy, Function ของ Python แบบทีละค่ากับแบบทั้ง Vector และ Parameter ที่ผูกค่า"
+  - "เวลาของแต่ละเครื่องมือเป็นค่าที่ดีที่สุดจาก 5 รอบบนคอมพิวเตอร์เครื่องนี้ ไม่ได้ Assert ไม่ได้หาสาเหตุว่าทำไม DuckDB บน DataFrame ถึงช้ากว่า DuckDB บนตารางของมันเอง สาเหตุที่เขียนไว้เป็นการเดาของผู้เขียน Zero-copy กับ Arrow อ้างหนังสือ DuckDB in Action บทที่ 6 และไม่ได้วัดการใช้ Memory"
+order: 6
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [nested-data]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import LazyLab from '../../../../components/labs/duckdb/LazyLab';
+
+<Step>
+
+## Relation คือ Query ที่ยังไม่ได้รัน
+
+ใน Python เราเขียน SQL เป็นข้อความได้ และเขียน Query ต่อกันเป็นเมธอดก็ได้ แบบหลังเรียกว่า Relational API
+
+```python
+rel = con.table("orders").filter("status = 'paid'")
+con.execute("insert into t values (3)")
+```
+
+ตัวอย่างจริงในแบบฝึกใช้ตาราง `t` เล็ก ๆ ที่มีสองแถว เราสร้าง `rel = con.table("t").filter("x > 0")` แล้ว Insert อีกหนึ่งแถว หลังจากนั้นค่อยนับ `rel.count("*")` ได้ 3 ไม่ใช่ 2 (รัน) แปลว่า `rel` ไม่ได้เก็บผลลัพธ์ตอนที่สร้าง มันเก็บแค่แผนว่า "อ่านตาราง `t` แล้วกรอง `x > 0`" และไปรันเอาจริง ๆ ตอนที่เราขอผลด้วย `fetchall()`, `df()` หรือ `count()`
+
+พอพิมพ์ Relation ออกมาตรง ๆ เห็นแค่แถวต้น ๆ พร้อมชนิดของคอลัมน์ (เช่น `int64`, `varchar`) ไม่ได้ถือผลทั้งหมดไว้ (รัน) กด Lab ด้านล่างทีละขั้นเพื่อดูว่าแต่ละเมธอดเพิ่มอะไรเข้าไปในแผน และเมื่อไรที่ DuckDB อ่านข้อมูลจริง
+
+<LazyLab client:visible />
+
+</Step>
+
+<Step>
+
+## เมธอดกับ SQL ได้ผลเท่ากัน
+
+```python
+api = (con.table("orders").filter("status = 'paid'")
+          .aggregate("customer_id, count(*) as n, round(sum(qty * unit_price), 2) as revenue", "customer_id")
+          .order("revenue desc, customer_id").limit(3))
+```
+
+`filter`, `aggregate`, `order` และ `limit` ต่อกันได้ผลสามแถวเดียวกับ SQL ที่เขียนเป็นข้อความตรง ๆ (รัน)
+
+| customer_id | orders | revenue |
+|---|---|---|
+| 1044 | 181 | 27468.37 |
+| 144 | 163 | 27222.07 |
+| 4109 | 163 | 27213.03 |
+
+ตรงนี้มีเรื่องเล็ก ๆ ที่เจอระหว่างเขียนแบบฝึก ตอนแรกเรา `sum(qty * unit_price)` โดยไม่ปัดเศษ แล้วผลของสองแบบเทียบกันไม่เท่ากันในบางรอบ สาเหตุคือ DuckDB บวกเลขทศนิยมด้วยหลาย Thread เรียงลำดับไม่เหมือนกันทุกรอบ ทำให้หลักท้ายสุดของ `DOUBLE` ต่างกันได้ ผู้เขียนจึงปัดเป็นสตางค์ก่อนเปรียบเทียบ ถ้าจะ Assert ผลรวมของทศนิยมในงานของเราเอง ให้ปัดเศษก่อนเสมอ
+
+</Step>
+
+<Step>
+
+## DataFrame ในตัวแปรก็เป็นตาราง
+
+ถ้ามี DataFrame ของ Pandas อยู่ในตัวแปร เรา Query ด้วยชื่อตัวแปรได้เลย
+
+```python
+df = con.sql("select * from orders where order_id <= 1000").df()
+con.sql("select count(*), sum(qty) from df").fetchone()
+```
+
+SQL หาตัวแปรชื่อ `df` ใน Python แล้วอ่านมันเป็นตาราง เรียกว่า Replacement Scan ได้ผลเท่ากับที่ Pandas นับเอง และอ่าน DataFrame ของ Polars กับตาราง Arrow ด้วยชื่อตัวแปรได้เหมือนกัน (รัน)
+
+<Callout type="warn" title="ชื่อตัวแปรต้องอยู่ใน Function ที่รัน SQL">
+ตอนเขียนแบบฝึกเราเจอ `Catalog Error: Table with name big does not exist` เมื่อเรียก SQL ที่อ้างตัวแปร `big` จากใน `lambda` เพราะ DuckDB หาชื่อตัวแปรจากตัวแปรโลคอลของ Function ที่เรียก SQL ถ้าตัวแปรอยู่ข้างนอกแล้วถูกใช้ผ่าน Closure มันหาไม่เจอ แก้โดยรับ DataFrame เป็น Parameter ของ Function หรือใช้ `con.register("ชื่อ", df)` ให้ชัดเจน ตัวแปรชื่อ `full` ก็ใช้ไม่ได้ เพราะ `FULL` เป็นคำสงวน (`FULL JOIN`)
+</Callout>
+
+</Step>
+
+<Step>
+
+## GROUP BY เดียวกันในสามเครื่องมือ
+
+เราลองถามคำถามเดิม (จำนวน Order และรายได้ต่อสถานะ ของ Order หนึ่งล้านแถว) กับ DuckDB, Pandas และ Polars โดยให้ข้อมูลอยู่ใน Memory เป็น DataFrame อยู่แล้ว ผลที่ได้คือทั้งสามเครื่องมือให้จำนวนต่อสถานะเท่ากันทั้งสี่ตัว และรายได้ตรงกันถึงสตางค์ (รัน) ส่วนเวลา ในเครื่องนี้ดีที่สุดจาก 5 รอบ คือ
+
+| เครื่องมือ | เวลา |
+|---|---|
+| DuckDB อ่านจาก DataFrame ของ Pandas | ประมาณ 100 ms |
+| DuckDB อ่านจากตารางของ DuckDB เอง | ประมาณ 7 ms |
+| Pandas | ประมาณ 40 ms |
+| Polars | ประมาณ 3 ms |
+
+ตรงนี้ตัวเลขไม่ได้เป็นอย่างที่หลายคนคาดว่า DuckDB จะเร็วสุด เมื่อให้ DuckDB อ่านจาก DataFrame ของ Pandas มันช้ากว่า Pandas เองสองเท่าครึ่ง แต่เมื่ออ่านจากตารางของมันเองเร็วขึ้นกว่าสิบสี่เท่า ส่วนตัวผู้เขียนเดาว่าเวลาส่วนใหญ่หมดไปกับการอ่านคอลัมน์ `status` ที่ Pandas เก็บเป็น Object ของ Python ทีละค่า แต่ไม่ได้ลองพิสูจน์ ส่วน Polars ในการรันนี้เร็วกว่า DuckDB เองด้วย (ตัวเลขไม่ได้ Assert และเป็นของการรันบนคอมพิวเตอร์เครื่องเดียว ข้อมูลเดียว และ Query เดียว)
+
+สิ่งที่เอาไปใช้ได้คือ ความเร็วของ DuckDB ที่เห็นในบทแรกเป็นความเร็วบนตารางของมันเอง ถ้าข้อมูลอยู่ใน DataFrame ที่ต้องแปลงทุกครั้ง ราคาของการแปลงนั้นก็รวมอยู่ด้วย หนังสืออธิบายว่า DuckDB อ่าน DataFrame ของ Pandas และ Polars ได้โดยตรงไม่ต้องก๊อปปี้ (หนังสือ: DuckDB in Action หัวข้อ 6.3 หน้า 134) ซึ่งผู้เขียนไม่ได้วัดการใช้ Memory เพื่อยืนยัน
+
+</Step>
+
+<Step>
+
+## ผลลัพธ์ออกได้หลายรูป
+
+Relation ตัวเดียวส่งออกเป็นอะไรก็ได้ตามที่เครื่องมือถัดไปต้องการ
+
+```python
+r = con.sql("select order_id, qty, status from orders where order_id <= 5 order by order_id")
+r.fetchall()      # List ของ Tuple
+r.df()            # DataFrame ของ pandas
+r.arrow()         # ตาราง Arrow
+r.pl()            # DataFrame ของ Polars
+r.fetchnumpy()    # Dict ของ NumPy array (คีย์ order_id, qty, status)
+```
+
+ทั้งห้ารูปรันผ่าน (รัน) และตาราง Arrow ยังคงชนิดไว้ `BIGINT` ของ DuckDB เป็น `int64` ใน Arrow (รัน) เพราะ Arrow เป็นรูปแบบกลางที่ Polars, Pandas และเครื่องมืออื่นอ่านต่อได้ จึงเป็นทางส่งผ่านข้อมูลระหว่างเครื่องมือที่ไม่ต้องแปลงอะไรมาก (หนังสือ: DuckDB in Action หัวข้อ 6.5 หน้า 141)
+
+</Step>
+
+<Step>
+
+## Function ของ Python ที่ SQL เรียกได้
+
+ถ้า SQL ไม่มี Function ที่ต้องการ เราลงทะเบียนของ Python เข้าไปได้ สองแบบ
+
+```python
+def with_tax(x: float) -> float:
+    return round(x * 1.07, 2)
+
+con.create_function("with_tax", with_tax, [DOUBLE], DOUBLE)            # รับทีละค่า
+
+def with_tax_vec(x):                                                   # รับทั้ง Vector
+    return pc.round(pc.multiply(x, 1.07), 2)
+con.create_function("with_tax_vec", with_tax_vec, [DOUBLE], DOUBLE, type="arrow")
+```
+
+แบบแรก DuckDB เรียก Function ของเราทีละค่า แบบที่สองส่งมาทั้งก้อนเป็น Array ของ Arrow ซึ่งเรียก Function ครั้งเดียวต่อหนึ่งก้อน ทั้งสองแบบได้ผลรวมเท่ากันเมื่อใช้กับ 200,000 แถว (รัน) แต่เวลาต่างกัน ในการรันหนึ่งครั้ง แบบทีละค่าใช้ประมาณ 80 ms และแบบทั้ง Vector ใช้ประมาณ 37 ms แบบหลังเร็วกว่า (ค่านี้ในแบบฝึกถูก Assert ว่าแบบ Vector เร็วกว่า แต่ตัวเลขเปลี่ยนไปตามเครื่อง) เหตุผลคือการข้ามจาก DuckDB ไป Python มีราคาต่อครั้ง การข้ามน้อยครั้งกว่าจึงถูกกว่า (หนังสือ: DuckDB in Action หัวข้อ 6.4 หน้า 136)
+
+ค่าที่ส่งเข้า SQL ควรผูกเป็น Parameter เสมอ ไม่ต้องต่อข้อความ ในแบบฝึก ข้อความที่พยายามแทรก `paid' or '1'='1` ผ่าน `?` ถูกมองเป็นค่าเดียวและไม่ตรงกับแถวไหนเลย (0 แถว) และ Parameter แบบมีชื่อ (`$s`, `$q`) ได้จำนวนเท่ากับ SQL ที่เขียนค่าตรง ๆ (รัน)
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราเก็บ Relation ที่กรองตาราง Orders ให้เหลือแถวที่ Status เป็น Paid ไว้ในตัวแปร Rel แล้ว Insert Order ใหม่ที่ Status เป็น Paid เข้าไปอีกหนึ่งแถว หลังจากนั้นเรียก Rel.count แล้วผลเป็นอย่างไร?"
+  options={[
+    'นับเฉพาะแถวที่มีอยู่ตอนสร้าง Rel เพราะ Rel เก็บผลไว้ตั้งแต่ตอนสร้าง',
+    'นับรวมแถวที่เพิ่ง Insert เพราะ Rel เป็นแผนที่รันตอนขอผล',
+    'Error เพราะ Rel ถูกล็อกไว้หลังสร้าง',
+    'ได้ 0 เพราะต้องสร้าง Rel ใหม่หลัง Insert'
+  ]}
+  answer={1}
+  why="Relation ไม่ได้ถือผลลัพธ์ มันถือแผนที่ Query และรันเมื่อเราขอผล ในแบบฝึก ตารางที่มีสองแถวแล้ว Insert เพิ่มหนึ่งแถวหลังสร้าง Relation นับได้ 3 (รัน)"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Relation ไม่รันจนกว่าจะขอผล (เห็นแถวที่ Insert ทีหลัง) และพิมพ์แล้วเห็นแถวต้นกับชนิด | รัน: `exercises/06_python.py` |
+| เมธอด Filter, Aggregate, Order, Limit ให้ผลเท่ากับ SQL และผลรวมทศนิยมต้องปัดก่อนเทียบ | รัน: `exercises/06_python.py` |
+| SQL อ่าน DataFrame ของ Pandas, Polars และตาราง Arrow จากชื่อตัวแปร ต้องเป็นตัวแปรโลคอลของ Function ที่รัน SQL | รัน: `exercises/06_python.py` |
+| DuckDB, Pandas, Polars ได้จำนวนและรายได้เท่ากันต่อสถานะ | รัน: `exercises/06_python.py` |
+| เวลา 100 ms, 7 ms, 40 ms, 3 ms (ดีที่สุดจาก 5 รอบ ไม่ได้ Assert) | รัน: `exercises/06_python.py` |
+| ผลลัพธ์เป็น Pandas, Arrow (int64), Polars, NumPy | รัน: `exercises/06_python.py` |
+| UDF แบบทีละค่าและแบบ Arrow ได้ผลรวมเท่ากันและแบบ Arrow เร็วกว่า | รัน: `exercises/06_python.py` |
+| Parameter ผูกค่าเป็นค่าเดียว ไม่ถูกตีเป็น SQL | รัน: `exercises/06_python.py` |
+| สาเหตุที่ DuckDB บน DataFrame ช้ากว่าบนตารางของตัวเอง | ผู้เขียน: เดา ไม่ได้พิสูจน์ |
+| อ่าน DataFrame โดยไม่ก๊อปปี้ ใช้ Arrow เป็นทางกลาง และ UDF | หนังสือ: DuckDB in Action หัวข้อ 6.3 หน้า 134, 6.5 หน้า 141, 6.4 หน้า 136 |
+
+</Step>

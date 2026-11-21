@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจว่า Memory Limit ทำให้ DuckDB Spill แทนที่จะล้ม รู้ว่า Spill ไม่ใช่ทางออกของทุก Operator และรู้ข้อจำกัดของการเขียนจากหลาย Process
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราตั้ง `memory_limit` ให้ต่ำกว่า Memory ที่ GROUP BY ขนาดใหญ่ต้องการ DuckDB จะทำอะไรกับ Operator แบบ Hash Aggregate?"
+  options={[
+    'หยุดด้วย Out of Memory ทันทีทุกกรณี',
+    'เขียนข้อมูลส่วนหนึ่งลงไฟล์ชั่วคราวใน temp_directory แล้วทำต่อ ได้คำตอบเดิมแต่ช้าลง',
+    'ตัดข้อมูลส่วนที่เกินทิ้งแล้วให้คำตอบโดยประมาณ',
+    'ย้ายทั้ง Query ไปรันบน Cloud'
+  ]}
+  answer={1}
+  why="ในแบบฝึก ตั้งแต่ 2GB ถึง 100MB คำตอบเท่ากันทุกครั้ง ที่ 1GB ขึ้นไปไม่ Spill ต่ำกว่านั้นโฟลเดอร์ชั่วคราวโตถึงราว 115 ถึง 477 MB (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เมื่อไร DuckDB ถึงล้มด้วย Out of Memory Error แม้เปิดการ Spill อยู่?"
+  options={[
+    'ไม่มีทาง เพราะ Spill ใช้ได้กับทุก Operator',
+    'เมื่อ Operator ต้องเก็บสถานะก้อนเดียวที่แบ่งไปดิสก์ไม่ได้ เช่น List ที่รวมตัวเลข 50 ล้านค่าไว้ในเซลล์เดียวภายใต้ Limit 100 MB',
+    'เมื่อไฟล์ Parquet ใหญ่กว่า memory_limit',
+    'เมื่อใช้ Thread เกิน 8 ตัว'
+  ]}
+  answer={1}
+  why="ในแบบฝึก ไฟล์ Parquet 365 MB อ่านและรวมค่าได้ใต้ Limit 64 MB (Scan ส่งต่อเป็น Vector) แต่ List 50 ล้านค่าก้อนเดียวล้ม และข้อความ Error บอกทางแก้ (ลด Thread, ปิด preserve_insertion_order, เพิ่ม memory_limit) (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="โปรแกรม A เปิด `shop.duckdb` เพื่อเขียนอยู่ โปรแกรม B ใน Process อื่นพยายามเปิดไฟล์เดียวกันแบบอ่านอย่างเดียว ผลเป็นอย่างไร?"
+  options={[
+    'เปิดได้ และเห็นข้อมูลล่าสุดของ A ทันที',
+    'เปิดไม่ได้ในขณะที่ A เปิดอยู่ ข้อความบอกว่าไฟล์ถูกเปิดอยู่ใน Process อื่น',
+    'เปิดได้ แต่เห็นเฉพาะข้อมูลก่อนที่ A เปิดไฟล์',
+    'DuckDB ทำสำเนาไฟล์ให้ B อัตโนมัติ'
+  ]}
+  answer={1}
+  why="ในแบบฝึก แม้เปิดแบบ read_only ก็เปิดไม่ได้ขณะที่ Writer เปิดอยู่ (ข้อความบน Windows บอก PID ของ Process ที่เปิดไฟล์) เมื่อ A ปิดแล้ว Process สามตัวอ่านพร้อมกันได้ (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Transaction ของ Connection a กับ b เริ่มพร้อมกัน แล้ว a แก้แถว id = 3 ก่อน จากนั้น b แก้แถว id = 3 เดียวกัน เกิดอะไรขึ้น?"
+  options={[
+    'ทั้งสองสำเร็จ และค่าของ b ทับค่าของ a',
+    'คำสั่งของ b ล้มทันทีด้วย Conflict on update และ b ต้อง Rollback',
+    'คำสั่งของ b รอจน a Commit แล้วทำต่อ',
+    'ทั้งสองล้มและทั้งคู่ต้อง Rollback'
+  ]}
+  answer={1}
+  why="DuckDB ใช้ Optimistic Concurrency Control ในแบบฝึก คำสั่งที่สองได้ TransactionException: Conflict on update! และเมื่อ a Commit ค่าเป็นของ a ส่วนการแก้คนละแถวสำเร็จทั้งคู่ (รัน)"
+/>
+
+</Step>

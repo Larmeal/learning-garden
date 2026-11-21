@@ -1,0 +1,129 @@
+---
+title: Query Execution
+summary: เราดูว่า Scan ส่งข้อมูลออกมาเป็น Vector ละ 2,048 แถว Filter ทำให้ Vector ถัดไปเล็กลงแทนที่จะเติมให้เต็ม แผนของ Query คือท่อของ Operator และ Thread แต่ละตัวหยิบงานไปทีละ Row Group จึงทำให้ตารางที่มี Row Group เดียวใช้ได้แค่ Thread เดียว
+facts:
+  - "รันจริงใน exercises/08_execution.py กับ DuckDB 1.5.6: ขนาดของ Chunk ที่ Scan ส่งออกมาด้วย fetch_df_chunk, ขนาดของ Chunk หลัง Filter, Operator ของแผนกับจำนวนแถวที่แต่ละตัวคืนจาก Profile ของ Engine, เวลาจริงกับเวลา CPU ของตารางที่มี 1, 3 และ 9 Row group ที่ 1, 4 และ 8 Thread (ดีที่สุดจาก 3 รอบ) และผลที่ไม่ขึ้นกับจำนวน Thread"
+  - "ขนาด Vector 2,048 แถวตรวจกับ Source v1.5.6 (vector_size.hpp) ส่วนแบบจำลอง Morsel-driven กับ Pipeline อ้างหนังสือ DuckDB in Action หัวข้อ 10.2.2 ไม่ได้ไล่อ่านตัวจัดตารางงานของ Engine ตัวเลขเวลาเป็นของการรันหนึ่งครั้งบนคอมพิวเตอร์เครื่องเดียวที่มี 16 Thread และไวต่อจังหวะของเครื่อง"
+order: 8
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [storage]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import VectorLab from '../../../../components/labs/duckdb/VectorLab';
+
+<Step>
+
+## ข้อมูลไหลเป็น Vector ละ 2,048 แถว
+
+ถ้า DuckDB ประมวลผลทีละแถว มันจะต้องเรียกโค้ดของแต่ละ Operator หนึ่งล้านครั้งต่อหนึ่ง Operator ถ้าประมวลผลทั้งตารางทีเดียว Memory ก็ไม่พอสำหรับตารางใหญ่ DuckDB เลือกทางกลาง คือส่งข้อมูลเป็นก้อนที่เรียกว่า Vector ซึ่งมีได้สูงสุด 2,048 แถว (Source: `STANDARD_VECTOR_SIZE` ใน `src/include/duckdb/common/vector_size.hpp` บรรทัด 16)
+
+เราดูของจริงโดยขอผลของ `select * from orders` ทีละ Vector ด้วย `fetch_df_chunk(1)` ผลคือ 489 Chunk ในนั้น 488 อันมี 2,048 แถว และอันสุดท้ายมี 576 แถว (488 × 2,048 + 576 = 1,000,000) (รัน)
+
+ทีนี้ลองใส่ Filter ที่ผ่าน 70% ของแถว `where status = 'paid'` ถ้า DuckDB เติม Vector ให้เต็มทุกครั้ง เราควรได้ประมาณ 342 Chunk แต่ผลคือ 489 Chunk เท่าเดิม และแต่ละอันเล็กลง เฉลี่ย 1,431 แถว เช่น 1,419, 1,424, 1,430, 1,426, 1,405 (รัน) แปลว่า Filter ไม่ได้ไปเติม Vector ให้เต็มก่อนส่งต่อ มันทำให้ Vector ที่ออกไปเล็กลงเท่าที่ผ่าน ไม่มี Chunk ไหนเกิน 2,048 แถว และเกือบทั้งหมดน้อยกว่านั้น
+
+</Step>
+
+<Step>
+
+## แผนของ Query คือท่อของ Operator
+
+Query หนึ่งตัวถูกแปลงเป็นแผนที่ประกอบด้วย Operator เรียงต่อกัน ข้อมูลไหลจาก Scan ผ่านทีละ Operator ตารางล่างคือแผนของ `select sum(qty * unit_price) from orders where qty >= 3` พร้อมจำนวนแถวที่แต่ละ Operator คืน (อ่านจาก Profile ที่ Engine เขียนเอง)
+
+| Operator | แถวที่คืน |
+|---|---|
+| UNGROUPED_AGGREGATE | 1 |
+| PROJECTION | 600,389 |
+| SEQ_SCAN | 600,389 |
+
+เงื่อนไข `qty >= 3` อยู่ข้างใน Scan ไม่ได้เป็น Operator แยก ดังนั้น Scan คืนเฉพาะ 600,389 แถวที่ผ่าน ซึ่งเท่ากับที่นับด้วย `count(*) where qty >= 3` ส่วน `PROJECTION` คำนวณ `qty * unit_price` และ Aggregate ตัวสุดท้ายรวมเหลือแถวเดียว (รัน) ถ้าเปลี่ยนเป็นจัดกลุ่มตาม `status` ที่เป็นข้อความ แผนจะยาวขึ้นเป็น PROJECTION, HASH_GROUP_BY, PROJECTION, PROJECTION, SEQ_SCAN เพราะ DuckDB เติม Projection สองตัวที่บีบข้อความให้เป็นตัวเลขก่อนจัดกลุ่มแล้วแปลงกลับ (ชื่อเรียกใน Plan คือ `__internal_compress_string` และ `__internal_decompress_string`) Operator ตัวท้ายที่จัดกลุ่มคืน 4 แถว (รัน)
+
+หนังสือเล่าว่าโมเดลนี้คือ Pipeline ที่ Operator เป็นต้นทาง (Source) ปลายทาง (Sink) หรือทั้งสองอย่าง และ Vector ส่งผ่านระหว่าง Operator แบบ Push (หนังสือ: DuckDB in Action หัวข้อ 10.2.2 หน้า 244) กด Play ใน Lab เพื่อดู Vector วิ่งผ่านท่อ และดูว่าถ้ามี Thread หลายตัวจะแบ่งกันอย่างไร
+
+<VectorLab client:visible />
+
+</Step>
+
+<Step>
+
+## Thread แบ่งงานกันตาม Row Group
+
+DuckDB ใช้ Thread หลายตัวช่วยกันรัน Pipeline เดียว หนังสือเรียกแนวคิดนี้ว่า Morsel ซึ่งเป็นก้อนงานที่ Thread หยิบไปทำทีละก้อน (หนังสือ: DuckDB in Action หัวข้อ 10.2.2 หน้า 244) คำถามคือก้อนหนึ่งใหญ่แค่ไหน เราทดลองกับงานที่หนักพอจะเห็นผล (`sum(length(sha256(s || s || s)))`) บนสามตารางที่มี 1 Row Group (100,000 แถว) 3 Row Group (300,000 แถว) และ 9 Row Group (1,000,000 แถว) โดยตั้ง `threads` เป็น 1, 4 และ 8 ผลในการรันหนึ่งครั้งคือ
+
+| ตาราง | Row Group | Thread | เวลาจริง (ms) | เวลา CPU (ms) | CPU ÷ จริง |
+|---|---|---|---|---|---|
+| small | 1 | 1 | 42 | 41 | 1.0 |
+| small | 1 | 4 | 42 | 41 | 1.0 |
+| small | 1 | 8 | 41 | 40 | 1.0 |
+| mid | 3 | 1 | 129 | 128 | 1.0 |
+| mid | 3 | 4 | 63 | 151 | 2.4 |
+| mid | 3 | 8 | 56 | 136 | 2.4 |
+| big | 9 | 1 | 453 | 452 | 1.0 |
+| big | 9 | 4 | 205 | 699 | 3.4 |
+| big | 9 | 8 | 127 | 807 | 6.4 |
+
+อ่านตารางนี้ด้วยคอลัมน์สุดท้าย ถ้า CPU ÷ จริงเป็น 1 แปลว่าตลอดเวลาที่ Query รันมี Thread ทำงานอยู่ตัวเดียว ส่วนค่าที่มากกว่า 1 แปลว่ามีหลาย Thread ทำงานซ้อนกัน
+
+- ตาราง `small` มี Row Group เดียว จึงได้ Thread เดียวเสมอ แม้อนุญาตแปดตัว ค่า 1.0 ไม่เปลี่ยนเลย และเวลาจริงก็ไม่ลดลง
+- ตาราง `mid` มีสาม Row Group จึงใช้ได้ราวสองถึงสามตัว เพิ่มจาก 4 เป็น 8 Thread ไม่ได้ทำให้เร็วขึ้นอีก
+- ตาราง `big` มีเก้า Row Group ใช้ได้หลายตัวมากขึ้น เวลาลดจาก 453 เหลือ 127 ms (รัน)
+
+ในการรันนี้ งานถูกแบ่งให้ Thread ตาม Row Group ซึ่งหนังสือก็เตือนไว้ตอนสร้าง Parquet ว่า ถ้า Row Group ใหญ่เกินไป DuckDB จะแบ่งงานอ่านให้ขนานกันไม่ได้ (หนังสือ: DuckDB in Action หัวข้อ 5.4 หน้า 109) ตัวเลขเวลาไวต่อจังหวะของคอมพิวเตอร์ แบบฝึกจึง Assert เฉพาะอัตราส่วนที่ชัดเจน เช่น ตารางหนึ่ง Row Group มี CPU ÷ จริงต่ำกว่า 1.2 และตารางเก้า Row Group ที่ 8 Thread มีมากกว่า 2
+
+<Callout type="note" title="การแบ่งงานละเอียดกว่านี้ไม่ได้ตรวจ">
+สิ่งที่แบบฝึกยืนยันคือผลของการวัด ว่าจำนวน Row Group เป็นเพดานของจำนวน Thread ที่ใช้ได้ในงานแบบนี้ ผู้เขียนไม่ได้ไล่อ่านตัวจัดตารางงานของ Engine จึงไม่ยืนยันว่าขนาดก้อนงานคือ Row Group พอดีในทุกกรณี (เช่น ตอนที่มีการเรียงหรือ Join)
+</Callout>
+
+</Step>
+
+<Step>
+
+## คำตอบไม่ขึ้นกับจำนวน Thread
+
+การแบ่งงานให้หลาย Thread ไม่ควรเปลี่ยนคำตอบ ในแบบฝึกเรารัน `select count(*), sum(qty), sum(order_id) from orders` ที่ 1, 4 และ 16 Thread ได้ผลเหมือนกันทั้งสามครั้ง (รัน) ตัวเลขทั้งหมดเป็นจำนวนเต็ม ถ้าเป็นทศนิยม ผลรวมอาจต่างกันที่หลักท้าย ๆ เพราะลำดับการบวกต่างกัน เราเจอเรื่องนี้แล้วในบท [ใช้ DuckDB จาก Python](/duckdb/python/)
+
+ส่วนลำดับแถว ถ้าเราไม่เขียน `ORDER BY` DuckDB ก็ยังคืนแถวตามลำดับที่ Insert เข้ามา เช่น `select order_id from orders limit 5` ได้ 1 ถึง 5 แม้ใช้ 16 Thread (รัน) เพราะตั้งค่า `preserve_insertion_order` ไว้เป็นเปิด แต่ไม่ควรพึ่งลำดับนี้ในงานจริง ถ้าต้องการลำดับให้เขียน `ORDER BY` เสมอ
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เรามีตาราง 100,000 แถว (หนึ่ง Row Group) และ Query ที่หนักมาก ตั้ง `threads = 16` ผลควรเป็นอย่างไร?"
+  options={[
+    'เร็วขึ้นสิบหกเท่า เพราะมี 16 Thread',
+    'ไม่เร็วขึ้นเลย เพราะมี Row Group เดียว จึงมีงานให้ Thread เดียวทำ',
+    'ช้าลงเสมอ เพราะ Thread ต้องรอกัน',
+    'Error เพราะจำนวน Thread ต้องไม่เกินจำนวน Row group'
+  ]}
+  answer={1}
+  why="ในแบบฝึก ตารางหนึ่ง Row Group ใช้เวลาเท่าเดิมที่ 1, 4 และ 8 Thread (42, 42 และ 41 ms) และ CPU ÷ เวลาจริงเท่ากับ 1.0 ตลอด แปลว่ามี Thread เดียวทำงาน ตารางเก้า Row Group ลดเวลาจาก 453 เหลือ 127 ms ที่ 8 Thread (รัน)"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Scan หนึ่งล้านแถวส่ง 489 Chunk (488 อัน 2,048 แถว กับ 576 แถว) | รัน: `exercises/08_execution.py` |
+| Filter 70% ได้ 489 Chunk เฉลี่ย 1,431 แถวและไม่มีอันเกิน 2,048 | รัน: `exercises/08_execution.py` |
+| แผนของ `where qty >= 3` เป็น UNGROUPED_AGGREGATE, PROJECTION, SEQ_SCAN และ Filter อยู่ใน Scan (600,389 แถว) | รัน: `exercises/08_execution.py` |
+| จัดกลุ่มตามข้อความเพิ่ม Projection บีบและคลายข้อความ แผนมี 5 Operator | รัน: `exercises/08_execution.py` |
+| ตาราง 1 Row Group ได้ CPU ÷ จริง 1.0 ทุกจำนวน Thread ส่วน 9 Row Group ที่ 8 Thread ได้ 6.4 | รัน: `exercises/08_execution.py` |
+| ผลของ Aggregate จำนวนเต็มที่ 1, 4, 16 Thread เท่ากัน และลำดับแถวตามที่ Insert | รัน: `exercises/08_execution.py` |
+| `STANDARD_VECTOR_SIZE` = 2048 | Source: `vector_size.hpp` บรรทัด 16 |
+| Pipeline แบบ Push, Morsel และ Operator ที่เป็นต้นทางหรือปลายทาง | หนังสือ: DuckDB in Action หัวข้อ 10.2.2 หน้า 244 |
+| Row Group ที่ใหญ่เกินทำให้ขนานการอ่านไม่ได้ | หนังสือ: DuckDB in Action หัวข้อ 5.4 หน้า 109 |
+| ขนาดก้อนงานเท่ากับ Row Group พอดีในทุกกรณี | ผู้เขียน: ไม่ได้ตรวจในตัวจัดตารางงาน |
+
+</Step>

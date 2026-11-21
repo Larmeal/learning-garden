@@ -1,0 +1,133 @@
+---
+title: Extension
+summary: เราดูว่า Extension ไหนมากับ Package แล้วบ้าง ติดตั้งอีกสามตัว แล้วใช้ Httpfs อ่านไฟล์ Parquet จาก Web Server โดยนับ Byte ที่ Server ส่งออกมาจริงว่า Query แต่ละแบบขอไปกี่ Byte ต่อด้วยการ Join ไฟล์ Parquet กับไฟล์ SQLite และค้นข้อความด้วย Full-text Search
+facts:
+  - "รันจริงใน exercises/11_extensions.py กับ DuckDB 1.5.6: รายการ Extension ที่ติดมากับ Package (4 ตัวจาก 30), INSTALL และ LOAD ของ httpfs, sqlite_scanner และ fts (ต้องมีอินเทอร์เน็ตครั้งแรก), Web Server เล็ก ๆ ที่เขียนเองรองรับ Range แล้วนับ Byte ที่ส่งออกของ Query ห้าแบบกับไฟล์ Parquet 16,911,937 byte, การ Join Parquet กับไฟล์ SQLite และ Full-text Search ด้วย match_bm25"
+  - "ไฟล์ระยะไกลเป็น Web Server บน 127.0.0.1 ไม่ใช่ S3 หรือ HTTPS จึงไม่ได้ลองการยืนยันตัวตน การ Cache หรือเวลาจากเครือข่ายจริง และไม่ได้ลอง Extension อื่นอย่าง spatial, iceberg, delta, postgres_scanner หรือ ducklake"
+order: 11
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [beyond-memory]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import RangeReadLab from '../../../../components/labs/duckdb/RangeReadLab';
+
+<Step>
+
+## แกนเล็ก ๆ กับ Extension ที่โหลดเพิ่ม
+
+DuckDB เก็บแกนให้เล็กและแยกความสามารถอื่นเป็น Extension ที่โหลดเมื่อต้องใช้ ถามได้จาก `duckdb_extensions()`
+
+```sql
+select extension_name, loaded, installed, install_mode from duckdb_extensions()
+```
+
+ใน Package Python ของ DuckDB 1.5.6 มี Extension ทั้งหมดในรายการ 30 ตัว (รัน) แต่ที่ถูกรวมมากับตัว Package ในโหมด `STATICALLY_LINKED` มีสี่ตัวคือ `core_functions`, `icu`, `json` และ `parquet` (รัน) นี่คือเหตุผลที่เราอ่านไฟล์ Parquet และ JSON ได้ในบทที่ผ่านมาโดยไม่ต้องติดตั้งอะไร ส่วนที่เหลือเช่น `httpfs`, `sqlite_scanner` และ `fts` ไม่ได้รวมมา ต้องดาวน์โหลดจากที่เก็บของ DuckDB ครั้งแรกด้วย `INSTALL` แล้วเปิดใช้ด้วย `LOAD`
+
+```sql
+install httpfs; load httpfs;
+```
+
+หลัง `INSTALL` และ `LOAD` ทั้งสามตัวขึ้นสถานะ `loaded` (รัน) Extension ที่ติดตั้งเป็นไฟล์บนดิสก์ของเราจริง ๆ ในโฟลเดอร์ `~/.duckdb/extensions` (รัน) ครั้งแรกต้องใช้อินเทอร์เน็ต ครั้งต่อไปใช้ไฟล์ที่ดาวน์โหลดไว้แล้ว หนังสือเล่าเรื่องระบบ Extension ไว้ในหัวข้อ 2.4 (หนังสือ: DuckDB in Action หัวข้อ 2.4 หน้า 15)
+
+</Step>
+
+<Step>
+
+## อ่านไฟล์ Parquet ผ่าน HTTP ขอแค่ไหนส่งแค่นั้น
+
+`httpfs` ทำให้ใส่ URL แทนชื่อไฟล์ได้ คำถามที่น่าสนใจคือ ถ้าไฟล์ Parquet 16.9 MB อยู่บน Server เราต้องดาวน์โหลดทั้งไฟล์ทุกครั้งที่ Query ไหม เราทดลองด้วย Web Server เล็ก ๆ ที่เขียนเองบนคอมพิวเตอร์นี้ ซึ่งรองรับ Header `Range: bytes=a-b` แล้วนับจำนวน Byte ที่มันส่งออกไปในแต่ละ Query โดยปิด Cache ของไฟล์ และเปิดการเชื่อมต่อใหม่ทุกครั้ง
+
+| Query | จำนวนคำขอ | Byte ที่ Server ส่ง | เทียบกับไฟล์ |
+|---|---|---|---|
+| `count(*)` | 2 | 65,536 | 0.4% |
+| `sum(qty)` | 11 | 445,319 | 2.6% |
+| `sum(qty)` เฉพาะ `order_ts >= '2025-12-26'` | 4 | 190,929 | 1.1% |
+| `sum(qty), sum(unit_price)` | 11 | 2,606,099 | 15.4% |
+| `select *` | 11 | 16,771,333 | 99.2% |
+
+อ่านตารางนี้ทีละบรรทัด `count(*)` ใช้แค่ส่วนท้ายของไฟล์ (Footer) ที่เก็บ Metadata ของทุก Row Group ซึ่งบอกจำนวนแถวอยู่แล้ว จึงใช้ไม่ถึง 1% ของไฟล์ `sum(qty)` ต้องอ่านคอลัมน์ `qty` ของทั้งเก้า Row Group ได้ 2.6% การเพิ่ม `unit_price` อีกคอลัมน์ทำให้ขึ้นเป็น 15.4% เพราะราคาทศนิยมบีบอัดได้น้อยกว่า และ `select *` ต้องอ่านเกือบทั้งไฟล์ ส่วนตัวที่น่าสนใจที่สุดคือแถวที่สาม เมื่อเพิ่ม Filter บน `order_ts` ของช่วงท้ายปี DuckDB ใช้ค่าต่ำสุดกับสูงสุดของแต่ละ Row Group ที่เราเห็นในบท [ข้อมูลถูกเก็บอย่างไร](/duckdb/storage/) ข้าม Row Group ที่ไม่เกี่ยวข้อง จึงขอแค่ 4 คำขอ 190,929 Byte น้อยกว่าครึ่งของ `sum(qty)` ที่ไม่มี Filter (รัน) ลองเลือก Query ใน Lab ด้านล่างแล้วดูว่าส่วนไหนของไฟล์ถูกขอ
+
+<RangeReadLab client:visible />
+
+ผลลัพธ์ที่ได้จาก Server เป็นคำตอบที่ถูกต้องเท่ากับที่ Query ตารางตรง ๆ (รัน) ตัวเลขทั้งหมดมาจาก Web Server บนคอมพิวเตอร์เครื่องเดียวกัน ไม่ใช่ S3 หรือเครือข่ายจริง จึงไม่มีเวลาหน่วงของเครือข่าย ไม่มี HTTPS และไม่มีการยืนยันตัวตน สิ่งที่แบบฝึกยืนยันคือเรื่องจำนวน Byte ที่ขอ ผลที่ได้บน S3 อาจต่างในเรื่องจำนวนคำขอเพราะ Cache และการรวมคำขอ
+
+<Callout type="note" title="หนังสือกับ Cloud Storage">
+หนังสืออธิบายว่าการให้ Storage ดึงเฉพาะคอลัมน์หรือส่วนของข้อมูลที่ Query ต้องใช้ มีประโยชน์เป็นพิเศษในสภาพแวดล้อมแบบกระจาย (หนังสือ: DuckDB in Action หัวข้อ 5.4 หน้า 108) และใช้ข้อมูลแท็กซี่ของนิวยอร์กที่อ่านจาก S3 เป็นตัวอย่างในหัวข้อ 10.4 (หนังสือ: DuckDB in Action หัวข้อ 10.4 หน้า 251) ผู้เขียนไม่ได้ลองกับ S3 จริง
+</Callout>
+
+</Step>
+
+<Step>
+
+## อ่านฐานข้อมูลอื่นถึงที่
+
+อีกกรณีที่เจอบ่อยคือข้อมูลบางส่วนยังอยู่ในฐานข้อมูลเก่า เราสร้างไฟล์ SQLite ที่มีตาราง `customers_legacy` 5,000 คน (ระดับ `gold` สำหรับลูกค้าที่ id หาร 10 ลงตัว นอกนั้นเป็น `basic`) แล้วให้ DuckDB เปิดมันเป็นฐานข้อมูลที่ผูกอยู่
+
+```sql
+install sqlite_scanner; load sqlite_scanner;
+attach 'legacy.db' as legacy (type sqlite, read_only);
+select l.tier, count(*)
+from read_parquet('orders.parquet') o join legacy.customers_legacy l using (customer_id)
+group by all order by all
+```
+
+คำสั่งเดียว Join ไฟล์ Parquet กับตารางใน SQLite ได้ผลรวมหนึ่งล้านแถว แบ่งเป็น `basic` กับ `gold` และจำนวน `gold` เท่ากับ Order ของลูกค้าหมายเลข 10, 20, 30 ฯลฯ ที่นับจากตารางเดิม (รัน) ถ้าอยากเอาข้อมูลเข้ามาเก็บในไฟล์ของเรา `create table customers_copy as select * from legacy.customers_legacy` ก็ก๊อปปี้ได้ครบ 5,000 แถว (รัน) หนังสือสอนเรื่อง Query SQLite และฐานข้อมูลอื่นในหัวข้อ 5.6 (หนังสือ: DuckDB in Action หัวข้อ 5.6 หน้า 116) ผู้เขียนไม่ได้ลอง `postgres_scanner` หรือ `mysql_scanner`
+
+</Step>
+
+<Step>
+
+## ค้นข้อความด้วย Full-text Search
+
+อีก Extension ที่มาจาก Package เดียวกันคือ `fts` สร้างดัชนีข้อความแล้วจัดอันดับด้วย BM25 ตัวอย่างมีตาราง `docs` สี่แถวที่เราเขียนเอง
+
+```sql
+install fts; load fts;
+pragma create_fts_index('docs', 'id', 'body', stemmer = 'english', stopwords = 'english', overwrite = 1);
+select id, fts_main_docs.match_bm25(id, 'duckdb parquet') as score from docs order by score desc nulls last
+```
+
+เอกสารที่มีทั้งสองคำ (`duckdb reads parquet files and csv files`) ได้อันดับหนึ่ง อันดับถัดมาคือเอกสารที่มีแค่ `duckdb` และเอกสารที่ไม่มีคำไหนเลยได้คะแนนเป็น `NULL` (รัน) ตัวอย่างนี้เล็กมาก ไม่ได้วัดว่าค้นตารางใหญ่ได้เร็วเท่าไร
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Parquet ขนาด 16.9 MB อยู่บน Web Server ที่รองรับ Range เราสั่ง `select count(*) from 'http://.../orders.parquet'` ควรคาดว่า Server ส่งข้อมูลประมาณเท่าไร?"
+  options={[
+    'ทั้งไฟล์ เพราะต้องดาวน์โหลดก่อนนับ',
+    'น้อยกว่า 1% ของไฟล์ เพราะจำนวนแถวอยู่ใน Footer ซึ่ง Metadata ของทุก Row Group ถูกเก็บไว้ที่ท้ายไฟล์',
+    'ประมาณครึ่งไฟล์',
+    '0 Byte เพราะ DuckDB จำจำนวนแถวไว้ล่วงหน้า'
+  ]}
+  answer={1}
+  why="ในแบบฝึก Count(*) ใช้ 2 คำขอ รวม 65,536 Byte หรือ 0.4% ของไฟล์ ส่วน Select * ส่ง 99.2% Sum(Qty) ส่ง 2.6% และ Sum(Qty) พร้อม Filter ท้ายปีส่ง 1.1% (รัน)"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Extension ทั้งหมด 30 ตัว และมี 4 ตัวรวมมากับ Package (core_functions, Icu, Json, Parquet) | รัน: `exercises/11_extensions.py` |
+| INSTALL และ LOAD ทำให้ Httpfs, sqlite_scanner และ Fts ขึ้นสถานะ Loaded และมีไฟล์บนดิสก์ | รัน: `exercises/11_extensions.py` |
+| Byte ที่ Server ส่ง: Count(*) 0.4%, Sum(Qty) 2.6%, ที่มี Filter ท้ายปี 1.1%, สองคอลัมน์ 15.4%, Select * 99.2% | รัน: `exercises/11_extensions.py` |
+| Join ไฟล์ Parquet กับตารางใน SQLite และก๊อปปี้เข้าด้วย CREATE TABLE AS | รัน: `exercises/11_extensions.py` |
+| Full-text Search จัดอันดับเอกสารที่มีทั้งสองคำเป็นอันดับหนึ่ง | รัน: `exercises/11_extensions.py` |
+| ระบบ Extension และการ Query SQLite | หนังสือ: DuckDB in Action หัวข้อ 2.4 หน้า 15 และ 5.6 หน้า 116 |
+| ประโยชน์ของการดึงเฉพาะส่วนในสภาพแวดล้อมแบบกระจาย | หนังสือ: DuckDB in Action หัวข้อ 5.4 หน้า 108 |
+| S3, HTTPS, Cache และเวลาของเครือข่ายจริง | ผู้เขียน: ไม่ได้ลอง ไฟล์ระยะไกลคือ Web Server บนคอมพิวเตอร์เครื่องเดียวกัน |
+
+</Step>

@@ -1,0 +1,215 @@
+---
+title: Query Files
+summary: เรารับ CSV ที่เครื่องหมายแปลก ๆ ให้ DuckDB เดาโครงสร้างเอง ดูว่าตอนมันเดาไม่ได้ต้องบอกอะไรบ้าง แล้วเทียบกับ Parquet ที่เล็กกว่าและมีชนิดข้อมูลในตัว ก่อนจะใช้โฟลเดอร์ที่ตั้งชื่อแบบ Hive ให้ Filter ข้ามทั้งไฟล์ได้
+facts:
+  - "รันจริงใน exercises/02_query_files.py กับ DuckDB 1.5.6: sniff_csv กับไฟล์ที่ใช้ ; เป็นตัวคั่นและเลขทศนิยมแบบจุลภาค, ตัวเลือก types, decimal_separator, nullstr และ store_rejects, ขนาด CSV เทียบ Parquet ของตาราง Order หนึ่งล้านแถว, โฟลเดอร์แบบ Hive ที่มี 12 ไฟล์ว่า Filter แต่ละแบบเปิดกี่ไฟล์ (อ่านจาก Profile ที่ Engine เขียนเอง) และไฟล์ JSON ที่มี Object ซ้อน"
+  - "ตัวเลือกของ CSV Sniffer และความหมายของ Hive Partition อ้างหนังสือ DuckDB in Action บทที่ 5 ไม่ได้ลองกับไฟล์ Excel, ไฟล์บีบอัดแบบ gzip หรือไฟล์จาก S3 บทนี้อ่านแต่ไฟล์ในเครื่อง"
+order: 2
+phase: A
+level: 1
+stage: sprout
+format: steps
+requires: [what-is-duckdb]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import GlobLab from '../../../../components/labs/duckdb/GlobLab';
+
+<Step>
+
+## CSV ที่ไม่เรียบร้อย
+
+ข้อมูลที่มาถึงเรามักเป็นไฟล์ที่ยังไม่พร้อมใช้เป็นตาราง ลองดูไฟล์ CSV เล็ก ๆ ที่แต่ละบรรทัดมีของแปลกปนอยู่ ใช้ `;` คั่นช่อง ตัวเลขใช้จุลภาคเป็นทศนิยม มีช่องที่เขียนว่า `n/a` และมีวันที่ที่ไม่มีอยู่จริง
+
+```text
+id;name;joined;score;note
+1;Anna;2025-01-03;7,5;"likes ""quotes"""
+2;Bo;2025-02-03;8,0;
+3;Chai;2025-02-30;n/a;multi
+4;Dee;2025-03-01;9,25;ok
+```
+
+DuckDB มีฟังก์ชัน `sniff_csv` ที่บอกว่ามันเดาโครงสร้างของไฟล์ได้อย่างไร
+
+```sql
+select Delimiter, Quote, HasHeader, Columns from sniff_csv('messy.csv')
+```
+
+ผลคือ ตัวคั่น `;`, เครื่องหมายคำพูด `"` และบรรทัดแรกเป็นหัวตาราง ถูกต้องหมดโดยเราไม่ได้บอกอะไรเลย (รัน) คอลัมน์ `id` ถูกเดาเป็น `BIGINT` แต่ `joined` กับ `score` ถูกเดาเป็นข้อความ `VARCHAR` เพราะวันที่ `2025-02-30` ไม่มีอยู่จริง และ `7,5` อ่านเป็นตัวเลขทศนิยมของ DuckDB ไม่ได้ ส่วนช่องที่มีเครื่องหมายคำพูดซ้อนกันสองตัว (`"likes ""quotes"""`) ถูกอ่านเป็นข้อความ `likes "quotes"` ถูกต้อง และช่องว่างของ Bo อ่านเป็น `NULL`
+
+</Step>
+
+<Step>
+
+## บอกสิ่งที่เดาไม่ได้ แล้วดูว่าอะไรเปลี่ยน
+
+ถ้าเราบังคับให้ `score` เป็น `DOUBLE` ตรง ๆ ผลคือ Error ที่บอกบรรทัดกับค่าที่อ่านไม่ได้
+
+```sql
+select * from read_csv('messy.csv', types = {'score': 'DOUBLE'})
+```
+
+```text
+Conversion Error: CSV Error on Line: 2
+Error when converting column "score". Could not convert string "7,5" to 'DOUBLE'
+```
+
+ข้อความบอกชื่อคอลัมน์ บรรทัด และค่า (`"7,5"`) ซึ่งช่วยให้หาที่ผิดได้เร็ว (รัน) วิธีแก้คือบอกว่าจุลภาคคือเครื่องหมายทศนิยม และให้ถือว่า `n/a` คือ `NULL`
+
+```sql
+select * from read_csv('messy.csv', decimal_separator = ',', nullstr = 'n/a')
+```
+
+คราวนี้ `score` ออกมาเป็น 7.5, 8.0, `NULL`, 9.25 ตามที่ควร แต่มีสิ่งที่น่าแปลกใจอย่างหนึ่ง ตอนที่เราไม่ได้ตั้ง `nullstr` ช่องว่างของ Bo อ่านเป็น `NULL` แต่พอตั้ง `nullstr = 'n/a'` ช่องว่างนั้นกลายเป็นข้อความว่างเปล่า `''` เพราะ `nullstr` ที่เราตั้งเข้ามาแทนที่ค่าตั้งต้น ไม่ได้เพิ่มเข้าไปอีกตัว (รัน) ถ้าอยากให้ทั้งสองแบบเป็น `NULL` ต้องบอกเอง
+
+ส่วนวันที่ `2025-02-30` ที่ไม่มีอยู่จริง เรามีสองทางเลือก ทางแรกคือให้ DuckDB ข้ามแถวนั้นไปแล้วเก็บเหตุผลไว้ให้ดู
+
+```sql
+select * from read_csv('messy.csv', decimal_separator = ',', nullstr = 'n/a',
+                       types = {'joined': 'DATE'}, ignore_errors = true, store_rejects = true)
+select line, column_name, error_type from reject_errors
+```
+
+อ่านได้ 3 แถว (Anna, Bo และ Dee) และตาราง `reject_errors` บอกว่าแถวที่หลุดคือบรรทัดที่ 4 คอลัมน์ `joined` Error ชนิด `CAST` (รัน) แถวที่ถูกข้ามจึงไม่หายไปเงียบ ๆ เรากลับไปดูและตัดสินใจได้ เดี๋ยวในบท [Capstone](/duckdb/capstone/) เราจะเอาตารางนี้ไปใช้จริง
+
+<Callout type="tip" title="อ่านข้อความ Error ก่อนแก้ตัวเลือก">
+ข้อความ Error ของ CSV บอกบรรทัดและค่าตรง ๆ และมักเสนอตัวเลือกที่ควรลอง (เช่น `nullstr`) อ่านก่อนเดาตัวเลือกจะเร็วกว่า
+</Callout>
+
+</Step>
+
+<Step>
+
+## Parquet ตัวเดียวกัน เล็กกว่าและรู้ชนิดข้อมูล
+
+ทีนี้ลองเอา Order หนึ่งล้านแถวของเรา เขียนออกมาเป็นสองไฟล์ ไฟล์หนึ่ง CSV อีกไฟล์ Parquet แล้วเทียบกัน
+
+```sql
+copy orders to 'orders.csv' (header);
+copy orders to 'orders.parquet' (format parquet);
+```
+
+| ไฟล์ | ขนาด (Byte) | เทียบกับ CSV |
+|---|---|---|
+| `orders.csv` | 49,994,465 | 100% |
+| `orders.parquet` | 16,911,937 | 34% |
+
+ไฟล์ Parquet เล็กกว่า CSV กว่าครึ่ง (รัน) นอกจากนั้นเมื่อให้ DuckDB บอกชนิดของแต่ละคอลัมน์ จะเห็นว่า CSV ต้องเดาจากค่าที่อยู่ข้างใน ส่วน Parquet เก็บชนิดไว้ในไฟล์เอง
+
+| คอลัมน์ | จาก CSV (เดา) | จาก Parquet (เก็บไว้ในไฟล์) |
+|---|---|---|
+| `order_id` | BIGINT | BIGINT |
+| `customer_id` | BIGINT | UBIGINT |
+| `qty` | BIGINT | UBIGINT |
+| `unit_price` | DOUBLE | DOUBLE |
+| `status` | VARCHAR | VARCHAR |
+| `order_ts` | TIMESTAMP | TIMESTAMP |
+
+ชนิดที่เดาจาก CSV ออกมาเป็นจำนวนเต็มที่ติดลบได้ (`BIGINT`) ส่วนที่ Parquet เก็บไว้เป็นจำนวนเต็มที่ไม่ติดลบ (`UBIGINT`) ตามที่ตารางต้นทางเป็นจริง จุดนี้เองที่เราจะต้องระวังเวลาเอา CSV มาเป็นที่เก็บถาวร เพราะ CSV ไม่รู้ว่าคอลัมน์ไหนควรเป็นอะไร (รัน)
+
+ส่วนการอ่านทำได้ตรง ๆ โดยเอาชื่อไฟล์ไปใส่ใน `FROM` เลย
+
+```sql
+select count(*) from 'orders.parquet'     -- 1,000,000
+select count(*) from 'orders.csv'         -- 1,000,000
+```
+
+ทั้งสองคำสั่งตอบหนึ่งล้านแถวเท่ากัน ไม่ต้อง `CREATE TABLE` และไม่ต้องโหลดอะไรก่อน (รัน) หนังสืออธิบายว่า Parquet บีบอัดได้ดีกว่าไฟล์ข้อความอย่าง CSV และให้ Storage ดึงเฉพาะคอลัมน์หรือเฉพาะส่วนของข้อมูลที่ Query ต้องใช้ได้ (หนังสือ: DuckDB in Action หัวข้อ 5.4 หน้า 108)
+
+</Step>
+
+<Step>
+
+## โฟลเดอร์ก็เป็นตารางได้
+
+ข้อมูลที่โตขึ้นมักไม่ได้อยู่ไฟล์เดียว แต่แยกเป็นหลายไฟล์ตามเดือนหรือตามวัน DuckDB อ่านทั้งโฟลเดอร์เป็นตารางเดียวได้ด้วย Glob และถ้าโฟลเดอร์ตั้งชื่อแบบ Hive (`y=2025/m=3/`) มันจะเอาค่า `y` กับ `m` ในชื่อโฟลเดอร์มาเป็นคอลัมน์ให้ด้วย
+
+```sql
+copy (select *, year(order_ts) as y, month(order_ts) as m from orders)
+to 'by_month' (format parquet, partition_by (y, m));
+
+select count(*) from read_parquet('by_month/*/*/*.parquet', hive_partitioning = true)
+where m = 3
+```
+
+คำสั่ง `COPY` สร้างโฟลเดอร์ `y=2025/m=1` ถึง `y=2025/m=12` อย่างละหนึ่งไฟล์ รวม 12 ไฟล์ (รัน) พอเรา Filter ด้วย `m = 3` DuckDB ไม่ต้องเปิดอีก 11 ไฟล์เลย เพราะเดือนอยู่ในชื่อโฟลเดอร์ มันดูชื่อก็รู้แล้ว ตารางข้างล่างคือจำนวนไฟล์ที่ถูกเปิดของแต่ละ Filter อ่านจาก Profile ที่ Engine เขียนเอง
+
+| Filter | ไฟล์ที่ถูกเปิด (จาก 12) | แถวที่ Scan คืน |
+|---|---|---|
+| ไม่มี Filter | 12 | 1,000,000 |
+| `m = 3` | 1 | 85,029 |
+| `m in (3, 4)` | 2 | 167,314 |
+| `y = 2024` | 0 | 0 |
+| `order_ts >= '2025-12-01'` | 12 | 83,885 |
+| `status = 'refunded'` | 12 | 30,104 |
+
+สองแถวสุดท้ายเป็นสิ่งที่ต้องระวัง ทั้ง `order_ts` กับ `status` เป็นคอลัมน์ที่อยู่ข้างในไฟล์ ไม่ได้อยู่ในชื่อโฟลเดอร์ DuckDB จึงต้องเปิดทั้ง 12 ไฟล์ แล้วค่อยไปตัดแถวที่ไม่ต้องการข้างใน กดเลือก Filter ใน Lab ด้านล่างแล้วดูว่าไฟล์ไหนถูกเปิด
+
+<GlobLab client:visible />
+
+แถวของเดือน 3 ที่อ่านจากโฟลเดอร์เท่ากับแถวของเดือน 3 ที่นับจากตารางตรง ๆ และใส่ `filename = true` จะได้คอลัมน์ที่บอกว่าแต่ละแถวมาจากไฟล์ไหน (รัน) ซึ่งช่วยตามหาที่มาของข้อมูลเสียได้ดี ส่วนข้างในแต่ละไฟล์ Parquet ยังมีการข้ามอีกชั้นหนึ่ง คือข้ามเป็น Row Group เราจะดูกันในบท [ข้อมูลถูกเก็บอย่างไร](/duckdb/storage/)
+
+</Step>
+
+<Step>
+
+## JSON ที่ซ้อนกัน
+
+ไฟล์ JSON ที่บรรทัดละหนึ่ง Object ก็อ่านเป็นตารางได้เหมือนกัน
+
+```text
+{"id": 1, "user": {"name": "Anna", "tags": ["a", "b"]}, "amount": 12.5}
+{"id": 2, "user": {"name": "Bo", "tags": []}, "amount": 3}
+{"id": 3, "user": {"name": "Chai", "tags": ["c"]}, "amount": null}
+```
+
+```sql
+describe select * from 'events.json'
+```
+
+| คอลัมน์ | ชนิด |
+|---|---|
+| `id` | BIGINT |
+| `user` | STRUCT("name" VARCHAR, tags VARCHAR[]) |
+| `amount` | DOUBLE |
+
+Object ที่ซ้อนอยู่ข้างในกลายเป็น `STRUCT` และ Array กลายเป็น List (`VARCHAR[]`) โดยที่เราไม่ได้บอกอะไร ใช้จุดเข้าไปอ่านฟิลด์ข้างใน เช่น `select user.name from 'events.json'` ได้ Anna, Bo และ Chai (รัน) เรื่อง STRUCT กับ List เราจะลงรายละเอียดในบท [ข้อมูลซ้อนกัน](/duckdb/nested-data/)
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ข้อมูลเก็บเป็น Parquet แยกโฟลเดอร์ตามเดือนแบบ Hive (`m=1` ถึง `m=12`) คำสั่งไหนที่ DuckDB เปิดไฟล์ได้น้อยที่สุด?"
+  options={[
+    '`where m = 3`',
+    '`where status = \'refunded\'`',
+    '`where order_ts >= \'2025-12-01\'`',
+    'ทุกคำสั่งเปิดจำนวนไฟล์เท่ากัน เพราะต้องตรวจทุกไฟล์ก่อนเสมอ'
+  ]}
+  answer={0}
+  why="ค่าของ m อยู่ในชื่อโฟลเดอร์ DuckDB จึงรู้ว่าไฟล์ไหนควรเปิดโดยไม่ต้องเปิดไฟล์ก่อน ในการรัน `m = 3` เปิดแค่ 1 ไฟล์ส่วนอีกสองแบบเปิดครบ 12 ไฟล์ เพราะ Status กับ order_ts อยู่ข้างในไฟล์ (รัน)"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Sniffer หาตัวคั่น `;` เครื่องหมายคำพูดและหัวตารางได้เอง ส่วนวันที่ที่ไม่มีอยู่จริงและเลขทศนิยมแบบจุลภาคทำให้คอลัมน์เป็น VARCHAR | รัน: `exercises/02_query_files.py` |
+| บังคับ DOUBLE ให้ `7,5` ได้ Error ที่บอกบรรทัดกับค่า และ `decimal_separator` กับ `nullstr` แก้ได้ | รัน: `exercises/02_query_files.py` |
+| `nullstr` ที่ตั้งเองแทนค่าตั้งต้น ช่องว่างจึงเป็น `''` ไม่ใช่ `NULL` | รัน: `exercises/02_query_files.py` |
+| `store_rejects` เก็บแถวที่ข้ามไว้ใน `reject_errors` (บรรทัด 4, คอลัมน์ Joined, CAST) | รัน: `exercises/02_query_files.py` |
+| Parquet 16,911,937 Byte เทียบ CSV 49,994,465 Byte และ Parquet เก็บชนิดข้อมูลไว้ในไฟล์ | รัน: `exercises/02_query_files.py` |
+| Hive Layout 12 ไฟล์: `m = 3` เปิด 1 ไฟล์ `m in (3, 4)` เปิด 2 ไฟล์ Filter บนคอลัมน์ข้างในเปิดครบ 12 | รัน: `exercises/02_query_files.py` |
+| JSON ที่ซ้อนกลายเป็น STRUCT กับ List | รัน: `exercises/02_query_files.py` |
+| Parquet บีบอัดได้ดีและดึงเฉพาะคอลัมน์หรือส่วนของข้อมูลที่ต้องใช้ได้ ต่างจาก CSV | หนังสือ: DuckDB in Action หัวข้อ 5.4 หน้า 108 |
+
+</Step>

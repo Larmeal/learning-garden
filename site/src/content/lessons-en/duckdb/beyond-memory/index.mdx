@@ -1,0 +1,165 @@
+---
+title: Data bigger than memory, and many users
+summary: We limit the memory of DuckDB and see at which point a GROUP BY with 7.3 million groups starts writing temporary files to disk and still gives the same answer, what cannot spill, that a Parquet file bigger than the limit can still be read, and what happens when several processes open the same database file.
+facts:
+  - "Ran in exercises/10_beyond_memory.py with DuckDB 1.5.6: a GROUP BY over 20 million rows with 7.3 million groups under six values of memory_limit (the peak size of the temp folder read from the profile), a list too large for the limit that ends in Out of Memory, a 365 MB Parquet file summed under a 64 MB limit, opening a database file from a second process and three processes reading at once after the writer closes, and two transactions that change the same row."
+  - "The times for each limit change a lot between runs (both 5 seconds and 2 seconds were seen at 100 MB on the same computer), so the exercise asserts only the direction. The lock message in this lesson is from Windows. Linux and macOS were not tried and the message may differ. A database larger than the free disk was not tried."
+order: 10
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [optimizer]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import SpillLab from '../../../../components/labs/duckdb/SpillLab';
+import WritersLab from '../../../../components/labs/duckdb/WritersLab';
+
+<Step>
+
+## When memory is not enough, DuckDB writes to disk
+
+The book says in its first chapter that the volume of data DuckDB can process is limited mainly by the main memory of the computer, though it supports spilling to disk, which is meant for exceptional cases (book: DuckDB in Action section 1.4, page 5). Let us see it for real, with a question that is heavy on memory: a `GROUP BY` over 20 million rows that yields 7,344,514 groups (we use `hash(i) % 8000000` as the key, so it does not reach a full 8 million).
+
+```sql
+select count(*), sum(c) from (
+  select hash(i) % 8000000 as k, count(*) as c from range(20000000) t(i) group by k)
+```
+
+We set `set memory_limit = ...` lower and lower and read the peak size of the folder for temporary files (`temp_directory`) from the profile of the engine. The result:
+
+| memory_limit | Peak temp folder (MB) | Time (seconds) |
+|---|---|---|
+| 2GB | 0 | 0.75 |
+| 1GB | 0 | 0.93 |
+| 600MB | 115 | 1.26 |
+| 400MB | 268 | 1.75 |
+| 200MB | 444 | 2.26 |
+| 100MB | 477 | 2.30 |
+
+Every limit gives the same answer, 7,344,514 groups out of 20,000,000 rows (ran). At 1 GB and up nothing is written to disk. Below that, temporary files appear, and the lower the limit the more spills, and the temp folder is empty again once the query ends (ran). Slide the limit in the lab below and see when memory fills.
+
+<SpillLab client:visible lang="en" />
+
+The time column needs careful reading. An earlier run at a limit of 100 MB took 5 seconds, and this one took 2.3 seconds, on the same computer. Time changes a lot with the state of the machine at that moment, so the exercise asserts only that 200 MB is slower than 1 GB and asserts no time figure. The size of the temp files is steadier (about 434 to 444 MB at 200 MB in two runs).
+
+</Step>
+
+<Step>
+
+## What cannot spill
+
+Some operators keep one block of state that cannot be split off to disk. The example in the exercise is gathering 50 million numbers into one list in one cell under a 100 MB limit.
+
+```sql
+set memory_limit = '100MB';
+select len(list(i)) from range(50000000) t(i);
+```
+
+```text
+Out of Memory Error: failed to allocate data of size 16.0 MiB (80.5 MiB/95.3 MiB used)
+
+Possible solutions:
+* Reducing the number of threads (SET threads=X)
+* Disabling insertion-order preservation (SET preserve_insertion_order=false)
+* Increasing the memory limit (SET memory_limit='...GB')
+```
+
+The statement stops with an Out of Memory Error that says how big a block it asked for and how much was used, with three ways out: fewer threads, switching off `preserve_insertion_order`, or a larger `memory_limit` (ran). The limit of 95.3 MiB in the message is a little lower than the 100MB we set (we did not check why). After the error the connection still works (ran). The lesson is that spilling helps the operators that are built to split their work, such as sorting, joining and hash aggregates. It does not help every statement, and if we gather everything into one cell, we can still exceed the limit.
+
+</Step>
+
+<Step>
+
+## A file bigger than the limit can still be read
+
+If we only read and sum, DuckDB does not have to hold the whole file in memory. We wrote a Parquet file of 30 million rows, 365 MB, and set `memory_limit = '64MB'` before summing.
+
+```sql
+select count(*), sum(g) from 'big.parquet'
+```
+
+It gave the result (30,000,000 rows and the right sum) with no error (ran), because the scan reads vectors and drops them one by one, as we saw in [How a query runs](/en/duckdb/execution/). The memory needed does not depend on the size of the file, but on the operators that must keep state. A single sum keeps one number.
+
+</Step>
+
+<Step>
+
+## Writing happens one process at a time
+
+Now the second matter, which is several users on one file. The file `shop.duckdb` is open for writing in the first program, and we open the same file from a second one. The result:
+
+```text
+The process cannot access the file because it is being used by another process.
+
+File is already open in
+C:\...\python.exe (PID 51536)
+```
+
+The second program cannot open it, and the message says which process has it open (ran, on Windows, and the message on Linux or macOS may differ, which was not tried). Notably, even a request to open it read only (`read_only=True`) fails while the writer is open (ran). But once the writer has closed, three processes can open it read only at the same time, and all three count 10 rows (ran).
+
+This matches what the book summarises: either a single process can read and write, or several processes can read and none can write (book: DuckDB in Action appendix A, section A.2, page 267). Several threads inside one process can use the same database for writing normally. Press through the lab below to open the file from several processes in turn and see who gets in.
+
+<WritersLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## Two users change the same row
+
+Inside one process, several transactions can run at once, as we saw in [How the data is stored](/en/duckdb/storage/). If two transactions change different rows, both succeed. But if they change the same row:
+
+```python
+a.execute("begin"); b.execute("begin")
+a.execute("update t set v = 1 where id = 3")
+b.execute("update t set v = 2 where id = 3")
+```
+
+The statement of `b` fails at once with `TransactionException: Conflict on update!` (ran). After `b` rolls back and `a` commits, the value of that row is 1, from `a`. Changes to different rows (id 4 and 5) both succeed and give 5 and 6 (ran). The book calls this optimistic concurrency control: let the work go on at the same time and check for a conflict at the end (book: DuckDB in Action appendix A, section A.2, page 267).
+
+<Callout type="tip" title="Design the app around this limit">
+If several processes must write to one place, let a single process own the database file and let the others send it work, or let each process write its own Parquet files and let DuckDB read the whole folder, as we did in [Query files without loading them](/en/duckdb/query-files/).
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We set `memory_limit = '200MB'` and run a GROUP BY with 7.3 million groups. How does the result compare with the same query at 2GB?"
+  options={[
+    'The query fails with Out of Memory every time, because 200 MB is not enough',
+    'The answer is the same, but DuckDB writes several hundred MB of temporary files to disk and runs more slowly',
+    'The answer is an estimate, because the data is sampled to fit in memory',
+    'The answer is the same and nothing is written to disk at all'
+  ]}
+  answer={1}
+  why="In the exercise every limit from 2GB to 100MB gave the same answer. At 200 MB the peak temp folder was about 444 MB, and at 2GB nothing was written. Out of Memory happens with operators that cannot spill, such as one list that is bigger than the limit (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A GROUP BY with 7.3 million groups gives the same answer under six memory limits (7,344,514 groups), and spills when the limit is below 1 GB | ran: `exercises/10_beyond_memory.py` |
+| The temp folder is empty after the query | ran: `exercises/10_beyond_memory.py` |
+| A list of 50 million values under a 100 MB limit gives an Out of Memory Error that suggests fixes, and the connection still works | ran: `exercises/10_beyond_memory.py` |
+| A 365 MB Parquet file is read and summed under a 64 MB limit | ran: `exercises/10_beyond_memory.py` |
+| A second process cannot open the file while the writer has it (even read_only), and three processes can read at once after the writer closes (Windows message) | ran: `exercises/10_beyond_memory.py` |
+| Two transactions on the same row give Conflict on update for the second, and different rows both succeed | ran: `exercises/10_beyond_memory.py` |
+| Spilling is supported but meant for exceptional cases | book: DuckDB in Action section 1.4, page 5 |
+| One process reads and writes, or many processes read only, and optimistic concurrency control | book: DuckDB in Action appendix A, section A.2, page 267 |
+| The lock message on Linux and macOS | author: not tried |
+
+</Step>

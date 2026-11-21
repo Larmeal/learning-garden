@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจเหตุผลของการอ่านเป็นข้อความก่อน try_cast ต่างจาก Cast อย่างไร ทำไมต้องมี Quarantine และทำไม Pipeline ต้องรันซ้ำได้
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ทำไม Pipeline ของเราอ่านไฟล์ CSV ด้วย `all_varchar = true` ก่อนแปลงชนิดเอง?"
+  options={[
+    'เพราะ DuckDB เก็บข้อความได้เร็วกว่าตัวเลข',
+    'เพื่อให้ควบคุมได้เองว่าค่าที่แปลงไม่ได้ (เช่น N/A) จะถูกจัดการอย่างไร แทนที่จะให้ตัวเดาชนิดตัดสินให้ทั้งคอลัมน์',
+    'เพราะ CSV ไม่รองรับตัวเลข',
+    'เพื่อให้ไฟล์ Parquet ที่ออกมาเล็กลง'
+  ]}
+  answer={1}
+  why="ถ้าให้ DuckDB เดาชนิด ช่อง N/A เพียงช่องเดียวทำให้ทั้งคอลัมน์ราคาเป็นข้อความหรือ Error แต่ถ้าอ่านเป็นข้อความก่อน เรากำหนดเองด้วย try_cast แล้วส่งแถวที่แปลงไม่ได้ไป Quarantine พร้อมเหตุผล (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="`try_cast(unit_price as double)` กับ `cast(unit_price as double)` ต่างกันอย่างไรเมื่อเจอค่า `N/A`?"
+  options={[
+    'try_cast ให้ 0 ส่วน Cast ให้ NULL',
+    'try_cast ให้ NULL ส่วน Cast หยุดด้วย Conversion Error',
+    'ทั้งสองให้ NULL',
+    'ทั้งสองหยุดด้วย Error'
+  ]}
+  answer={1}
+  why="try_cast คืน NULL เมื่อแปลงไม่ได้ ทำให้เราตรวจ NULL แล้วส่งแถวไป Quarantine ได้ ส่วน Cast หยุดทั้ง Query ในแบบฝึก ไฟล์ที่มี order_id เป็นข้อความ Not-a-number ที่ใช้ Cast ธรรมดาทำให้การโหลดล้มด้วย Conversion Error (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="หลังรัน Pipeline ได้ Clean 27,310 แถว และ Quarantine 119 แถว จากแถวหลังตัดซ้ำ 27,429 แถว ข้อไหนบอกว่า Pipeline ไม่ทำแถวหาย?"
+  options={[
+    'ตาราง Clean มีแถวมากกว่า Quarantine',
+    'Clean + Quarantine = 27,310 + 119 = 27,429 ซึ่งเท่ากับจำนวนแถวหลังตัดซ้ำ',
+    'Quarantine มีทุกเหตุผลอย่างน้อยหนึ่งแถว',
+    'เวลารันน้อยกว่าหนึ่งวินาที'
+  ]}
+  answer={1}
+  why="ทุกแถวต้องไปจบที่ใดที่หนึ่งเท่านั้น (Clean, Quarantine หรือถูกตัดเพราะซ้ำ) ผลรวมที่เท่ากันคือหลักฐานว่าไม่มีแถวหาย ซึ่งแบบฝึกตรวจพร้อมกับเทียบจำนวนข้อเสียที่พบกับที่ใส่ไว้ (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Pipeline รายวันถูกสั่งรันซ้ำโดยไม่ตั้งใจกับไฟล์ชุดเดิม ข้อไหนทำให้ผลไม่เปลี่ยน?"
+  options={[
+    'ล้างตาราง Clean ทิ้งก่อนโหลดทุกครั้ง โดยไม่สนใจว่าข้อมูลมาจากรอบไหน',
+    'ให้ order_id เป็น Primary Key และใช้ Insert ... on conflict do nothing กับเช็กก่อนเพิ่มใน quarantine',
+    'ห้ามรันซ้ำโดยไม่มีวิธีป้องกัน',
+    'เพิ่มคอลัมน์วันที่โหลดเพื่อให้แถวต่างกัน'
+  ]}
+  answer={1}
+  why="การโหลดที่ Idempotent ให้ผลเหมือนเดิมไม่ว่ารันกี่รอบ ในแบบฝึก รันไฟล์ชุดเดิมซ้ำแล้ว Clean ไม่เพิ่ม และ Quarantine ยัง 119 แถว ส่วนการเพิ่มคอลัมน์วันที่โหลดจะทำให้แถวซ้ำดูเป็นแถวใหม่ (รัน)"
+/>
+
+</Step>

@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you can tell ROWS from RANGE, read the subtotal rows of ROLLUP, know how ASOF JOIN differs from a plain join, and choose between PIVOT and LATERAL.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="How many rows does `group by rollup (country, status)` give on orders with 8 countries and 4 statuses, and what are the special rows?"
+  options={[
+    '32 rows, the same as a plain group by',
+    '41 rows: 32 ordinary rows, 8 subtotals per country and 1 grand total',
+    '45 rows, because rollup adds the subtotal of every column',
+    '13 rows: the subtotals and the total only'
+  ]}
+  answer={1}
+  why="ROLLUP drops one column at a time from the right, giving (country, status), (country) and (). The 45 rows belong to CUBE, which also adds a subtotal per status (4 rows), and the 13 rows belong to grouping sets, where we choose (country), (status) and () ourselves (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We sum the row before and the row after (`rows between 1 preceding and 1 following`) and then switch to `range between interval 1 day preceding and current row`. When does the result change?"
+  options={[
+    'Never, because ROWS and RANGE always give the same result',
+    'When several rows fall on the same day, because RANGE counts by the value of the day and not by the number of rows',
+    'Only when the data is not sorted',
+    'RANGE cannot be used with numbers, only with dates'
+  ]}
+  answer={1}
+  why="ROWS counts rows and RANGE counts by the value of the ordering column. In our six-row table day 3 has two peer rows. ROWS gives 55 and 75, while RANGE gives 55 to both (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A trade happens at 09:45, and prices were announced at 09:00, 09:30 and 10:15. With `asof join ... on t.ts >= p.ts`, which price does the trade get?"
+  options={[
+    'The 09:00 price, because it is the first that meets the condition',
+    'The 10:15 price, because it is the nearest',
+    'All three prices, giving three rows',
+    'The 09:30 price, because it is the latest one not after the trade'
+  ]}
+  answer={3}
+  why="ASOF JOIN picks the single latest row that still makes the condition true. In the exercise the 09:45 trade got 10.50, the price of 09:30. A plain join on the same condition gives every earlier price, 6 rows for the three trades that have prices (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We want the top two orders of every customer. There are two ways: `QUALIFY row_number() ... <= 2` and `LATERAL` with `limit 2`. Which statement is right?"
+  options={[
+    'LATERAL cannot be used, because a subquery cannot see the row on its left',
+    'The two ways return the same orders and differ only in how they are written',
+    'QUALIFY gives two rows per customer and LATERAL gives one',
+    'The two ways differ, because LATERAL does not understand ORDER BY'
+  ]}
+  answer={1}
+  why="LATERAL lets a subquery refer to the columns of the row on its left, so the limit applies per customer. In the exercise its orders matched those of QUALIFY in every case (ran). Choose the one your team finds easier to read."
+/>
+
+</Step>

@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่ารู้ว่า Extension ไหนมากับ Package ต้องทำอะไรกับตัวที่ไม่ได้มา เข้าใจว่า Httpfs ขอ Byte แค่ส่วนที่ Query ต้องใช้ และใช้ Join ข้ามฐานข้อมูลได้
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราเพิ่งติดตั้ง DuckDB ผ่าน Pip และอยากอ่านไฟล์ Parquet กับ JSON ต้องทำอะไรก่อน?"
+  options={[
+    '`install parquet; load parquet;` ก่อนทุกครั้ง',
+    'ไม่ต้องทำอะไร เพราะ Parquet และ Json ถูกรวมมากับ Package',
+    'ดาวน์โหลด Extension จาก GitHub ด้วยมือ',
+    'อ่านไม่ได้ ต้องแปลงเป็น CSV ก่อน'
+  ]}
+  answer={1}
+  why="ในแบบฝึก Extension ที่ STATICALLY_LINKED มีสี่ตัวคือ core_functions, Icu, Json และ Parquet ส่วน Httpfs, sqlite_scanner และ Fts ต้อง INSTALL (ดาวน์โหลดครั้งเดียว) แล้ว LOAD (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="`select count(*) from 'http://.../orders.parquet'` ผ่าน Httpfs ขอข้อมูลจาก Server เท่าไร เทียบกับ `select *`?"
+  options={[
+    'เท่ากัน เพราะต้องดาวน์โหลดทั้งไฟล์ในทั้งสองกรณี',
+    'น้อยกว่า 1% ของไฟล์ เพราะอ่านแค่ Footer ส่วน Select * ขอเกือบทั้งไฟล์',
+    'มากกว่า Select * เพราะต้องนับทีละแถว',
+    'ไม่ขอเลย เพราะ DuckDB เก็บจำนวนแถวไว้ในไฟล์ฐานข้อมูล'
+  ]}
+  answer={1}
+  why="ในแบบฝึก Count(*) ส่ง 65,536 Byte (0.4%) ส่วน Select * ส่ง 16,771,333 Byte (99.2%) เพราะจำนวนแถวอยู่ใน Metadata ของไฟล์ Parquet (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="`sum(qty)` กับ `sum(qty)` ที่มี Filter `order_ts` ท้ายปี ผ่าน HTTP อันไหนขอ Byte น้อยกว่า และเพราะอะไร?"
+  options={[
+    'เท่ากัน เพราะต้องอ่านคอลัมน์ Qty เสมอ',
+    'อันที่มี Filter ขอน้อยกว่า เพราะ DuckDB ใช้ Min และ Max ของ Row Group ข้ามกลุ่มที่ไม่เกี่ยวข้อง',
+    'อันที่ไม่มี Filter ขอน้อยกว่า เพราะ Filter ต้องอ่านเพิ่ม',
+    'ขึ้นกับความเร็วของเครือข่ายเท่านั้น'
+  ]}
+  answer={1}
+  why="ในแบบฝึก Sum(Qty) ส่ง 445,319 Byte (11 คำขอ) และเมื่อใส่ Filter ท้ายปี ส่ง 190,929 Byte (4 คำขอ) เพราะข้ามเจ็ดจากเก้า Row Group ที่ช่วงของ order_ts ไม่ทับกับ Filter (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ข้อมูลลูกค้าเก่ายังอยู่ใน SQLite ส่วน Order อยู่ใน Parquet อยากนับ Order ตามระดับลูกค้า ควรทำอย่างไรกับ DuckDB?"
+  options={[
+    'Export ตาราง SQLite เป็น CSV ก่อนทุกครั้ง แล้วค่อย Join',
+    '`attach` ไฟล์ SQLite ด้วย sqlite_scanner แล้ว Join กับ `read_parquet` ใน Query เดียว',
+    'ทำไม่ได้ เพราะ DuckDB Join ข้ามชนิดของแหล่งข้อมูลไม่ได้',
+    'ย้ายทั้งสองไปไว้ใน PostgreSQL ก่อน'
+  ]}
+  answer={1}
+  why="ในแบบฝึก คำสั่งเดียว Join ไฟล์ Parquet หนึ่งล้านแถวกับตาราง SQLite ได้ผลรวมหนึ่งล้านแถว และจำนวนระดับ Gold ตรงกับที่นับจากตารางเดิม (รัน)"
+/>
+
+</Step>

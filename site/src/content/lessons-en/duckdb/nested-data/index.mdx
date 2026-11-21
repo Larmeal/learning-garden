@@ -1,0 +1,169 @@
+---
+title: Nested data, LIST, STRUCT, MAP and JSON
+summary: We gather many rows into one cell with list() and open them again with unnest, reach into a STRUCT, store an order with its lines as a LIST of STRUCT, open JSON text into rows, and see how an ENUM differs from a VARCHAR.
+facts:
+  - "Ran in exercises/05_nested_data.py with DuckDB 1.5.6: list() and unnest over the orders of the first three customers, list_transform and list_filter, STRUCT and MAP, a LIST of STRUCTs built from flat tables and flattened back to the same rows, JSON in a text column read with ->> and json_transform, and an ENUM that refuses a value outside its set."
+  - "The events table with three JSON rows is a small table the author made up. How much space an ENUM saves against a VARCHAR was not measured: the book DuckDB in Action, section 10.1.7, says an ENUM is more efficient, but this lesson did not run that comparison."
+order: 5
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [analysis]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import NestLab from '../../../../components/labs/duckdb/NestLab';
+
+<Step>
+
+## Many rows in one cell
+
+A cell normally holds one value, but DuckDB lets a cell hold a list. Let us gather the orders of each customer into one cell.
+
+```sql
+select customer_id, list(order_id order by order_id) as ids
+from orders where customer_id <= 3 group by customer_id
+```
+
+| customer_id | Number of orders | order_id at the start of the list |
+|---|---|---|
+| 1 | 184 | [3395, 13180, 19946, 22614, ...] |
+| 2 | 222 | [3057, 5027, 6615, 21230, ...] |
+| 3 | 184 | [1085, 1485, 2046, 2776, ...] |
+
+Each list is as long as the customer has orders (ran). When we want ordinary rows again, `unnest(ids)` opens the list into one row per value, with the same row count and the same values (ran). Switch back and forth in the lab below to see what the same table looks like both ways.
+
+<NestLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## Working on a list inside one row
+
+We can compute on a list without opening it, with a lambda written as `x -> ...`.
+
+```sql
+select list_transform([1, 2, 3], x -> x * x);         -- [1, 4, 9]
+select list_filter([1, 2, 3, 4], x -> x % 2 = 0);     -- [2, 4]
+select ([10, 20, 30, 40])[2], ([10, 20, 30, 40])[2:3]; -- 20 and [20, 30]
+select list_aggregate([3, 1, 2], 'max'), list_sort([3, 1, 2]);  -- 3 and [1, 2, 3]
+select list_contains(['a', 'b'], 'b'), 'b' in ['a', 'b'];       -- both true
+```
+
+Every line ran and gave the result written (ran). Two things to remember: a list counts from 1, and a slice includes both ends. `list_aggregate` applies an aggregate to the values in one cell, so there is no need to open the rows first.
+
+</Step>
+
+<Step>
+
+## STRUCT and MAP
+
+A `STRUCT` is a cell with several fields whose names and types are fixed, like a small object. A `MAP` is a set of key and value pairs, and a key looks up its value.
+
+```sql
+select struct_pack(a := 1, b := 'x').b;             -- 'x'
+select {'city': 'Bangkok', 'zip': 10110}.zip;       -- 10110
+select map {'a': 1, 'b': 2}['b'], map {'a': 1}['z'];  -- 2 and NULL
+select map_keys(map {'a': 1, 'b': 2}), map_values(map {'a': 1, 'b': 2}); -- ['a','b'] and [1,2]
+```
+
+A dot reads a field of a `STRUCT`, and square brackets read the value of a `MAP` by its key. A key that is not there gives `NULL`, not an error (ran). The difference to remember is that a `STRUCT` fixes its fields when it is created and every row has the same fields, while in a `MAP` each row may have different keys (this last point is the author's own understanding from use and was not compared).
+
+</Step>
+
+<Step>
+
+## An order with its lines, stored as a LIST of STRUCT
+
+Let us combine the two. One row per customer, and inside it a list of orders, each a `STRUCT` of two fields.
+
+```sql
+select customer_id,
+       list(struct_pack(order_id := order_id, total := round(qty * unit_price, 2)) order by order_id) as orders
+from orders where customer_id <= 2 group by customer_id
+```
+
+The result is two rows (customers 1 and 2), and each `orders` cell holds a list of `STRUCT`s with the fields `order_id` and `total`. We read a field of the first one with a dot. When we want a flat table back, `unnest(orders)` opens the list into rows, and `o.order_id` and `o.total` then name the fields directly. All rows of both customers come back, and they match the original `orders` table (ran).
+
+This shape suits data that is nested to begin with, such as a JSON document, or an order with its lines inside. But if we filter or join on the inner fields often, two flat tables are usually easier to read.
+
+</Step>
+
+<Step>
+
+## JSON in a text column
+
+Sometimes JSON arrives as text in a single column. This is the form to be most careful with, because DuckDB does not know the types inside. We have a small `events` table of three rows that we made up.
+
+```sql
+create table events (id int, payload json);
+-- 1: {"user": {"name": "Anna", "age": 31}, "items": [{"sku": "A1", "qty": 2}, {"sku": "B2", "qty": 1}]}
+-- 2: {"user": {"name": "Bo"}, "items": []}
+-- 3: {"user": {"name": "Chai", "age": 40}, "items": [{"sku": "A1", "qty": 5}]}
+```
+
+`payload->>'$.user.name'` reads a path of the JSON out as text, giving Anna, Bo, Chai, and `(payload->>'$.user.age')::int` gives 31, `NULL`, 40, because the second row has no `age` key (ran). To make DuckDB know the types inside we use `json_transform` with the structure we want, and the result is a `STRUCT` holding a list of `STRUCT`s. Following it with `unnest` and `group by` counts the items as A1 7 pieces and B2 1 piece (ran). This is what the book calls shredding nested JSON (book: DuckDB in Action section 5.3, page 102).
+
+<Callout type="tip" title="Give JSON its types at load time">
+If the same JSON is queried again and again, use `json_transform` or a typed `read_json` and store the result as a table. That is better than pulling values with `->>` in every query, because the text has to be parsed again each time.
+</Callout>
+
+</Step>
+
+<Step>
+
+## ENUM: text with a limited set of values
+
+Our `status` column has only four values. An `ENUM` tells the database that set.
+
+```sql
+create type status_t as enum ('paid', 'shipped', 'cancelled', 'refunded');
+create table small (order_id int, status status_t);
+insert into small values (1, 'lost');   -- Conversion Error
+```
+
+A value outside the set such as `'lost'` is refused with a Conversion Error that names the bad value (ran). `enum_range` shows the set in the order it was declared, and sorting (`order by`) uses that order and not the alphabet, so `paid` comes before `refunded` (ran). The book explains that an ENUM is a set of named values that is more efficient than keeping a large number of strings, and uses it on the tags of Stack Overflow (book: DuckDB in Action section 10.1.7, page 238), but this lesson did not measure how much it saves.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The `ids` cell of customer 1 is a list of 184 values. What does `select unnest(ids) from ...` give?"
+  options={[
+    'One row, with the same list of 184 values in one cell',
+    '184 rows, one value per row',
+    '184 columns in one row',
+    'An error, because unnest works only on lists of at most 100 values'
+  ]}
+  answer={1}
+  why="unnest opens the list into rows, as many rows as the list is long. In the exercise, opening the lists of three customers gave 184 + 222 + 184 rows, and the values equalled the order_id values that had been gathered in (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| `list()` gathers 184, 222 and 184 orders for customers 1, 2, 3, and `unnest` opens them all again | ran: `exercises/05_nested_data.py` |
+| `list_transform`, `list_filter`, slices, `list_aggregate` and `list_contains` give the written results | ran: `exercises/05_nested_data.py` |
+| A STRUCT is read with a dot, a MAP with a key, and a missing key gives NULL | ran: `exercises/05_nested_data.py` |
+| A LIST of STRUCT built from flat tables flattens back to the rows of customers 1 and 2 | ran: `exercises/05_nested_data.py` |
+| `->>` reads a JSON path, a missing key gives NULL, and `json_transform` with `unnest` counts A1 = 7, B2 = 1 | ran: `exercises/05_nested_data.py` |
+| An ENUM refuses a value outside the set and sorts in declared order | ran: `exercises/05_nested_data.py` |
+| Shredding nested JSON into rows, and STRUCT | book: DuckDB in Action section 5.3, page 102 |
+| A STRUCT fixes its fields at creation while a MAP may have different keys per row | author |
+| An ENUM is a set of named values, more efficient than many strings (not measured here) | book: DuckDB in Action section 10.1.7, page 238 |
+| The three-row events table | author: data made up by us |
+
+</Step>

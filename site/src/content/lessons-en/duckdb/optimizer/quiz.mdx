@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you understand filter pushdown, can say which side of a hash join is built, know that unused columns are not read, and do not trust the row counts the optimizer expects too much.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="What does filter pushdown do in the plan of a join that filters the country after the join?"
+  options={[
+    'It changes the answer of the query to be more correct',
+    'It moves the condition down into the scan of the table that has the column, so the join receives fewer rows from the start',
+    'It makes the query use fewer threads',
+    'It keeps the result of the filter for the next query'
+  ]}
+  answer={1}
+  why="In the exercise, with the optimizer on the scan of customers returned 642 of 5,000 rows and the join returned 128,403 rows. With it off the join returned a million rows and then FILTER cut it to 128,403. The answer was the same (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We switch off the `join_order` rule with `set disabled_optimizers='join_order'` and run a query. What should the result be?"
+  options={[
+    'An error, because DuckDB always needs this rule',
+    'The same answer as before, though the plan may differ, because the optimizer changes the route and not the meaning',
+    'A wrong answer',
+    'DuckDB switches off all the other rules as well'
+  ]}
+  answer={1}
+  why="In the exercise we switched off six rules one at a time (filter_pushdown, join_order, statistics_propagation, unused_columns, expression_rewriter, build_side_probe_side), and the answer was 128,403 every time (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The optimizer expects `status = 'refunded'` to give 250,000 rows, but the scan returns 30,104. Which statement is right?"
+  options={[
+    'The expected number is always right, because it comes from statistics, so the exercise must be wrong',
+    'The expected number can be far off, especially for a filter on text or a range on a decimal, so compare it with the real number when a plan looks odd',
+    'The expected number has no effect on the plan',
+    'We must run ANALYZE every time before it can estimate'
+  ]}
+  answer={1}
+  why="In the exercise customer_id = 5 was guessed close (178 against 189), but status = 'refunded' was off by eight times (250,000 against 30,104) and unit_price > 90 was 200,000 against a real 53,525. Compare with EXPLAIN ANALYZE when a plan does not make sense (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="How many columns of the table does the plan of `select sum(qty) from orders` read, and why?"
+  options={[
+    'All seven, because a table must always be read by whole row',
+    'One, qty, because the unused_columns rule removes the columns not used from the scan',
+    'None, because the result is cached in the metadata',
+    'Two, qty and order_id'
+  ]}
+  answer={1}
+  why="In the plan of select sum(qty) the scan says Projections: qty, and select * lists all seven columns. With the unused_columns rule off the list of projections disappears from the plan (ran). Column storage is what makes not reading unused columns pay off."
+/>
+
+</Step>

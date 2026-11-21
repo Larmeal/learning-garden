@@ -1,0 +1,168 @@
+---
+title: Nested Data
+summary: เรารวมหลายแถวเป็นเซลล์เดียวด้วย List() แล้วแตกกลับด้วย Unnest, เข้าไปอ่านฟิลด์ข้างใน STRUCT, เก็บ Order พร้อมรายการเป็น LIST ของ STRUCT, เปิดข้อความ JSON ให้เป็นแถว และดูว่า ENUM ต่างจาก VARCHAR ตรงไหน
+facts:
+  - "รันจริงใน exercises/05_nested_data.py กับ DuckDB 1.5.6: list() กับ unnest บน Order ของลูกค้าสามคนแรก, list_transform และ list_filter, STRUCT กับ MAP, LIST ของ STRUCT ที่สร้างจากตารางแบน แล้วแตกกลับเป็นแถวเดิม, JSON ในคอลัมน์ข้อความที่อ่านด้วย ->> และ json_transform และ ENUM ที่ปฏิเสธค่านอกชุด"
+  - "ตาราง events ที่มี JSON สามแถวเป็นข้อมูลเล็ก ๆ ที่ผู้เขียนสร้างเอง ไม่ได้วัดว่า ENUM ประหยัดพื้นที่กว่า VARCHAR เท่าไร หนังสือ DuckDB in Action หัวข้อ 10.1 อ้างว่าช่วยได้ แต่บทนี้ไม่ได้รันเทียบ"
+order: 5
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [analysis]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import NestLab from '../../../../components/labs/duckdb/NestLab';
+
+<Step>
+
+## หลายแถวในเซลล์เดียว
+
+ปกติหนึ่งเซลล์เก็บค่าเดียว แต่ DuckDB ให้เซลล์เก็บ List ได้ ลองรวม Order ของลูกค้าแต่ละคนเป็นเซลล์เดียว
+
+```sql
+select customer_id, list(order_id order by order_id) as ids
+from orders where customer_id <= 3 group by customer_id
+```
+
+| customer_id | จำนวน Order | order_id ที่ต้นของ List |
+|---|---|---|
+| 1 | 184 | [3395, 13180, 19946, 22614, ...] |
+| 2 | 222 | [3057, 5027, 6615, 21230, ...] |
+| 3 | 184 | [1085, 1485, 2046, 2776, ...] |
+
+List แต่ละอันยาวเท่ากับจำนวน Order ของลูกค้าคนนั้น (รัน) และเมื่อต้องการกลับเป็นแถวธรรมดา `unnest(ids)` แตก List ออกเป็นหนึ่งแถวต่อหนึ่งค่า ได้จำนวนแถวและค่าเท่าเดิมทุกตัว (รัน) กดสลับใน Lab ด้านล่างเพื่อดูว่าตารางเดียวกันมีหน้าตาอย่างไรทั้งสองแบบ
+
+<NestLab client:visible />
+
+</Step>
+
+<Step>
+
+## ทำงานกับ List ในแถวเดียว
+
+ไม่ต้องแตก List ก็คำนวณกับมันได้ ด้วย Lambda ที่เขียนเป็น `x -> ...`
+
+```sql
+select list_transform([1, 2, 3], x -> x * x);         -- [1, 4, 9]
+select list_filter([1, 2, 3, 4], x -> x % 2 = 0);     -- [2, 4]
+select ([10, 20, 30, 40])[2], ([10, 20, 30, 40])[2:3]; -- 20 กับ [20, 30]
+select list_aggregate([3, 1, 2], 'max'), list_sort([3, 1, 2]);  -- 3 กับ [1, 2, 3]
+select list_contains(['a', 'b'], 'b'), 'b' in ['a', 'b'];       -- ทั้งคู่เป็น true
+```
+
+ทุกบรรทัดรันแล้วได้ผลตามที่เขียน (รัน) สิ่งที่ควรจำคือ List เริ่มนับที่ 1 และ Slice รวมทั้งสองปลาย `list_aggregate` ให้ใช้ Aggregate กับค่าในเซลล์เดียวได้ จึงไม่ต้องแตกแถวก่อน
+
+</Step>
+
+<Step>
+
+## STRUCT และ MAP
+
+`STRUCT` คือเซลล์ที่มีหลายฟิลด์ที่ชื่อและชนิดคงที่ เหมือน Object ย่อ ๆ ส่วน `MAP` คือชุดคู่ Key กับ Value ที่ Key อ่านหาค่าได้
+
+```sql
+select struct_pack(a := 1, b := 'x').b;             -- 'x'
+select {'city': 'Bangkok', 'zip': 10110}.zip;       -- 10110
+select map {'a': 1, 'b': 2}['b'], map {'a': 1}['z'];  -- 2 กับ NULL
+select map_keys(map {'a': 1, 'b': 2}), map_values(map {'a': 1, 'b': 2}); -- ['a','b'] กับ [1,2]
+```
+
+ใช้จุดอ่านฟิลด์ของ `STRUCT` และใช้วงเล็บเหลี่ยมอ่านค่าของ `MAP` ด้วย Key ถ้าไม่มี Key นั้นจะได้ `NULL` โดยไม่เกิด Error (รัน) ข้อต่างที่ต้องจำคือ `STRUCT` กำหนดชุดฟิลด์ตั้งแต่ตอนสร้างและทุกแถวต้องมีฟิลด์เหมือนกัน ส่วน `MAP` แต่ละแถวมี Key ต่างกันได้ (ข้อนี้เป็นความเข้าใจของผู้เขียนจากการใช้ ไม่ได้ลองเทียบ)
+
+</Step>
+
+<Step>
+
+## Order พร้อมรายการ เก็บเป็น LIST ของ STRUCT
+
+ลองรวมสองอย่างเข้าด้วยกัน ให้ลูกค้าหนึ่งแถว และข้างในมี List ของ Order ที่แต่ละอันเป็น `STRUCT` สองฟิลด์
+
+```sql
+select customer_id,
+       list(struct_pack(order_id := order_id, total := round(qty * unit_price, 2)) order by order_id) as orders
+from orders where customer_id <= 2 group by customer_id
+```
+
+ผลคือสองแถว (ลูกค้า 1 และ 2) และแต่ละเซลล์ `orders` ถือ List ของ `STRUCT` ที่มีฟิลด์ `order_id` กับ `total` เราอ่านฟิลด์ของอันแรกด้วยจุดได้ เมื่ออยากกลับเป็นตารางแบน `unnest(orders)` แตก List ออกเป็นแถว แล้ว `o.order_id` กับ `o.total` เรียกฟิลด์ได้ตรง ๆ ได้ครบทุกแถวของลูกค้าทั้งสอง ตรงกับตาราง `orders` เดิมทั้งหมด (รัน)
+
+รูปแบบนี้เหมาะกับข้อมูลที่เกิดมาซ้อนกันอยู่แล้ว เช่นเอกสาร JSON หรือ Order กับรายการสินค้าข้างใน แต่ถ้าต้องกรองหรือ Join ด้วยฟิลด์ข้างในบ่อย ๆ การเก็บเป็นตารางแบนสองตารางมักอ่านง่ายกว่า
+
+</Step>
+
+<Step>
+
+## JSON ในคอลัมน์ข้อความ
+
+บางครั้ง JSON มาเป็นข้อความที่อยู่ในคอลัมน์เดียว ซึ่งเป็นแบบที่ต้องระวังมากที่สุด เพราะ DuckDB ไม่รู้ชนิดของข้างใน เรามีตาราง `events` เล็ก ๆ ที่เราสร้างเองสามแถว
+
+```sql
+create table events (id int, payload json);
+-- 1: {"user": {"name": "Anna", "age": 31}, "items": [{"sku": "A1", "qty": 2}, {"sku": "B2", "qty": 1}]}
+-- 2: {"user": {"name": "Bo"}, "items": []}
+-- 3: {"user": {"name": "Chai", "age": 40}, "items": [{"sku": "A1", "qty": 5}]}
+```
+
+`payload->>'$.user.name'` อ่านเส้นทางใน JSON ออกมาเป็นข้อความได้ Anna, Bo, Chai และ `(payload->>'$.user.age')::int` ได้ 31, `NULL`, 40 เพราะแถวที่สองไม่มีคีย์ `age` (รัน) ถ้าอยากให้ DuckDB รู้ชนิดข้างใน ใช้ `json_transform` บอกโครงสร้างที่ต้องการ แล้วผลจะเป็น `STRUCT` ที่มี List ของ `STRUCT` ข้างใน เมื่อต่อด้วย `unnest` และ `group by` จะนับสินค้าได้ว่า A1 รวม 7 ชิ้นและ B2 1 ชิ้น (รัน) ซึ่งตรงกับสิ่งที่หนังสือเรียกว่า Shredding Nested JSON (หนังสือ: DuckDB in Action หัวข้อ 5.3 หน้า 102)
+
+<Callout type="tip" title="เปิด JSON ให้เป็นชนิดตั้งแต่ตอนโหลด">
+ถ้าต้อง Query JSON ก้อนเดิมซ้ำ ๆ ให้ใช้ `json_transform` หรือ `read_json` ที่รู้ชนิดแล้วเก็บเป็นตาราง จะดีกว่าดึงด้วย `->>` ในทุก Query เพราะข้อความต้องถูก Parse ใหม่ทุกครั้ง
+</Callout>
+
+</Step>
+
+<Step>
+
+## ENUM: ข้อความที่มีชุดค่าจำกัด
+
+คอลัมน์ `status` ของเรามีแค่สี่ค่า `ENUM` บอกชุดนั้นให้ฐานข้อมูลรู้
+
+```sql
+create type status_t as enum ('paid', 'shipped', 'cancelled', 'refunded');
+create table small (order_id int, status status_t);
+insert into small values (1, 'lost');   -- Conversion Error
+```
+
+ค่านอกชุดอย่าง `'lost'` ถูกปฏิเสธด้วย Conversion Error ที่ระบุค่าที่ผิด (รัน) `enum_range` แสดงชุดตามลำดับที่ประกาศ และการเรียง (`order by`) ใช้ลำดับนั้น ไม่ใช่ลำดับตัวอักษร จึงได้ `paid` ก่อน `refunded` (รัน) หนังสืออธิบายว่า ENUM เป็นชุดค่าที่มีชื่อและมีประสิทธิภาพกว่าการเก็บข้อความจำนวนมาก และใช้มันกับแท็กของ Stack Overflow (หนังสือ: DuckDB in Action หัวข้อ 10.1.7 หน้า 238) แต่บทนี้ไม่ได้วัดว่าประหยัดเท่าไร
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เซลล์ `ids` ของลูกค้า 1 เป็น List ที่มี 184 ค่า ถ้าเราสั่ง `select unnest(ids) from ...` จะได้ผลอย่างไร?"
+  options={[
+    'ได้หนึ่งแถว ที่มี List 184 ค่าอยู่ในเซลล์เดียวเหมือนเดิม',
+    'ได้ 184 แถว หนึ่งค่าต่อหนึ่งแถว',
+    'ได้ 184 คอลัมน์ในหนึ่งแถว',
+    'ได้ Error เพราะ Unnest ใช้กับ List ที่มีไม่เกิน 100 ค่า'
+  ]}
+  answer={1}
+  why="Unnest แตก List ออกเป็นแถว จำนวนแถวเท่ากับความยาวของ List ในแบบฝึก การแตก List ของลูกค้าสามคนได้ 184 + 222 + 184 แถว และค่าเท่ากับ order_id ที่ใช้รวมเข้าไป (รัน)"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| `list()` รวม Order ของลูกค้า 1, 2, 3 ได้ 184, 222 และ 184 ค่า และ `unnest` แตกกลับครบ | รัน: `exercises/05_nested_data.py` |
+| `list_transform`, `list_filter`, Slice, `list_aggregate`, `list_contains` ได้ผลตามที่เขียน | รัน: `exercises/05_nested_data.py` |
+| STRUCT อ่านด้วยจุด MAP อ่านด้วย Key และ Key ที่ไม่มีได้ NULL | รัน: `exercises/05_nested_data.py` |
+| LIST ของ STRUCT สร้างจากตารางแบนแล้ว `unnest` กลับเป็นแถวเดิมของลูกค้า 1 กับ 2 | รัน: `exercises/05_nested_data.py` |
+| `->>` อ่านเส้นทาง JSON คีย์ที่ไม่มีได้ NULL และ `json_transform` กับ `unnest` นับ A1 = 7, B2 = 1 | รัน: `exercises/05_nested_data.py` |
+| ENUM ปฏิเสธค่านอกชุดและเรียงตามลำดับที่ประกาศ | รัน: `exercises/05_nested_data.py` |
+| Shredding Nested JSON เป็นแถวและ STRUCT | หนังสือ: DuckDB in Action หัวข้อ 5.3 หน้า 102 |
+| STRUCT กำหนดชุดฟิลด์ตอนสร้าง ส่วน MAP แต่ละแถวมี Key ต่างกันได้ | ผู้เขียน |
+| ENUM เป็นชุดค่าที่มีชื่อ มีประสิทธิภาพกว่าข้อความจำนวนมาก (ไม่ได้รันเทียบ) | หนังสือ: DuckDB in Action หัวข้อ 10.1.7 หน้า 238 |
+| ตาราง Events สามแถว | ผู้เขียน: ข้อมูลที่สร้างเอง |
+
+</Step>

@@ -1,0 +1,174 @@
+---
+title: Aggregate และ Window
+summary: เราทำแถว Subtotal ด้วย ROLLUP, ดูว่า Window Frame แบบ ROWS กับ RANGE เลือกแถวต่างกันอย่างไรเมื่อสองแถวอยู่ในวันเดียวกัน, หมุนตารางด้วย PIVOT, จับคู่ราคาล่าสุดด้วย ASOF JOIN และใช้ LATERAL ให้ Subquery เห็นแถวทางซ้าย
+facts:
+  - "รันจริงใน exercises/04_analysis.py กับ DuckDB 1.5.6: ROLLUP, CUBE และ GROUPING SETS บน Order หนึ่งล้านแถวที่ Join กับประเทศของลูกค้า, FILTER เทียบกับ CASE, Window frame สามแบบกับตารางหกแถว, PIVOT กับ UNPIVOT, ASOF JOIN กับราคาและรายการซื้อขายสี่รายการ และ LATERAL เทียบกับ QUALIFY ตัวเลขของ Lab Window กับ ASOF มาจากไฟล์ analysis.json ที่แบบฝึกเขียน"
+  - "ตารางหกแถวของ Window และรายการซื้อขายของ ASOF เป็นข้อมูลเล็ก ๆ ที่ผู้เขียนสร้างเอง ไม่ใช่ข้อมูลจริง ชุดข้อมูลที่ใช้กับ ROLLUP และ PIVOT เป็น Order สังเคราะห์หนึ่งล้านแถวกับลูกค้า 5,000 คน เนื้อหาตามหนังสือ DuckDB in Action บทที่ 4"
+order: 4
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [friendly-sql]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import WindowLab from '../../../../components/labs/duckdb/WindowLab';
+import AsofLab from '../../../../components/labs/duckdb/AsofLab';
+
+<Step>
+
+## แถว Subtotal โดยไม่ต้อง UNION
+
+รายงานยอดขายมักต้องการทั้งยอดแยกตามประเทศกับสถานะ ยอดรวมต่อประเทศ และยอดรวมทั้งหมด ถ้าเขียนด้วย SQL ธรรมดาต้องรันสามคำสั่งแล้ว `UNION` กัน DuckDB มี `ROLLUP`, `CUBE` และ `GROUPING SETS` ให้ทำในคำสั่งเดียว
+
+```sql
+select country, status, count(*) n
+from o group by rollup (country, status)
+```
+
+ตาราง `o` คือ Order ที่ Join กับประเทศของลูกค้า (8 ประเทศ 4 สถานะ) ผลของ `rollup` คือ 32 แถวของแต่ละคู่ ประเทศกับสถานะ บวก 8 แถว Subtotal ต่อประเทศ (สถานะเป็น `NULL`) บวก 1 แถวผลรวมทั้งหมด (ทั้งสองเป็น `NULL`) รวม 41 แถว แถวผลรวมทั้งหมดนับได้ 1,000,000 ตรงกับจำนวน Order (รัน)
+
+| วิธี | แถวที่ได้ | ได้อะไรเพิ่มจาก `group by country, status` |
+|---|---|---|
+| `rollup (country, status)` | 41 | Subtotal ต่อประเทศ และผลรวมทั้งหมด |
+| `cube (country, status)` | 45 | เพิ่ม Subtotal ต่อสถานะอีก 4 แถว |
+| `grouping sets ((country), (status), ())` | 13 | เฉพาะกลุ่มที่เราระบุ (8 + 4 + 1) |
+
+แล้วจะรู้ได้อย่างไรว่า `NULL` ที่เห็นคือแถว Subtotal หรือเป็นค่า `NULL` จริงในข้อมูล ใช้ฟังก์ชัน `grouping(country)` ซึ่งเป็น 1 ในแถวที่ถูกรวม และเป็น 0 ในแถวปกติ ในแบบฝึก แถวผลรวมทั้งหมดได้ 1 ส่วนแถวอื่นได้ 0 (รัน) (หนังสือ: DuckDB in Action หัวข้อ 4.4 หน้า 66)
+
+</Step>
+
+<Step>
+
+## FILTER ใน Aggregate
+
+บางครั้งเราอยากนับเฉพาะบางแถวในคำสั่งเดียวกับที่นับทั้งหมด เช่นนับ Order ที่ถูกคืนเงินไปพร้อมกับรวมจำนวนชิ้นของ Order ที่จ่ายแล้ว ใน SQL เดิมต้องห่อด้วย `CASE`
+
+```sql
+select count(*) filter (where status = 'refunded'),
+       sum(qty)  filter (where status = 'paid')
+from orders
+```
+
+ผลคือ 30,104 Order ที่ถูกคืนเงิน และ 2,099,046 ชิ้นใน Order ที่จ่ายแล้ว ตรงกับ `sum(case when ... then ... end)` ที่เขียนแบบเดิมทุกตัว (รัน) `filter` อ่านง่ายกว่าเพราะเงื่อนไขอยู่ข้าง Aggregate ที่มันกรอง (หนังสือ: DuckDB in Action หัวข้อ 4.6.3 หน้า 81)
+
+</Step>
+
+<Step>
+
+## Window Frame เลือกแถวไม่เหมือนกัน
+
+Window Function คำนวณค่าให้แต่ละแถวโดยมองไปที่แถวรอบ ๆ ตัวมัน ซึ่งเรียกว่า Frame ตัวอย่างนี้ใช้ตารางยอดขายรายวันหกแถว (ข้อมูลที่เราสร้างเอง) โดยวันที่ 3 มีสองแถว คือ 5 กับ 30
+
+| day | amount | `rows between 1 preceding and 1 following` | `range between interval 1 day preceding and current row` | running total |
+|---|---|---|---|---|
+| 2025-03-01 | 10 | 30 | 10 | 10 |
+| 2025-03-02 | 20 | 35 | 30 | 30 |
+| 2025-03-03 | 5 | 55 | 55 | 35 |
+| 2025-03-03 | 30 | 75 | 55 | 65 |
+| 2025-03-06 | 40 | 120 | 40 | 105 |
+| 2025-03-07 | 50 | 90 | 90 | 155 |
+
+คอลัมน์ที่สองจากท้าย `ROWS` นับเป็นแถว ทุกแถวจึงบวกเพื่อนบ้านทางซ้ายหนึ่งแถวกับทางขวาหนึ่งแถว ส่วนคอลัมน์ถัดมา `RANGE` นับเป็นวัน แถวที่สามกับสี่เป็นวันเดียวกัน จึงมองเห็นกันและกัน (เรียกว่า Peer) และเห็นวันก่อนหน้าด้วย ผลของทั้งสองแถวจึงเท่ากันที่ 55 ส่วนวันที่ 6 มองย้อนหลังหนึ่งวันแล้วไม่เจออะไร ได้แค่ 40 ของตัวเอง (รัน) ลองเลือกแถวปัจจุบันและเปลี่ยนชนิด Frame ใน Lab แล้วดูว่าแถวไหนถูกนับ
+
+<WindowLab client:visible />
+
+นอกจากผลรวม Window Function ยังอ่านแถวข้างเคียงได้ด้วย `lag` กับ `lead` และถ้าใช้ Window เดียวกันหลายที่ตั้งชื่อไว้ก่อนด้วย `window w as (order by ...)` แล้วเขียน `over w` ในแบบฝึก `lag` ของแถวแรกเป็น `NULL` และ `lead` ของแถวแรกเป็น 20 (รัน) (หนังสือ: DuckDB in Action หัวข้อ 4.5 หน้า 69) ส่วน Running Total แบบ `sum(...) over (partition by customer_id order by order_id)` ได้ยอดสะสมสุดท้ายเท่ากับยอดรวมของลูกค้าคนนั้นพอดี (รัน)
+
+</Step>
+
+<Step>
+
+## PIVOT หมุนค่าเป็นคอลัมน์
+
+ตารางที่มีแถวต่อคู่ประเทศกับสถานะ ยาวเกินไปสำหรับรายงาน เรามักอยากให้สถานะเป็นคอลัมน์
+
+```sql
+pivot (select country, status, qty from o) on status using sum(qty) group by country
+```
+
+ผลคือหนึ่งแถวต่อประเทศ (8 แถว) และคอลัมน์ `country, cancelled, paid, refunded, shipped` ค่าในแต่ละช่องเท่ากับ `sum(qty)` ของตารางแบบยาวที่คู่ประเทศกับสถานะนั้น ๆ ทุกช่อง (รัน) ส่วน `unpivot` ทำย้อนกลับ ได้ 32 แถวเท่าเดิม (หนังสือ: DuckDB in Action หัวข้อ 4.7 หน้า 82)
+
+</Step>
+
+<Step>
+
+## ASOF JOIN จับคู่กับราคาล่าสุด
+
+ข้อมูลที่มีเวลากำกับ เช่นราคาหุ้นที่เปลี่ยนเป็นช่วง ๆ กับรายการซื้อขายที่เกิดตอนไหนก็ได้ มักไม่มีเวลาตรงกันพอดี เราอยากรู้ว่า ณ เวลาที่ซื้อ ราคาล่าสุดที่ประกาศมาคือเท่าไร ตารางทั้งสองเป็นข้อมูลเล็กที่เราสร้างเอง
+
+```sql
+select t.ts, t.qty, p.ts as price_ts, p.price
+from trades t asof left join prices p on t.ts >= p.ts
+```
+
+| เวลาซื้อ | จำนวน | ราคาที่ประกาศเมื่อ | ราคา |
+|---|---|---|---|
+| 08:59 | 1 | (ไม่มี) | NULL |
+| 09:00 | 2 | 09:00 | 10.00 |
+| 09:45 | 3 | 09:30 | 10.50 |
+| 11:00 | 4 | 10:15 | 9.80 |
+
+รายการ 08:59 ไม่มีราคาก่อนหน้า `asof join` ธรรมดาจึงทิ้งแถวนี้ไป (เหลือ 3 แถว) ส่วน `asof left join` เก็บไว้เป็น `NULL` และรายการ 09:00 ได้ราคา 09:00 เพราะ `>=` รวมกรณีเท่ากัน ลอง Join ธรรมดาด้วยเงื่อนไขเดียวกัน (`p.ts <= t.ts`) จะได้ 6 แถว (0 + 1 + 2 + 3) คือทุกราคาที่ประกาศก่อนหน้า ไม่ใช่เฉพาะราคาล่าสุด (รัน) กดทีละรายการใน Lab เพื่อดูว่าลูกศรชี้ไปที่ราคาไหน
+
+<AsofLab client:visible />
+
+</Step>
+
+<Step>
+
+## LATERAL ให้ Subquery เห็นแถวทางซ้าย
+
+ตอนที่อยากได้ Order ยอดสูงสุดสองอันดับแรกของลูกค้าแต่ละคน มี `QUALIFY` ที่เห็นไปแล้ว อีกวิธีคือ `LATERAL`
+
+```sql
+select c.customer_id, top.order_id, top.total
+from customers c,
+     lateral (select order_id, qty * unit_price as total from orders o
+              where o.customer_id = c.customer_id
+              order by total desc, order_id limit 2) top
+where c.customer_id <= 2
+```
+
+Subquery ใน `lateral` อ้างถึง `c.customer_id` ของแถวทางซ้ายได้ จึงรัน `limit 2` ของลูกค้าแต่ละคนแยกกัน ผลคือสองแถวต่อลูกค้า (Customer 1 สองแถว Customer 2 สองแถว) และ Order ที่ได้ตรงกับของ `QUALIFY row_number() ... <= 2` ทุกตัว (รัน) (หนังสือ: DuckDB in Action หัวข้อ 4.10 หน้า 93)
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ตารางยอดขายรายวันมีวันที่ 3 สองแถว (5 กับ 30) เราคำนวณ `sum(amount) over (order by day range between interval 1 day preceding and current row)` ทั้งสองแถวของวันที่ 3 จะได้ผลรวมเท่าไร?"
+  options={[
+    'แถวที่มี 5 ได้ 25 และแถวที่มี 30 ได้ 55',
+    'ทั้งสองแถวได้ 55 เพราะเห็นกันและกันและเห็นวันก่อนหน้า',
+    'ทั้งสองแถวได้ 35 เพราะนับแค่วันเดียวกัน',
+    'ได้ 5 กับ 30 ตามลำดับ เพราะ Frame มองแค่แถวตัวเอง'
+  ]}
+  answer={1}
+  why="RANGE นับตามค่าของวัน ไม่ใช่ตามจำนวนแถว แถวสองแถวของวันที่ 3 เป็น Peer ของกันและกัน Frame จึงรวมทั้งสองแถวกับแถวของวันที่ 2 (20) เป็น 20 + 5 + 30 = 55 ทั้งคู่ ส่วน ROWS จะให้ผลต่างกันระหว่างสองแถวนี้ (55 กับ 75) (รัน)"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| ROLLUP ได้ 41 แถว CUBE 45 แถว GROUPING SETS 13 แถว และ `grouping()` ต่างระหว่าง Subtotal กับ NULL จริง | รัน: `exercises/04_analysis.py` |
+| `count(*) filter (...)` เท่ากับ `sum(case ...)` (30,104 และ 2,099,046) | รัน: `exercises/04_analysis.py` |
+| ROWS, RANGE และ Running Total ของตารางหกแถวได้ค่าตามตาราง | รัน: `exercises/04_analysis.py` |
+| `lag`, `lead` และ Named Window | รัน: `exercises/04_analysis.py` |
+| PIVOT ได้ 4 คอลัมน์ตามสถานะ และ UNPIVOT ได้ 32 แถว | รัน: `exercises/04_analysis.py` |
+| ASOF JOIN ทิ้งรายการ 08:59 และ ASOF LEFT JOIN เก็บเป็น NULL ส่วน Join ธรรมดาได้ 6 แถว | รัน: `exercises/04_analysis.py` |
+| LATERAL ได้สองแถวต่อลูกค้า ตรงกับ QUALIFY | รัน: `exercises/04_analysis.py` |
+| Grouping Sets, Window, FILTER, PIVOT และ LATERAL ตามหนังสือ | หนังสือ: DuckDB in Action หัวข้อ 4.4 หน้า 66, 4.5 หน้า 69, 4.6.3 หน้า 81, 4.7 หน้า 82, 4.10 หน้า 93 |
+| ตารางหกแถวและรายการซื้อขายสี่รายการ | ผู้เขียน: ข้อมูลที่สร้างเอง |
+
+</Step>

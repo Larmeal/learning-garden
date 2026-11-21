@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าอธิบาย Row Group ได้ รู้ว่า Filter ไหนข้ามกลุ่มได้ เข้าใจบทบาทของ WAL กับ Checkpoint และอ่านผลของ Transaction ถูก
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ตารางหนึ่งล้านแถวถูกเก็บเป็นกี่ Row Group และแต่ละกลุ่มมีกี่แถว?"
+  options={[
+    '1 กลุ่ม ที่มีหนึ่งล้านแถว',
+    '9 กลุ่ม แปดกลุ่มแรกมี 122,880 แถว และกลุ่มสุดท้ายมี 16,960 แถว',
+    '1,000 กลุ่ม กลุ่มละ 1,000 แถว',
+    '488 กลุ่ม กลุ่มละ 2,048 แถว'
+  ]}
+  answer={1}
+  why="Row Group หนึ่งมีได้สูงสุด 122,880 แถว (60 Vector) ตัวเลข 2,048 แถวคือขนาดของ Vector ที่ใช้ตอนประมวลผล ไม่ใช่ของ Row Group (รัน, Source)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Filter ไหนต่อไปนี้ทำให้ Scan ดูแถวน้อยที่สุดในตาราง `orders` ที่ข้อมูลเรียงตามเวลา?"
+  options={[
+    '`customer_id = 5`',
+    '`status = \'refunded\'`',
+    '`order_ts >= \'2025-12-26\'`',
+    'ไม่มี Filter'
+  ]}
+  answer={2}
+  why="ช่วง Min ถึง Max ของ order_ts เรียงต่อกันไม่ทับ จึงมีแค่กลุ่มสุดท้ายที่ครอบ 26 ธันวาคม Scan ดู 16,960 แถว ส่วน customer_id กับ Status อยู่ในช่วงเดียวกันทุกกลุ่ม ต้องดูหนึ่งล้านแถว (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เรา `INSERT` สองแถวแล้วยังไม่ได้สั่ง `CHECKPOINT` ถ้าดูโฟลเดอร์ของฐานข้อมูลจะเห็นอะไรเพิ่มขึ้น?"
+  options={[
+    'ไฟล์ `.wal` ที่เก็บการเปลี่ยนแปลงไว้ก่อนรวมเข้าไฟล์หลัก',
+    'ไฟล์ CSV ของสองแถวนั้น',
+    'ไม่มีอะไรเพิ่มขึ้น เพราะ DuckDB เขียนลงไฟล์หลักทันทีเสมอ',
+    'โฟลเดอร์ใหม่ที่เก็บแต่ละคอลัมน์แยกกัน'
+  ]}
+  answer={0}
+  why="DuckDB เขียนการเปลี่ยนแปลงลง Write-Ahead Log ก่อน ในแบบฝึกมีไฟล์ `.wal` ขนาด 260 Byte สำหรับสองแถว และหายไปหลัง CHECKPOINT ที่รวมเข้าไฟล์หลัก (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Connection A สั่ง `BEGIN` แล้ว Insert หนึ่งแถว ตอนนี้ Connection B ของฐานข้อมูลเดียวกันนับแถวในตารางนั้น B เห็นแถวใหม่ไหม?"
+  options={[
+    'เห็น เพราะข้อมูลอยู่ในฐานข้อมูลเดียวกัน',
+    'ไม่เห็นจนกว่า A จะสั่ง COMMIT และถ้า A สั่ง ROLLBACK แถวนั้นก็ไม่เคยปรากฏให้ B เห็น',
+    'เห็นเฉพาะตอน A ยังเชื่อมต่ออยู่',
+    'B ได้ Error เพราะตารางถูกล็อก'
+  ]}
+  answer={1}
+  why="ในแบบฝึก Connection ที่สองนับได้ 2 แถวขณะที่ A เห็น 3 แถวใน Transaction ของตัวเอง หลัง ROLLBACK A กลับเป็น 2 และหลัง COMMIT B เห็น 3 (รัน)"
+/>
+
+</Step>

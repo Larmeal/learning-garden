@@ -1,0 +1,200 @@
+---
+title: Friendly SQL
+summary: เราเขียน Query เดิมสองแบบ แบบ SQL ยาว ๆ กับแบบสั้นของ DuckDB อย่าง EXCLUDE, GROUP BY ALL, QUALIFY และ SUMMARIZE แล้วตรวจว่าสองแบบให้ผลเท่ากัน พร้อมดูกับดักเล็ก ๆ ของ approx_unique
+facts:
+  - "รันจริงใน exercises/03_friendly_sql.py กับ DuckDB 1.5.6: EXCLUDE, REPLACE, COLUMNS, GROUP BY ALL, ORDER BY ALL, FROM นำหน้า, ใช้ Alias ใน SELECT และ WHERE, QUALIFY เทียบกับ Subquery แบบยาว, USING SAMPLE พร้อม Seed, INSERT BY NAME, UNION BY NAME และ SUMMARIZE กับตาราง Order หนึ่งล้านแถว ทุกข้อเทียบผลของแบบสั้นกับแบบยาวว่าเท่ากัน"
+  - "รายชื่อส่วนขยายของ SQL มาจากหนังสือ DuckDB in Action หัวข้อ 3.5 และ 4.6 ไม่ได้ลองทุกตัวที่หนังสือกล่าวถึง เช่น ตัวเลือกของ Function ที่มี Parameter ไม่บังคับบางตัว"
+order: 3
+phase: A
+level: 2
+stage: sprout
+format: steps
+requires: [query-files]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## SELECT * ที่เลือกได้ว่าไม่เอาอะไร
+
+ตาราง `orders` มีเจ็ดคอลัมน์ ถ้าเราอยากได้ทุกคอลัมน์ยกเว้น `qty` กับ `unit_price` ใน SQL แบบเดิมต้องไล่พิมพ์ชื่อห้าตัว ใน DuckDB เขียนว่า
+
+```sql
+select * exclude (qty, unit_price) from orders limit 1
+```
+
+ผลคือคอลัมน์ที่เหลือห้าตัว เรียงตามลำดับเดิม (รัน) ถ้าอยากเปลี่ยนค่าของบางคอลัมน์โดยไม่ยุ่งกับตำแหน่ง ใช้ `replace`
+
+```sql
+select * replace (qty * 10 as qty) from orders where order_id = 1
+```
+
+`qty` ของแถวที่ 1 ถูกคูณสิบ ส่วนคอลัมน์อื่นอยู่ที่เดิม (รัน) และถ้าอยากเลือกคอลัมน์ตามรูปแบบของชื่อ ใช้ `columns` กับ Regular Expression
+
+```sql
+select max(columns('.*_id')) from orders
+```
+
+ได้ค่าสูงสุดของ `order_id`, `customer_id` และ `product_id` พร้อมกัน คือ 1,000,000, 5,000 และ 200 ตามลำดับ (รัน) Aggregate ถูกรันซ้ำหนึ่งครั้งต่อหนึ่งคอลัมน์ที่ชื่อตรงรูปแบบ ตารางที่มีคอลัมน์เป็นร้อยจะเห็นประโยชน์ชัดมาก (หนังสือ: DuckDB in Action หัวข้อ 3.5 หน้า 50)
+
+</Step>
+
+<Step>
+
+## GROUP BY ALL, ORDER BY ALL และ FROM ที่มาก่อน
+
+เวลาเขียน `GROUP BY` เรามักไล่ชื่อคอลัมน์ที่ไม่ใช่ Aggregate ซ้ำอีกรอบ DuckDB ให้เขียนว่า `all` แทน
+
+```sql
+select status, 'x' as tag, count(*) from orders group by all order by all
+```
+
+มันจัดกลุ่มตามทุกคอลัมน์ที่ไม่ใช่ Aggregate และเรียงตามทุกคอลัมน์ ผลเท่ากับ SQL แบบไล่ชื่อ `group by status, tag order by status, tag` ทุกประการ (รัน) ส่วน `FROM` เขียนไว้หน้าสุดก็ได้ และจะไม่ใส่ `SELECT` เลยก็ได้
+
+```sql
+from orders select status, count(*) as n group by all order by n desc limit 1   -- ('paid', 699821)
+from orders limit 3                                                              -- Query ที่สมบูรณ์
+```
+
+เทคนิคนี้ช่วยตอนสำรวจข้อมูลมากกว่าตอนเขียนงานจริง เพราะพิมพ์ `from orders` แล้วค่อยคิดต่อได้ (รัน)
+
+</Step>
+
+<Step>
+
+## Alias ที่ใช้ต่อได้ และ QUALIFY
+
+ใน SQL มาตรฐาน เราตั้งชื่อ `total` ใน `SELECT` แล้วเอาไปใช้ใน `WHERE` หรือใน Expression ถัดไปไม่ได้ ใน DuckDB ทำได้
+
+```sql
+select qty * unit_price as total, total * 0.07 as vat
+from orders where total > 450 order by order_id limit 3
+```
+
+ผลที่ได้ตรงกับการเขียน `qty * unit_price` ซ้ำทุกที่ (รัน) อีกอย่างที่ช่วยมากคือ `QUALIFY` ซึ่งกรองจากผลของ Window Function ได้โดยตรง สมมติเราอยากได้ Order ที่ยอดสูงสุดของลูกค้าแต่ละคน
+
+```sql
+select customer_id, order_id, qty * unit_price as total
+from orders
+qualify row_number() over (partition by customer_id order by qty * unit_price desc, order_id) = 1
+```
+
+ได้หนึ่งแถวต่อลูกค้า รวม 5,000 แถว เท่ากับ Subquery แบบยาวที่ต้องห่อ `row_number()` ไว้ข้างในแล้วค่อย `where rn = 1` (รัน)
+
+| customer_id | order_id | total |
+|---|---|---|
+| 1 | 326154 | 461.75 |
+| 2 | 230775 | 474.75 |
+| 3 | 107808 | 464.05 |
+
+เหตุผลที่ต้องมี `QUALIFY` คือ `WHERE` ใช้กรองจากผลของ Window ไม่ได้ เพราะมันจะตัดแถวที่ควรเข้าไปอยู่ใน Window ทิ้งไปก่อน และ `HAVING` ก็เป็นการกรองหลัง Aggregate `QUALIFY` จึงเป็นตัวกรองที่ใช้ผลของ Window Function ได้ตรง ๆ (หนังสือ: DuckDB in Action หัวข้อ 4.6.2 หน้า 80) เรื่อง Window Function เราจะลงลึกในบท [Aggregate, Window และ Join แบบพิเศษ](/duckdb/analysis/)
+
+</Step>
+
+<Step>
+
+## สุ่มตัวอย่าง และใส่ข้อมูลโดยอ้างชื่อคอลัมน์
+
+เวลาข้อมูลใหญ่ เราอยากลอง Query กับก้อนเล็กก่อน `using sample` สุ่มแถวให้
+
+```sql
+select order_id from orders using sample reservoir(1000 rows) repeatable (42)
+```
+
+ได้ 1,000 แถวพอดี และถ้าใส่ `repeatable (42)` ซึ่งเป็น Seed สุ่มสองครั้งก็ได้แถวชุดเดียวกัน (รัน) ถ้าไม่ใส่ Seed ผลจะต่างกันทุกครั้ง
+
+สำหรับการ Insert ที่คอลัมน์เรียงไม่ตรงกับตาราง เรามักพลาดสลับตำแหน่ง ใช้ `by name` ให้ DuckDB จับคู่ตามชื่อแทน
+
+```sql
+create table t (a int, b varchar, c double);
+insert into t by name select 'x' as b, 1 as a;     -- (1, 'x', NULL)
+select 1 as a, 'x' as b union all by name select 2.5 as c, 'y' as b;
+```
+
+`insert ... by name` วางค่าตามชื่อคอลัมน์ และคอลัมน์ที่ไม่ได้ให้ค่าเป็น `NULL` ส่วน `union all by name` เรียงคอลัมน์ตามชื่อและเติม `NULL` ในช่องที่อีกฝั่งไม่มี ได้ผลเป็น `(1, 'x', NULL)` กับ `(NULL, 'y', 2.5)` (รัน) ซึ่งช่วยมากตอนรวมไฟล์ที่เพิ่มคอลัมน์ใหม่ทีหลัง
+
+</Step>
+
+<Step>
+
+## SUMMARIZE ดูทั้งตารางในคำสั่งเดียว
+
+```sql
+summarize orders
+```
+
+คำสั่งนี้คืนหนึ่งแถวต่อหนึ่งคอลัมน์ พร้อมค่าต่ำสุด ค่าสูงสุด จำนวนค่าที่ต่างกันโดยประมาณ ค่าเฉลี่ย ส่วนเบี่ยงเบนมาตรฐาน ควอไทล์ จำนวนแถว และเปอร์เซ็นต์ของ `NULL` (รัน) ส่วนที่เห็นของตาราง Order คือ
+
+| column_name | column_type | min | max | approx_unique |
+|---|---|---|---|---|
+| order_id | BIGINT | 1 | 1000000 | 953281 |
+| customer_id | UBIGINT | 1 | 5000 | 5618 |
+| product_id | UBIGINT | 1 | 200 | 223 |
+| qty | UBIGINT | 1 | 5 | 5 |
+| unit_price | DOUBLE | 0.05 | 95.04 | 7644 |
+| status | VARCHAR | cancelled | shipped | 4 |
+| order_ts | TIMESTAMP | 2025-01-01 00:00:00 | 2025-12-31 13:59:28.5 | 1065393 |
+
+ตรงนี้อยากให้ตั้งคำถามในใจกันหน่อย `order_id` มีค่าไม่ซ้ำกันหนึ่งล้านค่า แต่ทำไม `approx_unique` เท่ากับ 953,281 และ `customer_id` มีแค่ 5,000 ค่ากลับได้ 5,618 คำตอบคือ `approx_unique` เป็นค่าประมาณ (ใช้ Algorithm ที่นับโดยไม่ต้องจำทุกค่า) ถ้าจำนวนค่าที่ต่างกันน้อยอย่าง `status` มันได้ 4 ตรง ๆ แต่ยิ่งมากก็ยิ่งคลาดเคลื่อน (รัน) ดังนั้นถ้าอยากรู้ว่าคอลัมน์ไหนซ้ำจริงหรือไม่ให้ใช้ `count(distinct ...)` ไม่ใช่ดูจาก `SUMMARIZE`
+
+<Callout type="warn" title="approx_unique ไม่ใช่จำนวนที่แน่นอน">
+ในตัวอย่างนี้ `order_id` ที่ไม่ซ้ำกันเลยหนึ่งล้านค่า ได้ `approx_unique` 953,281 ใช้เป็นแนวทางว่าคอลัมน์ใกล้เคียงกับ Key หรือกับค่าหมวดหมู่ได้ แต่ไม่ควรเอาไปเทียบว่าซ้ำหรือไม่ซ้ำ
+</Callout>
+
+</Step>
+
+<Step>
+
+## เรื่องเล็ก ๆ ที่อ่านง่ายขึ้น
+
+ที่เหลือเป็นของเล็ก ๆ ที่ช่วยให้ SQL อ่านเป็นธรรมชาติ ทุกข้อรันแล้วได้ตามนี้ (รัน)
+
+```sql
+select [x * 2 for x in [1, 2, 3] if x > 1];   -- [4, 6]  (List Comprehension)
+select 'DuckDB'[1:4];                          -- 'Duck'  (Slice เริ่มที่ 1 รวมปลายทั้งสองข้าง)
+select ('duck').upper();                       -- 'DUCK'  (เรียก Function ต่อท้ายค่าด้วยจุด)
+select 1 as a, 2 as b, ;                       -- (1, 2)  (ใส่ Comma ท้ายสุดได้)
+```
+
+อย่าลืมว่า SQL แบบนี้เป็นของ DuckDB ถ้าเราย้าย Query ไปรันบนฐานข้อมูลอื่น ส่วนใหญ่จะต้องแปลงกลับเป็นแบบยาว ใช้ให้เป็นประโยชน์ในงานสำรวจและงาน Pipeline ที่เรารู้ว่าจะรันบน DuckDB
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราอยากได้ Order ที่มียอดสูงสุดของลูกค้าแต่ละคน และเขียน `QUALIFY row_number() over (partition by customer_id order by total desc) = 1` ผลต่างจากการห่อ `row_number()` ไว้ใน Subquery แล้ว `where rn = 1` อย่างไร?"
+  options={[
+    'ได้ผลเหมือนกัน แต่เขียนสั้นกว่า เพราะ QUALIFY กรองหลังคำนวณ Window ได้ตรง ๆ',
+    'QUALIFY ได้เฉพาะแถวแรกของทั้งตาราง',
+    'QUALIFY ทำงานก่อน WHERE จึงได้ผลต่างกัน',
+    'ใช้ไม่ได้ เพราะ Window Function ต้องอยู่ใน SELECT เท่านั้น'
+  ]}
+  answer={0}
+  why="ในแบบฝึก ผลของ QUALIFY กับ Subquery แบบยาวตรงกันทั้ง 5,000 แถว QUALIFY เป็นขั้นกรองหลังสุด จึงใช้ผลของ Window Function ได้ ตัวเลือกที่ว่า WHERE ทำหลังเป็นความเข้าใจที่กลับกัน เพราะ WHERE ทำก่อนการคำนวณ Window (รัน, หนังสือ)"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| EXCLUDE, REPLACE และ `columns('.*_id')` ให้ผลตามที่เขียน และ `max(columns(...))` คือ 1,000,000, 5,000, 200 | รัน: `exercises/03_friendly_sql.py` |
+| GROUP BY ALL และ ORDER BY ALL ให้ผลเท่ากับแบบไล่ชื่อ และ FROM นำหน้าได้ | รัน: `exercises/03_friendly_sql.py` |
+| Alias ใช้ต่อใน SELECT และ WHERE ได้ ผลเท่ากับเขียน Expression ซ้ำ | รัน: `exercises/03_friendly_sql.py` |
+| QUALIFY ให้ 5,000 แถวเท่ากับ Subquery แบบยาว | รัน: `exercises/03_friendly_sql.py` |
+| `using sample` ได้ 1,000 แถวและ Seed เดียวกันได้แถวชุดเดียวกัน | รัน: `exercises/03_friendly_sql.py` |
+| `insert by name` และ `union all by name` จับคู่ตามชื่อและเติม NULL | รัน: `exercises/03_friendly_sql.py` |
+| `summarize` คืนหนึ่งแถวต่อคอลัมน์ และ `approx_unique` ของ order_id คือ 953,281 | รัน: `exercises/03_friendly_sql.py` |
+| ส่วนขยายของ SQL ที่ DuckDB เพิ่ม (EXCLUDE, REPLACE, ALL, PIVOT) | หนังสือ: DuckDB in Action หัวข้อ 3.5 หน้า 50 |
+| QUALIFY ใช้กรองจากผลของ Window Function ได้ตรง ๆ ส่วน WHERE กับ HAVING ทำไม่ได้ | หนังสือ: DuckDB in Action หัวข้อ 4.6.2 หน้า 80 |
+
+</Step>

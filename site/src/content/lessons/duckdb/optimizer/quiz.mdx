@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจ Filter Pushdown เลือกฝั่ง Build ของ Hash Join ได้ รู้ว่าคอลัมน์ไม่ได้ใช้ไม่ถูกอ่าน และไม่เชื่อจำนวนแถวที่ Optimizer คาดเกินไป
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Filter Pushdown ในแผนของ Join ที่กรองประเทศหลัง Join ทำอะไรให้?"
+  options={[
+    'เปลี่ยนคำตอบของ Query ให้ถูกต้องขึ้น',
+    'ย้ายเงื่อนไขลงไปอยู่ใน Scan ของตารางที่มีคอลัมน์นั้น เพื่อให้ Join รับแถวน้อยลงตั้งแต่ต้น',
+    'ทำให้ Query ใช้ Thread น้อยลง',
+    'เก็บผลของ Filter ไว้ใช้ใน Query ถัดไป'
+  ]}
+  answer={1}
+  why="ในแบบฝึก เมื่อเปิด Optimizer Scan ของ Customers คืน 642 แถวจาก 5,000 และ Join คืน 128,403 แถว เมื่อปิด Join คืนหนึ่งล้านแถวแล้ว FILTER ค่อยตัดเหลือ 128,403 คำตอบเท่ากัน (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราปิดกฎ `join_order` ด้วย `set disabled_optimizers='join_order'` แล้วรัน Query ผลลัพธ์ควรเป็นอย่างไร?"
+  options={[
+    'Error เพราะ DuckDB ต้องใช้กฎนี้เสมอ',
+    'คำตอบเหมือนเดิม แต่แผนอาจต่างออกไป เพราะ Optimizer เปลี่ยนเส้นทางไม่ใช่ความหมาย',
+    'คำตอบผิดเพี้ยน',
+    'DuckDB ปิดกฎอื่นให้ครบด้วย'
+  ]}
+  answer={1}
+  why="ในแบบฝึก เราปิดกฎทีละข้อหกข้อ (filter_pushdown, join_order, statistics_propagation, unused_columns, expression_rewriter, build_side_probe_side) คำตอบยังเป็น 128,403 ทุกครั้ง (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Optimizer คาดว่า `status = 'refunded'` ให้ 250,000 แถว แต่ Scan คืนจริง 30,104 แถว ข้อไหนถูก?"
+  options={[
+    'จำนวนที่คาดถูกเสมอ เพราะนับจากสถิติ จึงแสดงว่าแบบฝึกผิด',
+    'จำนวนที่คาดอาจผิดไปมาก โดยเฉพาะ Filter บนข้อความหรือช่วงของทศนิยม จึงควรเทียบกับจำนวนจริงตอนแผนดูแปลก',
+    'จำนวนที่คาดไม่มีผลต่อแผน',
+    'ต้องรัน ANALYZE ก่อนทุกครั้งถึงจะคาดได้'
+  ]}
+  answer={1}
+  why="ในแบบฝึก customer_id = 5 คาดได้ใกล้ (178 กับ 189) แต่ Status = 'refunded' คาดผิดแปดเท่า (250,000 กับ 30,104) และ unit_price > 90 คาด 200,000 ต่อจริง 53,525 จึงใช้ EXPLAIN ANALYZE เทียบเมื่อแผนดูไม่เข้าท่า (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="`select sum(qty) from orders` ในแผนของ DuckDB อ่านกี่คอลัมน์จากตาราง และเพราะอะไร?"
+  options={[
+    'ทั้งเจ็ดคอลัมน์ เพราะตารางต้องอ่านทั้งแถวเสมอ',
+    'คอลัมน์เดียวคือ Qty เพราะกฎ unused_columns ตัดคอลัมน์ที่ไม่ได้ใช้ออกจาก Scan',
+    'ไม่อ่านเลย เพราะผลถูก Cache ไว้ใน Metadata',
+    'สองคอลัมน์ คือ Qty กับ order_id'
+  ]}
+  answer={1}
+  why="ในแผนของ Select Sum(Qty) Scan ระบุ Projections: Qty และ Select * ระบุทั้งเจ็ดคอลัมน์ เมื่อปิดกฎ unused_columns รายการ Projections หายไปจากแผน (รัน) การเก็บแบบคอลัมน์ทำให้การไม่อ่านคอลัมน์ที่ไม่ใช้ได้ผลจริง"
+/>
+
+</Step>

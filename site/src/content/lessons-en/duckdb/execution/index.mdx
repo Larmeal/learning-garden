@@ -1,0 +1,130 @@
+---
+title: How a query runs
+summary: We see that a scan hands data over as vectors of 2,048 rows, that a filter makes the next vectors smaller instead of refilling them, that the plan of a query is a pipeline of operators, and that each thread takes a whole row group, so a table with one row group can use only one thread.
+facts:
+  - "Ran in exercises/08_execution.py with DuckDB 1.5.6: the size of the chunks a scan hands over with fetch_df_chunk, the size of chunks after a filter, the operators of a plan and the rows each one returns from the engine's profile, the wall time and the CPU time of tables with 1, 3 and 9 row groups at 1, 4 and 8 threads (best of 3), and answers that do not depend on the number of threads."
+  - "The vector size of 2,048 rows was checked against the v1.5.6 source (vector_size.hpp). The morsel-driven model and the pipeline follow the book DuckDB in Action section 10.2.2, and the scheduler of the engine was not read. The times are from one run on one computer with 16 threads and are sensitive to what else the computer is doing."
+order: 8
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [storage]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import VectorLab from '../../../../components/labs/duckdb/VectorLab';
+
+<Step>
+
+## Data flows as vectors of 2,048 rows
+
+If DuckDB processed one row at a time it would call the code of every operator a million times per operator. If it processed the whole table at once, memory would not suffice for a large table. DuckDB chooses the middle: it passes data in blocks called vectors, which hold at most 2,048 rows (source: `STANDARD_VECTOR_SIZE` in `src/include/duckdb/common/vector_size.hpp`, line 16).
+
+Let us look at the real thing by asking for the result of `select * from orders` one vector at a time with `fetch_df_chunk(1)`. The result is 489 chunks, of which 488 have 2,048 rows and the last has 576 (488 × 2,048 + 576 = 1,000,000) (ran).
+
+Now add a filter that passes 70% of the rows, `where status = 'paid'`. If DuckDB refilled every vector to the full size we would expect about 342 chunks, but we get the same 489 chunks, each smaller, 1,431 rows on average, for example 1,419, 1,424, 1,430, 1,426, 1,405 (ran). So the filter does not top the vectors up before passing them on. It makes the vector that leaves as small as what passed. No chunk is larger than 2,048 rows, and almost all are smaller.
+
+</Step>
+
+<Step>
+
+## The plan of a query is a pipeline of operators
+
+A query is turned into a plan made of operators in a row, and data flows from the scan through each one. The table below is the plan of `select sum(qty * unit_price) from orders where qty >= 3` with the rows each operator returned (read from the profile that the engine writes itself).
+
+| Operator | Rows returned |
+|---|---|
+| UNGROUPED_AGGREGATE | 1 |
+| PROJECTION | 600,389 |
+| SEQ_SCAN | 600,389 |
+
+The condition `qty >= 3` is inside the scan and is not an operator of its own, so the scan returns only the 600,389 rows that pass, which equals `count(*) where qty >= 3`. `PROJECTION` computes `qty * unit_price`, and the final aggregate folds everything into one row (ran). If we group by the text column `status` instead, the plan grows to PROJECTION, HASH_GROUP_BY, PROJECTION, PROJECTION, SEQ_SCAN, because DuckDB adds two projections that squeeze the text into a number before grouping and turn it back afterwards (named `__internal_compress_string` and `__internal_decompress_string` in the plan). The last operator, which groups, returns 4 rows (ran).
+
+The book describes this model as pipelines, where an operator can be a source, a sink or both, and vectors pass between operators in a push style (book: DuckDB in Action section 10.2.2, page 244). Press Play in the lab to watch vectors run through the pipe, and to see how several threads share them.
+
+<VectorLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## Threads share the work by row group
+
+DuckDB uses several threads to run one pipeline. The book calls the idea a morsel, a block of work that a thread picks up at a time (book: DuckDB in Action section 10.2.2, page 244). The question is how big a block is. We tried a job heavy enough to show an effect (`sum(length(sha256(s || s || s)))`) on three tables with 1 row group (100,000 rows), 3 row groups (300,000 rows) and 9 row groups (1,000,000 rows), setting `threads` to 1, 4 and 8. The result of one run:
+
+| Table | Row groups | Threads | Wall time (ms) | CPU time (ms) | CPU ÷ wall |
+|---|---|---|---|---|---|
+| small | 1 | 1 | 42 | 41 | 1.0 |
+| small | 1 | 4 | 42 | 41 | 1.0 |
+| small | 1 | 8 | 41 | 40 | 1.0 |
+| mid | 3 | 1 | 129 | 128 | 1.0 |
+| mid | 3 | 4 | 63 | 151 | 2.4 |
+| mid | 3 | 8 | 56 | 136 | 2.4 |
+| big | 9 | 1 | 453 | 452 | 1.0 |
+| big | 9 | 4 | 205 | 699 | 3.4 |
+| big | 9 | 8 | 127 | 807 | 6.4 |
+
+Read the table with the last column. If CPU ÷ wall is 1, then only one thread was working during the whole query, and a value above 1 means several threads were working at the same time.
+
+- The `small` table has one row group, so it always gets one thread, even when eight are allowed. The 1.0 never changes and the wall time does not drop.
+- The `mid` table has three row groups, so it can use about two to three threads, and going from 4 to 8 threads does not make it faster.
+- The `big` table has nine row groups and can use many more threads, and its time drops from 453 to 127 ms (ran).
+
+So in this run the work was handed to threads by row group. The book also warns, when writing Parquet, that if a row group is too large DuckDB cannot parallelise reading (book: DuckDB in Action section 5.4, page 109). The times are sensitive to what the computer is doing, so the exercise asserts only clear ratios, such as a CPU ÷ wall below 1.2 for the one-row-group table and above 2 for the nine-row-group table at 8 threads.
+
+<Callout type="note" title="The finer details of the split were not checked">
+What the exercise confirms is the measurement: in a job like this, the number of row groups is the ceiling on the number of threads that can be used. The author did not read the scheduler of the engine, so it is not confirmed that a block of work is exactly a row group in every case (for example during a sort or a join).
+</Callout>
+
+</Step>
+
+<Step>
+
+## The answer does not depend on the number of threads
+
+Sharing the work among threads should not change the answer. In the exercise we ran `select count(*), sum(qty), sum(order_id) from orders` at 1, 4 and 16 threads and got the same result all three times (ran). Every number there is an integer. With decimals the sum may differ in the last digits, because the order of addition differs, which we met in [Using DuckDB from Python](/en/duckdb/python/).
+
+As for the order of rows, if we do not write `ORDER BY`, DuckDB still returns rows in the order they were inserted. For example `select order_id from orders limit 5` gives 1 to 5 even with 16 threads (ran), because `preserve_insertion_order` is on by default. Still, do not depend on this order in real work: when we need an order, always write `ORDER BY`.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We have a table of 100,000 rows (one row group) and a very heavy query. We set `threads = 16`. What should we expect?"
+  options={[
+    'Sixteen times faster, because there are 16 threads',
+    'No faster at all, because with one row group there is work for only one thread',
+    'Always slower, because the threads have to wait for each other',
+    'An error, because the number of threads must not exceed the number of row groups'
+  ]}
+  answer={1}
+  why="In the exercise the one-row-group table took the same time at 1, 4 and 8 threads (42, 42 and 41 ms) and CPU ÷ wall was 1.0 throughout, meaning one thread was working. The nine-row-group table fell from 453 to 127 ms at 8 threads (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A scan of one million rows hands over 489 chunks (488 of 2,048 rows and one of 576) | ran: `exercises/08_execution.py` |
+| A 70% filter gives 489 chunks averaging 1,431 rows, none above 2,048 | ran: `exercises/08_execution.py` |
+| The plan of `where qty >= 3` is UNGROUPED_AGGREGATE, PROJECTION, SEQ_SCAN with the filter inside the scan (600,389 rows) | ran: `exercises/08_execution.py` |
+| Grouping by a string adds projections that compress and decompress the string, 5 operators in all | ran: `exercises/08_execution.py` |
+| A 1-row-group table gives CPU ÷ wall of 1.0 at every thread count, and a 9-row-group table at 8 threads gives 6.4 | ran: `exercises/08_execution.py` |
+| An integer aggregate gives the same answer at 1, 4 and 16 threads, and rows come back in insertion order | ran: `exercises/08_execution.py` |
+| `STANDARD_VECTOR_SIZE` = 2048 | source: `vector_size.hpp` line 16 |
+| Push pipelines, morsels and operators as sources or sinks | book: DuckDB in Action section 10.2.2, page 244 |
+| A too-large row group prevents parallel reads | book: DuckDB in Action section 5.4, page 109 |
+| A block of work is exactly a row group in every case | author: not checked in the scheduler |
+
+</Step>

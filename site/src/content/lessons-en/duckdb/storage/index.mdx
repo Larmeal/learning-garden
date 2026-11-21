@@ -1,0 +1,178 @@
+---
+title: How the data is stored
+summary: We open a database file with pragma_storage_info and see that a table of one million rows is cut into row groups of 122,880 rows, each column compressed on its own with its minimum and maximum kept, which lets some filters read one row group while others must read them all. Then we look at the WAL, checkpoints and transactions.
+facts:
+  - "Ran in exercises/07_storage.py with DuckDB 1.5.6: pragma_storage_info of the orders table after a checkpoint (9 row groups, the compression of each column, the min and max), the rows the scan looked at for six filters taken from the engine's own profile and compared with the row groups whose min and max overlap the filter, the file size against a CSV, the .wal file before and after CHECKPOINT, and BEGIN, ROLLBACK and COMMIT with two connections."
+  - "The 122,880 rows per row group, the 2,048 rows per vector and the 16 MiB checkpoint threshold were checked against the DuckDB v1.5.6 source with grep (storage_info.hpp, vector_size.hpp, config.hpp). The code that writes the file was not read through. Recovery from a damaged .wal, and a power cut in the middle of a write, were not tried."
+order: 7
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [python]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import RowGroupLab from '../../../../components/labs/duckdb/RowGroupLab';
+
+<Step>
+
+## How is the file nearly eight times smaller than the CSV?
+
+In the first lesson we saw that a database is one file. Let us compare its size with the CSV of the same data.
+
+| File | Size (bytes) |
+|---|---|
+| `orders.csv` (one million orders) | 49,994,465 |
+| `shop.duckdb` (one million orders and 5,000 customers) | 6,565,888 |
+
+The DuckDB file is nearly eight times smaller than the CSV (6.6 MB against 50 MB), even though it also holds the customer table (ran). How can it be so small, and why is one filter so much faster than another on the same table? The answer is in how DuckDB arranges data inside the file, which we open layer by layer with the function `pragma_storage_info`.
+
+</Step>
+
+<Step>
+
+## The table is cut into row groups
+
+DuckDB does not store a table as one block. It cuts the rows into groups called row groups, and inside each group the data is stored by column. Let us ask how many groups the `orders` table has.
+
+```sql
+select row_group_id, max(count)
+from pragma_storage_info('orders')
+where segment_type != 'VALIDITY' group by all order by 1
+```
+
+The result is 9 groups. The first eight have 122,880 rows each and the last holds the 16,960 that remain (8 × 122,880 + 16,960 = 1,000,000) (ran). The number 122,880 comes from the constant `DEFAULT_ROW_GROUP_SIZE` in `src/include/duckdb/storage/storage_info.hpp` of DuckDB v1.5.6 (source), and equals 60 vectors of 2,048 rows (ran). The book also says a row group holds at most 122,880 rows (book: DuckDB in Action section 10.2.2, page 243).
+
+</Step>
+
+<Step>
+
+## Each column is compressed its own way
+
+Inside each row group the data is stored by column, and DuckDB picks a compression method for each column by itself. For the first row group:
+
+| Column | Compression |
+|---|---|
+| `order_id`, `customer_id`, `product_id`, `qty`, `order_ts` | BitPacking |
+| `status` | Dictionary |
+| `unit_price` | ALP |
+
+Integers in a narrow range (`qty` holds only 1 to 5) are packed into the fewest bits that fit them (BitPacking). Text with only four kinds (`status`) is stored as a dictionary of four values plus a small number per row in place of the text. Decimal prices use a method made for `DOUBLE` called ALP (ran). This is why the file is so much smaller than the CSV, and because the values of one column sit next to each other, similar values pack well. The table above is the result for this data, and with other data the choice may change (in another run we saw the dictionary named `DICT_FSST`).
+
+</Step>
+
+<Step>
+
+## The minimum and maximum of each group
+
+Besides the data, DuckDB keeps short statistics for each column in each row group, including the minimum and the maximum, which we can read from the `stats` column of `pragma_storage_info`. The table below is the range of `order_ts` in each group.
+
+| Row group | Minimum | Maximum |
+|---|---|---|
+| 0 | 2025-01-01 00:00:00 | 2025-02-14 19:11:28.5 |
+| 1 | 2025-02-14 19:12:00 | 2025-03-31 14:23:28.5 |
+| 2 | 2025-03-31 14:24:00 | 2025-05-15 09:35:28.5 |
+| 3 | 2025-05-15 09:36:00 | 2025-06-29 04:47:28.5 |
+| 4 | 2025-06-29 04:48:00 | 2025-08-12 23:59:28.5 |
+| 5 | 2025-08-13 00:00:00 | 2025-09-26 19:11:28.5 |
+| 6 | 2025-09-26 19:12:00 | 2025-11-10 14:23:28.5 |
+| 7 | 2025-11-10 14:24:00 | 2025-12-25 09:35:28.5 |
+| 8 | 2025-12-25 09:36:00 | 2025-12-31 13:59:28.5 |
+
+The nine ranges follow one another and never overlap, because our data was built so that time grows with `order_id`. The `customer_id` column, on the other hand, runs from 1 to 5,000 in every group, so its minimum and maximum say nothing (ran). This is the key to the next point.
+
+</Step>
+
+<Step>
+
+## A filter that reads little, and one that reads everything
+
+If a filter does not fit the range of a group, DuckDB can skip the whole group without reading its data. We measured the number of rows the scan had to look at for six filters, from the profile that the engine writes itself.
+
+| Filter | Rows the scan looked at | Row groups read | Rows that matched |
+|---|---|---|---|
+| `order_ts >= '2025-12-26'` | 16,960 | 1 (group 8) | 15,314 |
+| `order_ts` in March | 245,760 | 2 (groups 1 and 2) | 85,029 |
+| `order_id = 777` | 122,880 | 1 (group 0) | 1 |
+| `customer_id = 5` | 1,000,000 | 9 | 189 |
+| `status = 'refunded'` | 1,000,000 | 9 | 30,104 |
+| no filter | 1,000,000 | 9 | 1,000,000 |
+
+In every row of the table, the number of rows looked at equals the sum of the row groups whose min-to-max range overlaps the filter (ran). So DuckDB decides from the minimum and maximum alone, without opening the data inside. `customer_id = 5` matches only 189 rows, but 5 lies within 1 to 5,000 in every group, so all nine must be read. Change the filter in the lab and see which groups are read.
+
+<RowGroupLab client:visible lang="en" />
+
+The takeaway is that if a table is sorted by the column we often filter on (time, for example), filtering skips many groups, and if it is not sorted, almost every group is read as before. Data inserted in time order has this advantage naturally, while a table inserted in a shuffled order may not get it.
+
+</Step>
+
+<Step>
+
+## Log first, merge into the file later: WAL and checkpoint
+
+When we run an `INSERT`, DuckDB does not write into the database file at once. It writes to a separate log file called `shop.duckdb.wal` first, a write-ahead log, and merges it into the main file from time to time. Let us look in the exercise. We open a database that was closed cleanly, so there is no `.wal` file, then create a table and insert two rows.
+
+- After the `INSERT` a `.wal` file appears, 260 bytes for two rows.
+- After `CHECKPOINT` the `.wal` file is gone, because DuckDB has merged what was in the log into the main file (ran).
+
+If we do not do it ourselves, DuckDB checkpoints when the log grows to a threshold. The default of `checkpoint_wal_size` is `1 << 24`, or 16 MiB (source: `src/include/duckdb/main/config.hpp`, line 101). If the program crashes before then, the remaining log is replayed the next time the file is opened, to recover the changes that were committed. That last part follows how a WAL works in general and we did not crash a program on purpose to try it.
+
+</Step>
+
+<Step>
+
+## Transactions: you see only your own until you commit
+
+Every statement that changes data is inside a transaction. If we open one with `BEGIN` we choose whether to keep it (`COMMIT`) or throw it away (`ROLLBACK`). In the exercise the table `notes` has two rows.
+
+1. `BEGIN`, then insert a third row through one connection. That connection counts 3 rows.
+2. A second connection of the same database (`con.cursor()`) counts 2 rows, because nothing has been committed.
+3. After `ROLLBACK` the count is 2 again, and the third row is gone.
+4. Repeat, but with `COMMIT`. The second connection sees 3 rows at once.
+
+All four ran as described (ran). The book calls this mechanism MVCC together with optimistic concurrency control, and explains in the appendix that it works inside a single process (book: DuckDB in Action appendix A, section A.2, page 267). Writing from several processes is something we try in [Data bigger than memory, and many users](/en/duckdb/beyond-memory/).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The `orders` table is naturally in time order. If we run `where customer_id = 5` (which matches 189 of one million rows), how many rows must the scan look at, and why?"
+  options={[
+    '189 rows, because DuckDB already knows where the matching rows are',
+    '122,880 rows, because it looks only at the first row group',
+    '1,000,000 rows, because customer_id 5 lies within 1 to 5,000 in every row group, so no group can be skipped',
+    '0 rows, because the result was cached'
+  ]}
+  answer={2}
+  why="Skipping row groups uses the minimum and maximum of each group. The customer_id of every group spans 1 to 5,000, which covers 5 in every group. In the exercise the scan looked at 1,000,000 rows although only 189 matched, unlike order_ts at the end of the year, which looked at only 16,960 rows (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| `shop.duckdb` is 6,565,888 bytes against a CSV of 49,994,465 bytes | ran: `exercises/07_storage.py` |
+| A table of one million rows has 9 row groups (8 of 122,880 rows and one of 16,960), and 122,880 = 60 × 2,048 | ran: `exercises/07_storage.py` |
+| Each column of a row group has its own compression (BitPacking, Dictionary, ALP) | ran: `exercises/07_storage.py` |
+| The nine order_ts ranges do not overlap, while customer_id is 1 to 5,000 in every group | ran: `exercises/07_storage.py` |
+| The rows the scan looks at equal the sum of the row groups whose min-to-max overlaps the filter | ran: `exercises/07_storage.py` |
+| A `.wal` of 260 bytes after inserting two rows, gone after CHECKPOINT | ran: `exercises/07_storage.py` |
+| BEGIN, ROLLBACK and COMMIT with two connections give 3, 2, 2, 3 rows | ran: `exercises/07_storage.py` |
+| `DEFAULT_ROW_GROUP_SIZE` = 122880 and `STANDARD_VECTOR_SIZE` = 2048 | source: `storage_info.hpp` line 22 and `vector_size.hpp` line 16 |
+| `checkpoint_wal_size` defaults to `1 << 24` (16 MiB) | source: `config.hpp` line 101 |
+| A row group holds at most 122,880 rows and has the data of every column | book: DuckDB in Action section 10.2.2, page 243 |
+| MVCC and optimistic concurrency work inside one process | book: DuckDB in Action section A.2, page 267 |
+| Recovery from the WAL after a crash | author: told as the general mechanism, not tried |
+
+</Step>
