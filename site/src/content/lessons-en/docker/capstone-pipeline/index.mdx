@@ -1,0 +1,173 @@
+---
+title: Capstone, a data pipeline in containers
+summary: "This pulls everything together into a small pipeline that loads a CSV file into Postgres with Compose, with the container of the loader locked down: a user that is not root, a read-only file system, no capabilities, a memory limit, the password as a secret file, and a network with no way out. Then we break it three ways to see which command finds the cause."
+facts:
+  - "Run for real in exercises/12_capstone_pipeline.py against Docker Engine 29.2.1 and Docker Compose v5.7.0. It builds the image of the loader from a Dockerfile and runs it with Postgres 17, checks the rows loaded and rejected, reads every limit from docker inspect, tries writing files and reads CapEff from inside with docker compose run, searches the environment and docker history for the secret, tries to reach the internet from an internal network, and breaks the pipeline three ways (a wrong host name, a wrong password, too little memory) and reads the result from docker compose ps, logs, docker inspect and docker events."
+  - "That setuid is a way to raise privileges and that capabilities split the powers of root into smaller pieces comes from Container Security chapter 2 and was not run further. Not tried: seccomp and AppArmor, rootless Docker, scanning an image for vulnerabilities, Compose on a real server, backing up a volume and pushing the image to a real registry. The pipeline in this lesson is a toy (a CSV of five rows), so no performance was measured."
+order: 12
+phase: E
+level: 5
+stage: sprout
+format: steps
+requires: [compose, small-and-safe-images, namespaces-and-cgroups]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import PipelineLab from '../../../../components/labs/docker/PipelineLab';
+
+<Step>
+
+## The pipeline we will put in containers
+
+In this last lesson we bring together everything we learned into one job. Say there is a file `orders.csv` with five rows to load into Postgres, and one row has a negative quantity and must be rejected. We write the loader (`etl`) in short Python that reads the file, checks the rows, and inserts the rows that pass into the table `orders`, and we put everything in one Compose file.
+
+```yaml
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets: [db_password]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: {test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres"], interval: 2s, retries: 40}
+    networks: [backend]
+  etl:
+    build:
+      context: ./etl
+    depends_on: {db: {condition: service_healthy}}
+    secrets: [db_password]
+    volumes: ["./data:/data:ro"]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    pids_limit: 64
+    networks: [backend]
+networks:
+  backend: {internal: true}
+secrets:
+  db_password: {file: ./db_password.txt}
+volumes:
+  pgdata:
+```
+
+The Dockerfile of `etl` uses what we learned in the lesson on [small and safe images](/en/docker/small-and-safe-images/#run-the-container-as-a-user-that-is-not-root): a slim base image, packages installed without keeping the cache, a user `etl` (UID 10001), `COPY --chown` so that user owns the files, and then `USER etl`.
+
+When we run `docker compose up -d --build`, Compose builds the image, starts `db`, waits until its state is `healthy` (the lesson on [Docker Compose](/en/docker/compose/#depends_on-has-to-wait-until-the-service-is-ready)), and then starts `etl`. What the exercise saw is that `etl` ends with exit code 0, prints `loaded 4 rejected 1 rows in table: 4`, and the table in Postgres holds rows 1, 2, 4 and 5, with no row 3, the one with the negative quantity (ran).
+
+</Step>
+
+<Step>
+
+## Lock down the container of the loader, layer by layer
+
+In the Compose file above, several lines do not make the pipeline faster. They make it safer. We checked that each line really works, from outside with `docker inspect` and from inside by trying things that should not be possible (ran).
+
+| Line in Compose | What we found |
+|---|---|
+| `USER etl` in the Dockerfile | `id -u` inside gives `10001` |
+| `read_only: true` | writing `/x` fails with `Read-only file system` |
+| `tmpfs: [/tmp]` | but writing `/tmp` works |
+| `volumes: ["./data:/data:ro"]` | writing into `/data` fails |
+| `cap_drop: [ALL]` | `CapEff` in `/proc/self/status` is `0000000000000000` |
+| `mem_limit: 128m`, `pids_limit: 64` | `docker inspect` gives 128 MB and 64 |
+
+The interesting one is `cap_drop`. In the lesson on namespaces we saw that a container has no user namespace of its own, so `root` in a container is the same UID 0 as in the Linux that runs the engine. So limiting the powers of root inside a container to what is really needed matters. The special powers of root are split into smaller pieces called capabilities, and Docker lets a container hold only some of them. The book says the Linux kernel, from version 2.2, began to split the powers of root into smaller pieces with this mechanism, instead of having only root and not root (book: Container Security chapter 2, page 19). A normal container with nothing set has a `CapEff` of `00000000a80425fb`, which means it holds several capabilities, while `etl`, with all of them dropped, is all zeros (ran).
+
+The option `no-new-privileges` protects in another way: it stops a program from gaining privileges through a file that has the setuid bit. The book explains that setuid is a path to raising privileges, so some image scanners warn when they find files with that bit, and it can be prevented with the option `--no-new-privileges` of `docker run` (book: Container Security chapter 2, page 16). The exercise only checked that the option is set in `docker inspect`. We did not try an attack with a real setuid file (not run).
+
+</Step>
+
+<Step>
+
+## The secret as a file, and a network with no way out
+
+In the lesson on safe images we passed a secret into the build without leaving a trace. At run time there is a way too. Compose gives a secret to a container as a file under `/run/secrets`. In the exercise the password is in the file `db_password.txt`. Postgres reads it through the variable `POSTGRES_PASSWORD_FILE`, which points at the file, and the program `etl` opens the same file. What we could verify is that the value of the password is not in the environment of either container (seen from `docker inspect`), is not in the `docker history` of the built image, and can be read from the file under `/run/secrets` as intended (ran). The advantage over putting it in a variable is that environment variables are often printed into logs or error reports by accident, while a file has to be opened on purpose (that is the opinion of the author, and was not tested).
+
+The last thing is the network. We declare `backend` as `internal: true`, which lets the containers on that network talk to each other but not go out to the internet. The exercise asked `etl` to call `example.com` and it did not succeed, and `docker network inspect` confirmed `Internal` is true (ran). So a loader that is broken into cannot send data out directly, and the database never published a port in the first place, which matches what we saw in the lesson on [Docker networks](/en/docker/networks/#a-program-finds-its-database-by-name).
+
+<Callout type="note" title="What this pipeline does not yet protect">
+All this locking reduces the damage if the loader is broken into, but it does not make the system completely safe. We did not try seccomp and AppArmor, which limit system calls, rootless Docker, which does not let the engine run as root, scanning an image for vulnerabilities, or keeping passwords in a real secret manager (not run). And the pipeline is a small example, a CSV of five rows.
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The container of the loader has cap_drop set to ALL and read_only set to true. If an attacker breaks into the program in it, which statement is true?"
+  options={[
+    'The attacker can still install new programs in the file system as usual, because the container is root',
+    'The attacker cannot overwrite the file system of the container and cannot hold the capabilities of root, so anything that needs special privileges is harder, even after breaking into the program',
+    'The attacker cannot reach the internet, because cap_drop turns the network off',
+    'Nothing changes, because namespaces already keep the attacker in'
+  ]}
+  answer={1}
+  why="The exercise saw writes to the file system fail with Read-only file system, and CapEff all zeros against a normal container that holds several capabilities (ran). Those two reduce what an attacker can do. Not reaching the internet comes from the internal network, not from cap_drop, and namespaces do not make the attacker helpless, because inside a container the root user is still the same UID 0 as in the Linux that runs the engine."
+/>
+
+</Step>
+
+<Step>
+
+## When it breaks, find the cause from status, log and inspect
+
+A good pipeline has to be quick to diagnose when it breaks. We broke it three ways by setting Compose environment variables, and looked at which command says what (ran).
+
+| Broken by | `docker compose ps -a` | Exit code | OOMKilled | Last line of the log |
+|---|---|---|---|---|
+| A wrong host name | `etl exited 1` | 1 | false | `failed to resolve host 'dbx'` |
+| A wrong password | `etl exited 1` | 1 | false | `password authentication failed for user "postgres"` |
+| Too little memory | `etl exited 137` | 137 | true | (empty) |
+
+First, the first two cases get exit code 1, yet the causes differ. The status from `compose ps` is not enough, and we have to open the log, which gives the cause directly. Second, the memory case gets exit code 137 with `OOMKilled` true in `docker inspect`, which matches what we saw in the lesson on [namespaces and cgroups](/en/docker/namespaces-and-cgroups/#a-cgroup-is-a-limit-written-as-a-file), and the log is empty because the program was killed before it could print anything. Knowing that an empty log carries meaning in itself saves us from reading the code of the program. `docker events` also recorded the `oom` event of the container in this case (ran). When we put the settings back, the pipeline ran again, and the table in the volume still had its four rows (ran).
+
+The order of the search is therefore a ladder of four steps: the status and exit code first, then the log, then `docker inspect` for `OOMKilled` and the real exit code, and last `docker events`. If it is still unclear, choose a way of breaking it in the lab and see where the arrow stops and what each command prints.
+
+<PipelineLab client:visible lang="en" />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The container of the loader ended with exit code 1 and we have two hypotheses: a wrong host name or a wrong password. Which command tells the two apart?"
+  options={[
+    'Docker Compose Ps for the status, because the two cases show different statuses',
+    'Docker Compose Logs for the last line of the log, because the exit code is the same for both, but the error message says whether it is about the host name or the password',
+    'Docker Inspect for OOMKilled, because the two cases differ there',
+    'Docker Events, because it records the password that was used'
+  ]}
+  answer={1}
+  why="In the exercise both cases gave etl exited 1 in compose ps and OOMKilled false. They differ in the log, which says the host was not found in one and that the password was refused in the other (ran). An exit code only says that the program failed, not why."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| `etl` loads four rows and rejects one, ends with 0, and the table has rows 1, 2, 4 and 5 | ran: `exercises/12_capstone_pipeline.py` |
+| User 10001, a read-only file system, `cap_drop: [ALL]`, `no-new-privileges`, memory 128 MB and 64 processes, checked from `docker inspect` | ran: `exercises/12_capstone_pipeline.py` |
+| Inside, writing `/` fails, writing `/tmp` works, writing `/data` fails, and `CapEff` is all zeros against `00000000a80425fb` for a normal container | ran: `exercises/12_capstone_pipeline.py` |
+| The password is not in the environment of either container, not in `docker history`, and can be read from the file under `/run/secrets` | ran: `exercises/12_capstone_pipeline.py` |
+| An `internal` network stops `etl` from reaching the internet, and `docker network inspect` reports Internal as true | ran: `exercises/12_capstone_pipeline.py` |
+| A wrong host name and a wrong password both give exit code 1 but different logs, too little memory gives 137 with `OOMKilled` true, and `docker events` records `oom` | ran: `exercises/12_capstone_pipeline.py` |
+| After putting the settings back the pipeline runs and the volume still has the old data | ran: `exercises/12_capstone_pipeline.py` |
+| The Linux kernel from version 2.2 began splitting the powers of root into capabilities | book: Container Security chapter 2, page 19 |
+| setuid is a way to raise privileges, and `--no-new-privileges` prevents it | book: Container Security chapter 2, page 16 (only checked that the option is set, no attack was tried) |
+| A secret file is safer than an environment variable because it is not printed into logs by accident | author |
+| Seccomp, AppArmor, rootless Docker, vulnerability scanning, a real secret manager, Compose on a real server, backing up a volume | not tried |
+
+</Step>

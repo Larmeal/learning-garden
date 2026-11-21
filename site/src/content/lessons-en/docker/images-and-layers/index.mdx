@@ -1,0 +1,205 @@
+---
+title: Images and layers
+summary: The image we run is not one file. It is a stack of read-only layers. This lesson shows how two images share a layer, how a container adds, changes and deletes files in its top layer, and why a file deleted later still takes room in the image.
+facts:
+  - "Run for real in exercises/02_images_layers.py against Docker Engine 29.2.1 (storage driver overlay2), with the images alpine:3.22, busybox:1.37 and python:3.13-slim and five images built on the spot. It counts layers with docker image inspect, reads changes with docker diff, measures the writable layer with docker inspect --size, and compares the size of an image that deletes a file on a separate RUN line with one that deletes it on the same line."
+  - "That a union file system works by copy-on-write and that layers once made are never removed comes from Docker in Action sections 3.3 and 7.2. It was not run on a storage driver other than overlay2, and the layer folders on disk were not opened because they live inside the Linux that Docker Desktop starts."
+order: 2
+phase: A
+level: 2
+stage: sprout
+format: steps
+requires: [containers]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import SharedLayersLab from '../../../../components/labs/docker/SharedLayersLab';
+import UnionLab from '../../../../components/labs/docker/UnionLab';
+import AdditiveLab from '../../../../components/labs/docker/AdditiveLab';
+
+<Step>
+
+## An image is a stack of layers
+
+In [lesson 1](/en/docker/containers/#an-image-is-a-template-a-container-is-what-we-make-from-it) we called an image a read-only template. This time let us open it and see how the template is kept. The command `docker image inspect` tells us how many layers an image has, and for the three images we have used so far the answer is (ran)
+
+| Image | Layers | Size (MB) |
+|---|---|---|
+| `alpine:3.22` | 1 | 8.3 |
+| `busybox:1.37` | 1 | 4.4 |
+| `python:3.13-slim` | 4 | 118.4 |
+
+Alpine has one layer because it is the files of a whole system packed into one piece. Python has four, stacked one after another by the steps its author took. The book explains that a layer is a set of files plus the metadata of those files, packaged and shipped as one unit, and that most layers are built on a parent layer by recording which files changed. The files a container sees are therefore the union of every layer in the lineage of its image (book: Docker in Action section 3.3, page 56, and section 3.3.2, page 58).
+
+Each layer has an id that is the sha256 of its content. An image has a 64 character id too, and Docker shows only the first twelve so that it is easy to read (ran). The fact that an id comes from content is exactly what makes the next part possible.
+
+</Step>
+
+<Step>
+
+## Two images share the same layer
+
+Let us build two images on the same Alpine. The first, `dlab-app1`, adds one file of 1 MB. The second, `dlab-app2`, adds one file of 2 MB (we write Dockerfiles in the next lessons, so for now look only at the result). When we run `docker image inspect` on all three, the layer ids differ at the top and are identical at the bottom (ran).
+
+```text
+image        layer 1       layer 2
+alpine:3.22  fdc5834cb53a
+dlab-app1    fdc5834cb53a  e799cedb75df
+dlab-app2    fdc5834cb53a  b458dafe34ef
+```
+
+Layer 1 of all three images has the same id. Docker does not keep two copies of Alpine. It keeps one and lets both images point at it. Switch the lab and compare. With one image, the figure stored and the figure if each image kept its own copy are the same. Add the second image and the base layer is still one box, while the two numbers move apart at once.
+
+<SharedLayersLab client:visible lang="en" />
+
+The book tells the same story with two Java programs on a common base image. When the second one is installed, Docker sees the base layer is already there and downloads only the part that differs, less than one megabyte, and with virtual machines the repeated files would be stored once for every machine (book: Docker in Action section 3.3.1, page 57, and section 3.3.4, page 60). For a user this benefit comes for free. For the author of an image, choosing the same base image as other images saves both download time and disk space.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We install a first image whose base layer is Alpine, then a second image built on the same Alpine. What does Docker do with the Alpine base layer when it installs the second image?"
+  options={[
+    'It downloads and stores another copy of the base layer, because each image must be separate',
+    'It reuses the base layer that is already there, because a layer id comes from its content so Docker knows it is the same one, and it downloads only the layers that differ',
+    'It deletes the base layer of the first image and rebuilds one that works for both',
+    'It asks us first whether to share it'
+  ]}
+  answer={1}
+  why="Docker identifies a layer by the sha256 of its content, so when the ids match the layers must be the same. It stores one and lets both images point at it. In the exercise layer 1 of alpine and of both images had the same id, character for character (ran). No coordination is needed when containers run, only when the images are built (book: Docker in Action section 3.3.2, page 58)."
+/>
+
+</Step>
+
+<Step>
+
+## A container sees the files of every layer together
+
+An image is read-only, so how does a container write files? Docker puts an empty writable layer on top of the stack and uses a union file system to put all the layers together so they look like one folder. On this computer Docker uses one called `overlay2`. We checked that a running container has a mount made of one read-only folder for each layer of the image, one more folder that Docker adds itself (we did not open it to see what is inside), and one folder to write in (ran). When a file is read, the system looks from the top layer down until it finds it (book: Docker in Action section 7.2.1, page 131).
+
+Let us see what happens when a container changes files in three ways. We start a container from `dlab-app1`, which has two layers, and do one thing at a time: add a new file, change a file of Alpine, and delete a file that lives in the second layer. Press Next in the lab one step at a time and watch the right side to see what changes in the writable layer.
+
+<UnionLab client:visible lang="en" />
+
+The command `docker diff` reports the changes in the writable layer with three letters. `A` is a file that was added, `C` is a file or folder that changed, and `D` is a file that was deleted. The folder holding the file always shows `C` too (ran). Every line matches what the book shows (book: Docker in Action section 7.2.1, page 131). Notice two things. First, no step touched the image. When we start a new container from the same image, it still sees the original `/etc/passwd` and `/data1` (ran). Second, deleting does not remove the file from the lower layer. The writable layer only notes that the file was deleted, which hides it from the container and nothing more.
+
+</Step>
+
+<Step>
+
+## Change one byte, copy the whole file
+
+One thing surprises people when they change a file of a lower layer. A lower layer cannot be changed, so Docker first copies the file up into the writable layer and changes the copy. The book calls this copy-on-write and says it hurts run-time performance and image size (book: Docker in Action section 7.2.1, page 131). In the exercise we build an image with one file of 20 MB and start two containers. One only reads the file, and the other appends one character and a new line (two bytes). Then we look at the size of the writable layer of each (ran).
+
+| Container | Writable layer (bytes) |
+|---|---|
+| reads the file only | 0 |
+| appends two bytes | 20,971,522 |
+
+Reading does not make the writable layer grow at all, but adding two bytes made the whole 20 MB file get copied up (the original 20,971,520 bytes plus the two we added). That is why a big file that changes often should not live in an image for a container to edit in place. That kind of data belongs in a volume, which is the subject of a later lesson.
+
+<Callout type="note" title="Other storage drivers use the same idea">
+Docker picks a union file system that suits the system, and the book warns that each has limits. For example Btrfs and OverlayFS do not support the extended attributes that SELinux needs, and files read with `mmap` are hard to support on copy-on-write (book: Docker in Action section 3.3.5, page 60). We only tried `overlay2`, so we did not check that the others follow all of this (not run).
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="An image has a 20 MB file in a lower layer. A container opens the file and adds one short line to the end. How big does the writable layer of the container become?"
+  options={[
+    'About 0 bytes, because only a few bytes changed',
+    'The size of the added text, because Docker stores only the difference',
+    'About 20 MB, because Docker must copy the whole file up into the writable layer before changing it',
+    'About 40 MB, because the writable layer keeps both the old and the new file'
+  ]}
+  answer={2}
+  why="Copy-on-write works on whole files, not on bytes. When a file of a lower layer is changed, the entire file is copied up to the writable layer first. In the exercise two bytes were added to a file of 20,971,520 bytes and the writable layer grew to 20,971,522 bytes (ran). The old file stays in the image layer below and is not counted again in the writable layer."
+/>
+
+</Step>
+
+<Step>
+
+## Layers only add, deleting later gives nothing back
+
+This is what people writing a Dockerfile get wrong most often. If the layers of an image are read-only, deleting a file in a later layer can only hide it, and the original bytes stay in the layer below. We build two images. The first creates a 10 MB file on one `RUN` line and deletes it on another. The second creates and deletes it on the same `RUN` line. The result (ran):
+
+| Image | Size (MB) | Layers |
+|---|---|---|
+| `alpine:3.22` | 8.3 | 1 |
+| create then delete, two `RUN` lines | 18.8 | 3 |
+| create and delete on one `RUN` line | 8.3 | 2 |
+
+The first is 10.5 MB bigger than Alpine, although a container from it can no longer see the file (`ls /big` answers that there is no such file). The second is exactly as big as Alpine, because the file was deleted before the layer was closed and so it was never recorded. Press play in the lab to see the height of the two stacks.
+
+<AdditiveLab client:visible lang="en" />
+
+The book sums it up: whenever an image changes, a new layer is added, and old layers are never removed (book: Docker in Action section 7.2.3, page 137). In practice, if you want a small image, do the work that makes a temporary file and deletes it inside one `RUN` line. We will come back to this when we write Dockerfiles and shrink images.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A Dockerfile downloads an installer of 200 MB on one RUN line, and the next RUN line deletes that file. How big is the resulting image compared with its base image?"
+  options={[
+    'The same as the base image, because the file was deleted',
+    'About 200 MB bigger than the base image, because the layer of the first line still holds the file',
+    'About 400 MB bigger than the base image, because Docker keeps both the file and the record of the delete',
+    'Smaller than the base image, because Docker compresses a layer after a delete'
+  ]}
+  answer={1}
+  why="The RUN line that downloads makes a layer that holds 200 MB. The line that deletes makes a new layer that only hides the file and does not edit the old one. The total is still the base plus 200 MB, just as the exercise measured with a 10 MB file, where the image grew from 8.3 to 18.8 MB (ran). The way out is to download and delete on the same RUN line."
+/>
+
+</Step>
+
+<Step>
+
+## A tag is only a name, the id is the identity
+
+We now know an image is a stack of layers identified by an id. So what is a name such as `alpine:3.22`? It is the name of a repository (`alpine`) and a tag (`3.22`), and it is only a label that points at the id of one image. We gave the same image another name with `docker tag alpine:3.22 dlab-alias:1` and looked at the ids. Both names point at one image, and when we deleted the new name the image stayed, because the other name still pointed at it (ran). The book draws the same picture: a repository holds tags, and each tag points at the top layer of an image (book: Docker in Action section 7.2.2, page 134).
+
+Another fact about ids: if we build the same Dockerfile twice, we get the same image id, character for character, because the second build reuses every layer made the first time (ran). Reusing layers at build time is the subject of the lesson on the build cache that is coming on this path.
+
+<Callout type="tip" title="Images without a name">
+The book says `docker images` normally shows only repositories. With `-a` it also shows images that have no name, displayed as `<none>`, and those can be referred to only by their id, for example an image built without a tag (book: Docker in Action section 3.3.1, page 57, not run).
+</Callout>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| Alpine and Busybox have one layer, and `python:3.13-slim` has four (Docker 29.2.1 on `overlay2`) | ran: `exercises/02_images_layers.py` |
+| A layer id is a sha256 and an image id is 64 characters | ran: `exercises/02_images_layers.py` |
+| Two images built on Alpine have the same layer 1, character for character, and different layers 2 | ran: `exercises/02_images_layers.py` |
+| `docker diff` shows `A` for a new file, `C` for a changed file and folder, and `D` for a deleted file | ran: `exercises/02_images_layers.py` |
+| Deleting a file of a lower layer does not touch the image, and the writable layer grows by less than 8 KB | ran: `exercises/02_images_layers.py` |
+| Adding two bytes to a 20 MB file grows the writable layer to 20,971,522 bytes, and only reading does not grow it | ran: `exercises/02_images_layers.py` |
+| Deleting a 10 MB file on a separate `RUN` line leaves the image 10.5 MB bigger than the base, and deleting on the same line does not | ran: `exercises/02_images_layers.py` |
+| Two tags point at one image, and building the same Dockerfile twice gives the same image id | ran: `exercises/02_images_layers.py` |
+| A container on `overlay2` has one lower directory per layer plus one init layer that Docker adds | ran: `exercises/02_images_layers.py` |
+| A layer is a set of files packaged as one unit, and the files a container sees are the union of the whole lineage | book: Docker in Action section 3.3, page 56, and section 3.3.2, page 58 |
+| Docker installs a shared layer once, unlike virtual machines which store repeated files | book: Docker in Action section 3.3.1, page 57, and section 3.3.4, page 60 |
+| A union file system records add, change and delete in the top layer and uses copy-on-write | book: Docker in Action section 7.2.1, page 131 |
+| Old layers are never removed, and every change adds a layer | book: Docker in Action section 7.2.3, page 137 |
+| A repository holds tags that point at the top layer of an image | book: Docker in Action section 7.2.2, page 134 |
+| Limits of other union file systems (SELinux on Btrfs and OverlayFS, `mmap`) | book: Docker in Action section 3.3.5, page 60 (not run) |
+
+</Step>

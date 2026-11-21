@@ -1,0 +1,163 @@
+---
+title: Volume และ Bind Mount
+summary: ข้อมูลที่เขียนใน Container หายไปพร้อมกับ Container ตอนลบ บทนี้ลองสี่ที่เก็บ คือชั้นเขียน, Volume, Bind Mount และ Tmpfs แล้วดูว่าแต่ละที่รอดจากการรีสตาร์ทกับการลบ Container ได้หรือไม่ ดูว่า Volume ใหม่ถูกเติมจาก Image แต่ Bind Mount บังไว้ และดู Postgres ที่ข้อมูลรอดหลัง Container ถูกลบ
+facts:
+  - "รันจริงใน exercises/07_volumes.py กับ Docker Engine 29.2.1 เขียนไฟล์ในสี่ที่เก็บแล้ว docker restart และ docker rm ทดสอบว่าไฟล์ยังอยู่, แชร์โฟลเดอร์ Windows ผ่าน Bind Mount ทั้งสองทิศและแบบอ่านอย่างเดียว, เทียบ Volume กับ Bind Mount บน Image ที่มีไฟล์อยู่ใน /data, แชร์ Volume ระหว่างสอง Container, ลองบรรทัด VOLUME ใน Dockerfile กับการลบ Volume และรัน Postgres 17 ที่เก็บข้อมูลบน Volume แล้วลบ Container"
+  - "ส่วนที่ว่า Docker มี Bind Mount, หน่วยความจำ และ Volume เป็นที่เก็บหลักสามแบบ มาจากหนังสือ Docker in Action หัวข้อ 4.1 ถึง 4.6 ไม่ได้รัน ที่ยังไม่ได้ลองคือ Volume Driver แบบอื่นนอกจาก local, ขนาดที่จำกัดของ tmpfs, ความเร็วของ Bind Mount ที่ข้าม Windows กับ Linux และสิทธิ์ของไฟล์บน Bind Mount ที่ผู้ใช้ไม่ใช่ root"
+order: 7
+phase: C
+level: 2
+stage: sprout
+format: steps
+requires: [container-lifecycle]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import VolumeLab from '../../../../components/labs/docker/VolumeLab';
+
+<Step>
+
+## ข้อมูลที่เขียนใน Container หายไปพร้อมกับ Container
+
+ใน[บท 1](/docker/containers/#image-คือแม่แบบ-container-คือของที่ทำออกมา) เราเห็นว่า Container ตัวใหม่จาก Image เดิมไม่เห็นไฟล์ที่ตัวเก่าเขียน และจาก[บท 2](/docker/images-and-layers/#container-เห็นไฟล์จากทุก-layer-รวมกัน) เรารู้ว่าไฟล์ที่ Container เขียนไปอยู่ในชั้นเขียนของมันเอง ซึ่งผูกอยู่กับ Container ตัวนั้น ข้อมูลที่เราอยากให้อยู่ต่อ เช่น ตารางของฐานข้อมูล จึงต้องไปอยู่ที่อื่น หนังสือบอกว่าที่เก็บที่ใช้บ่อยที่สุดสามแบบคือ Bind Mount, หน่วยความจำ และ Volume (หนังสือ: Docker in Action หัวข้อ 4.1 หน้า 63)
+
+ในแบบฝึกเราลองกับสี่ที่เก็บ เขียนไฟล์ `note.txt` ลงโฟลเดอร์ `/place` แล้วดูว่าไฟล์ยังอยู่หลังสองเหตุการณ์ คือ `docker restart` และการลบ Container แล้วสร้างตัวใหม่บนที่เก็บเดิม (รัน)
+
+| ที่เก็บ | หลัง `docker restart` | หลังลบ Container แล้วสร้างใหม่ |
+|---|---|---|
+| ชั้นเขียนของ Container | ยังอยู่ | หาย |
+| Volume ที่มีชื่อ | ยังอยู่ | ยังอยู่ |
+| Bind Mount | ยังอยู่ | ยังอยู่ |
+| Tmpfs (หน่วยความจำ) | หาย | หาย |
+
+กดลองใน Lab ดู เลือกที่เก็บแล้วกดเขียนไฟล์ รีสตาร์ท และลบ Container ตามลำดับ ใน Lab จะเห็นว่า สองแบบแรกที่ไฟล์อยู่ข้างใน Container (ชั้นเขียนกับ Tmpfs) ไฟล์หายตามกล่องที่ถูกทิ้ง ส่วนสองแบบที่ไฟล์อยู่นอก Container (Volume กับ Bind Mount) กล่องใหม่ต่อเข้ากับที่เก็บเดิมและเห็นไฟล์ทันที
+
+<VolumeLab client:visible />
+
+</Step>
+
+<Step>
+
+## Bind Mount แชร์ไฟล์จริงกับคอมพิวเตอร์ของเรา
+
+Bind Mount คือการเอาโฟลเดอร์ที่ระบุจาก Host ไปต่อเข้ากับจุดหนึ่งใน Container หนังสือบอกว่ามีประโยชน์เมื่อ Host มีไฟล์ที่โปรแกรมใน Container ต้องใช้ หรือเมื่อโปรแกรมสร้างไฟล์ที่คนหรือโปรแกรมนอก Container จะไปประมวลผลต่อ (หนังสือ: Docker in Action หัวข้อ 4.2 หน้า 64) เราลองโดยสร้างโฟลเดอร์บน Windows แล้วต่อเข้า `/work`
+
+```bash
+docker run -d --name b --mount type=bind,source=C:\Users\me\share,target=/work alpine:3.22 sleep 300
+```
+
+ในแบบฝึก ไฟล์ที่เราสร้างบน Windows ปรากฏใน Container ไฟล์ที่ Container สร้างก็ปรากฏบน Windows และเมื่อเราแก้ไฟล์บน Windows ข้างในเห็นการแก้นั้นทันทีโดยไม่ต้องรีสตาร์ท (รัน) นี่คือเหตุผลที่คนใช้ Bind Mount ตอนพัฒนาโปรแกรม เพราะแก้โค้ดในเครื่องมือที่ถนัดแล้ว Container เห็นผลเลย ถ้าไม่ต้องการให้ Container เขียนทับไฟล์ของเรา ใส่ `readonly` ต่อท้าย ซึ่งแบบฝึกพบว่าการเขียนถูกปฏิเสธด้วยข้อความ `Read-only file system` (รัน)
+
+ในเครื่องนี้โฟลเดอร์ที่เราต่อเป็นโฟลเดอร์ของ Windows แต่ Container ทำงานใน Linux ที่ Docker Desktop เปิดไว้ ซึ่งแปลว่าไฟล์ถูกส่งข้ามระหว่างสองระบบ เรื่องความเร็วและสิทธิ์ของไฟล์ในกรณีนี้เรายังไม่ได้วัด (ไม่ได้รัน)
+
+</Step>
+
+<Step>
+
+## Volume ให้ Docker เก็บข้อมูลให้เอง
+
+Volume คือโฟลเดอร์ที่มีชื่อซึ่ง Docker เป็นคนจัดการ หนังสือบอกว่ามันแยกที่เก็บออกจากตำแหน่งเฉพาะบนระบบไฟล์ของ Host ทำให้ชุด Container รันบนคอมพิวเตอร์เครื่องไหนก็ได้โดยไม่ต้องสนใจว่าที่อยู่บนดิสก์ชนกับซอฟต์แวร์อื่นหรือไม่ (หนังสือ: Docker in Action หัวข้อ 4.4 หน้า 68) เราสร้างด้วย `docker volume create` แล้วต่อเข้า Container ด้วย `--mount type=volume` ในแบบฝึกมีสามเรื่องที่เห็นต่างจาก Bind Mount
+
+เรื่องแรก Volume ที่ว่างอยู่ถูกเติมด้วยไฟล์ที่ Image มีตรงจุดนั้นให้เอง เราสร้าง Image ที่มี `/data/seed.txt` แล้วต่อ Volume ใหม่เข้าที่ `/data` ข้างในเห็น `seed.txt` แต่ถ้าต่อ Bind Mount ของโฟลเดอร์ว่างเข้าที่เดียวกัน ข้างในเห็นโฟลเดอร์ว่าง ไฟล์ของ Image ถูกบังไว้ (รัน)
+
+| สิ่งที่ต่อที่ `/data` | สิ่งที่ Container เห็น |
+|---|---|
+| ไม่ต่ออะไร | `seed.txt` |
+| Volume ใหม่ที่ว่าง | `seed.txt` (Docker เติมให้) |
+| Bind Mount ของโฟลเดอร์ว่าง | ว่างเปล่า (ไฟล์ของ Image ถูกบัง) |
+
+เรื่องที่สอง Volume ใช้ร่วมกันได้ระหว่าง Container ที่รันอยู่พร้อมกัน เราให้ตัวหนึ่งเขียน `live.txt` ตัวอื่นอ่านได้ทันที (รัน) เรื่องที่สาม Docker ไม่ยอมลบ Volume ที่ยังมี Container ใช้อยู่ ข้อความตอบว่า Volume กำลังถูกใช้ และลบได้เมื่อไม่มี Container ไหนใช้แล้ว (รัน)
+
+<Callout type="note" title="ที่เก็บจริงของ Volume">
+บนเครื่องนี้ Volume อยู่ในระบบไฟล์ของ Linux ที่ Docker Desktop เปิดไว้ ไม่ได้อยู่ในโฟลเดอร์ของ Windows ที่เราเปิดดูได้ตรง ๆ หนังสือบอกว่าตามค่าตั้งต้น Docker สร้างโฟลเดอร์เก็บเนื้อหาไว้ในส่วนของระบบไฟล์ Host ที่ Engine ควบคุม และใช้ `docker volume inspect` ดูตำแหน่งได้ (หนังสือ: Docker in Action หัวข้อ 4.4 หน้า 68) เราไม่ได้เปิดดูโฟลเดอร์นั้น (ไม่ได้รัน)
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Image ของเรามีไฟล์ Seed อยู่ในโฟลเดอร์ Data เรารัน Container สองตัว ตัวแรกต่อ Volume ใหม่ที่ว่างเข้าที่โฟลเดอร์นั้น ตัวที่สองต่อ Bind Mount ของโฟลเดอร์ว่างบนคอมพิวเตอร์เข้าที่เดียวกัน แต่ละตัวเห็นอะไรในโฟลเดอร์ Data?"
+  options={[
+    'ทั้งสองตัวเห็นไฟล์ Seed เพราะไฟล์อยู่ใน Image',
+    'ทั้งสองตัวเห็นโฟลเดอร์ว่าง เพราะที่ต่อเข้ามาบังไฟล์ของ Image',
+    'ตัวแรกเห็นไฟล์ Seed เพราะ Docker เติมเนื้อหาของ Image ลง Volume ที่ว่างให้ ส่วนตัวที่สองเห็นโฟลเดอร์ว่างเพราะ Bind Mount บังไฟล์ของ Image',
+    'ตัวแรกเห็นโฟลเดอร์ว่าง ส่วนตัวที่สองเห็นไฟล์ Seed'
+  ]}
+  answer={2}
+  why="Volume ที่ว่างอยู่ถูก Docker เติมด้วยไฟล์ที่ Image มีตรงจุดนั้นตอนต่อครั้งแรก ส่วน Bind Mount เอาโฟลเดอร์ของ Host มาวางทับ จึงบังไฟล์ของ Image ไว้หมด แบบฝึกเห็น Seed.txt ใน Container ที่ต่อ Volume และ 0 ไฟล์ใน Container ที่ต่อ Bind Mount ของโฟลเดอร์ว่าง (รัน) นี่คือเหตุผลที่การ Mount ทับโฟลเดอร์ที่ Image ใช้งานอยู่ต้องระวัง"
+/>
+
+</Step>
+
+<Step>
+
+## Volume แบบไม่มีชื่อจะสะสมถ้าเราไม่ล้าง
+
+มีที่มาอีกทางของ Volume ที่คนมักไม่รู้ ถ้า Dockerfile มีบรรทัด `VOLUME /data` Docker จะสร้าง Volume ไม่มีชื่อให้ทุก Container ที่รันจาก Image นั้น เราลองรัน Container จาก Image แบบนี้สองตัวโดยไม่ใส่ `--rm` แล้วนับ Volume ที่เกิดใหม่ (รัน)
+
+| เหตุการณ์ | จำนวน Volume ไม่มีชื่อที่ค้างอยู่ |
+|---|---|
+| รัน Container สองตัว | 2 |
+| `docker rm` ตัวแรก (ไม่ใส่ `-v`) | 2 |
+| `docker rm -v` ตัวที่สอง | 1 |
+
+Volume ที่ไม่มีชื่อไม่ถูกลบไปพร้อม Container เว้นแต่เราจะสั่ง `docker rm -v` หรือรัน Container ด้วย `--rm` หนังสือบอกเรื่องเดียวกันว่า Volume ที่ไม่มีชื่อถูกลบอัตโนมัติเมื่อ Container ที่สร้างมันถูกลบด้วยสองวิธีนั้น ส่วน Volume ที่มีชื่อต้องลบเองด้วยมือเสมอ (หนังสือ: Docker in Action หัวข้อ 4.6 หน้า 77) ข้อนี้ทำให้ดิสก์ของ Docker เต็มโดยไม่รู้ตัวได้ เพราะ Volume ที่ค้างมองเห็นยากกว่า Container ที่ค้าง ควรตรวจด้วย `docker volume ls` เป็นระยะ
+
+</Step>
+
+<Step>
+
+## ฐานข้อมูลที่เก็บข้อมูลบน Volume รอดหลัง Container ถูกลบ
+
+นี่คือเหตุผลหลักที่วิศวกรข้อมูลต้องรู้เรื่อง Volume ในแบบฝึกเรารัน Postgres 17 ที่ต่อ Volume เข้าโฟลเดอร์เก็บข้อมูลของมัน (`/var/lib/postgresql/data`) สร้างตาราง `orders` แล้วใส่สองแถว จากนั้นลบ Container ทิ้งทั้งตัวและเริ่ม Postgres ตัวใหม่บน Volume เดิม (รัน)
+
+| ขั้น | จำนวนแถวในตาราง `orders` |
+|---|---|
+| Container แรก หลังใส่ข้อมูล | 2 |
+| Container ใหม่บน Volume เดิม | 2 |
+
+ตารางและข้อมูลยังอยู่ครบ เพราะ Postgres เขียนไฟล์ข้อมูลลงใน Volume ซึ่งอยู่นอก Container ถ้าเราไม่ได้ต่อ Volume ไฟล์เหล่านั้นจะอยู่ในชั้นเขียนของ Container ตัวแรกและหายไปพร้อมการลบ ที่ยังไม่ได้ทดสอบคือการสำรองข้อมูลของ Volume และการอัปเกรดเวอร์ชันของ Postgres บน Volume เดิม ซึ่งมีเรื่องความเข้ากันได้ของไฟล์ข้อมูลที่ต้องตรวจเพิ่ม (ไม่ได้รัน)
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="บริการวิเคราะห์ข้อมูลของเราเขียนไฟล์ผลลัพธ์ลงโฟลเดอร์ในชั้นเขียนของ Container แล้วเราสั่งลบ Container เพื่ออัปเดตเป็น Image รุ่นใหม่ ไฟล์ผลลัพธ์จะเป็นอย่างไร?"
+  options={[
+    'ยังอยู่ เพราะ Docker คัดลอกชั้นเขียนไปให้ Container ตัวใหม่',
+    'หายไปพร้อม Container เก่า เพราะชั้นเขียนผูกอยู่กับ Container ตัวนั้น ต้องเก็บไว้ใน Volume หรือ Bind Mount ถ้าต้องการให้อยู่ต่อ',
+    'หายเฉพาะตอน Restart แต่ไม่หายตอนลบ',
+    'ยังอยู่ เพราะไฟล์เป็นส่วนหนึ่งของ Image'
+  ]}
+  answer={1}
+  why="ชั้นเขียนเป็นของ Container ตัวนั้นตัวเดียว แบบฝึกเห็นไฟล์ยังอยู่หลัง Restart แต่หายหลังลบ Container แล้วเริ่มตัวใหม่ (รัน) Volume กับ Bind Mount อยู่นอก Container จึงรอดทั้งสองเหตุการณ์ ส่วนตัวเลือกที่ว่าหายเฉพาะตอน Restart กลับด้านไป เพราะ Restart ไม่ทำให้ชั้นเขียนหาย"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| ไฟล์ในชั้นเขียนรอด Restart แต่ไม่รอดการลบ Container, Volume กับ Bind Mount รอดทั้งสอง, Tmpfs หายตั้งแต่ Restart | รัน: `exercises/07_volumes.py` |
+| Bind Mount แชร์ไฟล์ทั้งสองทิศและเห็นการแก้ไขทันที และแบบ `readonly` ปฏิเสธการเขียน | รัน: `exercises/07_volumes.py` |
+| Volume ว่างถูกเติมจาก Image แต่ Bind Mount ของโฟลเดอร์ว่างบังไฟล์ของ Image | รัน: `exercises/07_volumes.py` |
+| Volume ใช้ร่วมกันระหว่าง Container ที่รันอยู่ และ `docker volume rm` ปฏิเสธเมื่อมีคนใช้ | รัน: `exercises/07_volumes.py` |
+| บรรทัด `VOLUME` สร้าง Volume ไม่มีชื่อให้ทุก Container, `docker rm` ไม่ลบ แต่ `docker rm -v` ลบ | รัน: `exercises/07_volumes.py` |
+| Postgres 17 บน Volume เก็บตารางไว้ได้หลังลบ Container | รัน: `exercises/07_volumes.py` |
+| ที่เก็บหลักสามแบบคือ Bind Mount, หน่วยความจำ และ Volume ซึ่งสร้างด้วย `--mount` ได้ทั้งหมด | หนังสือ: Docker in Action หัวข้อ 4.1 หน้า 63 |
+| Bind Mount ต่อตำแหน่งของ Host เข้ากับ Container | หนังสือ: Docker in Action หัวข้อ 4.2 หน้า 64 |
+| Volume คือโฟลเดอร์มีชื่อที่ Docker จัดการ และแยกที่เก็บออกจากตำแหน่งบน Host | หนังสือ: Docker in Action หัวข้อ 4.4 หน้า 68 |
+| Volume ไม่มีชื่อถูกลบเมื่อใช้ `--rm` หรือ `docker rm -v` ส่วน Volume มีชื่อต้องลบเอง | หนังสือ: Docker in Action หัวข้อ 4.6 หน้า 77 |
+| ความเร็วและสิทธิ์ของ Bind Mount ข้าม Windows กับ Linux, Volume Driver อื่น, ขนาดของ Tmpfs, การสำรอง Volume | ไม่ได้ลอง |
+
+</Step>

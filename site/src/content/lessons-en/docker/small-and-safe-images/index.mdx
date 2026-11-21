@@ -1,0 +1,170 @@
+---
+title: Small and safe images
+summary: The same program can be an image of 1.1 GB or only 118 MB, depending on the base image and how it is built. This lesson compares real sizes, shows a multi-stage build that leaves the build tools behind, runs a container as a user that is not root, and passes a secret into a build without leaving a trace in the image.
+facts:
+  - "Run for real in exercises/06_small_safe_images.py against Docker Engine 29.2.1 (BuildKit). It compares the size of one program on python:3.13, python:3.13-slim and python:3.13-alpine, builds a multi-stage image and compares it with a single stage, tries --target, runs as UID 10001 in a folder that root owns and with COPY --chown, tries --user on docker run, and passes a secret with --mount=type=secret and then searches the history and the files of the saved image."
+  - "That a big image gives an attacker more options and that privileges should be dropped as early as possible comes from Docker in Action sections 10.2 and 8.6.2 and was not run further. Not tried: base images such as distroless and scratch, the problems of Alpine, which uses musl, with packages that need compiling, scanning an image for vulnerabilities, and pushing to a registry."
+order: 6
+phase: B
+level: 3
+stage: sprout
+format: steps
+requires: [dockerfile, build-cache]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import MultiStageLab from '../../../../components/labs/docker/MultiStageLab';
+
+<Step>
+
+## The same image can weigh about twenty times more
+
+Our program is tiny. It has three lines that print the version of the package `six`, but the size of the image depends almost entirely on which base image we start from. In the exercise we build the same program three times on three kinds of Python (ran).
+
+| Base image | Image size (MB) | Prints the same? |
+|---|---|---|
+| `python:3.13` | 1121.1 | prints `six 1.17.0` |
+| `python:3.13-slim` | 126.8 | prints `six 1.17.0` |
+| `python:3.13-alpine` | 54.1 | prints `six 1.17.0` |
+
+All three do the same work, but the first is about nine times heavier than the second (the gap between 126.8 and the 118.4 MB of a bare `slim` comes from the `pip install` line, and we did not check what it adds). The difference exists because the full image carries tools for building software, and the exercise confirms that `gcc` is in `python:3.13` but not in `slim` (ran). The running program never uses a compiler, so those tools are dead weight.
+
+The weight has two sides. One is size, which takes disk, makes downloads slow, and costs time when the image is pulled elsewhere. The other is security. The book says an all-in-one image that holds both the build tools and the run tools gives an attacker more options to exploit the application, and has to be updated more often because there is more to patch (book: Docker in Action section 10.2.1, page 200). Its example starts at 614 MB and ends at 708 MB.
+
+<Callout type="note" title="Alpine is the smallest, but not always the answer">
+The 54.1 MB of Alpine is attractive, but we only tested a program that compiles nothing. Alpine uses a different C library from Debian (musl against glibc), and many Alpine users find that some packages have to be compiled by hand. We did not try that (not run).
+</Callout>
+
+</Step>
+
+<Step>
+
+## Multi-stage builds build on a big image and ship on a small one
+
+Sometimes we really need build tools at build time, such as a compiler, but not at run time. The answer is a multi-stage build, which the book calls the Build Plus Runtime pattern: one build image, separate from a smaller runtime image (book: Docker in Action section 10.2, page 199). One Dockerfile can have several `FROM` lines. Each starts a new stage, and the image that ships is the last stage.
+
+```dockerfile
+FROM python:3.13 AS build
+RUN pip install --no-cache-dir --target /deps six==1.17.0
+
+FROM python:3.13-slim
+COPY --from=build /deps /deps
+ENV PYTHONPATH=/deps
+COPY app.py /app/app.py
+CMD ["python", "/app/app.py"]
+```
+
+The first stage is named `build`. It uses the big image to install the package into the folder `/deps`. The second stage starts from `slim` and uses `COPY --from=build` to take only that folder across stages. The result is (ran)
+
+| Dockerfile | Image size (MB) |
+|---|---|
+| Single stage on `python:3.13` | 1121.1 |
+| Multi-stage (build on `python:3.13`, ship on `slim`) | 118.4 |
+
+The multi-stage image still runs the program with the same output. It has no `gcc`, and not one layer of the big image came along, which we checked by comparing the layer lists (ran). If we want to stop at the first stage to look at it, `docker build --target build` gives the big image of that stage (ran). Press through the lab to see what is left behind.
+
+<MultiStageLab client:visible lang="en" />
+
+One thing to understand correctly: the build stage does not disappear. It is still on our computer and uses the cache on repeat builds, but it is not shipped, and whoever receives our image does not see it.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A Dockerfile uses a first stage on a big image with a compiler to build a file, and a last stage on a small image that takes only the built file across stages with the Copy command. What is inside the image we push to others?"
+  options={[
+    'Every layer of both stages together, because Docker keeps everything used at build time',
+    'Only the layers of the last stage, which include the files copied across, but no compiler and no layer of the big image',
+    'Only the layers of the first stage, because it does the heaviest work',
+    'It depends on whether we gave the stage a name'
+  ]}
+  answer={1}
+  why="The image that ships is the last stage. The earlier stages are only temporary workplaces. In the exercise the multi-stage image had no gcc and not one layer of the big image (ran), so its size was 118.4 MB against 1121.1 MB for the single stage. The name of a stage is there only for the Copy across stages and the Target option to refer to (book: Docker in Action section 10.2, page 199)."
+/>
+
+</Step>
+
+<Step>
+
+## Run the container as a user that is not root
+
+By default a container runs as root. In the exercise `id -u` in `python:3.13-slim` with no `USER` gave 0 (ran). Running as root is a risk, because if the program is broken into, the attacker gets the highest privileges in there at once. The book says the known ways of breaking out of a container all rely on administrator privileges inside it (book: Docker in Action section 8.6.2, page 169). So the practice is to create another user and drop privileges as early as we can.
+
+In the exercise we create a user `app` (UID 10001) and try two ways. In the first, we `COPY` the program into the folder `/app`, which root owns, and use `USER app`, and the program tries to write a file in that folder (ran).
+
+```text
+PermissionError: [Errno 13] Permission denied: '/app/out.txt'
+```
+
+The program has no permission to write in root's folder. In the second way we set the owner explicitly: `chown` on the folder when creating it, and `COPY --chown=app:app` for the file, because from [lesson 4](/en/docker/dockerfile/#copy-add-and-who-owns-the-files) we know that `COPY` always makes root the owner. The program runs as UID 10001 and writes its file normally (ran).
+
+Two more things to know. First, whoever runs `docker run` can always override the user of the image with `--user`. The exercise ran `--user 0` and got root even though the image says `USER app` (ran). The book says the same: an image cannot stop a container from running as root, and the best an image author can do is create a non-root user and make it the default (book: Docker in Action section 8.6.2, page 169). Second, if we drop privileges too early, steps in the Dockerfile may stop working, for example `USER 1000` followed by a `touch` on a file that root owns. The book gives that example (book: Docker in Action section 8.6.2, page 169, not run). It gives another one, that a program that needs a port below 1024 needs more privileges, which we did not try.
+
+</Step>
+
+<Step>
+
+## A build secret must not stay in the image
+
+In [lesson 4](/en/docker/dockerfile/) we saw that a value passed through `ARG` and used on a `RUN` line shows up in `docker history`. If a build really needs a secret, such as a token to download a private package, BuildKit has a way that leaves no trace: `RUN --mount=type=secret`, which puts the secret file in place for that one line while it runs and removes it at once.
+
+```dockerfile
+RUN --mount=type=secret,id=tok sh -c 'wc -c < /run/secrets/tok > /length.txt'
+```
+
+```bash
+docker build --secret id=tok,src=token.txt -t dlab-secret .
+```
+
+In the exercise we create a file `token.txt` with a 25 character secret, and let the `RUN` line write its length into a file (ran). The result is that the line really could read the secret at build time, since the result file says 25, but the secret itself is not in `docker history`, and there is no `/run/secrets` folder in the running container. We also saved the image as a `.tar` file and searched every byte, and the value is nowhere (ran).
+
+<Callout type="warn" title="What was and was not checked">
+We checked only that the secret is not in the history, not in the container and not in the saved files of that image. If the `RUN` line deliberately writes the secret into a file, it can still stay behind, and mounting a secret does not prevent that. We also did not try passing secrets at run time (for example through Compose or a Docker secret), which is a different matter.
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="At build time we need a token to download a private package. Which way does not leave the token in the image and its history?"
+  options={[
+    'Pass the token through ARG and use it on a RUN line, because ARG is used only at build time',
+    'Set the token with ENV in the Dockerfile and delete it later with a RUN line',
+    'Pass the token as a build secret (a secret mount) to only the RUN line that needs it, so Docker records no value in a layer or the history',
+    'COPY the token file into the image and delete it on the next line'
+  ]}
+  answer={2}
+  why="ARG and ENV leave the value in docker history, and a layer deleted later still keeps the original file, as we saw in the lesson on layers. The exercise confirmed that a secret mount can be read at build time, but the value was not found in the history, in the saved image files, or in the running container (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The same program on `python:3.13`, `slim` and `alpine` is 1121.1, 126.8 and 54.1 MB and prints the same | ran: `exercises/06_small_safe_images.py` |
+| `python:3.13` has `gcc` and `slim` does not | ran: `exercises/06_small_safe_images.py` |
+| Multi-stage gives 118.4 MB against 1121.1 MB for a single stage, has no `gcc`, and has no layer of the big image | ran: `exercises/06_small_safe_images.py` |
+| `--target build` stops at the first stage and gives the big image | ran: `exercises/06_small_safe_images.py` |
+| A user with UID 10001 cannot write in a folder that root owns, and can when the owner is set with `chown` and `COPY --chown` | ran: `exercises/06_small_safe_images.py` |
+| `--user` on `docker run` overrides the `USER` of the image, and a container with no `USER` runs as root | ran: `exercises/06_small_safe_images.py` |
+| A secret mount can be read at build time and is not in `docker history`, in the container, or in the `.tar` of the image | ran: `exercises/06_small_safe_images.py` |
+| An all-in-one image is big, gives more openings to attack, and needs more updates | book: Docker in Action section 10.2.1, page 200 |
+| Build Plus Runtime is a pattern that uses a build image separate from the runtime image | book: Docker in Action section 10.2, page 199 |
+| An image cannot prevent running as root, privileges should be dropped as early as possible, and dropping too early makes the build fail | book: Docker in Action section 8.6.2, page 169 (the failing build and the ports below 1024 were not run) |
+| The gap between a bare `slim` (118.4 MB) and a `slim` with `six` installed (126.8 MB) | not checked what it is |
+| Alpine and musl, distroless or scratch images, vulnerability scanning, secrets at run time | not tried |
+
+</Step>

@@ -1,0 +1,190 @@
+---
+title: The life of a container
+summary: A container moves through the states created, running, paused and exited with a handful of commands. This lesson tries them one by one, reads what an exit code says, shows why docker stop sometimes waits so long, looks at logs and exec, and shows what a restart policy does when the program crashes.
+facts:
+  - "Run for real in exercises/03_lifecycle.py against Docker Engine 29.2.1. It walks through create, start, pause, unpause, stop, kill and rm and reads the state after each, times docker stop with three programs (a sleep that is PID 1, a Python that handles SIGTERM, and a sleep started with --init), tries the exit codes of failing programs, reads docker logs, tries docker exec and the restart policies on-failure and always."
+  - "That a container has six states and that a PID 1 process is treated like init by the kernel comes from Docker in Action section 2.5 and from Docker Up and Running, Stopping a Container, page 105, and was not run. The state removing was not seen in the exercise, and the wait of docker stop without -t was about 3 seconds on this computer, and we did not look for the reason."
+order: 3
+phase: A
+level: 2
+stage: sprout
+format: steps
+requires: [containers]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import LifecycleLab from '../../../../components/labs/docker/LifecycleLab';
+
+<Step>
+
+## The states of a container and the commands that move it
+
+In [lesson 1](/en/docker/containers/#a-container-lives-as-long-as-its-process) we saw that a container ends when the program inside ends. Now let us look at the whole cycle. The book says a container is in one of six states: created, running, restarting, paused, removing and exited (and exited is also used for a container that was never started) (book: Docker in Action section 2.5.1, page 41). In the exercise we ran the commands one at a time and read the state after each.
+
+```text
+command         state afterwards  exit code
+docker create   created           0
+docker start    running           0
+docker pause    paused            0
+docker unpause  running           0
+docker stop     exited            0
+docker start    running           0
+docker kill     exited            137
+```
+
+Three things are worth noticing. First, `docker create` makes a container but does not run the program. The state is `created` and there is no process yet (the Pid is 0). The `docker run` we have used all along is `create` followed by `start`. Second, `docker pause` does not end the program. It only freezes the process, and the process is still there (ran). Third, a container that ended stays in the list until we run `docker rm`, and `docker start` makes it run the same program again (ran).
+
+Press the commands in the lab in order. A command that is not allowed in the current state is disabled, for example you cannot pause a container that was never started. If you press `docker stop`, a clock appears below, and we will come back to it in a moment.
+
+<LifecycleLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## The exit code says how the program ended
+
+When a container ends, Docker keeps the exit code of the program. It is the first number to look at when we ask why a container ended. In the exercise we ran short programs that end in different ways (ran).
+
+| Program | Exit code of `docker run` |
+|---|---|
+| `true` | 0 |
+| `false` | 1 |
+| `sh -c 'exit 3'` | 3 |
+| `sh -c nosuchcmd` (the shell cannot find the command) | 127 |
+| `nosuchcmd` (no such program in the image) | 127 |
+| `/etc/passwd` (the file exists but is not a program) | 126 |
+
+0 means it ended normally. Other numbers are codes the program chose, except 126 and 127, which are commonly used for "cannot run that file" and "command not found" (ran). Rows four and five differ in who reports it. When `sh` cannot find a command, the shell reports 127 itself. When there is no such program in the image, Docker says `executable file not found` and returns 127. A number above 128 means a signal killed the program, and the number is 128 plus the signal. So 137 is 128 + 9 (SIGKILL) and 143 is 128 + 15 (SIGTERM), which we meet in the next part.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A container ended with exit code 137. What most likely happened to the program inside?"
+  options={[
+    'The program finished its work and exited by itself',
+    'The program was killed by SIGKILL, because 137 is 128 plus 9, which happens with docker kill and also with docker stop after it has waited out the grace period',
+    'Docker could not find the program in the image',
+    'The program was killed by SIGTERM, because 137 is 128 plus 15'
+  ]}
+  answer={1}
+  why="A number above 128 says the program died of a signal, and the number beyond 128 is the signal. 137 minus 128 is 9, which is SIGKILL. SIGTERM is 15, which gives 143, as the exercise saw with a sleep behind --init (ran). A program that cannot be found gives 127, and a normal exit gives 0."
+/>
+
+</Step>
+
+<Step>
+
+## docker stop asks politely first, then kills
+
+The book says `docker stop` sends SIGTERM to the process and waits for it to close itself politely. With `-t 25`, if the program has not stopped after 25 seconds, Docker sends SIGKILL (book: Docker Up and Running, Stopping a Container, page 105). What the book does not say is what happens when the PID 1 program does not answer SIGTERM. Let us try.
+
+In the exercise we ran three kinds of program and gave each one `docker stop -t 5` (ran).
+
+| The program that is PID 1 | Time (s) | Exit code |
+|---|---|---|
+| `sleep 300` | 5.3 | 137 |
+| Python with a handler for SIGTERM | 0.4 | 0 |
+| `sleep 300` started with `--init` | 0.3 | 143 |
+
+The first `sleep` answered nothing, so Docker waited the whole 5 seconds and sent SIGKILL, which gives 137. The reason is that the kernel treats a process with PID 1 like init. The book says any process with PID 1 is treated like an init process by the Linux kernel, even if it is not technically an init system (book: Docker in Action section 2.5.2, page 42). For such a process a signal that has no handler does not kill it the way it kills an ordinary process (this is general Linux knowledge that we did not check in the documentation). The second one has a handler, so it closes itself at once with the code it chose. The third uses `--init`, where Docker puts a small init program in as PID 1, and it passes SIGTERM on to `sleep`, which dies of that signal, so the code is 143.
+
+Without `-t`, on this engine, `docker stop` on the same `sleep` took about 3.3 seconds. That is a number we measured, and we did not look for whether it comes from the default of this engine or of Docker Desktop. What it teaches is that the wait is a setting, not a fixed number. If a service has to finish its work before closing, give it an explicit `-t`.
+
+<Callout type="tip" title="Our program should handle SIGTERM">
+If we write a service that has to flush data to disk before it closes, catch SIGTERM in the program itself, or run it behind an init such as `--init`. Otherwise Docker waits until the time is up and kills it, and unfinished work is lost. The book says the popular inits include tini, dumb-init and supervisord (book: Docker in Action section 2.5.2, page 42).
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Our service has no code that catches SIGTERM and runs as PID 1 in a container. We run docker stop and notice it is slow. Which explanation is right?"
+  options={[
+    'Docker sends SIGTERM and the program does not answer, so Docker waits out the grace period and then sends SIGKILL, which makes the exit code 137',
+    'Docker sends SIGKILL at once, but the engine takes a while to delete the files of the container',
+    'The program is writing its log, so Docker waits until it finishes',
+    'docker stop waits for the container to use less CPU first'
+  ]}
+  answer={0}
+  why="PID 1 does not die of SIGTERM if the program installed no handler, so Docker waits for the time that is set and then sends SIGKILL, which cannot be ignored. In the exercise a sleep as PID 1 took 5.3 seconds with -t 5 and ended with 137, while a program with a handler, or one behind --init, stopped in under a second (ran). Only docker kill sends SIGKILL at once."
+/>
+
+</Step>
+
+<Step>
+
+## Logs, exec and stdin
+
+Three more commands are used every day. The first is `docker logs`, which reads what the program printed on stdout and stderr. In the exercise we ran a program that prints `to-stdout` on stdout and `to-stderr` on stderr, and `docker logs` printed them on the matching streams. A container that already ended still has its logs (ran). The option `-t` puts the time in front of every line (ran). One caution: stdout and stderr are two channels, and the order of lines across them is not guaranteed to follow what the program printed. We saw `--tail 1` return the stderr line although the last line the program printed went to stdout (ran).
+
+The second is `docker exec`, which starts one more process in a container that is running. The exit code of the command we run comes back to us (we ran `exit 5` and got 5), and the container does not end because its main process is still there. If the container has already ended, `exec` is refused (ran). The third is the option `-i`, which connects our stdin to the program. When we pipe text into `docker run -i alpine cat`, the same text comes back. Without `-i` the program does not see what we send (ran).
+
+</Step>
+
+<Step>
+
+## A restart policy lets Docker start the program again when it crashes
+
+When a service crashes for a temporary reason, starting it again on its own brings the system back faster. Docker does this with the option `--restart`. The book lists never restart (the default), restart on failure, restart on failure a limited number of times, and always restart (book: Docker in Action section 2.5.1, page 41). In the exercise we ran programs that end at once, in three ways (ran).
+
+| Policy and program | Restarts | Final state |
+|---|---|---|
+| `on-failure:2`, the program ends with 1 | 2 | exited |
+| `on-failure:2`, the program ends with 0 | 0 | exited |
+| `always`, the program ends with 1 | keeps growing (4 when we stopped looking, after a few seconds) | never stops |
+
+`on-failure:2` restarts only on failure and stops after two restarts. If the program ends with 0 it does not restart. `always` restarts every time, whatever the reason. The book explains that Docker does not restart at once but uses exponential backoff, waiting twice as long each time, so the system does not do nothing but restart a crashing program (book: Docker in Action section 2.5.1, page 41). While it waits, the container is in the state `restarting`, and `docker exec` cannot be used then. The exercise saw the refusal that says the container is restarting (ran). That is why the book suggests combining a policy with an init or a startup script that keeps the program inside running, instead of letting the whole container restart in a loop.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We set a container to restart on failure with a limit of two, and the program inside always ends with exit code 0. What does Docker do?"
+  options={[
+    'Restarts twice and then stops, because we set two',
+    'Restarts forever, because the program ends by itself',
+    'Never restarts it, because on-failure restarts only when the program ends with an exit code that is not 0',
+    'Refuses to create the container, because the policy and the program contradict each other'
+  ]}
+  answer={2}
+  why="The on-failure policy looks at the exit code. 0 counts as success, so there is no restart. The exercise saw 0 restarts and the state exited, while the program that ended with 1 was restarted twice, as set, and then stopped (ran). To restart in every case, use always."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| `create` gives the state created with no process, `start` gives running, `pause` gives paused with the process still there, and `stop` gives exited | ran: `exercises/03_lifecycle.py` |
+| `docker kill` gives exit code 137, and a container that ended stays until `docker rm` | ran: `exercises/03_lifecycle.py` |
+| The exit code of the program is the exit code of `docker run`, and 127 and 126 mean not found and cannot run | ran: `exercises/03_lifecycle.py` |
+| `docker stop -t 5` took 5.3 s and gave 137 with a sleep as PID 1, 0.4 s and 0 with a program that has a handler, and 0.3 s and 143 with `--init` | ran: `exercises/03_lifecycle.py` |
+| `docker stop` without `-t` took about 3.3 s on this computer | ran: `exercises/03_lifecycle.py` (the reason was not looked for) |
+| `docker logs` separates stdout and stderr and reads the logs of a container that ended | ran: `exercises/03_lifecycle.py` |
+| `docker exec` returns the exit code of the command, and is refused when the container ended or is restarting | ran: `exercises/03_lifecycle.py` |
+| `on-failure:2` restarts twice and stops, does not restart on 0, and `always` restarts continuously | ran: `exercises/03_lifecycle.py` |
+| `docker rm` refuses a running container, and `-i` connects stdin to the program | ran: `exercises/03_lifecycle.py` |
+| A container has six states, and restart policies come in four kinds with exponential backoff | book: Docker in Action section 2.5.1, page 41 |
+| A PID 1 process is treated like init by the kernel, and several popular inits exist | book: Docker in Action section 2.5.2, page 42 |
+| `docker stop` sends SIGTERM and `-t` sets the time before SIGKILL | book: Docker Up and Running, Stopping a Container, page 105 (not run) |
+| A signal without a handler does not kill a PID 1 process | author (general Linux knowledge, not checked in the documentation, but the exercise agrees) |
+| The state removing | not seen in the exercise |
+
+</Step>

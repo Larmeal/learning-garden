@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you know why a small image is better, how a multi-stage build works, and how to handle a non-root user and a build secret.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A program that compiles nothing at run time uses a full base image with a compiler, instead of a slim base image. Besides size, what does the difference cause?"
+  options={[
+    'Nothing, because size is the only matter',
+    'The full image holds more tools that an attacker can use if the program is broken into, and more things to keep patched',
+    'The full image runs faster because it has every tool',
+    'The slim image can run fewer programs'
+  ]}
+  answer={1}
+  why="The book says an all-in-one image gives an attacker more options and has to be updated more often because it holds more (book: Docker in Action section 10.2.1, page 200). The exercise saw that the compiler gcc is in the full image and not in the slim one (ran), while the same program prints the same result on both."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We build with the Target option pointing at the name of the first stage of a multi-stage Dockerfile. What image do we get?"
+  options={[
+    'The smallest final image, because Docker always jumps to the last stage',
+    'The image of the first stage, which is big, because the build stops at the stage we name and gives the image of that stage',
+    'No image, because the first stage is never shipped',
+    'An image that joins all the stages together'
+  ]}
+  answer={1}
+  why="Normally the image that ships is the last stage, but Target tells the build to stop at the stage we name. The exercise stopped at the stage named Build and got an image of more than 1,000 MB, which is the build image itself (ran). It is useful for inspecting or testing the result of a middle stage."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A Dockerfile uses USER to switch to an ordinary user, and then someone runs the container with the User option set to 0. What is the result?"
+  options={[
+    'The container still runs as the ordinary user, because the image forces it',
+    'The container runs as root, because an option given at run time always overrides the image',
+    'Docker refuses to run it',
+    'The container runs as both users at once'
+  ]}
+  answer={1}
+  why="An image author cannot prevent a container from running as root, because whoever runs it can change the user. The exercise gave User 0 to an image with USER app and got uid 0 (ran), as the book says. The best an author can do is set a non-root user as the default (book: Docker in Action section 8.6.2, page 169)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Our program runs as UID 10001 and must write a file into the folder that was COPYed in, but it cannot. What should we check first?"
+  options={[
+    'Whether the image is too big',
+    'Who owns the folder and the file, because COPY always makes root the owner, so we need chown or COPY --chown for the program user',
+    'Whether an old cache is left over',
+    'Whether we used the shell form or the exec form'
+  ]}
+  answer={1}
+  why="The exercise saw a Permission Denied message when the folder belonged to root, and a normal write once the owner was set to the app user with chown and COPY --chown (ran). We must set it because COPY makes root the owner of files even when USER was set before it (book: Docker in Action section 8.2.2, page 153)."
+/>
+
+</Step>

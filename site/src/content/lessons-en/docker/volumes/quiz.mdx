@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you can pick the right storage for a container, know what survives a restart and a removal, and know how to clean an anonymous volume.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We keep temporary data in the tmpfs of a container and run Docker Restart on that container. What happens to the data we wrote?"
+  options={[
+    'It is still there, because Restart does not remove the container',
+    'It is gone, because tmpfs is memory, so the data does not survive even a stop and start',
+    'It is still there, because Docker saves tmpfs to disk for us',
+    'It is gone only when the container is removed, and it survives a Restart'
+  ]}
+  answer={1}
+  why="tmpfs lives in memory, so it is lost every time the container stops, unlike the writable layer, which is still there after a Restart. The exercise saw the file in tmpfs gone already at the Restart (ran). The book treats tmpfs as in-memory storage, which suits temporary data we do not want on disk (book: Docker in Action section 4.3, page 67)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A developer wants to edit code on their own computer and let a running container see the edit at once, without building the image again. What should they use?"
+  options={[
+    'A bind mount of the code folder into the container, because the container sees the real files of the host and sees edits at once',
+    'A named volume, because Docker copies the files from the computer by itself',
+    'tmpfs, because it is the fastest',
+    'The writable layer of the container, because it is the easiest to edit'
+  ]}
+  answer={0}
+  why="A bind mount attaches a real folder of the host to the container. The exercise edited a file on Windows and the container saw the edit at once, with no restart (ran). A volume is not a folder we open and edit directly on our computer, and tmpfs and the writable layer are not linked to our files."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We remove a container, made from an image whose Dockerfile has a VOLUME line, with a plain Docker Rm, and then check the volumes that are left. What do we find?"
+  options={[
+    'The volume is always removed with the container',
+    'The anonymous volume that the container created is still there, and has to be removed with the form of Docker Rm that has the V option, or by removing the volume ourselves',
+    'The volume automatically became a named volume',
+    'Docker asks first whether to remove it'
+  ]}
+  answer={1}
+  why="An anonymous volume is not removed with its container unless we give the option that removes it. The exercise saw the count stay at 2 after a plain removal of the first container, and drop to 1 after removing the second with the option that removes volumes (ran). The book says we need that option, or --rm at run time (book: Docker in Action section 4.6, page 77)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We try to remove a named volume and Docker says the volume is in use. What is the cause?"
+  options={[
+    'The volume is damaged',
+    'At least one container still has that volume attached, and we must remove that container first',
+    'Another volume has the same name',
+    'We do not have the right to remove volumes'
+  ]}
+  answer={1}
+  why="Docker refuses to remove a volume that a container still uses. The exercise saw a refusal saying it is in use, and it could be removed as soon as the attached containers were removed (ran)."
+/>
+
+</Step>

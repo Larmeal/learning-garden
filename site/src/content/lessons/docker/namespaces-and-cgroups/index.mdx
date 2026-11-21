@@ -1,0 +1,156 @@
+---
+title: Namespace และ Cgroup
+summary: Container คือ Process ธรรมดาที่ Kernel ของ Linux แยกให้เห็นโลกของตัวเองด้วย Namespace และจำกัดทรัพยากรด้วย Cgroup บทนี้ดู Namespace ของ Container จริง ลองสร้างเองด้วย Unshare แล้วดูว่าตั้งขีดจำกัด Memory, CPU และจำนวน Process แล้วเกิดอะไรขึ้นเมื่อโปรแกรมชนขีดนั้น
+facts:
+  - "รันจริงใน exercises/10_namespaces_cgroups.py กับ Docker Engine 29.2.1 (Linux 6.18 ใน WSL2, cgroup v2) เทียบเลข Namespace จาก /proc/self/ns ของ Container ที่รันพร้อมกัน, ใช้ --pid=container: กับ --network=container:, สร้าง Namespace เองด้วย unshare ใน Container แบบ privileged, อ่านไฟล์ memory.max, cpu.max, pids.max ใน /sys/fs/cgroup, ให้โปรแกรม Python ขอ Memory ทีละ 10 MB ใต้ขีดจำกัดต่าง ๆ, วัดเวลา CPU ที่ได้ใต้ --cpus และทดลอง --pids-limit"
+  - "ส่วนที่ว่า Namespace คุมสิ่งที่ Process มองเห็นและ Cgroup คุมทรัพยากรที่ใช้ได้ มาจากหนังสือ Container Security บทที่ 3 และ 4 ไม่ได้รัน ที่ยังไม่ได้ลองคือ User Namespace แบบ userns-remap, Cgroup Namespace ในรายละเอียด, ขีดจำกัดของ Block I/O, การสร้าง Cgroup ด้วยมือผ่านไฟล์ และ Cgroup v1 ซึ่งหนังสือใช้อธิบาย ในเครื่องนี้ใช้ v2"
+order: 10
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [containers, container-lifecycle]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import NamespaceLab from '../../../../components/labs/docker/NamespaceLab';
+import CgroupLab from '../../../../components/labs/docker/CgroupLab';
+
+<Step>
+
+## Namespace คือมุมมองของ Kernel ที่แยกให้ Process แต่ละตัว
+
+ใน[บท 1](/docker/containers/#container-คือ-process-ที่เห็นโลกเล็ก-ๆ) เราเห็นว่า Container คือ Process ธรรมดาที่เห็นตัวเองเป็น PID 1 และเราเรียกกลไกนั้นว่า PID Namespace โดยยังไม่ได้เปิดดู ตอนนี้ถึงเวลาแล้ว หนังสือ Container Security อธิบายสั้น ๆ ว่า ถ้า Cgroup คุมทรัพยากรที่ Process ใช้ได้ Namespace ก็คุมสิ่งที่มันมองเห็น การเอา Process ไปไว้ใน Namespace ทำให้จำกัดสิ่งที่ Process นั้นเห็นได้ (หนังสือ: Container Security บทที่ 4 หน้า 31) Namespace ที่ Linux รองรับมีเจ็ดชนิด คือ `cgroup`, `ipc`, `mnt` (จุดเชื่อมระบบไฟล์), `net`, `pid`, `user` และ `uts` (ชื่อเครื่อง) และ Process หนึ่งตัวอยู่ใน Namespace ชนิดละหนึ่งอันเสมอ (หนังสือ: Container Security บทที่ 4 หน้า 32)
+
+เราเปิดดูได้จริงจากไฟล์ `/proc/self/ns` ที่แสดงหมายเลขของแต่ละ Namespace ที่ Process นั้นอยู่ ในแบบฝึกเราเริ่ม Container สองตัวพร้อมกัน แล้วเทียบกับ Container ที่ขอใช้ Namespace ของ Linux ที่รัน Engine (รัน)
+
+| Namespace | Container สองตัวเทียบกัน | Container เทียบกับ Linux ที่รัน Engine |
+|---|---|---|
+| `cgroup`, `ipc`, `mnt`, `net`, `pid`, `uts` | ต่างกัน | ต่างกัน |
+| `user` | เหมือนกัน | เหมือนกัน |
+
+หกชนิดแรกต่างกันทุกตัว ซึ่งแปลว่า Container แต่ละตัวมีของตัวเองครบ ส่วน `user` เหมือนกันหมด ซึ่งแปลว่า Docker ไม่ใช้ User Namespace ในค่าตั้งต้น ผู้ใช้ `root` ใน Container คือ UID 0 ตัวเดียวกับ `root` ของ Linux ที่รัน Engine และนี่เป็นเรื่องที่เราจะกลับมาดูใน[บทสุดท้ายของเส้นทางนี้](/docker/capstone-pipeline/#ล็อก-container-ของตัวโหลดทีละชั้น) (ถ้าอยากแยกต้องเปิด `userns-remap` ซึ่งเรายังไม่ได้ลองและไม่ได้รัน)
+
+<Callout type="warn" title="ข้อผิดพลาดที่เราเจอตอนวัด">
+ตอนแรกเรารัน Container ทีละตัวแล้วเทียบเลข Namespace ปรากฏว่าเหมือนกันหมด ซึ่งผิด เราสันนิษฐานว่าเมื่อ Container ตัวแรกจบ Namespace ของมันถูกปล่อย แล้ว Kernel เอาหมายเลขนั้นกลับมาให้ Namespace ของตัวถัดไป (ข้อนี้เป็นการอนุมานของเรา ไม่ได้เปิดดูโค้ดของ Kernel) สิ่งที่แน่ใจคือผลที่เห็น และการเทียบต้องทำกับ Container ที่ยังรันอยู่พร้อมกัน เราจึงแก้ให้แบบฝึกทำอย่างนั้น (รัน)
+</Callout>
+
+กดสลับในแล็บดู เลือกให้ Container มี Namespace ของตัวเอง หรือใช้ของ Host ร่วมกันทีละอย่างด้วย `--pid=host`, `--net=host` และ `--uts=host` ภาพที่เห็นข้างในเปลี่ยนไปตามนั้น ตัวอย่างเช่น ตาราง Process ที่เห็นไม่กี่ตัวกลายเป็นของทั้ง Linux
+
+<NamespaceLab client:visible />
+
+</Step>
+
+<Step>
+
+## แชร์ Namespace โดยตั้งใจ และสร้างเองโดยไม่ใช้ Docker
+
+เมื่อ Namespace เป็นของที่ให้ใครมาใช้ร่วมกันได้ Docker ก็ให้เราเลือกได้ ถ้าใช้ `--pid=container:A` Container B จะอยู่ใน PID Namespace เดียวกับ A และเห็น Process ของ A ซึ่งแบบฝึกเห็น `sleep 300` ของ A จาก B (รัน) และ `--network=container:A` ทำให้ B อยู่ใน Network Namespace เดียวกับ A ได้ที่อยู่ IP ตัวเดียวกัน (รัน) รูปแบบนี้ใช้เมื่ออยากแนบเครื่องมือสำหรับตรวจสอบเข้ากับ Container ที่รันอยู่ โดยไม่ต้องแก้ Image ของมัน
+
+อีกเรื่องที่น่าสนใจคือ เราสร้าง Namespace เองได้โดยไม่ต้องมี Docker คำสั่ง `unshare` ของ Linux ทำสิ่งเดียวกับที่ Docker ทำ ในแบบฝึกเรารัน Container แบบ `--privileged` แล้วใช้ `unshare -u` เปลี่ยน Hostname ข้างใน Namespace ใหม่ ผลคือ
+
+```text
+inside=made-by-unshare
+outside=d4377a1e8f5a was=d4377a1e8f5a
+```
+
+ข้างในเปลี่ยนเป็น `made-by-unshare` ได้ ส่วนข้างนอกยังเป็นชื่อเดิม และ `unshare -p` ก็ทำให้ `ps` เริ่มนับ PID จาก 1 (รัน) แปลว่า Container ที่ Docker สร้างคือการเรียกกลไกเดียวกันนี้หลายตัวพร้อมกัน แล้วเพิ่มส่วนอื่นที่หนังสือเล่าไว้ใน[บท 1](/docker/containers/) เช่นการเปลี่ยนรากของระบบไฟล์ การถอดสิทธิ์ และ Cgroup (หนังสือ: Docker in Action หัวข้อ 1.1.4 หน้า 6)
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เรารัน Container สองตัวพร้อมกัน แล้วเปิด proc self ns ของแต่ละตัวเพื่อดูเลข Namespace ชนิด Pid ผลที่ควรเห็นเมื่อใช้ค่าตั้งต้นของ Docker คืออะไร?"
+  options={[
+    'เลขเหมือนกัน เพราะ Container ทุกตัวอยู่ใน Namespace เดียวกับ Host',
+    'เลขต่างกัน เพราะ Container แต่ละตัวมี PID Namespace ของตัวเอง ต่างจากชนิด User ที่ Docker ใช้ของ Host ร่วมกัน',
+    'เลขต่างกันทุกชนิดรวมถึง user',
+    'ไม่มีเลข เพราะ Container ไม่ใช้ Namespace'
+  ]}
+  answer={1}
+  why="Container ทุกตัวมี Namespace ของตัวเองครบหกชนิด ได้แก่ Process, เครือข่าย, ระบบไฟล์, ชื่อเครื่อง, การสื่อสารระหว่าง Process และ Cgroup แบบฝึกเห็นเลขต่างกันทุกชนิดเหล่านี้เมื่อเทียบ Container ที่รันพร้อมกัน แต่ชนิดที่เจ็ดซึ่งเป็นของผู้ใช้เหมือนกันหมดเพราะ Docker ไม่เปิดการแยกให้ในค่าตั้งต้น (รัน) ควรเทียบตอน Container ยังรันอยู่ทั้งคู่ ไม่อย่างนั้น Kernel อาจเอาเลขเดิมกลับมาใช้ซ้ำ"
+/>
+
+</Step>
+
+<Step>
+
+## Cgroup คือขีดจำกัดที่เขียนเป็นไฟล์
+
+Namespace คุมสิ่งที่เห็น ส่วนปริมาณที่ใช้ได้เป็นหน้าที่ของ Cgroup หนังสือบอกว่า Cgroup จำกัดทรัพยากร เช่น Memory, CPU และ I/O ของเครือข่ายที่กลุ่ม Process ใช้ได้ และมี Cgroup ชนิด Pid ที่จำกัดจำนวน Process ทั้งหมด ซึ่งกันผลของ Fork Bomb ได้ นอกจากนี้ เพราะ Container ก็คือ Process ธรรมดา Cgroup จึงจำกัดทรัพยากรของแต่ละ Container ได้ (หนังสือ: Container Security บทที่ 3 หน้า 23) Kernel ส่งข้อมูลเรื่อง Cgroup ออกมาเป็นไฟล์ในโฟลเดอร์ `/sys/fs/cgroup` หนังสืออธิบายด้วยตัวอย่างของ Cgroup แบบ v1 ที่มีไฟล์เช่น `memory.limit_in_bytes` ส่วนในเครื่องนี้เป็น v2 ที่ชื่อไฟล์ต่างออกไปเล็กน้อย เราลองใส่ตัวเลือกของ Docker แล้วอ่านไฟล์เหล่านี้จากข้างใน (รัน)
+
+| ไฟล์ | ไม่ใส่ตัวเลือก | `--memory 64m --cpus 0.5 --pids-limit 20` |
+|---|---|---|
+| `memory.max` | `max` | `67108864` |
+| `cpu.max` | `max 100000` | `50000 100000` |
+| `pids.max` | `max` | `20` |
+
+ตัวเลือกของ Docker แปลงเป็นค่าในไฟล์โดยตรง `--memory 64m` คือ 67,108,864 ไบต์ และ `--cpus 0.5` คือโควตา 50,000 ไมโครวินาทีต่อทุก 100,000 ไมโครวินาที ซึ่งแปลว่าโปรแกรมรันได้ครึ่งหนึ่งของแต่ละช่วงเวลา ส่วน `docker inspect` อ่านขีดจำกัดเดียวกันจากข้างนอกได้ (รัน) ทีนี้ลองดูว่าโปรแกรมที่ชนขีดจำกัดเจออะไร
+
+เราให้โปรแกรม Python ขอ Memory ทีละ 10 MB ไปถึง 120 MB ใต้ขีดจำกัดต่าง ๆ (รัน)
+
+| ขีดจำกัด Memory | MB สุดท้ายที่พิมพ์ | ผล |
+|---|---|---|
+| ไม่จำกัด | 120 | จบ |
+| 256 MB | 120 | จบ |
+| 64 MB | 50 | ถูกฆ่า (`OOMKilled`, Exit Code 137) |
+| 32 MB | 20 | ถูกฆ่า |
+
+เมื่อ Memory หมด Kernel ฆ่าโปรแกรมทิ้งเลย ซึ่งตรงกับ Exit Code 137 ที่เราเห็นในบทวงจรชีวิตว่าคือ SIGKILL ส่วน CPU ต่างออกไป เราให้โปรแกรมวนลูปเปล่าเป็นเวลา 2.5 วินาทีแล้ววัดว่าได้เวลา CPU เท่าไรต่อเวลาจริง (รัน)
+
+| ขีดจำกัด CPU | เวลา CPU ต่อเวลาจริง | จำนวนครั้งที่ถูกพัก |
+|---|---|---|
+| ไม่จำกัด | 1.01 | 0 |
+| `--cpus 1` | 1.01 | 0 |
+| `--cpus 0.5` | 0.52 | 25 |
+| `--cpus 0.25` | 0.26 | 26 |
+
+โปรแกรมไม่ตาย มันแค่ถูก Kernel พักเป็นช่วง ๆ จนได้เวลาตามโควตา ตัวสุดท้ายคือจำนวน Process เราสั่ง `--pids-limit 10` แล้วให้ Shell เปิด Process เบื้องหลัง 30 ตัว ผลคือ Shell แจ้งว่า `can't fork: Resource temporarily unavailable` (รัน) การ Fork ที่เกินขีดถูกปฏิเสธ นี่คือสิ่งที่กัน Fork Bomb ตามที่หนังสือบอกไว้ กดเลือกขีดจำกัดใน Lab เพื่อเทียบสองแบบของการหมดทรัพยากรที่ต่างกัน คือถูกฆ่ากับถูกพัก
+
+<CgroupLab client:visible />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Container หนึ่งรันโปรแกรมที่กิน CPU เต็มที่ และเราจำกัดไว้ที่ครึ่ง CPU ให้ Container นั้น เมื่อเทียบกับกรณีที่โปรแกรมขอ Memory เกินขีดจำกัด สองกรณีนี้ต่างกันอย่างไร?"
+  options={[
+    'ทั้งสองกรณีโปรแกรมถูกฆ่าด้วย Exit Code 137',
+    'เมื่อ CPU เกินโควตา โปรแกรมถูกพักเป็นช่วง ๆ แต่ไม่ตาย ส่วนเมื่อ Memory เกินขีดจำกัด Kernel ฆ่าโปรแกรมด้วย Exit Code 137',
+    'ทั้งสองกรณีโปรแกรมแค่ช้าลง แต่ไม่ตาย',
+    'เมื่อ CPU เกินโควตาโปรแกรมถูกฆ่า ส่วน Memory เกินแล้วแค่ช้าลง'
+  ]}
+  answer={1}
+  why="CPU เป็นทรัพยากรที่ย้อนกลับได้ พักแล้วกลับมาใช้ใหม่ได้ Kernel จึงพักโปรแกรมเป็นช่วง ๆ ตามโควตา แบบฝึกเห็นได้เวลา CPU ประมาณ 0.52 ของเวลาจริงใต้ขีดจำกัดครึ่ง CPU และถูกพัก 25 ครั้งโดยโปรแกรมไม่ตาย ส่วน Memory เอาคืนจากโปรแกรมที่ยังใช้อยู่ไม่ได้ ถ้าเกินขีดจึงต้องฆ่า แบบฝึกเห็น OOMKilled กับ Exit Code 137 ใต้ 64 MB และ 32 MB (รัน)"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Container มี `pid`, `net`, `mnt`, `uts`, `ipc`, `cgroup` Namespace ของตัวเอง ส่วน `user` ใช้ของ Linux ที่รัน Engine ร่วมกัน (เทียบ Container ที่รันพร้อมกัน) | รัน: `exercises/10_namespaces_cgroups.py` |
+| Hostname ใน Namespace ของ Container คือ Container ID ส่วนใน `--uts=host` คือชื่อของ Linux ที่รัน Engine | รัน: `exercises/10_namespaces_cgroups.py` |
+| `--pid=container:A` และ `--network=container:A` ทำให้ B เห็น Process ของ A และได้ IP เดียวกับ A | รัน: `exercises/10_namespaces_cgroups.py` |
+| `unshare` สร้าง Uts และ Pid Namespace เองได้ ข้างในเปลี่ยน Hostname โดยข้างนอกไม่เปลี่ยน และนับ PID จาก 1 | รัน: `exercises/10_namespaces_cgroups.py` |
+| `--memory 64m`, `--cpus 0.5`, `--pids-limit 20` เขียนเป็น `67108864`, `50000 100000`, `20` ใน `memory.max`, `cpu.max`, `pids.max` | รัน: `exercises/10_namespaces_cgroups.py` |
+| ใต้ 64 MB และ 32 MB โปรแกรมที่ขอ Memory ถูกฆ่า (`OOMKilled`, Exit Code 137) ที่ 50 MB กับ 20 MB และใต้ 256 MB จบ | รัน: `exercises/10_namespaces_cgroups.py` |
+| ใต้ `--cpus 0.5` และ `0.25` โปรแกรมได้เวลา CPU ประมาณ 0.52 และ 0.26 ของเวลาจริงและถูกพัก | รัน: `exercises/10_namespaces_cgroups.py` |
+| `--pids-limit 10` ทำให้ Shell Fork ไม่ได้ (`Resource temporarily unavailable`) | รัน: `exercises/10_namespaces_cgroups.py` |
+| เลข Namespace ถูกนำกลับมาใช้ซ้ำหลัง Container จบ จึงต้องเทียบตอนที่รันพร้อมกัน | รัน: `exercises/10_namespaces_cgroups.py` |
+| Namespace คุมสิ่งที่ Process เห็น มีเจ็ดชนิด และ Process อยู่ในชนิดละหนึ่งอัน | หนังสือ: Container Security บทที่ 4 หน้า 31 และ 32 |
+| Cgroup จำกัด Memory, CPU, I/O และจำนวน Process และ Container คือ Process ธรรมดา | หนังสือ: Container Security บทที่ 3 หน้า 23 |
+| Docker สร้าง Container จากกลไกของ Kernel สิบอย่าง | หนังสือ: Docker in Action หัวข้อ 1.1.4 หน้า 6 |
+| `userns-remap`, Cgroup Namespace, ขีดจำกัด Block I/O, สร้าง Cgroup ด้วยมือ, Cgroup v1 | ไม่ได้ลอง |
+
+</Step>

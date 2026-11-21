@@ -1,0 +1,170 @@
+---
+title: Docker Network
+summary: Container แต่ละตัวมี IP ของตัวเอง แต่จะเรียกกันด้วยชื่อได้ก็ต่อเมื่ออยู่ใน Network ที่เราสร้างเอง บทนี้ดูว่า Default Bridge กับ Network ที่สร้างเองต่างกันอย่างไร Network สองวงแยกกันอย่างไร พอร์ตที่ Publish ทำให้คอมพิวเตอร์เราเรียก Container ได้อย่างไร และ Container ของโปรแกรมหาฐานข้อมูลเจอด้วยชื่อได้อย่างไร
+facts:
+  - "รันจริงใน exercises/08_networks.py กับ Docker Engine 29.2.1 ใช้ ping, wget, nslookup, pg_isready และการเปิด Socket จริง ทดสอบ Default Bridge, Network ที่สร้างเอง, สอง Network แยกกันและ docker network connect, พอร์ตที่ Publish กับไม่ Publish ทั้งจากคอมพิวเตอร์เราและจาก Container อื่น, Alias ที่ใช้กับสอง Container, --network none กับ host และการเรียก Postgres ด้วยชื่อ"
+  - "ส่วนที่ว่า Container ได้ IP ที่เรียกถึงกันได้ในเครือข่ายเดียวกัน และ host กับ none เป็นชนิดการต่อเครือข่ายพิเศษ มาจากหนังสือ Docker in Action หัวข้อ 5.2 และ 5.3 ไม่ได้รัน ที่ยังไม่ได้ลองคือ Overlay Network, macvlan, ipvlan, IPv6, การจำกัดการเรียกระหว่าง Container ด้วยกฎของ Firewall และวิธีที่ Docker ต่อพอร์ตจริงด้วย iptables (เรื่องนั้นอยู่ใน Subject Network)"
+order: 8
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [container-lifecycle]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import NetworkLab from '../../../../components/labs/docker/NetworkLab';
+
+<Step>
+
+## Container ทุกตัวมี IP แต่ยังไม่รู้จักชื่อของกันและกัน
+
+หนังสือบอกว่า Container ที่ต่ออยู่กับ Docker Network จะได้ IP Address เฉพาะตัวที่ Container อื่นในเครือข่ายเดียวกันเรียกถึงได้ และ Docker ถือว่า Network เป็นของที่มีวงจรชีวิตของตัวเอง สร้างและจัดการได้ด้วยคำสั่งชุด `docker network` (หนังสือ: Docker in Action หัวข้อ 5.2 หน้า 83) ทุกครั้งที่ติดตั้ง Docker จะมีสาม Network ให้ ได้แก่ `bridge`, `host` และ `none` (รัน)
+
+เรารัน Container สองตัวโดยไม่ระบุ Network เลย ซึ่งทำให้ทั้งคู่ไปอยู่ที่ `bridge` ตัวตั้งต้น แล้วให้ตัว A ลอง Ping ไปหา B สองแบบ (รัน)
+
+| วิธีเรียก | ผล |
+|---|---|
+| Ping ด้วย IP ของ B (`172.17.x.x`) | ถึง |
+| Ping ด้วยชื่อ Container ของ B | ไม่ถึง |
+
+ทั้งคู่ได้ที่อยู่ในช่วง `172.17.0.0/16` และเรียกถึงกันด้วย IP ได้ แต่เรียกด้วยชื่อไม่ได้ เพราะ Default Bridge ไม่มีการแปลงชื่อเป็นที่อยู่ ปัญหาคือ IP ของ Container เปลี่ยนทุกครั้งที่สร้างใหม่ เราจึงเอา IP ไปเขียนไว้ในโปรแกรมไม่ได้ ซึ่งนำไปสู่หัวข้อต่อไป
+
+เรื่องการต่อสายและตารางที่อยู่ว่า Container ถูกต่อเข้า Bridge ด้วยกลไกอะไร เป็นเรื่องที่ Subject Network อธิบายไว้แล้วใน[บท 13](/networking/proxies-and-containers/#container-ก็คือ-network-namespace-ที่ต่อสายเข้า-bridge) บทนี้จะดูจากฝั่งคนใช้ Docker
+
+</Step>
+
+<Step>
+
+## Network ที่เราสร้างเองมี DNS
+
+คำตอบของปัญหาชื่อคือสร้าง Network เองด้วย `docker network create` แล้วให้ Container เข้าร่วม (`--network ชื่อ`) ในแบบฝึกเราทำอย่างนั้น และ Container A เรียก B ด้วยชื่อได้ (รัน) ในไฟล์ `/etc/resolv.conf` ข้างใน Container เห็นว่า Name Server เป็น `127.0.0.11` ซึ่งเป็น DNS ที่ Docker ใส่ให้ และ Network ใหม่ได้ช่วง IP ของตัวเอง (ในรอบที่รันคือ `172.19.0.0/16`) ต่างจาก Default Bridge (รัน)
+
+เรื่องที่สองที่เห็นคือ Network แต่ละวงแยกจากกัน เราสร้างอีกวงหนึ่งชื่อ `dlab-net2` แล้วให้ Container C อยู่ในนั้น A เรียก C ไม่ถึงทั้งด้วยชื่อและด้วย IP แต่พอสั่ง `docker network connect dlab-net2 A` ให้ A เข้าร่วมวงที่สองด้วย A ก็เรียก C ด้วยชื่อได้ (รัน) สรุปทั้งหมดเป็นตารางนี้
+
+| การวาง | A เรียก B ด้วย IP | A เรียก B ด้วยชื่อ |
+|---|---|---|
+| Default Bridge | ถึง | ไม่ถึง |
+| Network เดียวกันที่เราสร้างเอง | ถึง | ถึง |
+| คนละ Network ที่เราสร้างเอง | ไม่ถึง | ไม่ถึง |
+| A เข้าร่วมทั้งสอง Network | ถึง | ถึง |
+
+กดเลือกการวางกับคนที่เรียกใน Lab ดูทีละแบบ ลูกศรจะวิ่งถึงปลายทางหรือหยุดที่ขอบของ Network ตามผลที่วัดได้จริง
+
+<NetworkLab client:visible />
+
+ผลที่ได้คือกฎปฏิบัติสองข้อ ข้อแรก ถ้าอยากให้ Container เรียกกันด้วยชื่อ ให้สร้าง Network เอง ไม่ใช้ Default Bridge ข้อที่สอง Network ใช้กั้น Container ที่ไม่ควรคุยกันได้ เช่น แยกฐานข้อมูลออกจากบริการที่ไม่ต้องใช้มัน (เรายังไม่ได้ลองกฎของ Firewall ที่ละเอียดกว่านี้ระหว่าง Container ในวงเดียวกัน ซึ่งไม่ได้รัน)
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เรารัน Container สองตัวบน Default Bridge โดยไม่ได้สร้าง Network เอง แล้วให้ตัวแรกเรียกตัวที่สองด้วยชื่อ Container ผลเป็นอย่างไร และควรแก้อย่างไร?"
+  options={[
+    'เรียกไม่ถึง เพราะ Default Bridge ไม่มีการแปลงชื่อ แก้ด้วยการสร้าง Network เองแล้วให้ทั้งสองตัวเข้าร่วม',
+    'เรียกถึง เพราะ Docker แปลงชื่อ Container ให้ทุก Network',
+    'เรียกไม่ถึง แก้ด้วยการเพิ่มตัวเลือก -p ให้ทั้งสองตัว',
+    'เรียกถึงแต่ช้า เพราะต้องผ่าน Host ก่อน'
+  ]}
+  answer={0}
+  why="แบบฝึกเห็น Ping ด้วย IP ถึง แต่ Ping ด้วยชื่อไม่ถึงบน Default Bridge ส่วน Network ที่สร้างเองมี DNS ของ Docker ที่ 127.0.0.11 แปลงชื่อให้ (รัน) ตัวเลือก -p ไม่เกี่ยว เพราะมันเปิดทางจากคอมพิวเตอร์เราเข้า Container ส่วน Container ในเครือข่ายเดียวกันคุยกันเองได้ไม่ต้อง Publish"
+/>
+
+</Step>
+
+<Step>
+
+## Publish พอร์ตเพื่อให้คอมพิวเตอร์ของเราเรียกเข้ามาได้
+
+ทีนี้ลองจากอีกด้าน เรารันเว็บเซิร์ฟเวอร์ง่าย ๆ (`python -m http.server 8000`) สองตัวบน Network เดียวกัน ตัวหนึ่งใส่ `-p 127.0.0.1:60808:8000` อีกตัวไม่ใส่ แล้วลองเรียกจากคอมพิวเตอร์เรา (Windows) และจาก Container อีกตัวที่อยู่ใน Network เดียวกัน (รัน)
+
+| ใครเรียก | ไปที่ไหน | ผล |
+|---|---|---|
+| คอมพิวเตอร์ของเรา | พอร์ตที่ Publish (`127.0.0.1:60808`) | ถึง |
+| คอมพิวเตอร์ของเรา | Container ที่ไม่ใส่ `-p` (ผ่าน IP ของ Container) | ไม่ถึง |
+| Container อื่นใน Network เดียวกัน | ตัวที่ใส่ `-p` ด้วยชื่อ | ถึง |
+| Container อื่นใน Network เดียวกัน | ตัวที่ไม่ใส่ `-p` ด้วยชื่อ | ถึง |
+
+พอร์ตที่ Publish คือช่องที่เปิดบนคอมพิวเตอร์ของเราเพื่อส่งต่อเข้า Container เท่านั้น ถ้าไม่ Publish คอมพิวเตอร์เราเรียกเข้าไม่ได้ แต่ Container ที่อยู่ในเครือข่ายเดียวกันเรียกถึงกันเองได้เสมอโดยไม่ต้อง Publish ตัวเลข `127.0.0.1` ในคำสั่งบอกว่าให้เปิดช่องเฉพาะบนที่อยู่นี้ซึ่งมีแต่คอมพิวเตอร์เราเรียกได้ คำสั่ง `docker port` ยืนยันว่าพอร์ตผูกกับ `127.0.0.1` ตามที่เราสั่ง (รัน) ถ้าเราเขียนแค่ `-p 8000:8000` Docker จะเปิดบนทุกที่อยู่ ซึ่งคอมพิวเตอร์เครื่องอื่นในเครือข่ายเดียวกับเราอาจเรียกเข้ามาได้ เราไม่ได้ลองกรณีหลังนี้ (ไม่ได้รัน)
+
+กลไกข้างใต้ของการ Publish คือกฎ DNAT ของ Iptables ซึ่งเราไล่ดูแล้วใน[บท 13 ของ Subject Network](/networking/proxies-and-containers/#เข้ามาข้างใน-port-ที่-publish-คือกฎ-dnat) บทนี้ไม่ได้รันซ้ำ
+
+<Callout type="note" title="ทำไมเรียก IP ของ Container จาก Windows ตรง ๆ ไม่ได้">
+Container อยู่ในเครือข่ายของ Linux ที่ Docker Desktop เปิดไว้ ไม่ใช่ในเครือข่ายของ Windows ที่อยู่ `172.x.x.x` ของ Container จึงเรียกจาก Windows ตรง ๆ ไม่ได้ ซึ่งแบบฝึกเห็นว่าเรียกไม่ถึง บน Linux จริงอาจเรียกได้ต่างออกไป เราไม่ได้ลอง
+</Callout>
+
+</Step>
+
+<Step>
+
+## Alias, None และ Host
+
+มีสามเรื่องสั้น ๆ ที่เจอบ่อย เรื่องแรก Alias เราตั้งชื่อเสริมให้ Container ด้วย `--network-alias` และตั้งชื่อเดียวกันให้สอง Container ได้ ในแบบฝึกเราตั้ง Alias ชื่อ `workers` ให้ Container สองตัว แล้ว `nslookup workers` ตอบกลับเป็นสองที่อยู่ ซึ่งตรงกับ IP ของสองตัวนั้น (รัน) นี่คือการกระจายงานแบบง่ายที่สุดด้วย DNS ที่ลูกค้าได้หลายที่อยู่แล้วเลือกเอง
+
+เรื่องที่สองและสาม คือ Network พิเศษสองตัวที่หนังสือบอกว่าจริง ๆ แล้วเป็นชนิดการต่อที่มีความหมายพิเศษ ไม่ใช่เครือข่ายจริง (หนังสือ: Docker in Action หัวข้อ 5.3 หน้า 89) `--network none` ให้ Container ที่ไม่มีเครือข่ายเลย ในแบบฝึกเห็นแค่ Interface `lo` ตัวเดียว ส่วน `--network host` ให้ Container ใช้เครือข่ายของ Host ตรง ๆ ไม่มี Network Namespace แยก ซึ่งแบบฝึกเห็นรายชื่อ Interface ของ Linux ที่รัน Engine ทั้งหมด รวมถึง `docker0` (รัน) ตามที่หนังสือบอกว่าเห็นและผูกกับ Interface ของ Host ได้ทุกตัว บนเครื่องนี้ Host ที่ว่าคือ Linux ใน Docker Desktop ไม่ใช่ Windows
+
+| ชนิดการต่อ | Interface ที่เห็นข้างใน Container |
+|---|---|
+| ปกติ (Bridge) | `eth0` กับ `lo` |
+| `--network none` | `lo` อย่างเดียว |
+| `--network host` | ทั้งหมดของ Host รวม `docker0` และ Bridge อื่น ๆ |
+
+</Step>
+
+<Step>
+
+## โปรแกรมหาฐานข้อมูลเจอด้วยชื่อ
+
+นี่คือรูปแบบที่ใช้ทุกวันในงานข้อมูล ในแบบฝึกเรารัน Postgres ชื่อ `dlab-db` บน Network ที่เราสร้าง แล้วเปิด Container อีกตัวบน Network เดียวกันเพื่อเรียก `pg_isready -h dlab-db` (รัน)
+
+```text
+dlab-db:5432 - accepting connections
+```
+
+ตัวเรียกหาฐานข้อมูลเจอด้วยชื่อ Container และพอร์ต 5432 โดยเราไม่เคย Publish พอร์ตเลย และคอมพิวเตอร์ของเราเองก็เรียก `127.0.0.1:5432` ไม่ได้ (รัน) นั่นคือ ฐานข้อมูลที่ไม่ได้ Publish จะถูกซ่อนจากโลกข้างนอก แต่โปรแกรมของเราที่อยู่ใน Network เดียวกันเรียกได้ ซึ่งเป็นแนวทางที่ปลอดภัยกว่าเปิดพอร์ตทิ้งไว้ เราจะเห็นรูปแบบนี้ซ้ำในบทที่เรารวมหลาย Container ด้วย Compose
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราไม่ได้ใส่ตัวเลือก Publish ให้ Container ที่รันฐานข้อมูล แต่ Container ของโปรแกรมที่อยู่ใน Network เดียวกันเรียกฐานข้อมูลนั้นด้วยชื่อได้สำเร็จ ข้อไหนอธิบายถูกต้อง?"
+  options={[
+    'เป็นไปไม่ได้ ต้อง Publish พอร์ตก่อนเสมอ ไม่อย่างนั้นไม่มีใครเรียกถึง',
+    'ได้ เพราะ Container ในเครือข่ายเดียวกันเรียกถึงกันเองได้ด้วยชื่อ การ Publish มีไว้ให้คอมพิวเตอร์ของเราหรือคนข้างนอกเรียกเข้ามาเท่านั้น',
+    'ได้ เพราะ Docker เปิดพอร์ตให้ทุก Container บนคอมพิวเตอร์ของเราโดยอัตโนมัติ',
+    'ได้เฉพาะถ้าใช้ Network แบบ host'
+  ]}
+  answer={1}
+  why="Network ที่เราสร้างเองมี DNS และ Container ในวงเดียวกันคุยกันได้โดยตรง แบบฝึกเห็นว่าเรียก pg_isready ด้วยชื่อ Container ได้สำเร็จ ทั้งที่คอมพิวเตอร์เราเรียก 127.0.0.1:5432 ไม่ได้เพราะไม่ได้ Publish (รัน) การไม่ Publish ฐานข้อมูลจึงเป็นแนวทางที่ปลอดภัยกว่าสำหรับระบบที่ไม่ต้องให้ใครข้างนอกเรียกเข้ามา"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Docker มี Network `bridge`, `host` และ `none` เสมอ | รัน: `exercises/08_networks.py` |
+| บน Default Bridge Container เรียกกันด้วย IP ได้ แต่ด้วยชื่อไม่ได้ | รัน: `exercises/08_networks.py` |
+| Network ที่เราสร้างเองมี DNS ที่ `127.0.0.11` และได้ช่วง IP ของตัวเอง | รัน: `exercises/08_networks.py` |
+| คนละ Network เรียกกันไม่ได้ทั้งชื่อและ IP จนกว่า Container จะเข้าร่วมทั้งสอง | รัน: `exercises/08_networks.py` |
+| พอร์ตที่ Publish เรียกจากคอมพิวเตอร์เราได้ ตัวที่ไม่ Publish ไม่ได้ แต่ Container อื่นในวงเดียวกันเรียกได้ทั้งสอง | รัน: `exercises/08_networks.py` |
+| `docker port` แสดงว่าพอร์ตผูกกับ `127.0.0.1` ตามที่ระบุ | รัน: `exercises/08_networks.py` |
+| Alias เดียวกันของสอง Container ตอบกลับเป็นสองที่อยู่ | รัน: `exercises/08_networks.py` |
+| `--network none` เห็นแค่ `lo` และ `--network host` เห็น Interface ของ Host รวม `docker0` | รัน: `exercises/08_networks.py` |
+| Container เรียก Postgres ด้วยชื่อได้โดยไม่ Publish และคอมพิวเตอร์เราเรียกพอร์ต 5432 ไม่ได้ | รัน: `exercises/08_networks.py` |
+| Container ได้ IP ที่เรียกถึงกันได้ในเครือข่ายเดียวกัน และ Network เป็นของที่มีวงจรชีวิตของตัวเอง | หนังสือ: Docker in Action หัวข้อ 5.2 หน้า 83 |
+| `host` กับ `none` เป็นชนิดการต่อพิเศษ ไม่ใช่เครือข่ายจริง และโหมด `host` ไม่มี Network Namespace แยก | หนังสือ: Docker in Action หัวข้อ 5.3 หน้า 89 |
+| กลไก DNAT ของพอร์ตที่ Publish | รัน (ใน Subject Network): `exercises/13_proxies_containers.py` |
+| Overlay Network, Macvlan, Ipvlan, IPv6, กฎ Firewall ระหว่าง Container, การ Publish บนทุกที่อยู่ | ไม่ได้ลอง |
+
+</Step>

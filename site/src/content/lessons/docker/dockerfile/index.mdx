@@ -1,0 +1,190 @@
+---
+title: Dockerfile
+summary: Dockerfile คือสูตรที่ Docker อ่านทีละบรรทัดเพื่อสร้าง Image บทนี้ดูว่าแต่ละบรรทัดไปลงที่ Layer หรือที่ป้ายของ Image CMD กับ ENTRYPOINT ต่างกันอย่างไร ทำไมรูปแบบ Shell กับ Exec ถึงสำคัญ ENV กับ ARG ต่างกันตรงไหน และเกิดอะไรขึ้นเมื่อบรรทัด RUN ล้ม
+facts:
+  - "รันจริงใน exercises/04_dockerfile.py กับ Docker Engine 29.2.1 (BuildKit) Build Image จาก Dockerfile หลายแบบแล้วอ่าน docker history, จำนวน Layer จาก docker image inspect, ผลของ CMD กับ ENTRYPOINT ทั้งรูปแบบ Exec และ Shell, Process ที่เป็น PID 1, ตัวแปรของ ENV กับ ARG, ความต่างของ COPY กับ ADD เมื่อใส่ไฟล์ .tar, เจ้าของไฟล์หลัง USER และข้อความของ Build ที่ล้ม"
+  - "ส่วนที่ว่า Dockerfile ต้องเริ่มด้วย FROM, รูปแบบ Exec เป็นแนวปฏิบัติที่ดีกว่า และ COPY ให้ root เป็นเจ้าของไฟล์ มาจากหนังสือ Docker in Action หัวข้อ 8.1 ถึง 8.2 และเรายืนยันเรื่อง COPY กับ root ด้วยการรันแล้ว ไม่ได้ลองคำสั่ง ONBUILD, VOLUME, HEALTHCHECK และ SHELL ซึ่งไม่ได้อยู่ในบทนี้"
+order: 4
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [images-and-layers]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import DockerfileLab from '../../../../components/labs/docker/DockerfileLab';
+
+<Step>
+
+## Dockerfile คือสูตรที่ Docker อ่านทีละบรรทัด
+
+ในสองบทที่ผ่านมา เรา Build Image แบบผ่าน ๆ ไปโดยยังไม่ได้อธิบายว่ามันทำอย่างไร ตอนนี้ถึงเวลาเปิดสูตรดูกัน Dockerfile คือไฟล์ข้อความธรรมดาที่เขียนว่าจะสร้าง Image อย่างไร โดยแต่ละบรรทัดคือหนึ่งคำสั่ง และหนังสือบอกกฎข้อเดียวที่พิเศษไว้ว่า บรรทัดแรกต้องเป็น `FROM` (หนังสือ: Docker in Action หัวข้อ 8.1 หน้า 145) เรามาลอง Build โปรแกรม Python เล็ก ๆ ที่พิมพ์ตัวแปรกับโฟลเดอร์ที่มันทำงานอยู่
+
+```dockerfile
+FROM python:3.13-slim
+LABEL org.example.course=docker
+ENV GREETING=hello
+WORKDIR /app
+COPY app.py .
+RUN python -c "open('/app/built.txt', 'w').write('x' * 1000)"
+EXPOSE 8080
+CMD ["python", "app.py"]
+```
+
+```bash
+docker build -t dlab-app .
+docker run --rm dlab-app
+```
+
+```text
+greeting: hello | cwd: /app | uid: 0
+```
+
+คำสั่ง `docker build -t dlab-app .` อ่าน Dockerfile ในโฟลเดอร์ปัจจุบัน (จุดท้ายคำสั่งคือที่อยู่ของโฟลเดอร์นั้น) แล้วตั้งชื่อ Image ว่า `dlab-app` พอรันแล้ว Container พิมพ์ตัวแปร `GREETING` ที่ตั้งด้วย `ENV` พิมพ์ว่าทำงานอยู่ที่ `/app` ซึ่งมาจาก `WORKDIR` และรันสคริปต์ที่มาจาก `CMD` (รัน)
+
+เรื่องที่น่าสนใจคือแต่ละบรรทัดไปอยู่ตรงไหนของ Image จาก[บท 2](/docker/images-and-layers/#image-คือกองของ-layer) เรารู้ว่า Image คือกองของ Layer แต่ในแบบฝึกเราพบว่า Dockerfile แปดบรรทัดนี้ไม่ได้เพิ่ม Layer แปดชั้น `docker history` ขึ้นขนาด 0B ให้ `LABEL`, `ENV`, `WORKDIR`, `EXPOSE` และ `CMD` ส่วน `COPY` ได้ 105 ไบต์ และ `RUN` ได้ 30.9 kB (รัน) และเมื่อนับ Layer จริงของ Image ได้เจ็ดชั้น คือ Layer ของ Image ฐานสี่ชั้นบวก `WORKDIR`, `COPY` และ `RUN` อย่างละหนึ่ง ซึ่ง `WORKDIR` ได้ Layer เพราะมันสร้างโฟลเดอร์ `/app` ขึ้นมา ทั้งที่ขนาดขึ้น 0B ส่วน `ENV`, `LABEL` และ `CMD` ไม่เพิ่ม Layer เลย เราลอง Build Image แยกที่มีแค่สามบรรทัดนั้นแล้วนับได้เท่ากับ Image ฐาน (รัน)
+
+กดเล่น Lab ทีละบรรทัดดู จะเห็นว่าแต่ละบรรทัดไปลงสองที่ ที่แรกคือชั้นของไฟล์ ซึ่งได้จาก `FROM`, `WORKDIR`, `COPY` และ `RUN` ที่สองคือป้ายของ Image หรือ Config ที่ `LABEL`, `ENV`, `EXPOSE` และ `CMD` เขียนลงไป พอสั่ง `docker run` Container ก็อ่านป้ายนี้เพื่อรู้ว่าต้องทำอะไรตอนเริ่ม
+
+<DockerfileLab client:visible />
+
+หนังสืออธิบายกลไกข้างหลังไว้ว่า ตัว Builder ทำทุกคำสั่งเหมือนที่เราทำด้วยมือ คือสร้าง Container ใหม่พร้อมการเปลี่ยนแปลงแล้ว Commit เป็น Layer แล้วไปคำสั่งถัดไป (หนังสือ: Docker in Action หัวข้อ 8.1 หน้า 145) และบอกว่าใน Dockerfile ควรรวมคำสั่งเข้าด้วยกันให้มากที่สุดเท่าที่ทำได้ เพราะ Builder ไม่ได้ช่วยปรับให้ (หนังสือ: Docker in Action หัวข้อ 8.2.1 หน้า 149) ข้อนี้ตรงกับที่เราเห็นใน[บท 2](/docker/images-and-layers/) ว่าไฟล์ที่ลบทีหลังยังกินที่ใน Image
+
+</Step>
+
+<Step>
+
+## CMD กับ ENTRYPOINT ตัดสินว่า Container เริ่มอย่างไร
+
+มีสองบรรทัดที่บอกว่า Container จะรันอะไร และสองบรรทัดนี้ทำงานร่วมกัน `ENTRYPOINT` คือโปรแกรมที่จะรัน และ `CMD` คืออาร์กิวเมนต์ตั้งต้นของมัน หนังสือวาดความสัมพันธ์นี้ไว้ในรูปที่ 8.1 (หนังสือ: Docker in Action หัวข้อ 8.2.2 หน้า 153) ในแบบฝึกเรา Build Image บน Alpine สามแบบ แล้วรันแต่ละอันสองครั้ง ครั้งแรกไม่ใส่อะไร ครั้งที่สองต่อท้ายคำว่า `docker` (รัน)
+
+| Dockerfile | `docker run image` | `docker run image docker` |
+|---|---|---|
+| `ENTRYPOINT ["echo", "hello"]` และ `CMD ["world"]` | Hello World | Hello Docker |
+| `ENTRYPOINT echo hello` (Shell Form) และ `CMD ["world"]` | Hello | Hello |
+| `CMD ["echo", "default"]` อย่างเดียว | Default | ล้มด้วย Exit Code 127 |
+
+แถวแรกคือการใช้งานที่ถูกต้อง `ENTRYPOINT` อยู่คงที่ และ `CMD` เป็นค่าตั้งต้นที่เราเขียนทับได้ตอนรัน แถวที่สามไม่มี `ENTRYPOINT` ตัวอาร์กิวเมนต์ที่เราต่อท้ายจึงแทนที่ทั้งคำสั่ง Docker เลยพยายามรันโปรแกรมชื่อ `docker` ซึ่งไม่มี ส่วนแถวที่สองต่างจากแถวแรกแค่วิธีเขียน `ENTRYPOINT` แต่ผลต่างกันมาก เพราะ Shell Form ทำให้ CMD และอาร์กิวเมนต์ทั้งหมดถูกมองข้าม ซึ่งตรงกับที่หนังสือเตือนว่าทำให้ยืดหยุ่นน้อยลง (หนังสือ: Docker in Action หัวข้อ 8.2.1 หน้า 149) ถ้าอยากเปลี่ยน `ENTRYPOINT` ตอนรัน ใช้ตัวเลือก `--entrypoint` ซึ่งแบบฝึกยืนยันว่าแทนที่ได้ (รัน)
+
+คำสั่งทั้งสองเขียนได้สองรูปแบบ แบบ Exec คืออาร์เรย์ `["sleep", "300"]` และแบบ Shell คือข้อความธรรมดา `sleep 300` ซึ่ง Docker จะห่อด้วย `/bin/sh -c` ให้ หนังสือแนะนำให้ใช้แบบ Exec ทุกที่ที่ทำได้ (หนังสือ: Docker in Action หัวข้อ 8.2.2 หน้า 153) เราลองดูว่า PID 1 เป็นอะไรเมื่อเขียนต่างกัน (รัน)
+
+| วิธีเขียน CMD | PID 1 ใน Container |
+|---|---|
+| `["sleep", "300"]` | `sleep 300` |
+| `sleep 300` | `sleep 300` |
+| `sleep 300 && echo done` | `/bin/sh -c sleep 300 && echo done` |
+
+ผลของแถวที่สองอาจเกินคาด เรานึกว่า Shell Form จะทำให้ Shell เป็น PID 1 เสมอ แต่ใน Alpine ซึ่งใช้ Shell ของ BusyBox กรณีที่มีคำสั่งเดียว Shell จะเปลี่ยนตัวเองเป็นคำสั่งนั้นเลย PID 1 จึงยังเป็น `sleep` เหมือนแบบ Exec แต่พอมีสองคำสั่ง Shell ต้องอยู่เป็นตัวควบคุม มันจึงเป็น PID 1 และโปรแกรมของเราเป็นลูก ซึ่งตรงกับปัญหาในบท[วงจรชีวิตของ Container](/docker/container-lifecycle/#docker-stop-ขอดี-ๆ-ก่อน-แล้วค่อยฆ่า) เพราะ Shell ที่เป็น PID 1 จะไม่ส่ง SIGTERM ต่อให้ลูก เราลองกับ Alpine ตัวเดียว (ไม่ได้รัน Shell ของ Debian หรือ Bash) ผลอาจต่างกันถ้าใช้ Image อื่น
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Dockerfile ตั้ง ENTRYPOINT แบบ Exec ให้รันโปรแกรม Echo ด้วยคำว่า Hello และตั้ง CMD เป็นคำว่า World เมื่อเรารัน Container โดยต่อท้ายชื่อ Image ด้วยคำว่า There จะได้ข้อความอะไร?"
+  options={[
+    'Hello World There',
+    'Hello There เพราะอาร์กิวเมนต์ที่ต่อท้ายแทนที่ CMD แต่ ENTRYPOINT ยังอยู่',
+    'There เพราะอาร์กิวเมนต์แทนที่ทั้งคำสั่ง',
+    'ล้มด้วย Exit Code 127'
+  ]}
+  answer={1}
+  why="ENTRYPOINT แบบ Exec เป็นโปรแกรมที่คงที่ ส่วน CMD เป็นแค่อาร์กิวเมนต์ตั้งต้น ตัวที่เราต่อท้ายตอนรันจึงแทนที่ CMD ตามที่แบบฝึกเห็น คือผลปกติเป็น Hello World และกลายเป็น Hello Docker เมื่อต่อท้ายคำว่า Docker (รัน) ถ้าเป็น Shell Form ของ ENTRYPOINT อาร์กิวเมนต์จะถูกมองข้ามทั้งหมด และถ้ามีแค่ CMD อาร์กิวเมนต์ที่ต่อท้ายจะแทนที่ทั้งคำสั่ง"
+/>
+
+</Step>
+
+<Step>
+
+## ENV อยู่ใน Container ส่วน ARG อยู่แค่ตอน Build
+
+ตัวแปรใน Dockerfile มีสองแบบ `ENV` เขียนตัวแปรลงป้ายของ Image ทำให้ Container ที่เริ่มจาก Image นั้นเห็นตัวแปรนี้ เรายังใช้ค่าของมันในบรรทัดถัดไปของ Dockerfile ได้ด้วย (หนังสือ: Docker in Action หัวข้อ 8.2.1 หน้า 149) ส่วน `ARG` ใช้ได้เฉพาะตอน Build และส่งค่าเข้ามาได้ด้วย `--build-arg` ในแบบฝึกเรา Build Image ที่มีทั้งสองแบบ โดย `ARG VERSION`, `ARG TOKEN` และ `ENV APP_ENV=prod` แล้วส่ง `--build-arg VERSION=2.0` ตอน Build (รัน)
+
+```text
+APP_ENV=prod
+building 2.0 with not-a-real-secret
+```
+
+Container เห็น `APP_ENV` แต่ไม่เห็น `VERSION` หรือ `TOKEN` ในตัวแปรสภาพแวดล้อมเลย ส่วนบรรทัดที่สองมาจากไฟล์ที่ `RUN` เขียนตอน Build ซึ่งแปลว่าค่าที่ส่งตอน Build ไปอยู่ในไฟล์ของ Image แล้ว และมีเรื่องที่คนมักไม่รู้ ตัวแปร `ARG` ที่ถูกใช้ในบรรทัด `RUN` จะปรากฏใน `docker history` ให้ทุกคนที่มี Image ไปอ่านได้ ทั้งค่า `VERSION=2.0` และค่าของ `TOKEN` (รัน) ถ้าส่งให้ `docker run -e APP_ENV=dev` ตัวแปรที่ `ENV` ตั้งไว้ถูกเขียนทับได้ (รัน)
+
+<Callout type="warn" title="อย่าส่งความลับผ่าน ARG หรือ ENV">
+ค่า `TOKEN` ในตัวอย่างของเราเป็นของปลอม แต่ถ้าเป็นรหัสผ่านจริง มันจะค้างอยู่ใน `docker history` และในไฟล์ที่ `RUN` เขียนลงไป ใครได้ Image ไปก็อ่านได้ เราจะกลับมาดูวิธีจัดการความลับให้ปลอดภัยกว่านี้ในบทที่พูดถึงความปลอดภัยของ Image
+</Callout>
+
+</Step>
+
+<Step>
+
+## COPY, ADD และเจ้าของไฟล์
+
+คำสั่งที่เอาไฟล์จากคอมพิวเตอร์เราเข้า Image มีสองตัว `COPY` ก๊อปไฟล์ตามที่เป็น ส่วน `ADD` ทำเหมือนกันแต่เพิ่มสองอย่าง คือดึงไฟล์จาก URL ได้ และแตกไฟล์ Archive ให้เอง (หนังสือ: Docker in Action หัวข้อ 8.2.2 หน้า 153) ในแบบฝึกเราเตรียมไฟล์ `data.tar` ที่ข้างในมี `hello.txt` แล้วใช้ทั้งสองคำสั่ง (รัน)
+
+| คำสั่ง | สิ่งที่เห็นใน `/in` |
+|---|---|
+| `COPY data.tar /in/` | `data.tar` (ยังเป็นไฟล์ Archive) |
+| `ADD data.tar /in/` | `hello.txt` (ถูกแตกให้แล้ว) |
+
+หนังสือแนะนำไม่ให้ใช้ `ADD` ดึงไฟล์จาก URL เพราะมันไม่มีวิธีลบไฟล์ที่ไม่ใช้ และทำให้ได้ Layer เพิ่ม ให้ใช้ `RUN` ที่ดาวน์โหลดแล้วลบในบรรทัดเดียวกันแทน (หนังสือ: Docker in Action หัวข้อ 8.2.2 หน้า 153) เรื่องนี้ไม่ได้รัน เราไม่ได้ลองดึงจาก URL
+
+อีกเรื่องที่ควรรู้คือเจ้าของไฟล์ เราสร้างผู้ใช้ชื่อ `app` (UID 1000) แล้วใช้ `USER app` ก่อน `COPY` ผลที่ได้ตอนรันคือ `USER` ทำให้ Container ทำงานเป็น UID 1000 จริง และ `WORKDIR` สร้างโฟลเดอร์ให้พร้อมเริ่มทำงานที่นั่น แต่ไฟล์ที่ `COPY` เข้าไปยังเป็นของ Root (UID 0) ไม่ใช่ `app` (รัน) ซึ่งหนังสือเตือนไว้เหมือนกัน ว่าไฟล์ที่ COPY เป็นของ Root ไม่ว่าจะตั้งผู้ใช้ไว้เป็นใคร (หนังสือ: Docker in Action หัวข้อ 8.2.2 หน้า 153) ถ้าโปรแกรมต้องเขียนทับไฟล์นั้นตอนรัน มันจะเขียนไม่ได้ เราจะกลับมาเรื่องสิทธิ์ผู้ใช้ในบทของ Image ที่ปลอดภัย
+
+</Step>
+
+<Step>
+
+## ตอน RUN ล้มเหลว
+
+สุดท้ายคือเรื่องที่เจอบ่อยตอนเริ่มเขียน Dockerfile คือ Build ล้ม ในแบบฝึกเราเขียนบรรทัด `RUN nosuchcommand` ที่ไม่มีคำสั่งนี้อยู่ แล้ว Build (รัน)
+
+```text
+ERROR: failed to build: failed to solve: process "/bin/sh -c nosuchcommand" did not complete successfully: exit code: 127
+```
+
+Build หยุดทันทีด้วย Exit Code ที่ไม่ใช่ศูนย์ และบรรทัดต่อจากนั้นไม่ถูกรันเลย ข้อความบอกคำสั่งที่ล้มกับ Exit Code ของมัน ซึ่งคือ 127 ตัวเดียวกับที่เราเห็นในบท[วงจรชีวิตของ Container](/docker/container-lifecycle/#exit-code-บอกว่าโปรแกรมจบอย่างไร) ว่าหาคำสั่งไม่เจอ ตัวอย่างในหนังสือก็เจอข้อความแบบเดียวกัน (หนังสือ: Docker in Action หัวข้อ 8.1 หน้า 145) วิธีอ่านคือดูบรรทัดที่มีเครื่องหมาย `>>>` ในบันทึกการ Build ซึ่งชี้ว่าล้มที่คำสั่งไหน แล้วเอา Exit Code ไปตีความเหมือนที่เคยทำ
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Dockerfile ตั้งตัวแปรด้วย ARG ชื่อ Token แล้วใช้ค่านั้นในบรรทัด RUN ตอน Build จากนั้นเรา Push Image ให้เพื่อนร่วมทีม เพื่อนจะอ่านค่า Token ได้หรือไม่?"
+  options={[
+    'ไม่ได้ เพราะ ARG ใช้ได้เฉพาะตอน Build จึงไม่เหลืออยู่ใน Image',
+    'ได้ เพราะค่าที่ใช้ในบรรทัด RUN จะอยู่ใน Docker History ของ Image ให้ทุกคนที่มี Image อ่านได้',
+    'ได้เฉพาะตอน Container กำลังรัน เพราะ ARG กลายเป็นตัวแปรสภาพแวดล้อม',
+    'ได้ก็ต่อเมื่อเพื่อนมีรหัสผ่านของเรา'
+  ]}
+  answer={1}
+  why="ARG ไม่เข้าไปอยู่ในตัวแปรสภาพแวดล้อมของ Container ก็จริง แต่ Docker บันทึกค่าที่ใช้ในบรรทัด RUN ไว้ในประวัติของ Layer แบบฝึกอ่านทั้ง VERSION=2.0 และค่าของ Token จาก Docker History ได้ (รัน) จึงไม่ควรใช้ ARG หรือ ENV ส่งความลับเข้า Image"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Container เห็น `ENV` และ `WORKDIR` กับรัน `CMD` ได้ และอาร์กิวเมนต์ท้ายคำสั่งแทนที่ `CMD` | รัน: `exercises/04_dockerfile.py` |
+| `LABEL`, `ENV`, `WORKDIR`, `EXPOSE` และ `CMD` ขึ้น 0B ใน `docker history`, `COPY` กับ `RUN` มีขนาด | รัน: `exercises/04_dockerfile.py` |
+| Image มี Layer ของฐานบวก 3 ชั้นจาก `WORKDIR`, `COPY`, `RUN` และ `ENV`, `LABEL`, `CMD` ไม่เพิ่ม Layer | รัน: `exercises/04_dockerfile.py` |
+| `EXPOSE` เป็นแค่บันทึก ไม่ได้ Publish พอร์ต | รัน: `exercises/04_dockerfile.py` |
+| `ENTRYPOINT` แบบ Exec กับ `CMD` ได้ Hello World, ต่อท้ายแทนที่ `CMD`, Shell Form ของ `ENTRYPOINT` มองข้ามทั้งหมด, `CMD` เดี่ยวถูกแทนที่ทั้งคำสั่ง, `--entrypoint` แทนที่ได้ | รัน: `exercises/04_dockerfile.py` |
+| PID 1 ของ `CMD` แบบ Exec และ Shell ที่มีคำสั่งเดียวคือโปรแกรมเอง ส่วน Shell ที่มีสองคำสั่งคือ `/bin/sh -c` (ใน Alpine) | รัน: `exercises/04_dockerfile.py` |
+| `ENV` อยู่ใน Container ส่วน `ARG` ไม่อยู่ และค่า `ARG` ที่ใช้ใน `RUN` อ่านได้จาก `docker history` | รัน: `exercises/04_dockerfile.py` |
+| `COPY` ไม่แตก Archive แต่ `ADD` แตกให้ | รัน: `exercises/04_dockerfile.py` |
+| หลัง `USER` ไฟล์ที่ `COPY` ยังเป็นของ Root และ `WORKDIR` สร้างโฟลเดอร์ | รัน: `exercises/04_dockerfile.py` |
+| `RUN` ที่ล้มทำให้ Build หยุดและบอก Exit Code 127 | รัน: `exercises/04_dockerfile.py` |
+| บรรทัดแรกของ Dockerfile ต้องเป็น `FROM` และ Builder ทำแต่ละคำสั่งเป็น Container ที่ Commit เป็น Layer | หนังสือ: Docker in Action หัวข้อ 8.1 หน้า 145 |
+| `ENV` ใช้ค่าซ้ำในบรรทัดถัดไปได้, ควรรวมคำสั่ง, Shell Form ของ `ENTRYPOINT` มองข้ามอาร์กิวเมนต์ | หนังสือ: Docker in Action หัวข้อ 8.2.1 หน้า 149 |
+| `COPY` ให้ Root เป็นเจ้าของ, `ADD` แตก Archive และดึง URL ได้, ควรใช้รูปแบบ Exec, `CMD` คืออาร์กิวเมนต์ของ `ENTRYPOINT` | หนังสือ: Docker in Action หัวข้อ 8.2.2 หน้า 153 |
+| `ONBUILD`, `VOLUME`, `HEALTHCHECK`, `SHELL`, `ADD` จาก URL | ไม่ได้ลอง |
+
+</Step>

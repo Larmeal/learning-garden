@@ -1,0 +1,102 @@
+---
+title: Check your understanding
+summary: Five questions to check that you can read an exit code, tell Pause from Stop, and understand why the command that stops a container is sometimes instant and sometimes slow.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We run a container from the Alpine image with a program that does not exist in the image, and Docker returns exit code 127 with the message executable file not found. What does it tell us?"
+  options={[
+    'Our program ran and failed with code 127, a code the program chose',
+    'Docker could not find the program in the image, so it never started it, and it reports 127, the code commonly used for command not found',
+    'The container was killed by signal number 127',
+    'The image is damaged and must be pulled again'
+  ]}
+  answer={1}
+  why="127 does not come from our program, because the program was never started. Docker checked itself that the file is not in the image and returned 127, the same code a shell uses when it cannot find a command. The exercise saw 127 in both cases (ran). A code that comes from a signal is 128 plus the signal number, such as 137 and 143."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We run Docker Pause on a running container and look at its state. What do we see?"
+  options={[
+    'The state Exited, and the process has ended',
+    'The state Paused, and the process is still in the system but frozen until we run Unpause',
+    'The state Created, because Docker goes back to the start',
+    'The container is removed from the list'
+  ]}
+  answer={1}
+  why="Pause differs from Stop because the program is not closed. The exercise saw the state Paused and the process still had a number on the engine side (ran). After Unpause it is Running again without the program being started over. Stop ends the process and the container becomes Exited."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We run a sleep as PID 1 in two ways. The first has nothing extra, and the second uses the Init option. Then we run Docker Stop on both. How do the results differ?"
+  options={[
+    'Both stop at once with exit code 0',
+    'The first waits out the grace period and is killed by SIGKILL (137), and the second stops at once with 143, because the init passes SIGTERM on to the sleep',
+    'The first stops at once and the second has to wait out the grace period',
+    'Both wait out the grace period and are killed by SIGKILL'
+  ]}
+  answer={1}
+  why="A sleep that is PID 1 has no handler for SIGTERM, so that signal does not kill it. The exercise measured 5.3 seconds with -t 5 and exit code 137. The Init option puts a small init program in as PID 1 and it passes SIGTERM on to the sleep, which dies of that signal within 0.3 seconds, and the code is 143, which is 128 plus 15 (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A container has already ended. We run Docker Exec to run one more command inside it. What happens?"
+  options={[
+    'Docker starts the container again by itself and runs the command',
+    'The command runs normally, because the files of the container are still there',
+    'Docker refuses, because Exec works only on a container that is running, so we must start it first',
+    'Docker deletes the container and makes a new one'
+  ]}
+  answer={2}
+  why="Exec adds a process to a container that already has a main process running. If the container has ended, there is nothing to add to. The exercise saw a refusal that says the container is not running (ran). To look at the files of a container that ended, start it first, or read what it printed with docker logs."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We run Docker Rm on a container that is still running, with no extra option. What is the result?"
+  options={[
+    'Docker refuses and says the container is still running, so we must stop it first or force it with an extra option',
+    'Docker stops and removes it at once',
+    'Docker removes only the files of the container and lets the process keep working',
+    'Docker asks us whether to delete it'
+  ]}
+  answer={0}
+  why="Docker protects a container whose process is still working. The exercise saw a refusal that mentions running (ran). Stop it first, or use the force option, which the exercise uses to clean up at the end. The command docker container prune removes only the stopped ones, and a container that is still running is left alone (ran)."
+/>
+
+</Step>

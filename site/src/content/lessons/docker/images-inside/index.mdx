@@ -1,0 +1,161 @@
+---
+title: Image Internals
+summary: Image ที่อยู่บนดิสก์คือโฟลเดอร์ของไฟล์ที่ตั้งชื่อด้วยแฮช sha256 ของเนื้อหาตัวเอง บทนี้เปิด Docker Save ดู Manifest, Config และ Layer ว่าอะไรอยู่ตรงไหน แล้วรัน Registry จริงเพื่อดูว่า Push ส่งอะไร Tag ต่างจาก Digest อย่างไร และทำไม Tag ของ Image ทางการถึงชี้ไปที่ Index ที่มีหลายแพลตฟอร์ม
+facts:
+  - "รันจริงใน exercises/11_image_inside.py กับ Docker Engine 29.2.1 บันทึก alpine:3.22 ด้วย docker save แล้วเปิดไฟล์ tar อ่าน oci-layout, index.json, manifest.json และ Blob ใน blobs/sha256 ตรวจแฮชของทุก Blob, ตรวจว่า Image ID คือแฮชของ Config, ดู history ของ Image ที่เรา Build เอง, รัน registry:3 ใน Container แล้ว Push สอง Image อ่าน API ของมันผ่าน HTTP และลองย้าย Tag กับดึงด้วย Digest เดิม กับดู Index ของ alpine:3.22 บน Docker Hub ด้วย docker buildx imagetools"
+  - "ส่วนที่ว่า Digest ตรึงเนื้อหาของ Image ไว้ได้ และ Docker Registry ที่แจกฟรีคือซอฟต์แวร์ Distribution มาจากหนังสือ Docker in Action หัวข้อ 8.6.1 และ 9.3 ไม่ได้รันเพิ่ม เรายังไม่ได้ลองการยืนยันตัวตนกับ Registry, HTTPS, Image ที่เซ็นลายเซ็น, การลบ Blob ออกจาก Registry, Registry บน Cloud และ Docker Hub แบบ Push ได้ และไม่ได้อ่านซอร์สของ Docker"
+order: 11
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [images-and-layers, dockerfile]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ImageInsideLab from '../../../../components/labs/docker/ImageInsideLab';
+
+<Step>
+
+## Image บนดิสก์คือโฟลเดอร์ของ Blob ที่ตั้งชื่อด้วยแฮช
+
+ใน[บท 2](/docker/images-and-layers/#image-คือกองของ-layer) เราเห็น Image จากมุมของคนใช้ ว่าเป็นกองของ Layer ที่มี ID คราวนี้เราเปิดไฟล์จริงดู คำสั่ง `docker save` บันทึก Image ออกมาเป็นไฟล์ `.tar` ซึ่งเราแกะดูได้ ในแบบฝึกเราบันทึก `alpine:3.22` แล้วเห็นไฟล์เหล่านี้ (รัน)
+
+```text
+blobs/sha256/812e99317af7…  (611 bytes)
+blobs/sha256/b300ffecbfcf…  (400 bytes)
+blobs/sha256/cd14d7b4a4fb…  (749 bytes)
+blobs/sha256/fdc5834cb53a…  (8587264 bytes)
+index.json
+manifest.json
+oci-layout
+```
+
+ข้างในเป็นโครงสร้างที่เรียกว่า OCI Layout มีไฟล์ `oci-layout` ที่บอกรุ่น, `index.json` ที่ชี้ไปหา Manifest และโฟลเดอร์ `blobs/sha256` ที่เก็บของทั้งหมด จุดที่สำคัญที่สุดคือชื่อไฟล์ใน `blobs/sha256` เราตรวจแล้วว่าทุกไฟล์ถูกตั้งชื่อด้วยแฮช sha256 ของไบต์ที่อยู่ข้างในตัวเองพอดี (รัน) การตั้งชื่อด้วยเนื้อหาแบบนี้เรียกว่า Content Addressing ซึ่งทำให้ไฟล์เดียวกันเก็บได้ที่เดียว และรู้ทันทีว่าไฟล์เสียหรือไม่เพราะแฮชจะไม่ตรง
+
+มี Blob อีกตัวหนึ่ง (749 ไบต์) ที่เปิดดูแล้วเป็น JSON ของ Config รูปแบบเก่า ซึ่งเราเดาว่าเขียนไว้ให้เครื่องมือรุ่นเก่าอ่านได้ (ข้อนี้เป็นข้อสันนิษฐาน ไม่ได้ไล่ดูซอร์สของ Docker)
+
+เราแกะต่อไปทีละชั้น `index.json` ชี้ไปที่ Blob หนึ่งตัว (400 ไบต์) ซึ่งคือ Manifest ข้างใน Manifest ระบุชื่อ Config กับรายการ Layer ด้วยแฮช Config (611 ไบต์) คือไฟล์ JSON ที่เก็บคำสั่งเริ่ม ตัวแปร ระบบปฏิบัติการ สถาปัตยกรรม และ `diff_ids` ของ Layer และ Layer (8,587,264 ไบต์) คือไฟล์ Tar ของระบบไฟล์ ที่เปิดแล้วเจอ `etc/alpine-release` กับ `bin/busybox` (รัน) ความเชื่อมโยงที่น่าสนใจมีสองข้อ ข้อแรก Image ID ที่ `docker images` แสดงคือแฮช sha256 ของไฟล์ Config พอดี ข้อสอง แฮช sha256 ของไฟล์ Layer ที่เป็น Tar คือค่า `diff_ids` ที่เขียนไว้ใน Config (รัน)
+
+</Step>
+
+<Step>
+
+## Config เก็บประวัติของทุกบรรทัดใน Dockerfile
+
+ใน[บท 4](/docker/dockerfile/#dockerfile-คือสูตรที่-docker-อ่านทีละบรรทัด) เราเห็นว่า `docker history` ขึ้น 0B ให้บรรทัด `ENV` และ `CMD` ตอนนี้เรารู้ว่าข้อมูลนั้นมาจากไหน ในแบบฝึกเรา Build Image จาก Dockerfile ที่มี `ENV`, `COPY` และ `CMD` แล้วบันทึกออกมา (รัน)
+
+| ประเภท | สร้างโดย |
+|---|---|
+| metadata only | `ENV GREETING=hi` |
+| layer | `COPY hello.txt /hello.txt` |
+| metadata only | `CMD ["cat", "/hello.txt"]` |
+
+ใน Config มีรายการ `history` ที่จดทุกบรรทัดของ Dockerfile และบรรทัดที่ไม่ได้สร้าง Layer จะมีเครื่องหมาย `empty_layer` ในแบบฝึก `history` มีหลายบรรทัดกว่าจำนวน Layer ใน Manifest ซึ่งมีสองชั้นคือ Layer ของ Alpine ตัวเดิมเป๊ะ (แฮชเดียวกับที่ Image ฐานมี) กับ Layer ของเราที่มีไฟล์เดียวคือ `hello.txt` ส่วน `ENV` กับ `CMD` เก็บอยู่ในส่วน `config` ของ Config เป็น `GREETING=hi` และคำสั่งเริ่ม (รัน) นี่ตรงกับที่เราเห็นในบท [Dockerfile](/docker/dockerfile/) ว่าบรรทัดพวกนี้เป็นป้ายบน Image ไม่ใช่ไฟล์
+
+</Step>
+
+<Step>
+
+## Tag ชี้ผ่าน Index, Manifest และ Config ไปถึง Layer
+
+พอ Image ไปอยู่บน Registry (เช่น Docker Hub) โครงสร้างเป็นลูกโซ่ยาวขึ้นหนึ่งชั้น Tag อย่าง `alpine:3.22` ชี้ไปที่ Index ซึ่งมี Manifest หนึ่งอันต่อแพลตฟอร์ม เราถาม Docker Hub ด้วย `docker buildx imagetools inspect` และพบว่า Tag นี้ชี้ไปที่ Index ที่มีแพลตฟอร์มเจ็ดแบบ ได้แก่ `linux/386`, `linux/amd64`, `linux/arm`, `linux/arm64`, `linux/ppc64le`, `linux/riscv64` และ `linux/s390x` และแฮช sha256 ของ Index คือแฮชที่เครื่องมือรายงาน (รัน) Manifest ของ `linux/amd64` ระบุ Config ตัวเดียวกับ Image ในเครื่องเรา ซึ่งแปลว่า Image ID เหมือนกันทุกที่ ส่วน Layer ที่ Registry เก็บเป็นแบบบีบอัด Gzip จึงมีแฮชต่างจาก `diff_id` ของไฟล์ Tar บนดิสก์ (รัน)
+
+มีเรื่องหนึ่งที่เราไม่ได้คาดไว้ Manifest ที่ `docker save` เขียนบนคอมพิวเตอร์เครื่องนี้ (`b300ffecbfcf`) มีแฮชต่างจาก Manifest ของ `linux/amd64` บน Docker Hub (`9db293488671`) ทั้งที่ Config เป็นตัวเดียวกัน เราไม่ได้ไล่ดูสาเหตุ (ไม่ได้รัน) สิ่งที่เอาไปใช้ได้คือ Image ID หรือแฮชของ Config เป็นตัวตนที่คงที่ ส่วนแฮชของ Manifest อาจต่างกันได้ตามวิธีที่แต่ละเครื่องมือเขียน
+
+กดไล่ทีละกล่องใน Lab ดู จะเห็นลูกโซ่ตั้งแต่ Tag ไปจนถึง Layer พร้อมแฮชจริง
+
+<ImageInsideLab client:visible />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Image ID ที่ Docker Images แสดง ตรงกับอะไรในโครงสร้างของ Image?"
+  options={[
+    'แฮช sha256 ของไฟล์ Config ของ Image ซึ่งเป็นไฟล์ JSON ที่เก็บคำสั่งเริ่ม ตัวแปร และรายการ Layer',
+    'แฮชของ Layer ชั้นบนสุดของ Image',
+    'ตัวเลขสุ่มที่ Docker สร้างตอนดึง Image',
+    'ชื่อ Tag ของ Image แปลงเป็นเลขฐานสิบหก'
+  ]}
+  answer={0}
+  why="แบบฝึกตรวจพบว่า Image ID เท่ากับชื่อของ Blob Config ใน Docker Save ซึ่งคือ sha256 ของไบต์ในไฟล์นั้น และ Manifest บน Docker Hub ของแพลตฟอร์ม amd64 ก็ระบุ Config ตัวเดียวกัน (รัน) Image ID จึงเป็นตัวตนที่คงที่ ไม่ได้ขึ้นกับ Tag และไม่ได้สุ่ม"
+/>
+
+</Step>
+
+<Step>
+
+## Push ส่งเฉพาะสิ่งที่ Registry ยังไม่มี
+
+เราลองรัน Registry ของเราเองด้วย Image `registry:3` ใน Container (หนังสือบอกว่า Docker Registry ที่แจกฟรีคือซอฟต์แวร์ชื่อ Distribution ที่เปิดซอร์สและใช้ได้โดยไม่เสียค่าลิขสิทธิ์ และใช้ `docker pull` กับ `docker push` ได้เหมือน Registry ที่โฮสต์ไว้ทุกอย่าง ตามหนังสือ Docker in Action หัวข้อ 9.3 หน้า 183) แล้ว Push Image ของเราเข้าไป (รัน)
+
+| การ Push | Layer ที่ส่ง |
+|---|---|
+| Image แรก | ส่งสองชั้น (Layer ฐานกับ Layer ของเรา) ขึ้นว่า `Pushed` |
+| Image ที่สองบนฐานเดียวกัน | ส่งชั้นเดียว ส่วน Layer ฐานขึ้นว่า `Mounted from lesson/app` |
+
+ตอน Push Image ที่สอง Docker ถาม Registry ว่ามี Blob ตัวไหนแล้วบ้างโดยอ้างด้วยแฮช และ Registry ตอบว่า Layer ฐานมีอยู่แล้วใน Repository อื่น จึงไม่ต้องอัปโหลดซ้ำ นี่คือหลักเดียวกับที่ Layer ถูกใช้ร่วมกันบนดิสก์ใน[บท 2](/docker/images-and-layers/) และด้วยเหตุนี้การเลือก Image ฐานให้ตรงกันช่วยประหยัดทั้งดิสก์และเวลาส่งข้อมูล
+
+Registry คือเซิร์ฟเวอร์ HTTP ธรรมดา เราเรียก API ของมันได้ตรง ๆ แบบฝึกถามรายชื่อ Repository ได้ `lesson/app` กับ `lesson/other` ถามรายการ Tag ได้ `1` และดึง Manifest ซึ่งคืนกลับมาพร้อมหัวข้อ `Docker-Content-Digest` ที่เท่ากับแฮช sha256 ของไบต์ใน Manifest พอดี และเมื่อดึง Layer ตามแฮชมา แฮชของมันตรงกับชื่อที่ขอ (รัน)
+
+<Callout type="note" title="Registry ในแบบฝึกใช้ HTTP ไม่ใช่ HTTPS">
+Registry ที่เรารันใช้ HTTP ที่ `localhost` ซึ่ง Docker ยอมให้เป็นข้อยกเว้นสำหรับที่อยู่ Loopback เรายังไม่ได้ลองการยืนยันตัวตน, HTTPS หรือ Registry ที่อยู่บนคอมพิวเตอร์เครื่องอื่น ซึ่งต้องตั้งค่าเพิ่ม (ไม่ได้รัน)
+</Callout>
+
+</Step>
+
+<Step>
+
+## Tag ย้ายได้ แต่ Digest ไม่เปลี่ยน
+
+มีความต่างสำคัญระหว่างสองอย่างที่คนมักสับสน Tag เป็นป้ายที่เจ้าของย้ายไปชี้ที่ Manifest ตัวอื่นได้ทุกเมื่อ ส่วน Digest คือแฮชของ Manifest เอง ซึ่งเปลี่ยนไม่ได้เพราะเปลี่ยนเนื้อหาไปหนึ่งไบต์แฮชก็ต่างออกไปทันที ในแบบฝึกเรา Push Image อีกตัวที่มีเนื้อหาต่างไปภายใต้ Tag `1` เดิม ผลคือ Tag ย้ายไปชี้ที่ Manifest ใหม่ (ได้แฮชคนละค่า) แต่เมื่อเราลบของในเครื่องแล้วดึงด้วย Digest เดิม ได้ Image เดิมกลับมาครบ พิมพ์ผลเป็น `hello` ตามเดิม (รัน)
+
+เพราะอย่างนี้ หนังสือจึงแนะนำให้ใช้ Content-addressable Image Identifier คือใส่ `@sha256:...` แทน Tag ใน `FROM` เพื่อล็อกให้ Build จาก Image ฐานตัวเดิมเสมอ ไม่ว่าจะ Build เมื่อไรก็ตาม (หนังสือ: Docker in Action หัวข้อ 8.6.1 หน้า 168) ข้อเสียที่ตามมาคือเราจะไม่ได้รับการอัปเดตความปลอดภัยของ Image ฐานเองโดยอัตโนมัติ ต้องหมั่นเปลี่ยน Digest เอง (ข้อนี้เป็นความเห็นของผู้เขียน)
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ทีมเราอยากให้ Build ทุกครั้งเริ่มจาก Image ฐานตัวเดิมเป๊ะ แม้ผู้ดูแล Image ฐานจะ Push เวอร์ชันใหม่ไปใต้ Tag เดียวกันก็ตาม ควรทำอย่างไร?"
+  options={[
+    'ใช้ Tag เดิมต่อไป เพราะ Tag ไม่เปลี่ยนเนื้อหา',
+    'ใส่ Digest (@sha256 ตามด้วยแฮช) แทน Tag ในบรรทัด FROM เพราะ Digest ชี้ที่เนื้อหาเฉพาะเจาะจงที่เปลี่ยนไม่ได้',
+    'ใช้ Tag ชื่อ Latest เพราะเป็นตัวล่าสุดเสมอ',
+    'ลบ Cache ก่อน Build ทุกครั้ง'
+  ]}
+  answer={1}
+  why="Tag ย้ายได้ แบบฝึกเห็น Push ใหม่ใต้ Tag เดิมทำให้ Tag ชี้ไป Manifest ใหม่ แต่ Digest เดิมยังดึงภาพเดิมได้ (รัน) หนังสือแนะนำให้ใช้ Content-addressable Image Identifier ใน FROM เพื่อให้ Build จากจุดเริ่มต้นที่ไม่เปลี่ยน (หนังสือ: Docker in Action หัวข้อ 8.6.1 หน้า 168) การลบ Cache ไม่เกี่ยวเพราะ Tag ยังชี้ไปที่ตัวใหม่"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| `docker save` ได้โครงสร้าง OCI (`oci-layout`, `index.json`, `manifest.json`, `blobs/sha256`) และทุก Blob ตั้งชื่อด้วย sha256 ของไบต์ตัวเอง | รัน: `exercises/11_image_inside.py` |
+| Image ID คือแฮชของ Config, Layer คือไฟล์ Tar ที่แฮชของมันคือ `diff_id`, และ Config มีคำสั่งเริ่มกับแพลตฟอร์ม | รัน: `exercises/11_image_inside.py` |
+| `history` ใน Config จดทุกบรรทัดของ Dockerfile และบรรทัดที่ไม่สร้าง Layer ถูกทำเครื่องหมาย `empty_layer` | รัน: `exercises/11_image_inside.py` |
+| Manifest ของ Image ที่เรา Build ระบุ Layer ของ Alpine เดิมกับ Layer ของเราที่มีไฟล์เดียว | รัน: `exercises/11_image_inside.py` |
+| Push แรกส่งสองชั้น ส่วน Push ที่สองบนฐานเดียวกันส่งชั้นเดียวและขึ้น `Mounted from` | รัน: `exercises/11_image_inside.py` |
+| API ของ Registry ตอบ Repository, Tag และ Manifest และแฮชของ Manifest เท่ากับ sha256 ของไบต์ที่ส่งกลับ | รัน: `exercises/11_image_inside.py` |
+| Layer ใน Registry ถูกบีบอัด Gzip จึงมีแฮชต่างจาก `diff_id` และดึงตามแฮชได้ | รัน: `exercises/11_image_inside.py` |
+| Push ใหม่ใต้ Tag เดิมย้าย Tag ไป Manifest ใหม่ ส่วน Digest เดิมยังดึง Image เดิมได้ | รัน: `exercises/11_image_inside.py` |
+| `alpine:3.22` บน Docker Hub คือ Index ที่มีเจ็ดแพลตฟอร์ม และ Manifest ของ `linux/amd64` ระบุ Config เดียวกับ Image ในเครื่อง | รัน: `exercises/11_image_inside.py` |
+| Manifest ที่ `docker save` เขียนมีแฮชต่างจาก Manifest บน Docker Hub ทั้งที่ Config เหมือนกัน | รัน: `exercises/11_image_inside.py` (ไม่ได้ไล่หาสาเหตุ) |
+| Digest ใน `FROM` ล็อกให้ Build จาก Image ฐานเดิมเสมอ | หนังสือ: Docker in Action หัวข้อ 8.6.1 หน้า 168 |
+| Docker Registry แบบเปิดซอร์สคือ Distribution และใช้ `pull` กับ `push` เหมือน Registry ที่โฮสต์ | หนังสือ: Docker in Action หัวข้อ 9.3 หน้า 183 |
+| ข้อเสียของการล็อก Digest คือไม่ได้รับการอัปเดตของ Image ฐานโดยอัตโนมัติ | ผู้เขียน |
+| การยืนยันตัวตน, HTTPS, ลายเซ็นของ Image, การลบ Blob, Registry บน Cloud | ไม่ได้ลอง |
+
+</Step>

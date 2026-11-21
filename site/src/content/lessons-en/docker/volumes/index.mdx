@@ -1,0 +1,165 @@
+---
+title: Volumes and bind mounts
+summary: Data written inside a container is lost when the container is removed. This lesson tries four places to keep data, the writable layer, a volume, a bind mount and tmpfs, and sees which survive a restart and the removal of a container. It shows that a new volume is filled from the image but a bind mount hides it, and that a Postgres table survives the removal of its container.
+facts:
+  - "Run for real in exercises/07_volumes.py against Docker Engine 29.2.1. It writes a file in four kinds of storage and tests whether it is still there after docker restart and docker rm, shares a Windows folder through a bind mount in both directions and read-only, compares a volume with a bind mount on an image that has a file in /data, shares a volume between two containers, tries the VOLUME line of a Dockerfile and removing volumes, and runs Postgres 17 with its data on a volume and then removes the container."
+  - "That Docker has bind mounts, memory and volumes as its three main kinds of storage comes from Docker in Action sections 4.1 to 4.6 and was not run. Not tried: volume drivers other than local, size limits of tmpfs, the speed of a bind mount across Windows and Linux, and file permissions on a bind mount for a user that is not root."
+order: 7
+phase: C
+level: 2
+stage: sprout
+format: steps
+requires: [container-lifecycle]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import VolumeLab from '../../../../components/labs/docker/VolumeLab';
+
+<Step>
+
+## Data written in a container goes away with the container
+
+In [lesson 1](/en/docker/containers/#an-image-is-a-template-a-container-is-what-we-make-from-it) we saw that a new container from the same image does not see the file of the old one, and from [lesson 2](/en/docker/images-and-layers/#a-container-sees-the-files-of-every-layer-together) we know that a file a container writes lives in its own writable layer, which belongs to that one container. Data we want to keep, such as the tables of a database, has to live somewhere else. The book says the three most common kinds of storage are bind mounts, in-memory storage and volumes (book: Docker in Action section 4.1, page 63).
+
+In the exercise we try four places. We write a file `note.txt` into the folder `/place` and check whether it is still there after two events: `docker restart`, and removing the container and starting a new one on the same storage (ran).
+
+| Storage | After `docker restart` | After removing the container and starting a new one |
+|---|---|---|
+| The writable layer of the container | still there | gone |
+| A named volume | still there | still there |
+| A bind mount | still there | still there |
+| tmpfs (memory) | gone | gone |
+
+Try it in the lab. Choose a storage and press write file, restart and remove container in order. You will see that for the first and last kinds, where the file lives inside the container (the writable layer and tmpfs), the file goes with the box that is thrown away. For the two kinds where the file lives outside the container (a volume and a bind mount), the new box attaches to the old storage and sees the file at once.
+
+<VolumeLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## A bind mount shares real files with our computer
+
+A bind mount attaches a folder that we name from the host to a place in the container. The book says it is useful when the host has a file the program in the container needs, or when the program makes a file that people or programs outside the container will process (book: Docker in Action section 4.2, page 64). We try it by making a folder on Windows and attaching it to `/work`.
+
+```bash
+docker run -d --name b --mount type=bind,source=C:\Users\me\share,target=/work alpine:3.22 sleep 300
+```
+
+In the exercise, a file we made on Windows appears in the container, a file the container makes appears on Windows, and when we edit the file on Windows the inside sees the change at once without a restart (ran). That is why people use bind mounts while developing: we edit code in the tool we like and the container sees it straight away. If we do not want the container to overwrite our files, add `readonly`, and the exercise found that writes are refused with the message `Read-only file system` (ran).
+
+On this computer the folder we attach is a Windows folder, but the container works in the Linux that Docker Desktop starts, so files are passed between two systems. We did not measure the speed or the file permissions in that case (not run).
+
+</Step>
+
+<Step>
+
+## A volume lets Docker keep the data for us
+
+A volume is a named folder that Docker manages. The book says it separates the storage from a specific location on the file system of the host, so a set of containers can run on any computer without caring whether a location on disk collides with other software (book: Docker in Action section 4.4, page 68). We create one with `docker volume create` and attach it with `--mount type=volume`. In the exercise there are three things that differ from a bind mount.
+
+First, an empty volume is filled by Docker with the files that the image has at that place. We build an image that has `/data/seed.txt` and attach a new volume at `/data`, and the inside sees `seed.txt`. But if we attach a bind mount of an empty folder at the same place, the inside sees an empty folder, and the file of the image is hidden (ran).
+
+| What is attached at `/data` | What the container sees |
+|---|---|
+| Nothing | `seed.txt` |
+| A new empty volume | `seed.txt` (Docker filled it) |
+| A bind mount of an empty folder | empty (the file of the image is hidden) |
+
+Second, a volume can be shared by containers that run at the same time. We let one write `live.txt` and another read it at once (ran). Third, Docker refuses to remove a volume that a container still uses. The reply says the volume is in use, and it can be removed once no container uses it (ran).
+
+<Callout type="note" title="Where a volume really is">
+On this computer a volume lives in the file system of the Linux that Docker Desktop starts, not in a Windows folder we can open directly. The book says that by default Docker creates a folder to hold the content in a part of the host file system that the engine controls, and `docker volume inspect` shows the place (book: Docker in Action section 4.4, page 68). We did not open that folder (not run).
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Our image has a file Seed in the folder Data. We run two containers. The first has a new empty volume attached at that folder. The second has a bind mount of an empty folder on the computer attached at the same place. What does each see in the folder Data?"
+  options={[
+    'Both see the file Seed, because the file is in the image',
+    'Both see an empty folder, because what is attached hides the file of the image',
+    'The first sees the file Seed, because Docker fills an empty volume with the content of the image, and the second sees an empty folder, because the bind mount hides the file of the image',
+    'The first sees an empty folder and the second sees the file Seed'
+  ]}
+  answer={2}
+  why="An empty volume is filled by Docker with the files the image has at that place the first time it is attached. A bind mount lays the folder of the host over the top, so it hides everything the image had there. The exercise saw Seed.txt in the container with the volume and 0 files in the container with the bind mount of an empty folder (ran). That is why mounting over a folder that the image uses needs care."
+/>
+
+</Step>
+
+<Step>
+
+## An anonymous volume piles up if we do not clean it
+
+There is another way a volume comes into being that people often do not know. If a Dockerfile has the line `VOLUME /data`, Docker creates an anonymous volume for every container run from that image. We ran two containers from such an image without `--rm` and counted the new volumes (ran).
+
+| Event | Anonymous volumes left |
+|---|---|
+| Run two containers | 2 |
+| `docker rm` the first (no `-v`) | 2 |
+| `docker rm -v` the second | 1 |
+
+An anonymous volume is not deleted with its container unless we run `docker rm -v` or run the container with `--rm`. The book says the same: an anonymous volume is deleted automatically when the container that created it is deleted in those two ways, and a named volume always has to be deleted by hand (book: Docker in Action section 4.6, page 77). That can fill the disk of Docker without our noticing, because a leftover volume is harder to see than a leftover container. Check `docker volume ls` from time to time.
+
+</Step>
+
+<Step>
+
+## A database whose data is on a volume survives the removal of its container
+
+This is the main reason a data engineer needs to know about volumes. In the exercise we run Postgres 17 with a volume attached at its data folder (`/var/lib/postgresql/data`), create a table `orders` and insert two rows. Then we remove the container completely and start a new Postgres on the same volume (ran).
+
+| Step | Rows in the table `orders` |
+|---|---|
+| The first container, after the insert | 2 |
+| A new container on the same volume | 2 |
+
+The table and its data are all there, because Postgres writes its data files into the volume, which is outside the container. Without the volume, those files would be in the writable layer of the first container and would be gone with its removal. What we did not test is backing up a volume, and upgrading the version of Postgres on the same volume, which needs a check of whether the data files are compatible (not run).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Our analytics service writes its result file into a folder in the writable layer of its container, and we remove the container to update to a newer image. What happens to the result file?"
+  options={[
+    'It stays, because Docker copies the writable layer to the new container',
+    'It goes with the old container, because the writable layer belongs to that container, so we must keep it in a volume or a bind mount if it must last',
+    'It goes only on a restart and not on removal',
+    'It stays, because the file is part of the image'
+  ]}
+  answer={1}
+  why="The writable layer belongs to that one container. The exercise saw the file still there after a restart, but gone after removing the container and starting a new one (ran). A volume and a bind mount live outside the container, so they survive both events. The option that says it goes only on a restart is the wrong way round, because a restart does not make the writable layer go."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A file in the writable layer survives a restart but not the removal of the container, a volume and a bind mount survive both, and tmpfs is gone at the restart | ran: `exercises/07_volumes.py` |
+| A bind mount shares files in both directions and shows edits at once, and `readonly` refuses writes | ran: `exercises/07_volumes.py` |
+| An empty volume is filled from the image, but a bind mount of an empty folder hides the file of the image | ran: `exercises/07_volumes.py` |
+| A volume is shared between running containers, and `docker volume rm` refuses while it is used | ran: `exercises/07_volumes.py` |
+| A `VOLUME` line gives every container an anonymous volume, `docker rm` leaves it and `docker rm -v` removes it | ran: `exercises/07_volumes.py` |
+| Postgres 17 on a volume keeps its table after the container is removed | ran: `exercises/07_volumes.py` |
+| The three main kinds of storage are bind mounts, memory and volumes, all made with `--mount` | book: Docker in Action section 4.1, page 63 |
+| A bind mount attaches a location of the host to the container | book: Docker in Action section 4.2, page 64 |
+| A volume is a named folder managed by Docker, which separates storage from locations on the host | book: Docker in Action section 4.4, page 68 |
+| An anonymous volume is removed with `--rm` or `docker rm -v`, and a named volume has to be removed by hand | book: Docker in Action section 4.6, page 77 |
+| Speed and permissions of a bind mount across Windows and Linux, other volume drivers, the size of tmpfs, backing up a volume | not tried |
+
+</Step>

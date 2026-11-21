@@ -1,0 +1,97 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 5 ข้อ เพื่อเช็กว่าอ่าน Exit Code ได้ รู้ว่า Pause ต่างจาก Stop อย่างไร และเข้าใจว่าทำไมคำสั่งหยุด Container บางทีหยุดทันทีและบางทีต้องรอ
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เรารัน Container จาก Image Alpine โดยสั่งโปรแกรมที่ไม่มีอยู่ใน Image เลย แล้ว Docker คืน Exit Code 127 พร้อมข้อความ Executable File Not Found ข้อความนี้บอกอะไร?"
+  options={[
+    'โปรแกรมที่เราสั่งทำงานแล้วล้มเหลวด้วยรหัส 127 ที่โปรแกรมเลือกเอง',
+    'Docker หาโปรแกรมที่สั่งไม่เจอใน Image จึงไม่ได้เริ่มโปรแกรมเลย และรายงาน 127 ซึ่งเป็นรหัสที่ใช้กันว่าหาคำสั่งไม่เจอ',
+    'Container ถูกฆ่าด้วย Signal หมายเลข 127',
+    'Image เสียหายและต้องดึงใหม่'
+  ]}
+  answer={1}
+  why="127 ไม่ได้มาจากโปรแกรมของเรา เพราะโปรแกรมยังไม่เคยถูกเริ่ม Docker ตรวจเองว่าไม่มีไฟล์นั้นใน Image แล้วคืน 127 ซึ่งตรงกับรหัสที่ Shell ใช้ตอนหาคำสั่งไม่เจอ แบบฝึกเห็นทั้งสองกรณีได้ 127 (รัน) ส่วนรหัสที่เกิดจาก Signal จะเป็น 128 บวกหมายเลข Signal เช่น 137 กับ 143"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราสั่ง Docker Pause กับ Container ที่กำลังรัน แล้วเปิดดูสถานะ จะเห็นอะไร?"
+  options={[
+    'Container เป็นสถานะ Exited และ Process จบไปแล้ว',
+    'Container เป็นสถานะ Paused และ Process ยังอยู่ในระบบแต่ถูกแช่แข็งไว้ จนกว่าจะสั่ง Unpause',
+    'Container เป็นสถานะ Created เพราะ Docker ย้อนกลับไปจุดเริ่มต้น',
+    'Container ถูกลบออกจากรายการ'
+  ]}
+  answer={1}
+  why="Pause ต่างจาก Stop ตรงที่โปรแกรมไม่ได้ถูกปิด แบบฝึกเห็นสถานะเป็น Paused และ Process ยังมีเลขอยู่ฝั่ง Engine (รัน) พอสั่ง Unpause ก็กลับเป็น Running โดยไม่ได้เริ่มโปรแกรมใหม่ ส่วน Stop ทำให้ Process จบแล้ว Container เป็น Exited"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เรารัน Sleep เป็น PID 1 สองแบบ แบบแรกไม่มีอะไรเสริม แบบที่สองใช้ตัวเลือก Init แล้วสั่ง Docker Stop กับทั้งสอง ผลต่างกันอย่างไร?"
+  options={[
+    'ทั้งสองแบบหยุดทันทีและได้ Exit Code 0 เหมือนกัน',
+    'แบบแรกรอจนหมดเวลาแล้วโดน SIGKILL (137) ส่วนแบบที่สองหยุดทันทีด้วย 143 เพราะ Init ส่งต่อ SIGTERM ให้ Sleep',
+    'แบบแรกหยุดทันที ส่วนแบบที่สองต้องรอจนหมดเวลา',
+    'ทั้งสองแบบรอจนหมดเวลาแล้วโดน SIGKILL เหมือนกัน'
+  ]}
+  answer={1}
+  why="Sleep ที่เป็น PID 1 ไม่มีตัวรับ SIGTERM จึงไม่ตายเพราะ Signal นั้น แบบฝึกวัดได้ 5.3 วินาทีกับ -t 5 และ Exit Code 137 ส่วนตัวเลือก Init ใส่โปรแกรม Init เล็ก ๆ เป็น PID 1 และมันส่งต่อ SIGTERM ให้ Sleep ซึ่งตายเพราะ Signal นั้นภายใน 0.3 วินาที และได้ 143 เท่ากับ 128 บวก 15 (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Container ตัวหนึ่งจบไปแล้ว เราสั่ง Docker Exec เพื่อรันคำสั่งเพิ่มข้างในมัน จะเกิดอะไรขึ้น?"
+  options={[
+    'Docker เริ่ม Container ใหม่ให้เองแล้วรันคำสั่งนั้น',
+    'คำสั่งรันได้ตามปกติ เพราะไฟล์ของ Container ยังอยู่',
+    'Docker ปฏิเสธ เพราะ Exec ทำงานได้เฉพาะกับ Container ที่กำลังรัน ต้อง Start ก่อน',
+    'Docker ลบ Container ทิ้งแล้วสร้างใหม่'
+  ]}
+  answer={2}
+  why="Exec เพิ่ม Process เข้าไปใน Container ที่มี Process หลักรันอยู่ ถ้า Container จบแล้ว ไม่มีที่ให้เพิ่ม แบบฝึกเห็นข้อความปฏิเสธที่บอกว่า Container ไม่ได้รันอยู่ (รัน) ถ้าอยากเข้าไปดูไฟล์ของ Container ที่จบแล้ว ต้อง Start มันก่อน หรือใช้คำสั่ง Docker Logs อ่านสิ่งที่มันพิมพ์ไว้"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราสั่ง Docker Rm กับ Container ที่ยังรันอยู่โดยไม่ใส่ตัวเลือกพิเศษ ผลคืออะไร?"
+  options={[
+    'Docker ปฏิเสธและบอกว่า Container ยังรันอยู่ ต้องหยุดก่อนหรือบังคับด้วยตัวเลือกเพิ่ม',
+    'Docker หยุดและลบให้ทันที',
+    'Docker ลบเฉพาะไฟล์ของ Container แต่ปล่อยให้ Process ทำงานต่อ',
+    'Docker ถามเราว่าจะลบหรือไม่'
+  ]}
+  answer={0}
+  why="Docker ป้องกันไม่ให้ลบ Container ที่ Process ยังทำงานอยู่ แบบฝึกเห็นข้อความปฏิเสธที่มีคำว่ากำลังรัน (รัน) ต้องสั่ง Stop ก่อน หรือใช้ตัวเลือกบังคับ ซึ่งแบบฝึกใช้ตอนล้างของท้ายการรัน ส่วนคำสั่ง Container Prune จะลบเฉพาะที่หยุดแล้ว โดย Container ที่ยังรันอยู่ไม่ถูกแตะ (รัน)"
+/>
+
+</Step>

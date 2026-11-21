@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you can pick the right lock-down for a risk, read why a container ended, and know how a secret should reach a container.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A container ended with exit code 137, and Docker Inspect shows OOMKilled as true. What is the most likely cause, and where should we look to fix it?"
+  options={[
+    'The program has a bug in its code, which we must fix first',
+    'The program used more memory than the limit of the container, so the kernel killed it, and we should see whether the limit is set too low or the program eats too much memory',
+    'The password of the database is wrong',
+    'The host name of the database is wrong'
+  ]}
+  answer={1}
+  why="OOMKilled true with exit code 137 says the kernel killed it for going over the memory limit. The exercise saw this when the program asked for more memory than the 128 MB limit, with an empty log, because it was killed before it printed (ran). A wrong password and a wrong host name give exit code 1 and OOMKilled false."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A team must give the database password to a container at run time in Compose. Which way is safer?"
+  options={[
+    'Write it into an environment variable in the Compose file, because it is the easiest',
+    'Pass it as a Compose secret file that the container reads from a file under Run Secrets, because it does not appear in the environment that Docker Inspect shows and is not printed into logs by accident',
+    'Bake it into the image with COPY and delete it on the next line',
+    'Put it in the name of the container'
+  ]}
+  answer={1}
+  why="The exercise checked that a password passed as a file is not in the environment of either container, not in the history of the image, and can be read from the file it was meant to be read from (ran). Copying and then deleting still leaves the file in a layer, as we saw in the lesson on layers."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We declare the network of a Compose project as Internal. What changes for the containers in it?"
+  options={[
+    'The containers can no longer call each other',
+    'The containers can still talk to each other by name, but cannot go out to the internet, and the exercise saw that a call to Example Dot Com did not succeed',
+    'The containers get real IPs that can be called from outside',
+    'The containers get faster because they do not go through the internet'
+  ]}
+  answer={1}
+  why="An internal network cuts the way out but not the talk inside. The exercise saw the loader still reach the database by name but not the internet, and docker network inspect reported Internal as true (ran). Being called from outside still needs a published port, which we did not set."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Which is a sensible order for finding the cause when a container in a pipeline ends in failure?"
+  options={[
+    'Read the whole code of the program first, and look at the status later',
+    'Look at the status and the exit code first, then the log, then Docker Inspect for OOMKilled, and last Docker Events',
+    'Remove the container and run it again until it passes',
+    'Change the base image to a newer one every time'
+  ]}
+  answer={1}
+  why="The exercise saw that each command says something different. The status and exit code say that it failed, the log says why in the case of exit code 1, and Docker Inspect and Docker Events confirm the OOM case (ran). Going from the cheapest and most certain information first keeps us from spending time on a wrong hypothesis."
+/>
+
+</Step>

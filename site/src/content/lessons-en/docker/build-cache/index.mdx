@@ -1,0 +1,153 @@
+---
+title: The build cache and the build context
+summary: The second build of the same Dockerfile is faster because Docker reuses the cache. This lesson shows that the cache is a chain that breaks at the first line that changed, why the order of the lines decides the build time, and how the build context and a dockerignore file control which files are sent in.
+facts:
+  - "Run for real in exercises/05_build_cache.py against Docker Engine 29.2.1 (BuildKit). It builds a Python program that needs pip install with two orders of the Dockerfile, edits one file at a time and reads which steps used the cache and how long the build took. It also tries changing only the modification time of a file, --no-cache, editing the first RUN line, measures the build context sent to the builder with and without a dockerignore file, and tries a COPY of a file outside the folder."
+  - "The build times in this lesson depend on the network, because pip install downloads a package from the internet, and we ran it once on one computer, so the numbers are examples and not standard values. Not tried: a cache shared across computers (--cache-from), clearing the cache with docker builder prune, and cache mounts."
+order: 5
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [dockerfile]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import CacheLab from '../../../../components/labs/docker/CacheLab';
+
+<Step>
+
+## The second build is fast because Docker reuses the layers
+
+In [lesson 4](/en/docker/dockerfile/#a-dockerfile-is-a-recipe-that-docker-reads-line-by-line) we built an example and got an image straight away. Now let us build a Python program that has to install a package with `pip install`, which is slower because it downloads from the internet. We start with a first build that bypasses the cache, then build again without changing anything (ran).
+
+| Build | Time | Steps that used the cache |
+|---|---|---|
+| The first (cache off) | 3.7 s | none (except `WORKDIR`) |
+| Again, nothing changed | 0.5 s | every step |
+
+The second build is about seven times faster, because Docker ran nothing new. It saw that every line, and everything that line reads, is the same as before, so it took the layers it had already built. The book puts it this way: when a line fails in the middle of a job, the builder can restart from the same position after the fix (book: Docker in Action section 8.1, page 145). Another book measured a build with and without the cache and saw a big gap, because the order of the lines in a Dockerfile has a large effect on the average build time (book: Docker Up and Running, Optimizing for the Cache, page 79).
+
+To force everything to run again, use the option `--no-cache`, which makes the `COPY` and `RUN` steps run again (ran).
+
+<Callout type="note" title="Something we did not look into">
+When we build with `--no-cache`, the `WORKDIR` line still says `CACHED`. That is what BuildKit in Docker 29.2.1 really did (ran). We did not look into why, so all we can say is not to expect `--no-cache` to skip every line, especially the lines that do not run a command.
+</Callout>
+
+</Step>
+
+<Step>
+
+## The order of the lines decides how many steps run again
+
+The cache of Docker is a chain. Each step depends on the one before it, and if one step changes, every step after it has to run again, even if it did not change itself. In the exercise we edit one file and compare two Dockerfiles that differ only in order (ran).
+
+```dockerfile
+# version A                              # version B
+FROM python:3.13-slim                    FROM python:3.13-slim
+WORKDIR /app                             WORKDIR /app
+COPY . .                                 COPY requirements.txt .
+RUN pip install -r requirements.txt     RUN pip install -r requirements.txt
+CMD ["python", "app.py"]                 COPY app.py .
+                                         CMD ["python", "app.py"]
+```
+
+| Order | Edit `app.py` | Edit `requirements.txt` |
+|---|---|---|
+| A: `COPY . .` first | 3.5 s (`pip install` runs again) | 3.5 s |
+| B: `requirements.txt` first | 0.8 s (`pip install` uses the cache) | 3.8 s |
+
+When we edit `app.py`, which is what we change most while writing a program, version A has to install the packages again every time. `COPY . .` reads every file, so it changes with `app.py`, and the chain breaks before `pip install`. Version B copies only `requirements.txt` before installing and puts `app.py` last. When `app.py` is edited, the chain breaks at the final step, and the slow `pip install` still uses the old result. Switch the options in the lab. You will see that version B still breaks the chain when `requirements.txt` is edited, because the packages really changed, and that is correct.
+
+<CacheLab client:visible lang="en" />
+
+The rule is to copy only the files the expensive step needs, run that step, and only then copy the rest.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Our Dockerfile copies the whole folder first and then runs Pip Install from the requirements file. We edit the code in just the App file. What happens to the Pip Install step when we build again?"
+  options={[
+    'It uses the old cache, because the requirements file did not change',
+    'It runs again, because the step that copies the whole folder changed with the App file, so the chain of the cache breaks before Pip Install',
+    'It runs again, because Docker does not keep the result of Pip Install in the cache',
+    'It uses the old cache, because Docker only checks whether the line is the same'
+  ]}
+  answer={1}
+  why="The cache is a chain, and a later step depends on the earlier ones. The COPY step that reads the whole folder sees that the App file changed, so it is the first step that cannot use the cache, and every step after it, including Pip Install, runs again. The exercise measured 3.5 seconds with this order, against 0.8 seconds when we copy Requirements first and the App file later (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## The cache looks at the content of a file, not at the clock
+
+Two facts help us predict the cache better. First, Docker looks at the content of the files that `COPY` reads, not at their modification date. We changed the modification time of `app.py` to an hour ahead with the same content and built again, and every step still used the cache (ran). Second, the chain of the cache breaks all the way down. We edited only the first `RUN` line of a Dockerfile with three `RUN` lines, and all three had to run again, although the last two did not change by one character (ran). The reason is that each layer is built on the layer before it, and if the base layer changes, the layers that follow are no longer the same ones.
+
+These two facts give a simple practical rule: put the lines that change least at the top and the lines that change most at the bottom, which is what we saw in version B.
+
+</Step>
+
+<Step>
+
+## The build context is what is sent to the builder
+
+The `.` at the end of `docker build` is more than the place of the Dockerfile. It is the build context, the folder that `COPY` can see. The book advises that the first thing to do on a new project is to decide which files must never be copied into an image, with a `.dockerignore` file (book: Docker in Action section 8.2.1, page 149). In the exercise we put a 20 MB file `big.bin` next to the Dockerfile and measure how many bytes were sent to the builder (ran).
+
+| Dockerfile | Bytes sent to the builder |
+|---|---|
+| `COPY small.txt /` (`big.bin` not used) | 38 |
+| `COPY . /ctx/` | 20,980,000 |
+| `COPY . /ctx/` and a `.dockerignore` that lists `big.bin` | 106 |
+
+The book was printed when Docker still used the old builder, and says the whole folder is sent every time, which is the message `Sending build context to Docker daemon` in its output (book: Docker in Action section 8.1, page 145). BuildKit in Docker 29.2.1 is smarter. If the Dockerfile uses only `small.txt`, it sends just that file (38 bytes). The real problem is `COPY . .`, which pulls in every file in the folder, including ones we did not mean to include, such as big data, a `.git` folder or a secret file. The result is a slower build and those files inside the image. `.dockerignore` fixes both. With `big.bin` listed, the build context drops to 106 bytes and the image does not hold that file (ran).
+
+The other side of the same thing is that `COPY` cannot see anything outside the build context. We tried `COPY ../secret.txt /` and the build failed, saying `/secret.txt` was not found (ran). To use a file from outside, move it into the folder that is the context, or change the context so that it covers that file (we did not try the second way).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Our folder has a 500 MB data file next to a Dockerfile that copies the whole folder. If we do not want that file in the image and do not want a slow build, what should we do?"
+  options={[
+    'List the file in the dockerignore file so it never enters the build context',
+    'Add a RUN line that deletes the file after the COPY, because the image will become smaller',
+    'Use the option No Cache when building',
+    'Move the COPY to the first line of the Dockerfile'
+  ]}
+  answer={0}
+  why="Dockerignore keeps the file out of the build context from the start, so it is neither sent to the builder nor copied into the image. The exercise measured that copying the whole folder sent 20,980,000 bytes, and only 106 bytes when the file was listed in Dockerignore (ran). Deleting it with RUN does not help, because the file stays in the layer of the COPY, as we saw in [lesson 2](/en/docker/images-and-layers/#layers-only-add-deleting-later-gives-nothing-back)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A build repeated with nothing changed uses the cache for every step and is faster (3.7 s against 0.5 s) | ran: `exercises/05_build_cache.py` |
+| Editing `app.py` makes `pip install` run again when `COPY . .` comes first, but it uses the cache when `requirements.txt` comes first (3.5 s against 0.8 s) | ran: `exercises/05_build_cache.py` |
+| Editing `requirements.txt` makes `pip install` run again in both versions, and every step after the first changed one runs again | ran: `exercises/05_build_cache.py` |
+| Changing only the modification time of a file does not break the cache, and `--no-cache` makes `COPY` and `RUN` run again (but `WORKDIR` still says CACHED, and we did not look into why) | ran: `exercises/05_build_cache.py` |
+| Editing the first `RUN` makes the two unchanged `RUN` lines after it run again | ran: `exercises/05_build_cache.py` |
+| BuildKit sends only the files a `COPY` needs, `COPY . .` sends the whole folder (20,980,000 bytes), and `.dockerignore` brings it down to 106 bytes | ran: `exercises/05_build_cache.py` |
+| `COPY ../secret.txt` fails because it is outside the build context | ran: `exercises/05_build_cache.py` |
+| The builder restarts from the failed step using the earlier results, and the old builder sent the whole context | book: Docker in Action section 8.1, page 145 |
+| Decide at the start of a project which files must not enter the image, with `.dockerignore` | book: Docker in Action section 8.2.1, page 149 |
+| The order of the lines in a Dockerfile has a large effect on build time because of the layer cache | book: Docker Up and Running, Optimizing for the Cache, page 79 |
+| A cache shared across computers with `--cache-from`, `docker builder prune`, cache mounts | not tried |
+
+</Step>

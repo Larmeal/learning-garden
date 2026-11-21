@@ -1,0 +1,175 @@
+---
+title: Docker Compose
+summary: Compose turns dozens of docker commands into one file that says which services we want, how the network and volume are wired, and in what order things start. This lesson runs a pipeline of Postgres and a data loader, shows how two forms of depends_on differ, what separates down from down -v, where variables come from, and what scale and profiles do.
+facts:
+  - "Run for real in exercises/09_compose.py against Docker Compose v5.7.0 on Docker Engine 29.2.1, with a compose.yaml that has db (Postgres 17 with a healthcheck and a volume) and loader (psql loading a SQL file). It checks the names Compose creates, the DNS of a service name, depends_on with service_healthy against a plain list, down against down -v, variables from .env and from the shell, docker compose run, --scale and profiles."
+  - "The book Docker in Action used for this lesson uses docker stack deploy from Swarm with Compose V3, which we did not run. We cite it only for the idea of declarative against imperative, which applies to docker compose as well. Not tried: build: in Compose, Compose Watch, extends and include, secrets and configs of Compose, and running Compose on a real server."
+order: 9
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [volumes, networks]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ComposeLab from '../../../../components/labs/docker/ComposeLab';
+
+<Step>
+
+## From many command lines to one file
+
+Say we need to run a small pipeline with one Postgres and one data loader that reads a SQL file into it. With what we have learned, we would create a network, create a volume, run Postgres with the volume attached, wait until it is ready, and then run the loader on the same network. That is five or six commands that must be in the right order. The book calls this the imperative style, where we give commands one step at a time, and says the drawback is that the user has to plan and sequence all the commands, which are hard to audit and test. In the declarative style we only say what final state we want and give no steps (book: Docker in Action section 11.2, page 229).
+
+Compose is a tool of the second kind. We write one file, `compose.yaml`.
+
+```yaml
+name: dlab-pipe
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: lesson
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres"]
+      interval: 2s
+      retries: 40
+  loader:
+    image: postgres:17-alpine
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: lesson
+    volumes:
+      - ./load.sql:/load.sql:ro
+    command: ["psql", "-h", "db", "-U", "postgres", "-f", "/load.sql"]
+volumes:
+  pgdata:
+```
+
+Then one command, `docker compose up -d`. What the exercise saw is that Compose creates everything (ran).
+
+| What is created | The name it gets |
+|---|---|
+| Containers | `dlab-pipe-db-1` and `dlab-pipe-loader-1` (project name, service name and a number) |
+| Network | `dlab-pipe_default` (the project name followed by `_default`) |
+| Volume | `dlab-pipe_pgdata` (the project name followed by the volume name) |
+
+Names that start with the project name let two Compose projects live on one computer without colliding. Every service is attached to the one network that Compose makes for it, and from [lesson 8](/en/docker/networks/#a-network-we-make-has-dns) we know that is a network with DNS. So `psql -h db` in the loader finds Postgres by the service name, and the exercise saw the loader load two rows and end with exit code 0, while `db` kept running (ran).
+
+<Callout type="note" title="This Compose is not the version in the book">
+The book we cite was written with Compose V3 and uses `docker stack deploy` from Swarm, which we did not run. We ran the `docker compose` command (a plugin of the Docker CLI, version v5.7.0 on this computer), which reads the same kind of file almost entirely but is not the same tool. The declarative idea we borrowed from the book applies to both.
+</Callout>
+
+</Step>
+
+<Step>
+
+## depends_on has to wait until the service is ready
+
+The most important line in the file above is `depends_on`, which says `loader` must wait for `db`. If we write it as a plain list, `depends_on: [db]`, Compose does start `db` first, but it does not wait until Postgres is ready to accept connections. We try both (ran).
+
+| Form | Result |
+|---|---|
+| `condition: service_healthy` | `loader` waits until the health check of `db` passes, then loads successfully |
+| A plain list `[db]` | `loader` starts as soon as the container of `db` starts, and fails with `Connection refused` |
+
+It fails because Postgres needs time to prepare itself on its first start. Meanwhile the container is open but does not yet accept TCP connections, so a loader that starts too early is refused. That is why `db` needs a `healthcheck`, a command that Docker runs again and again to ask whether the service is ready, and the result is the status `healthy` that the exercise could read (ran).
+
+Change the form of `depends_on` in the lab and press Next one step at a time. You will see the order in which Compose creates things, and the point where the two forms part.
+
+<ComposeLab client:visible lang="en" />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Our Compose file has a database service and a data loading service, and the loader has a plain list for depends_on pointing at the database. Sometimes the loader fails with the message Connection Refused. What is the cause?"
+  options={[
+    'Compose does not support connecting services over a network',
+    'A plain depends_on list only starts the database first and does not wait until it accepts connections, so the loader may start before Postgres opens the port',
+    'A service name cannot be used as a host name',
+    'The database port has to be published before the loader can reach it'
+  ]}
+  answer={1}
+  why="The exercise saw the loader with a plain-list depends_on fail with Connection Refused because it started right after the database container started, while the service_healthy form waited for the health check to pass and then loaded successfully (ran). A service name works as a host name as usual, and containers of one project do not need to publish a port to call each other."
+/>
+
+</Step>
+
+<Step>
+
+## down keeps the volume and down -v removes it
+
+When the work is done we want to clean up. `docker compose down` removes the containers and the network of the project, but the named volume stays, which matches what we saw in the lesson on [volumes and bind mounts](/en/docker/volumes/#an-anonymous-volume-piles-up-if-we-do-not-clean-it): a named volume has to be removed by hand. In the exercise, after `down`, the containers and the network were gone but `dlab-pipe_pgdata` was still there. When we ran `up` again, the table from before still had both rows (ran). `docker compose down -v` removes the volume as well (ran).
+
+| Command | Containers | Network | Volume |
+|---|---|---|---|
+| `docker compose down` | removed | removed | kept |
+| `docker compose down -v` | removed | removed | removed |
+
+This needs special care with real data. `down -v` deletes data for good. In the exercise we use it because the data is for experiments, but with the database of real work, always use a plain `down`.
+
+</Step>
+
+<Step>
+
+## Variables, scale and profiles
+
+Three features are used often in real work. The first is variables. In the file we can write `${GREETING:-fallback}`, which means use the value of the variable `GREETING`, and if there is none, use `fallback`. The exercise looks at the result with `docker compose config`, which shows the file after substitution (ran).
+
+| Source of the value | The value Compose uses |
+|---|---|
+| Nothing set | `fallback` |
+| A `.env` file next to the Compose file that says `GREETING=from-dotenv` | `from-dotenv` |
+| A variable in the shell (`GREETING=from-shell`) together with the `.env` file | `from-shell` (the shell wins) |
+
+Use `docker compose run --rm service-name` to run a one-off job with that service, and the exercise printed the value `from-shell` as the shell set it (ran). The second is `--scale`, which gives one service name several containers. We ran `up -d --scale worker=3` and got containers `dlab-scale-worker-1` to `-3`, and when another container asks for the name `worker`, it gets three addresses (ran), the same mechanism as the alias in the lesson on networks. The third is profiles. A service with `profiles: ["debug"]` is not started by a plain `up`, and starts when we run `--profile debug` (ran). It keeps tools for inspection in the same file without running them every time.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We want to stop and remove the containers and the network of a Compose project, but keep the database data in its volume for next time. What should we run?"
+  options={[
+    'docker compose down -v, because it is the complete cleanup command',
+    'A plain docker compose down, because it removes the containers and the network but leaves a named volume',
+    'docker compose stop and then delete the project folder',
+    'docker compose up --scale db=0'
+  ]}
+  answer={1}
+  why="A plain down does not remove a named volume. The exercise saw the volume still there after down, and the table still complete after a new up (ran). down -v removes the volume too, which is the same as deleting the data for good."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| `up` creates containers named `<project>-<service>-<number>`, the network `<project>_default` and the volume `<project>_<name>` | ran: `exercises/09_compose.py` |
+| The loader calls Postgres by the service name `db`, loads two rows and ends with 0, `db` keeps running, and the health check reports healthy | ran: `exercises/09_compose.py` |
+| `depends_on` with `service_healthy` waits until ready, but a plain list does not and the loader fails with Connection refused | ran: `exercises/09_compose.py` |
+| `down` keeps the volume and a new `up` sees the old data, while `down -v` removes the volume | ran: `exercises/09_compose.py` |
+| Variables come from `.env` and from the shell, with the shell winning, and `${X:-default}` uses the default when nothing is set | ran: `exercises/09_compose.py` |
+| `docker compose run --rm` does a one-off job | ran: `exercises/09_compose.py` |
+| `--scale worker=3` gives three containers and the service name answers with three addresses | ran: `exercises/09_compose.py` |
+| A service with `profiles` does not start on a plain `up` and starts with `--profile` | ran: `exercises/09_compose.py` |
+| The imperative style gives steps and the declarative style states the wanted state | book: Docker in Action section 11.2, page 229 |
+| `build:` in Compose, Compose Watch, `extends` and `include`, Compose secrets and configs, running on a real server | not tried |
+
+</Step>

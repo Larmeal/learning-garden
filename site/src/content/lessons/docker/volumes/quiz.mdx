@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเลือกที่เก็บข้อมูลของ Container ได้ถูกกับงาน รู้ว่าอะไรรอดการรีสตาร์ทและการลบ และรู้ว่า Volume ที่ไม่มีชื่อต้องล้างอย่างไร
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราเก็บข้อมูลชั่วคราวใน Tmpfs ของ Container แล้วสั่ง Docker Restart กับ Container ตัวนั้น ข้อมูลที่เขียนไว้จะเป็นอย่างไร?"
+  options={[
+    'ยังอยู่ เพราะ Restart ไม่ได้ลบ Container',
+    'หายไป เพราะ Tmpfs เป็นหน่วยความจำ ข้อมูลไม่รอดแม้แต่การหยุดแล้วเริ่มใหม่',
+    'ยังอยู่ เพราะ Docker บันทึก Tmpfs ลงดิสก์ให้',
+    'หายเฉพาะตอนลบ Container แต่รอด Restart'
+  ]}
+  answer={1}
+  why="Tmpfs อยู่ในหน่วยความจำ จึงหายทุกครั้งที่ Container หยุด ต่างจากชั้นเขียนที่ยังอยู่หลัง Restart แบบฝึกเห็นไฟล์ใน Tmpfs หายตั้งแต่ Restart (รัน) หนังสือจัด Tmpfs เป็นที่เก็บในหน่วยความจำ ซึ่งเหมาะกับข้อมูลชั่วคราวที่ไม่ต้องการให้ลงดิสก์ (หนังสือ: Docker in Action หัวข้อ 4.3 หน้า 67)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="นักพัฒนาอยากแก้โค้ดบนคอมพิวเตอร์ของตัวเองแล้วให้ Container ที่รันอยู่เห็นการแก้ทันทีโดยไม่ต้อง Build Image ใหม่ ควรใช้อะไร?"
+  options={[
+    'Bind Mount ของโฟลเดอร์โค้ดเข้ากับ Container เพราะ Container เห็นไฟล์ของ Host จริง และเห็นการแก้ทันที',
+    'Volume ที่มีชื่อ เพราะ Docker คัดลอกไฟล์จากคอมพิวเตอร์ให้เอง',
+    'หน่วยความจำของ Container เพราะเร็วที่สุด',
+    'ชั้นเขียนของ Container เพราะแก้ได้ง่ายที่สุด'
+  ]}
+  answer={0}
+  why="Bind Mount ต่อโฟลเดอร์จริงของ Host เข้ากับ Container แบบฝึกแก้ไฟล์บน Windows แล้ว Container เห็นการแก้นั้นทันทีโดยไม่ต้อง Restart (รัน) Volume ไม่ใช่โฟลเดอร์ที่เราเปิดแก้ตรง ๆ ได้บนคอมพิวเตอร์ ส่วน Tmpfs กับชั้นเขียนไม่เชื่อมกับไฟล์ของเรา"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราลบ Container ที่สร้างจาก Image ซึ่งมีบรรทัด VOLUME ใน Dockerfile ด้วยคำสั่ง Docker Rm ธรรมดา แล้วตรวจ Volume ที่เหลือ จะพบอะไร?"
+  options={[
+    'Volume ถูกลบไปพร้อม Container เสมอ',
+    'Volume ไม่มีชื่อที่ Container นั้นสร้างยังค้างอยู่ ต้องลบด้วย Docker Rm แบบมี V หรือสั่งลบ Volume เอง',
+    'Volume กลายเป็น Volume ที่มีชื่อโดยอัตโนมัติ',
+    'Docker ถามก่อนว่าจะลบหรือไม่'
+  ]}
+  answer={1}
+  why="Volume ที่ไม่มีชื่อไม่ถูกลบไปกับ Container ถ้าเราไม่ใส่ตัวเลือกให้ลบ แบบฝึกเห็นจำนวนคงที่ที่ 2 หลังลบตัวแรกแบบธรรมดา และลดเหลือ 1 หลังลบตัวที่สองด้วยตัวเลือกลบ Volume (รัน) หนังสือบอกว่าต้องใช้ตัวเลือกนั้นหรือ Rm ตอนรัน (หนังสือ: Docker in Action หัวข้อ 4.6 หน้า 77)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราสั่งลบ Volume ที่มีชื่อ แต่ Docker ตอบว่า Volume กำลังถูกใช้ สาเหตุคืออะไร?"
+  options={[
+    'Volume เสียหาย',
+    'ยังมี Container อย่างน้อยหนึ่งตัวที่ต่อ Volume นั้นอยู่ ต้องลบหรือหยุดแล้วลบ Container นั้นก่อน',
+    'Volume มีชื่อซ้ำกับ Volume อื่น',
+    'เราไม่มีสิทธิ์ลบ Volume'
+  ]}
+  answer={1}
+  why="Docker ปฏิเสธการลบ Volume ที่ยังมี Container ใช้อยู่ แบบฝึกเห็นข้อความปฏิเสธที่บอกว่ากำลังถูกใช้ และลบได้ทันทีหลังลบ Container ที่ต่ออยู่ (รัน)"
+/>
+
+</Step>

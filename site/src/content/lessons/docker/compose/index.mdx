@@ -1,0 +1,173 @@
+---
+title: Docker Compose
+summary: Compose เปลี่ยนคำสั่ง Docker หลายสิบบรรทัดให้เป็นไฟล์เดียวที่บอกว่าอยากได้บริการอะไร ต่อ Network กับ Volume อย่างไร และเริ่มตามลำดับไหน บทนี้ลองรัน Pipeline ที่มี Postgres กับตัวโหลดข้อมูล ดูว่า depends_on สองแบบต่างกันอย่างไร Down กับ Down -v ต่างกันตรงไหน ตัวแปรมาจากไหน และ Scale กับ Profile ทำอะไร
+facts:
+  - "รันจริงใน exercises/09_compose.py กับ Docker Compose v5.7.0 บน Docker Engine 29.2.1 ใช้ compose.yaml ที่มี db (Postgres 17 พร้อม healthcheck และ Volume) กับ loader (psql โหลด SQL) ตรวจชื่อที่ Compose สร้าง, DNS ของชื่อบริการ, depends_on แบบ service_healthy เทียบกับรายการธรรมดา, down เทียบกับ down -v, ตัวแปรจาก .env กับจาก Shell, docker compose run, --scale และ profile"
+  - "หนังสือ Docker in Action ที่ใช้เขียนบทนี้ใช้ docker stack deploy ของ Swarm กับ Compose V3 ซึ่งเราไม่ได้รัน เราอ้างจากหนังสือเฉพาะแนวคิด Declarative กับ Imperative ที่ใช้กับ docker compose ได้เหมือนกัน ที่ยังไม่ได้ลองคือ build: ใน Compose, Compose Watch, extends กับ include, secrets กับ configs ของ Compose, และการเอา Compose ไปรันบน Server จริง"
+order: 9
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [volumes, networks]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ComposeLab from '../../../../components/labs/docker/ComposeLab';
+
+<Step>
+
+## จากคำสั่งหลายบรรทัดเป็นไฟล์เดียว
+
+สมมติว่าเราต้องรัน Pipeline เล็ก ๆ ที่มี Postgres หนึ่งตัวกับตัวโหลดข้อมูลหนึ่งตัวที่อ่านไฟล์ SQL เข้าไป ถ้าใช้สิ่งที่เรียนมา เราต้องสร้าง Network, สร้าง Volume, รัน Postgres พร้อมต่อ Volume, รอให้พร้อม แล้วรันตัวโหลดบน Network เดียวกัน ทั้งหมดนี้คือคำสั่งห้าหกบรรทัดที่ต้องเรียงลำดับให้ถูก หนังสือเรียกวิธีนี้ว่าแบบ Imperative คือสั่งทีละขั้นตามลำดับ และบอกว่าข้อเสียคือผู้ใช้ต้องวางแผนลำดับคำสั่งทั้งหมดเอง ตรวจสอบกับทดสอบได้ยาก ส่วนแบบ Declarative นั้นเราบอกแค่ว่าอยากได้สภาพสุดท้ายเป็นอย่างไร ไม่ต้องบอกขั้นตอน (หนังสือ: Docker in Action หัวข้อ 11.2 หน้า 229)
+
+Compose คือเครื่องมือแบบที่สอง เราเขียนไฟล์ `compose.yaml` ไฟล์เดียว
+
+```yaml
+name: dlab-pipe
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: lesson
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres"]
+      interval: 2s
+      retries: 40
+  loader:
+    image: postgres:17-alpine
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: lesson
+    volumes:
+      - ./load.sql:/load.sql:ro
+    command: ["psql", "-h", "db", "-U", "postgres", "-f", "/load.sql"]
+volumes:
+  pgdata:
+```
+
+แล้วสั่ง `docker compose up -d` คำสั่งเดียว ผลที่แบบฝึกเห็นคือ Compose สร้างให้ครบ (รัน)
+
+| สิ่งที่ถูกสร้าง | ชื่อที่ได้ |
+|---|---|
+| Container | `dlab-pipe-db-1` และ `dlab-pipe-loader-1` (ชื่อโปรเจกต์ ชื่อบริการ และเลขที่) |
+| Network | `dlab-pipe_default` (ชื่อโปรเจกต์ตามด้วย `_default`) |
+| Volume | `dlab-pipe_pgdata` (ชื่อโปรเจกต์ตามด้วยชื่อ Volume) |
+
+ชื่อที่ขึ้นต้นด้วยชื่อโปรเจกต์ทำให้ Compose สองชุดอยู่บนคอมพิวเตอร์เครื่องเดียวกันได้โดยไม่ชนกัน บริการทุกตัวถูกต่อเข้า Network เดียวกันที่ Compose สร้างให้เอง ซึ่งจาก[บท 8](/docker/networks/#network-ที่เราสร้างเองมี-dns) เรารู้ว่าเป็น Network ที่มี DNS ดังนั้น `psql -h db` ในตัวโหลดจึงหา Postgres เจอด้วยชื่อบริการ และแบบฝึกเห็นว่าตัวโหลดโหลดข้อมูลสองแถวสำเร็จแล้วจบด้วย Exit Code 0 ส่วน `db` ยังรันต่อ (รัน)
+
+<Callout type="note" title="Compose รุ่นนี้ไม่ใช่รุ่นที่อยู่ในหนังสือ">
+หนังสือที่เราอ้างเขียนด้วย Compose V3 แล้วใช้ `docker stack deploy` ของ Swarm ซึ่งเราไม่ได้รัน เรารันด้วยคำสั่ง `docker compose` (ปลั๊กอินของ Docker CLI รุ่น v5.7.0 ในเครื่องนี้) ซึ่งอ่านไฟล์รูปแบบเดียวกันได้เกือบทั้งหมด แต่ไม่ใช่เครื่องมือเดียวกัน แนวคิดแบบ Declarative ที่เรายืมจากหนังสือใช้ได้กับทั้งสองรุ่น
+</Callout>
+
+</Step>
+
+<Step>
+
+## depends_on ต้องรอให้บริการพร้อมก่อน
+
+บรรทัดที่สำคัญที่สุดในไฟล์ข้างบนคือ `depends_on` ที่บอกว่า `loader` ต้องรอ `db` ถ้าเขียนแบบรายการธรรมดาว่า `depends_on: [db]` Compose จะเริ่ม `db` ก่อนจริง แต่ไม่ได้รอให้ Postgres พร้อมรับการเชื่อมต่อ เราลองทั้งสองแบบ (รัน)
+
+| รูปแบบ | ผล |
+|---|---|
+| `condition: service_healthy` | `loader` รอจน Health Check ของ `db` ผ่าน แล้วโหลดสำเร็จ |
+| รายการธรรมดา `[db]` | `loader` เริ่มทันทีที่ Container ของ `db` เริ่ม และล้มด้วย `Connection refused` |
+
+ที่ล้มเพราะ Postgres ต้องใช้เวลาเตรียมระบบตอนเริ่มครั้งแรก ระหว่างนั้น Container เปิดอยู่แล้วแต่ยังไม่รับการเชื่อมต่อทาง TCP ตัวโหลดที่เริ่มเร็วเกินไปจึงโดนปฏิเสธ นี่คือเหตุผลที่ต้องมี `healthcheck` ใน `db` ซึ่งเป็นคำสั่งที่ Docker รันซ้ำเป็นระยะเพื่อถามว่าบริการพร้อมหรือยัง และผลที่ได้คือสถานะ `healthy` ที่แบบฝึกอ่านได้ (รัน)
+
+เปลี่ยนรูปแบบของ `depends_on` ใน Lab แล้วกดถัดไปทีละขั้น จะเห็นลำดับที่ Compose สร้างของ และจุดที่สองแบบแยกทางกัน
+
+<ComposeLab client:visible />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ไฟล์ Compose ของเรามีบริการฐานข้อมูลกับบริการโหลดข้อมูล โดยฝั่งโหลดเขียน depends_on เป็นรายการธรรมดาที่ชี้ไปที่ฐานข้อมูล แต่พอรัน ตัวโหลดล้มด้วยข้อความ Connection Refused บ้างเป็นบางครั้ง สาเหตุคืออะไร?"
+  options={[
+    'Compose ไม่รองรับการต่อ Network ระหว่างบริการ',
+    'depends_on แบบรายการธรรมดาแค่เริ่มฐานข้อมูลก่อน ไม่ได้รอให้พร้อมรับการเชื่อมต่อ ตัวโหลดจึงอาจเริ่มก่อนที่ Postgres จะเปิดพอร์ต',
+    'ชื่อบริการใช้เป็นชื่อ Host ไม่ได้',
+    'ต้อง Publish พอร์ตของฐานข้อมูลก่อนตัวโหลดจึงจะเรียกถึง'
+  ]}
+  answer={1}
+  why="แบบฝึกเห็นตัวโหลดที่ใช้ depends_on แบบรายการล้มด้วย Connection Refused เพราะเริ่มตอนที่ Container ของฐานข้อมูลเพิ่งเริ่ม ขณะที่แบบ service_healthy รอจน Health Check ผ่านแล้วโหลดสำเร็จ (รัน) ชื่อบริการใช้เป็นชื่อ Host ได้ตามปกติ และ Container ในโปรเจกต์เดียวกันไม่ต้อง Publish พอร์ตเพื่อเรียกกันเอง"
+/>
+
+</Step>
+
+<Step>
+
+## Down เก็บ Volume ไว้ ส่วน Down -v ลบด้วย
+
+พอหยุดงานแล้วเราอยากเก็บกวาด `docker compose down` ลบ Container กับ Network ของโปรเจกต์ แต่ Volume ที่มีชื่อยังอยู่ ซึ่งตรงกับที่เราเห็นในบท[Volume และ Bind Mount](/docker/volumes/#volume-แบบไม่มีชื่อจะสะสมถ้าเราไม่ล้าง)ว่าต้องลบ Volume ที่มีชื่อเอง ในแบบฝึกหลัง `down` Container กับ Network หายไป แต่ `dlab-pipe_pgdata` ยังอยู่ เมื่อสั่ง `up` ครั้งใหม่ ตารางจากเมื่อก่อนยังอยู่ครบสองแถว (รัน) ส่วน `docker compose down -v` ลบ Volume ด้วย (รัน)
+
+| คำสั่ง | Container | Network | Volume |
+|---|---|---|---|
+| `docker compose down` | ลบ | ลบ | เก็บไว้ |
+| `docker compose down -v` | ลบ | ลบ | ลบ |
+
+เรื่องนี้ต้องระวังเป็นพิเศษกับข้อมูลจริง `down -v` เป็นการลบข้อมูลทิ้งอย่างถาวร ในแบบฝึกเราใช้มันเพราะเป็นข้อมูลทดลอง แต่กับฐานข้อมูลของงานจริง ควรสั่ง `down` ธรรมดาเสมอ
+
+</Step>
+
+<Step>
+
+## ตัวแปร, Scale และ Profile
+
+มีสามความสามารถที่ใช้บ่อยในงานจริง อย่างแรกคือตัวแปร ในไฟล์เราเขียน `${GREETING:-fallback}` ได้ ซึ่งแปลว่าให้ใช้ค่าของตัวแปร `GREETING` ถ้าไม่มีให้ใช้ `fallback` แบบฝึกดูผลด้วย `docker compose config` ที่แสดงไฟล์หลังแทนค่าแล้ว (รัน)
+
+| แหล่งของค่า | ค่าที่ Compose ใช้ |
+|---|---|
+| ไม่ตั้งอะไร | `fallback` |
+| ไฟล์ `.env` ข้างไฟล์ Compose ที่เขียน `GREETING=from-dotenv` | `from-dotenv` |
+| ตัวแปรใน Shell (`GREETING=from-shell`) พร้อมไฟล์ `.env` | `from-shell` (Shell ชนะ) |
+
+ใช้ `docker compose run --rm ชื่อบริการ` เพื่อรันงานครั้งเดียวด้วยบริการนั้น ซึ่งแบบฝึกพิมพ์ค่า `from-shell` ตามที่ Shell กำหนด (รัน) อย่างที่สองคือ `--scale` ที่ทำให้บริการหนึ่งชื่อมีหลาย Container เราสั่ง `up -d --scale worker=3` ได้ Container ชื่อ `dlab-scale-worker-1` ถึง `-3` และเมื่อถามชื่อ `worker` จาก Container อื่นก็ได้สามที่อยู่ (รัน) ซึ่งเป็นกลไกเดียวกับ Alias ที่เห็นในบท Network อย่างที่สามคือ Profile บริการที่ใส่ `profiles: ["debug"]` จะไม่ถูกเริ่มตอน `up` ธรรมดา และเริ่มเมื่อสั่ง `--profile debug` (รัน) ใช้เก็บเครื่องมือสำหรับตรวจสอบไว้ในไฟล์เดียวกันโดยไม่ให้รันทุกครั้ง
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราต้องการหยุดและลบ Container กับ Network ของโปรเจกต์ Compose แต่เก็บข้อมูลฐานข้อมูลใน Volume ไว้ใช้รอบหน้า ควรสั่งอะไร?"
+  options={[
+    'docker compose down -v เพราะเป็นคำสั่งเก็บกวาดที่สมบูรณ์',
+    'docker compose down ธรรมดา เพราะลบ Container กับ Network แต่ปล่อย Volume ที่มีชื่อไว้',
+    'docker compose stop แล้วลบโฟลเดอร์โปรเจกต์ทิ้ง',
+    'docker compose up --scale db=0'
+  ]}
+  answer={1}
+  why="Down ธรรมดาไม่ลบ Volume ที่มีชื่อ แบบฝึกเห็น Volume ยังอยู่หลัง Down และตารางยังอยู่ครบหลังสั่ง up ใหม่ (รัน) ส่วน Down -v ลบ Volume ด้วย ซึ่งเท่ากับลบข้อมูลถาวร"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| `up` สร้าง Container ชื่อ `<โปรเจกต์>-<บริการ>-<เลข>`, Network `<โปรเจกต์>_default` และ Volume `<โปรเจกต์>_<ชื่อ>` | รัน: `exercises/09_compose.py` |
+| ตัวโหลดเรียก Postgres ด้วยชื่อบริการ `db` โหลดสองแถวสำเร็จและจบด้วย 0 ส่วน `db` ยังรัน และ Health Check รายงาน Healthy | รัน: `exercises/09_compose.py` |
+| `depends_on` แบบ `service_healthy` รอจนพร้อม แต่แบบรายการธรรมดาไม่รอและตัวโหลดล้มด้วย Connection Refused | รัน: `exercises/09_compose.py` |
+| `down` เก็บ Volume ไว้และ `up` รอบใหม่เห็นข้อมูลเดิม ส่วน `down -v` ลบ Volume | รัน: `exercises/09_compose.py` |
+| ตัวแปรมาจาก `.env` และจาก Shell โดย Shell ชนะ และ `${X:-ค่าเริ่มต้น}` ใช้ค่าเริ่มต้นเมื่อไม่ตั้ง | รัน: `exercises/09_compose.py` |
+| `docker compose run --rm` รันงานครั้งเดียว | รัน: `exercises/09_compose.py` |
+| `--scale worker=3` ให้สาม Container และชื่อบริการตอบสามที่อยู่ | รัน: `exercises/09_compose.py` |
+| บริการที่มี `profiles` ไม่เริ่มตอน `up` ธรรมดา และเริ่มเมื่อใส่ `--profile` | รัน: `exercises/09_compose.py` |
+| แบบ Imperative สั่งทีละขั้น แบบ Declarative บอกสภาพที่ต้องการ | หนังสือ: Docker in Action หัวข้อ 11.2 หน้า 229 |
+| `build:` ใน Compose, Compose Watch, `extends` กับ `include`, Secrets กับ Configs ของ Compose, การรันบน Server จริง | ไม่ได้ลอง |
+
+</Step>

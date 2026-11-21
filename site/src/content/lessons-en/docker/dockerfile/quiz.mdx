@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you know which Dockerfile lines make a layer, how the shell and exec forms differ, and what COPY and ADD do to files.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Our Dockerfile has one FROM, ENV, LABEL, COPY, RUN and CMD line each, and no WORKDIR. Which statement says correctly which lines add a layer with files to the image?"
+  options={[
+    'Every line adds one layer, all the same',
+    'COPY and RUN add a layer, while ENV, LABEL and CMD only write on the label of the image, so they add none',
+    'Only RUN adds a layer, because COPY just copies files',
+    'Only CMD adds a layer, because it is the last line'
+  ]}
+  answer={1}
+  why="COPY and RUN change files, so they get a layer as big as the change. ENV, LABEL and CMD only change the information on the label. The exercise built an image with just those three lines and got exactly the same layer count as the base image (ran). One thing to remember is that WORKDIR that creates a new folder adds a layer too, although docker history shows 0B."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A Dockerfile uses the shell form of ENTRYPOINT and has a CMD with default arguments on another line. When we run a container and add our own arguments, what does Docker do with CMD and with our arguments?"
+  options={[
+    'Uses our arguments and drops CMD',
+    'Joins the arguments of CMD and ours',
+    'Ignores both CMD and our arguments and runs only ENTRYPOINT',
+    'Refuses to run, because the shell form cannot be used with CMD'
+  ]}
+  answer={2}
+  why="The shell form of ENTRYPOINT is wrapped in /bin/sh -c, so there is nowhere to pass arguments on. The exercise saw that such a Dockerfile printed only hello, with CMD or with any word added (ran). The book warns about the same thing, that it makes ENTRYPOINT less flexible, which is why it recommends the exec form (book: Docker in Action section 8.2.1, page 149)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We have an archive Data.tar in the build folder and want the files inside it to appear in the image as separate files. What should we use?"
+  options={[
+    'COPY, because it unpacks automatically',
+    'ADD, because it unpacks an archive, while COPY puts the .tar file in whole',
+    'RUN that fetches and unpacks the file, because COPY and ADD cannot unpack',
+    'Either COPY or ADD, because the result is the same'
+  ]}
+  answer={1}
+  why="The exercise used both on a file with Hello.txt inside. COPY gave the whole Data.tar, while ADD gave Hello.txt (ran). If we do not want unpacking, use COPY, because the result is easier to predict, and the book advises against using ADD to fetch from a URL (book: Docker in Action section 8.2.2, page 153)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A Dockerfile uses USER to switch to an ordinary user and then COPYs a file into the image. When the container runs as that user, who owns the file that was copied in?"
+  options={[
+    'The ordinary user, because USER affects every following line',
+    'Root, because COPY makes root the owner unless we change it ourselves',
+    'Nobody, because COPY sets no owner',
+    'The user who built the image on our computer'
+  ]}
+  answer={1}
+  why="The exercise set USER app (UID 1000) before COPY and saw the file owned by UID 0, which is root (ran). The book warns about the same thing (book: Docker in Action section 8.2.2, page 153). If the program must overwrite that file at run time, it cannot, so the owner has to be changed explicitly at build time."
+/>
+
+</Step>

@@ -1,0 +1,200 @@
+---
+title: Container คืออะไร
+summary: เรารัน Container สามตัวจาก Image ต่างกัน แล้วเปิดดูจากข้างในกับข้างนอกจึงเห็นว่าแต่ละตัวคือ Process ธรรมดาตัวหนึ่งที่ถูกจัดห้องให้เห็นโลกเล็ก ๆ ของตัวเอง และทุกห้องใช้ Kernel ตัวเดียวกัน
+facts:
+  - "รันจริงใน exercises/01_containers.py กับ Docker Engine 29.2.1 บน Docker Desktop (WSL2) ใช้ Image alpine:3.22, busybox:1.37 และ python:3.13-slim เทียบ Kernel, ดู Process จากข้างในกับข้างนอกด้วย ps และ --pid=host, ดูสถานะตอน Process จบ และดูว่า Container สองตัวจาก Image เดียวกันไม่เห็นไฟล์ของกันและกัน"
+  - "ส่วนที่ว่า Container ไม่ใช่ Virtual Machine และ Docker ใช้กลไกของ Kernel สิบอย่าง มาจากหนังสือ Docker in Action หัวข้อ 1.1.3 และ 1.1.4 ไม่ได้รัน ส่วนเวลาบูตหรือขนาด Memory ของ Virtual Machine ไม่ได้วัด"
+order: 1
+phase: A
+level: 1
+stage: sprout
+format: steps
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import KernelStackLab from '../../../../components/labs/docker/KernelStackLab';
+import RoomsLab from '../../../../components/labs/docker/RoomsLab';
+
+<Step>
+
+## รัน Container แรก แล้วเจอเรื่องแปลก
+
+สมมติว่าเราใช้คอมพิวเตอร์ Windows แล้วเพิ่งติดตั้ง Docker เสร็จ ลองพิมพ์คำสั่งสั้น ๆ ที่ถามว่า Kernel ที่กำลังรันอยู่คือรุ่นอะไร
+
+```bash
+docker run --rm alpine:3.22 uname -r
+```
+
+```text
+6.18.58.1-microsoft-standard-WSL2
+```
+
+คำสั่งนี้มีสี่ส่วน `docker run` สั่งให้ Docker สร้าง Container ขึ้นมาแล้วเริ่มทำงาน `--rm` ให้ลบ Container ทิ้งเมื่อมันจบ `alpine:3.22` คือชื่อ Image ที่เราจะใช้ (ชื่อ Alpine กับ Tag `3.22`) และส่วนสุดท้ายคือโปรแกรมที่จะรันข้างใน ซึ่งก็คือ `uname -r` ที่พิมพ์เลขรุ่นของ Kernel
+
+เอ๊ะ ผลลัพธ์ที่ได้กลับเป็น Kernel ของ Linux ที่มีคำว่า Microsoft อยู่ในชื่อ ทั้งที่เราไม่เคยติดตั้ง Linux และเรารัน Image ของ Alpine ซึ่งเป็นระบบปฏิบัติการอีกตัวหนึ่ง ถ้าลองรันกับ Image อีกสองตัวและอ่านไฟล์ `/etc/os-release` ที่บอกชื่อระบบปฏิบัติการ เราจะเห็นผลอย่างนี้ (รัน)
+
+| Image | `uname -r` | ชื่อระบบปฏิบัติการใน `/etc/os-release` |
+|---|---|---|
+| `alpine:3.22` | 6.18.58.1-microsoft-standard-WSL2 | Alpine Linux v3.22 |
+| `busybox:1.37` | 6.18.58.1-microsoft-standard-WSL2 | ไม่มีไฟล์นี้เลย |
+| `python:3.13-slim` | 6.18.58.1-microsoft-standard-WSL2 | Debian GNU/Linux 13 (trixie) |
+
+ทั้งสามตัวบอกว่าใช้ Kernel เดียวกัน แต่ไฟล์ของระบบที่อยู่ข้างในต่างกัน ตรงนี้อยากให้ตั้งคำถามในใจกันหน่อยว่าเป็นไปได้อย่างไร ถ้าแต่ละ Container เป็น "คอมพิวเตอร์เครื่องใหม่" มันก็น่าจะมี Kernel ของตัวเอง
+
+</Step>
+
+<Step>
+
+## Container ไม่ได้บูตระบบปฏิบัติการใหม่
+
+คำตอบของเรื่องข้างบนคือ Container ไม่ใช่ Virtual Machine Virtual Machine จำลองฮาร์ดแวร์ขึ้นมาทั้งชุดแล้วติดตั้งระบบปฏิบัติการลงไปทั้งตัว ซึ่งใช้เวลาสร้างหลักนาทีและกิน Resource เยอะเพราะต้องรันระบบปฏิบัติการทั้งตัวควบคู่กับโปรแกรมที่เราต้องการ ส่วน Container ไม่ได้ใช้การจำลองฮาร์ดแวร์เลย โปรแกรมที่รันอยู่ใน Container คุยกับ Kernel ของคอมพิวเตอร์ที่รันมันโดยตรง (หนังสือ: Docker in Action หัวข้อ 1.1.3 หน้า 5)
+
+กดเลือกจำนวนโปรแกรมใน Lab แล้วเทียบสองฝั่งดู ฝั่ง Virtual Machine ต้องมี Kernel เพิ่มขึ้นทีละตัวตามจำนวนโปรแกรม ส่วนฝั่ง Container มี Kernel ตัวเดียวและแต่ละโปรแกรมแค่เพิ่มไฟล์ของตัวเองเข้ามา
+
+<KernelStackLab client:visible />
+
+แล้วทำไมคอมพิวเตอร์ Windows ของเราถึงมี Kernel ของ Linux ให้ Container ใช้ คำตอบคือ Docker Desktop เปิด Linux ขึ้นมาให้ตัวหนึ่งหลังฉาก (ในเครื่องนี้ใช้ WSL2) แล้วรัน Docker Engine และ Container ทั้งหมดอยู่ข้างใน ซึ่งหนังสือก็เล่าไว้ว่าผู้ใช้ Docker บน Mac และ Windows รวมถึงผู้ใช้ Cloud เกือบทั้งหมดรัน Docker อยู่ใน Virtual Machine อีกที เทคโนโลยีสองอย่างนี้จึงใช้ร่วมกันได้ (หนังสือ: Docker in Action หัวข้อ 1.1.3 หน้า 5) ดังนั้นคำว่า Host ในบทเรียนนี้จะหมายถึง Linux ตัวนั้นที่ Docker Engine รันอยู่ และเราจะไม่ได้หมายถึง Windows
+
+<Callout type="note" title="Docker ไม่ได้สร้างเทคโนโลยี Container">
+Docker ใช้ของที่อยู่ใน Kernel ของ Linux อยู่แล้ว โดยหนังสือไล่กลไกที่ Docker ใช้สร้าง Container ไว้สิบอย่าง ตั้งแต่ Namespace ของ PID, `hostname`, ระบบไฟล์, การสื่อสารระหว่าง Process, เครือข่ายและผู้ใช้ ไปจนถึง `chroot`, `cgroups`, การถอดสิทธิ์ (CAP Drop) และ Security Module (หนังสือ: Docker in Action หัวข้อ 1.1.4 หน้า 6) เดี๋ยวเราจะมาเปิดดูกลไกพวกนี้ทีละอันกันในช่วงหลังของเส้นทางนี้ ตอนนี้จำไว้แค่ว่ามันคือฟีเจอร์ของ Kernel ที่ Docker ทำให้ใช้ง่ายขึ้น
+</Callout>
+
+</Step>
+
+<Step>
+
+## Container คือ Process ที่เห็นโลกเล็ก ๆ
+
+ถ้า Container ไม่ใช่คอมพิวเตอร์ตัวใหม่ มันก็ควรเป็นอะไรที่เล็กกว่านั้น เรามาลองพิสูจน์กันดู เริ่มจากรัน Container ที่ทำงานค้างไว้ห้านาที (`-d` คือให้ทำงานอยู่เบื้องหลัง และ `--name` ตั้งชื่อให้เรียกง่าย) แล้วถามว่าข้างในมี Process อะไรบ้าง
+
+```bash
+docker run -d --name a alpine:3.22 sleep 300
+docker exec a ps -o pid,args
+```
+
+```text
+PID   COMMAND
+    1 sleep 300
+    7 ps -o pid,args
+```
+
+`docker exec` ให้เรารันคำสั่งเพิ่มเข้าไปใน Container ที่ทำงานอยู่ จะเห็นว่าข้างในมี `sleep 300` ซึ่งเป็นโปรแกรมที่เราสั่งให้เริ่ม ตัวเลข PID ของมันคือ 1 และมีแค่ `ps` ที่เราเพิ่งเรียกเป็นอีกตัวหนึ่ง นั่นหมายถึงทั้ง Container มี Process อยู่เท่านี้ (รัน)
+
+ทีนี้ลองมองจากข้างนอกบ้าง ในแบบฝึกเรารัน Container สามตัวที่ใช้ Image ต่างกัน แล้วเปิด `ps` อีกรอบจาก Container ที่ใช้ `--pid=host` ซึ่งทำให้มองเห็น Process ของ Engine ทั้งหมด ผลที่ได้คือ
+
+```text
+  2746  sleep 300
+  2795  sleep 301
+  2840  python -c import time; time.sleep(302)
+```
+
+โปรแกรมเดียวกันที่เคยเป็น PID 1 ข้างใน กลายเป็น Process ธรรมดาที่มีเลขของตัวเองข้างนอก (เลข PID เปลี่ยนไปทุกครั้งที่รัน) และ `docker top a` ก็แสดง Process เดียวกันนี้ให้เราจากฝั่ง Engine ด้วย เรื่องนี้ตรงกับที่หนังสืออธิบายว่าสถานะของ Container ผูกกับโปรแกรมตัวเดียวที่รันข้างใน (หนังสือ: Docker in Action หัวข้อ 1.1.1 หน้า 3) ส่วนที่ทำให้มันเห็นตัวเองเป็น PID 1 คือกลไกที่เรียกว่า PID Namespace ซึ่งเป็นหนึ่งในสิบอย่างที่เล่าไปเมื่อกี้
+
+ลองกดสลับที่ยืนใน Lab ดู ถ้ายืนในห้อง a จะเห็นแค่โปรแกรมของเราตัวเดียวและมันเป็น PID 1 ห้องอื่นกับ Process อื่นของ Engine หายไปจากสายตาหมด แต่พอยืนข้างนอก ทุกอย่างกลับมา และไม่มีโปรแกรมของ Container ตัวไหนเป็น PID 1 เลย
+
+<RoomsLab client:visible />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Container ตัวหนึ่งรันโปรแกรม Sleep 300 และเมื่อสั่ง ps ข้างใน Container นั้นจะเห็นโปรแกรมนี้เป็น PID 1 ถ้าเปิด ps จากข้างนอก (ใน Engine) จะเห็นโปรแกรมตัวนี้เป็นอย่างไร?"
+  options={[
+    'ไม่เห็นเลย เพราะ Process ใน Container อยู่คนละโลกกับข้างนอก',
+    'เห็นเป็น PID 1 เหมือนกัน เพราะ Container ทุกตัวเริ่มนับจาก 1',
+    'เห็นเป็น Process ธรรมดาตัวหนึ่งที่มีเลข PID อื่น ซึ่งไม่ใช่ 1',
+    'เห็นเป็นชื่อของ Container ไม่ใช่ Process'
+  ]}
+  answer={2}
+  why="Container ไม่ได้ซ่อน Process จาก Kernel มันแค่จัดให้ Process ข้างในเห็นตัวเองแบบนับเลขใหม่ (PID Namespace) พอมองจากข้างนอก Kernel ก็เห็นเป็น Process ธรรมดาที่มีเลขของตัวเอง เหมือนที่แบบฝึกเห็น Sleep 300 เป็น PID 1 ข้างในและเป็นเลขอื่นข้างนอก (รัน) และคำสั่ง Docker Top ก็แสดงตัวเดียวกันนี้"
+/>
+
+</Step>
+
+<Step>
+
+## Container อยู่ได้เท่ากับที่ Process อยู่
+
+เมื่อ Container คือ Process ตัวหนึ่ง ชีวิตของมันก็ผูกกับ Process ตัวนั้น ลองรันโปรแกรมที่หลับแค่สามวินาที แล้วถามสถานะตอนเริ่มกับตอนผ่านไปห้าวินาที
+
+```bash
+docker run -d --name short alpine:3.22 sleep 3
+docker inspect -f '{{.State.Status}}' short      # running
+docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' short   # หลังผ่านไป 5 วินาที: exited 0
+```
+
+ตอน `sleep` ยังหลับอยู่ Container มีสถานะ `running` พอ `sleep` จบก็กลายเป็น `exited` และได้ Exit Code 0 ซึ่งเป็นรหัสที่โปรแกรมคืนตอนจบ (รัน) ถ้าเราสั่ง `docker start short` Docker จะรันโปรแกรมเดิมอีกรอบ และสถานะกลับไปเป็น `running` (รัน) หนังสือสรุปเรื่องนี้ไว้ว่า ถ้าโปรแกรมรันอยู่ Container ก็รันอยู่ และถ้าโปรแกรมหยุด Container ก็หยุด (หนังสือ: Docker in Action หัวข้อ 1.1.1 หน้า 3)
+
+เรื่องนี้อธิบายอาการที่คนมือใหม่เจอบ่อย คือรัน Container แล้วมันจบทันที ซึ่งมักเป็นเพราะโปรแกรมที่สั่งให้รันทำงานเสร็จแล้วออกไปเอง ไม่ได้แปลว่า Docker มีปัญหา เดี๋ยวเราจะมาคุยเรื่องสถานะ Exit Code และการหยุด Container อย่างละเอียดกันในบทถัด ๆ ไป
+
+</Step>
+
+<Step>
+
+## Image คือแม่แบบ Container คือของที่ทำออกมา
+
+มีอีกคำที่เราใช้มาตลอดโดยยังไม่ได้อธิบาย คือ Image `alpine:3.22` เราลองรัน Container ตัวหนึ่งที่เขียนไฟล์ลงไปแล้วอ่านกลับ จากนั้นรัน Container ตัวใหม่จาก Image เดิมแล้วลองอ่านไฟล์เดียวกัน
+
+```bash
+docker run --name w1 alpine:3.22 sh -c 'echo hello > /note.txt && cat /note.txt'
+docker run --rm alpine:3.22 cat /note.txt
+```
+
+```text
+hello
+cat: can't open '/note.txt': No such file or directory
+```
+
+Container ตัวแรกเขียนและอ่านไฟล์ได้ แต่ Container ตัวที่สองไม่เห็นไฟล์นั้นเลย ทั้งที่มาจาก Image เดียวกัน และพอเราสั่ง `docker start -a w1` กลับไปที่ตัวแรก ไฟล์ `note.txt` ก็ยังอยู่ (รัน) ภาพที่ควรจำคือ Image เป็นแม่แบบที่อ่านได้อย่างเดียว ส่วน Container แต่ละตัวมีที่เขียนของตัวเอง หนังสือใช้ภาพของตู้คอนเทนเนอร์ขนส่งสินค้า Image คือตู้ที่ถูกแพ็กไว้พร้อมส่ง และ Container ที่สร้างจาก Image เดียวกันไม่แชร์การเปลี่ยนแปลงของระบบไฟล์ให้กัน (หนังสือ: Docker in Action หัวข้อ 1.1.5 หน้า 7)
+
+ทุกครั้งที่เรารัน `docker run` Docker จะสร้าง Container ตัวใหม่เสมอ ตัวเก่าที่จบไปแล้วยังค้างอยู่ในรายการจนกว่าเราจะลบ เราจึงเห็น `w1` กับ `short` เป็น `Exited` อยู่ใน `docker ps -a` และนี่คือเหตุผลที่เราใส่ `--rm` ในคำสั่งที่ไม่ต้องการเก็บผลไว้ ส่วนข้างในของ Image ว่าประกอบด้วยอะไรและทำไมถึงไม่เปลี่ยนตอนเราเขียนไฟล์ เป็นเรื่องของ[บทถัดไป](/docker/images-and-layers/)
+
+<Callout type="warn" title="คำสั่งในหนังสือบางตัวใช้ไม่ได้กับ Docker 29">
+หนังสือที่เราอ้างพิมพ์เมื่อปี 2019 มีคำสั่ง `docker inspect -f '{{.NetworkSettings.IPAddress}}'` สำหรับดูที่อยู่ IP ของ Container ซึ่งใน Docker 29.2.1 ใช้ไม่ได้แล้ว ฟิลด์นั้นถูกเอาออก Docker ตอบว่า `map has no entry for key "IPAddress"` ต้องอ่านจากชื่อเครือข่ายแทน เช่น `{{.NetworkSettings.Networks.bridge.IPAddress}}` (รัน) ถ้าคำสั่งจากหนังสือเล่มไหนพังอย่างนี้ ให้ลองเทียบกับ `docker inspect` ตัวเต็มก่อน
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เรารัน Container ตัวแรกจาก Image Alpine แล้วเขียนไฟล์ชื่อ Note.txt จากนั้นรัน Container ตัวที่สองจาก Image Alpine อีกรอบ ตัวที่สองจะเห็นไฟล์ Note.txt ไหม?"
+  options={[
+    'เห็น เพราะทั้งสองมาจาก Image เดียวกัน',
+    'ไม่เห็น เพราะแต่ละ Container มีที่เขียนของตัวเอง ไฟล์ที่เขียนใน Container ตัวหนึ่งไม่เปลี่ยน Image และไม่ไปโผล่ในอีกตัว',
+    'เห็น แต่เฉพาะตอนที่ Container ตัวแรกยังทำงานอยู่',
+    'ไม่เห็น เพราะ Docker ลบไฟล์ทั้งหมดทิ้งตอน Container จบ'
+  ]}
+  answer={1}
+  why="Image อ่านได้อย่างเดียวและใช้ร่วมกัน ส่วนไฟล์ที่เขียนตอนรันจะไปอยู่ในที่เขียนของ Container ตัวนั้น ตัวที่สองจึงตอบว่าไม่มีไฟล์นี้ ส่วนตัวแรกยังมีไฟล์อยู่แม้จบไปแล้ว เพราะ Container ที่จบยังไม่ถูกลบจนกว่าเราจะสั่ง (รัน) ข้อสุดท้ายผิดตรงที่ Docker ไม่ลบอะไรเองถ้าเราไม่ใส่ --rm"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Container ของ Image คนละตัวรายงาน Kernel ตัวเดียวกัน แต่ไฟล์ระบบข้างในต่างกัน (`busybox` ไม่มี `/etc/os-release`) | รัน: `exercises/01_containers.py` |
+| Docker Engine ในเครื่องนี้รันบน Linux Kernel ของ WSL2 ไม่ใช่ Kernel ของ Windows | รัน: `exercises/01_containers.py` |
+| โปรแกรมที่เราสั่งเป็น PID 1 ข้างใน และเป็น Process ธรรมดาที่มีเลขอื่นข้างนอก | รัน: `exercises/01_containers.py` |
+| `hostname` ของ Container เท่ากับ 12 ตัวแรกของ Container ID และแต่ละตัวมี IP ของตัวเอง | รัน: `exercises/01_containers.py` |
+| Container จบเมื่อโปรแกรมจบ และ `docker start` รันโปรแกรมเดิมอีกรอบ | รัน: `exercises/01_containers.py` |
+| Container สองตัวจาก Image เดียวกันไม่เห็นไฟล์ของกันและกัน | รัน: `exercises/01_containers.py` |
+| Docker 29.2.1 ไม่มีฟิลด์ `NetworkSettings.IPAddress` แล้ว | รัน: `exercises/01_containers.py` |
+| Container ไม่ใช่ Virtual Machine เพราะโปรแกรมคุยกับ Kernel ของ Host โดยตรง | หนังสือ: Docker in Action หัวข้อ 1.1.3 หน้า 5 |
+| ผู้ใช้ Docker บน Mac, Windows และ Cloud ส่วนใหญ่รัน Docker อยู่ใน Virtual Machine | หนังสือ: Docker in Action หัวข้อ 1.1.3 หน้า 5 |
+| Docker สร้าง Container จากกลไกของ Kernel สิบอย่าง (Namespace หกอย่าง, `chroot`, `cgroups`, CAP Drop และ Security Module) | หนังสือ: Docker in Action หัวข้อ 1.1.4 หน้า 6 |
+| ถ้าโปรแกรมรันอยู่ Container ก็รันอยู่ ถ้าโปรแกรมหยุด Container ก็หยุด | หนังสือ: Docker in Action หัวข้อ 1.1.1 หน้า 3 |
+| Image คือ Snapshot ของไฟล์ที่ Container เห็น และ Container จาก Image เดียวกันไม่แชร์การเปลี่ยนแปลง | หนังสือ: Docker in Action หัวข้อ 1.1.5 หน้า 7 |
+| เวลาบูตและขนาด Memory ของ Virtual Machine เทียบกับ Container | ไม่ได้วัด (ภาพ Lab เป็นโครงสร้างเท่านั้น) |
+
+</Step>

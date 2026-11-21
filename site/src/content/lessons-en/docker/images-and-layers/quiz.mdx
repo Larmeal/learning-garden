@@ -1,0 +1,102 @@
+---
+title: Check your understanding
+summary: Five questions to check that you can read docker diff, know how much room images that share layers take, and understand how tags and layers relate to ids.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A container deletes the file /etc/passwd that came from the image, and docker diff shows two lines, C /etc and D /etc/passwd. What does the first line, C /etc, mean?"
+  options={[
+    'The folder /etc was copied somewhere else',
+    'The folder /etc changed, because a file in it was deleted, so it is recorded in the writable layer too',
+    'The folder /etc was created from scratch',
+    'Docker found that a file in /etc is damaged'
+  ]}
+  answer={1}
+  why="The letter C stands for change and is used for files and folders alike. When a file in a folder is deleted or changed, the folder that holds it changes too and always shows C. The exercise saw this when deleting /etc/passwd and when touching the same file (ran), and it matches what the book shows (book: Docker in Action section 7.2.1, page 131)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Image A is 100 MB, built on a 90 MB base image (A's own part is 10 MB), and image B is 95 MB, built on the same base (B's own part is 5 MB). With both installed, about how much does Docker store on disk?"
+  options={[
+    'About 195 MB, because each image is stored separately',
+    'About 105 MB: one copy of the 90 MB base, plus 10 MB of A and 5 MB of B',
+    'About 90 MB, because Docker stores only the base',
+    'About 15 MB, because it stores only the differences'
+  ]}
+  answer={1}
+  why="The base layer has one id, so it is stored once. The rest is each image's own layers: 90 + 10 + 5 = 105 MB, just as in the lab. With two images the figure really stored is lower than the sum of the image sizes (ran). The 195 figure is what would happen if each kept its own copy, for example on virtual machines (book: Docker in Action section 3.3.4, page 60)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A first container from an image changes the file /etc/passwd. Then we create a second container from the same image and open the same file. What does the second container see?"
+  options={[
+    'The version the first one changed, because the file in the image was changed',
+    'The original version from the image, because the first container changed a copy in its own writable layer and did not change a layer of the image',
+    'No file at all, because it was moved to the first container',
+    'It depends on whether the first container is still running'
+  ]}
+  answer={1}
+  why="The layers of an image are read-only, so the change happens only on the copy in the writable layer of the first container (copy-on-write). The exercise created a new container after a delete and still saw /etc/passwd in full (ran). Every container has its own writable layer, so none sees the changes of another."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We run Docker Tag to give one image a second name, then delete the first name with Docker Rmi. What happens?"
+  options={[
+    'The whole image is deleted, because we deleted the name it was built with',
+    'The image is deleted, but the second name stays as a dangling name',
+    'The first name is gone, but the image stays and can still be used by the second name, because a tag is only a label that points at an id',
+    'Docker refuses to delete, because the image has two names'
+  ]}
+  answer={2}
+  why="A tag is a name that points at the id of an image, and it is not the image. When several names point at it, deleting one only takes that label away. The exercise deleted dlab-alias:1 and alpine:3.22 still had the same id (ran). The image is really removed when no name points at it and no container uses it (book: Docker in Action section 7.2.2, page 134)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="An image has four layers. We look at the mount of a container started from it on overlay2. How many read-only folders do we see?"
+  options={[
+    '4, exactly one per layer of the image',
+    '5: the 4 layers plus one more that Docker adds for the container',
+    '1, because Docker merges all layers into one piece at run time',
+    '8, because each layer has two folders'
+  ]}
+  answer={1}
+  why="In the exercise, python:3.13-slim has four layers and a container started from it has five LowerDir entries: the four layers of the image plus an init layer that Docker adds (ran). The writable folder is another one, the UpperDir, and it is not counted in LowerDir. We did not open the init layer to see what it holds."
+/>
+
+</Step>

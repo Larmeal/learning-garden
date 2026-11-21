@@ -1,0 +1,97 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 5 ข้อ เพื่อเช็กว่าแยก Container ออกจาก Virtual Machine ได้ รู้ว่า Container ใช้ Kernel ของใคร และอ่านผลของ Process ข้างในกับข้างนอกได้
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เรารัน Container จาก Image ที่ใช้ Debian และอีกตัวจาก Image ที่ใช้ Alpine บน Docker Engine เดียวกัน ถ้าสั่งให้ทั้งสองตัวพิมพ์เลขรุ่นของ Kernel จะได้ผลอย่างไร?"
+  options={[
+    'ได้ Kernel ของ Debian จากตัวแรก และ Kernel ของ Alpine จากตัวที่สอง',
+    'ได้เลขรุ่น Kernel ตัวเดียวกันทั้งสองตัว เพราะ Container ใช้ Kernel ของ Linux ที่ Engine รันอยู่',
+    'ได้ Kernel ของ Windows ทั้งสองตัว เพราะเรารัน Docker บน Windows',
+    'ได้ข้อผิดพลาด เพราะ Container ไม่มี Kernel ให้ถาม'
+  ]}
+  answer={1}
+  why="Image มีแค่ไฟล์ของระบบ (Debian หรือ Alpine) ไม่มี Kernel ติดมาด้วย โปรแกรมใน Container จึงคุยกับ Kernel ตัวเดียวกันของ Host ซึ่งในเครื่องนี้คือ Linux ของ WSL2 ที่ Docker Desktop เปิดไว้ ไม่ใช่ Windows แบบฝึกรันกับ Alpine, Busybox และ Debian แล้วได้เลขรุ่นเดียวกันทั้งสามตัว (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ทีมหนึ่งต้องรันบริการแยกกัน 4 ตัว เขาเปรียบเทียบการรันบน Virtual Machine 4 ตัวกับ Container 4 ตัว จำนวน Kernel ที่ต้องมีทั้งหมดต่างกันอย่างไร?"
+  options={[
+    'Virtual Machine ต้องมี Kernel 4 ตัว (ตัวละหนึ่ง) ส่วน Container ใช้ Kernel เดิมตัวเดียว',
+    'ทั้งสองแบบต้องมี Kernel 4 ตัวเท่ากัน',
+    'Container ต้องมี Kernel 4 ตัว ส่วน Virtual Machine ใช้ตัวเดียวร่วมกัน',
+    'ทั้งสองแบบใช้ Kernel ตัวเดียว เพราะ Hypervisor เป็นคนให้'
+  ]}
+  answer={0}
+  why="Virtual Machine จำลองฮาร์ดแวร์แล้วติดตั้งระบบปฏิบัติการลงไปทั้งตัว จึงมี Kernel ของตัวเองทุกตัว ส่วน Container เพิ่มแค่ Process กับไฟล์ของโปรแกรมบน Kernel ตัวเดิม ภาพนี้เป็นโครงสร้างจากหนังสือ ตัวเลขเวลาบูตและ Memory ของ Virtual Machine ในบทนี้ไม่ได้วัด (หนังสือ: Docker in Action หัวข้อ 1.1.3 หน้า 5)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เมื่อดู Container ที่ทำงานอยู่ด้วย Docker Exec เราพิมพ์ Hostname ออกมาแล้วได้ชุดตัวอักษรยาวสิบสองตัว เช่น c90db78e1566 ตัวอักษรชุดนั้นคืออะไร?"
+  options={[
+    'ชื่อที่เราตั้งให้ Container ด้วยตัวเลือก Name',
+    'ที่อยู่ MAC ของ Container',
+    'สิบสองตัวแรกของ Container ID ซึ่ง Docker ใช้เป็น Hostname ให้ถ้าเราไม่ได้ตั้งเอง',
+    'ชื่อของ Image ที่ใช้สร้าง Container'
+  ]}
+  answer={2}
+  why="ถ้าไม่ได้ตั้ง Hostname เอง Docker จะใช้ Container ID ส่วนต้นสิบสองตัวอักษร แบบฝึกตรวจแล้วว่า Hostname ที่อ่านจากข้างในตรงกับ ID ที่คำสั่ง Docker Inspect ให้ (รัน) เรื่องนี้ช่วยตอนอ่าน Log เพราะเรามักเห็นชุดตัวอักษรนี้เป็นชื่อของ Container ต้นทาง"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เรารันโปรแกรมที่ใช้เวลาสองวินาทีแล้วออกเองใน Container หนึ่ง สามสิบวินาทีต่อมาเราเรียก Docker Inspect ดูสถานะ จะเห็นอะไร?"
+  options={[
+    'ไม่พบ Container นี้ เพราะ Docker ลบ Container ทิ้งเองเมื่อโปรแกรมจบ',
+    'สถานะ Running เพราะ Container ยังเปิดอยู่จนกว่าเราจะสั่งปิด',
+    'สถานะ Exited พร้อม Exit Code ที่โปรแกรมคืนมา และ Container ยังอยู่ในรายการ',
+    'สถานะ Paused เพราะ Docker หยุดไว้รอเรา'
+  ]}
+  answer={2}
+  why="Container มีชีวิตเท่ากับ Process ที่มันรัน พอโปรแกรมจบ สถานะเปลี่ยนเป็น Exited และเก็บ Exit Code ไว้ แต่ Docker ไม่ลบให้เองถ้าเราไม่ใส่ตัวเลือก --rm (รัน) เราจึงยังสั่ง Start ซ้ำได้ ซึ่งจะรันโปรแกรมเดิมอีกรอบ (หนังสือ: Docker in Action หัวข้อ 1.1.1 หน้า 3)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="คำสั่งในหนังสือที่ใช้ Docker Inspect อ่านฟิลด์ IPAddress ที่อยู่ระดับบนสุดของ NetworkSettings ใช้กับ Docker 29.2.1 แล้วขึ้นว่าไม่มีฟิลด์นี้ ควรทำอย่างไร?"
+  options={[
+    'ถอนการติดตั้ง Docker แล้วลงรุ่นเก่ากว่า',
+    'ไปอ่านที่อยู่จากฟิลด์ของแต่ละเครือข่าย เช่นใต้ชื่อ Bridge ซึ่ง Docker รุ่นใหม่ย้ายมาไว้ตรงนั้น',
+    'ใส่ตัวเลือกบังคับ (Force) เพื่อให้ Docker คืนค่าฟิลด์เดิม',
+    'ข้ามไป เพราะที่อยู่ IP ของ Container อ่านไม่ได้แล้ว'
+  ]}
+  answer={1}
+  why="Docker 29 เอาฟิลด์ระดับบนสุดออก ที่อยู่ของ Container อยู่ใต้ชื่อเครือข่ายที่มันต่ออยู่ เช่น Networks.bridge.IPAddress ซึ่งแบบฝึกอ่านได้ปกติ (รัน) เวลาคำสั่งจากหนังสือเก่าพัง ให้ดูผลเต็มของ Docker Inspect ก่อนว่าข้อมูลย้ายไปไหน"
+/>
+
+</Step>

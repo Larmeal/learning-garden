@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่ารู้ว่าบรรทัดไหนของ Dockerfile สร้าง Layer รู้ว่า Shell Form กับ Exec Form ต่างกันอย่างไร และรู้ว่า COPY กับ ADD ทำอะไรกับไฟล์
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Dockerfile ของเรามี FROM, ENV, LABEL, COPY, RUN และ CMD อย่างละหนึ่งบรรทัด และไม่มี WORKDIR ข้อไหนบอกได้ถูกว่าบรรทัดไหนเพิ่ม Layer ที่มีไฟล์เข้ามาใน Image?"
+  options={[
+    'ทุกบรรทัดเพิ่ม Layer หนึ่งชั้นเท่ากันหมด',
+    'COPY กับ RUN เพิ่ม Layer ส่วน ENV, LABEL และ CMD เป็นแค่การเขียนลงป้ายของ Image จึงไม่เพิ่ม Layer',
+    'เฉพาะ RUN ที่เพิ่ม Layer เพราะ COPY แค่ก๊อปไฟล์',
+    'เฉพาะ CMD ที่เพิ่ม Layer เพราะเป็นบรรทัดสุดท้าย'
+  ]}
+  answer={1}
+  why="COPY กับ RUN เปลี่ยนไฟล์ จึงได้ Layer ที่มีขนาดตามที่เปลี่ยน ส่วน ENV, LABEL และ CMD เปลี่ยนแค่ข้อมูลบนป้าย แบบฝึกสร้าง Image ที่มีแค่สามบรรทัดนั้นแล้วได้จำนวน Layer เท่ากับ Image ฐานพอดี (รัน) ข้อควรจำคือ WORKDIR ที่สร้างโฟลเดอร์ใหม่ก็เพิ่ม Layer ด้วยทั้งที่ Docker History ขึ้น 0B"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Dockerfile ที่ใช้ Shell Form ของ ENTRYPOINT เขียนไว้ และมี CMD ตั้งค่าอาร์กิวเมนต์ตั้งต้นไว้อีกบรรทัด เมื่อเรารัน Container โดยต่อท้ายอาร์กิวเมนต์ของเราเอง Docker จะทำอย่างไรกับ CMD และอาร์กิวเมนต์ที่ต่อท้าย?"
+  options={[
+    'ใช้อาร์กิวเมนต์ของเรา และทิ้ง CMD',
+    'ต่ออาร์กิวเมนต์ของ CMD และของเราเข้าด้วยกัน',
+    'มองข้ามทั้ง CMD และอาร์กิวเมนต์ของเราไปเลย รันแค่ ENTRYPOINT',
+    'ปฏิเสธการรัน เพราะ Shell Form ใช้กับ CMD ไม่ได้'
+  ]}
+  answer={2}
+  why="Shell Form ของ ENTRYPOINT ถูกห่อด้วย Shell ทำให้ไม่มีที่ให้ส่งอาร์กิวเมนต์ต่อ แบบฝึกเห็น Dockerfile แบบนี้พิมพ์ Hello เท่านั้น ไม่ว่าจะมี CMD หรือต่อท้ายคำอะไร (รัน) หนังสือเตือนเรื่องเดียวกันว่าทำให้ ENTRYPOINT ยืดหยุ่นน้อยลง จึงแนะนำให้ใช้ Exec Form (หนังสือ: Docker in Action หัวข้อ 8.2.1 หน้า 149)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เรามีไฟล์ Archive ชื่อ Data.tar ในโฟลเดอร์ที่ Build แล้วอยากให้ไฟล์ข้างในปรากฏใน Image เป็นไฟล์แยกกัน ควรใช้อะไร?"
+  options={[
+    'COPY เพราะมันแตกไฟล์ให้อัตโนมัติ',
+    'ADD เพราะมันแตก Archive ให้ ส่วน COPY จะวางไฟล์ Archive ไว้ทั้งก้อน',
+    'RUN ที่ดึงไฟล์มาแตก เพราะ COPY กับ ADD แตกไฟล์ไม่ได้',
+    'ได้ทั้ง COPY และ ADD เพราะผลเหมือนกัน'
+  ]}
+  answer={1}
+  why="แบบฝึกใช้ทั้งสองกับไฟล์ที่ข้างในมี Hello.txt ผล COPY ได้ Data.tar ทั้งก้อน แต่ ADD ได้ Hello.txt (รัน) ถ้าไม่ต้องการแตกไฟล์ ให้ใช้ COPY เพราะผลคาดเดาง่ายกว่า และหนังสือแนะนำไม่ให้ใช้ ADD ดึงจาก URL (หนังสือ: Docker in Action หัวข้อ 8.2.2 หน้า 153)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Dockerfile ใช้ USER เปลี่ยนเป็นผู้ใช้ธรรมดาแล้วจึง COPY ไฟล์เข้า Image เมื่อ Container รันด้วยผู้ใช้คนนั้น ไฟล์ที่ COPY เข้ามาเป็นของใคร?"
+  options={[
+    'ของผู้ใช้ธรรมดาคนนั้น เพราะ USER มีผลกับทุกบรรทัดถัดไป',
+    'ของ Root เพราะ COPY ให้ Root เป็นเจ้าของเสมอ ถ้าไม่ได้สั่งเปลี่ยนเอง',
+    'ไม่มีเจ้าของ เพราะ COPY ไม่ตั้งเจ้าของ',
+    'ของผู้ใช้ที่ Build Image บนคอมพิวเตอร์ของเรา'
+  ]}
+  answer={1}
+  why="แบบฝึกตั้ง USER App (UID 1000) ก่อน COPY แล้วเห็นไฟล์เป็นของ UID 0 ซึ่งคือ Root (รัน) หนังสือเตือนเรื่องเดียวกัน (หนังสือ: Docker in Action หัวข้อ 8.2.2 หน้า 153) ถ้าโปรแกรมต้องเขียนทับไฟล์นั้นตอนรัน จะเขียนไม่ได้ ต้องเปลี่ยนเจ้าของให้ชัดเจนตอน Build"
+/>
+
+</Step>

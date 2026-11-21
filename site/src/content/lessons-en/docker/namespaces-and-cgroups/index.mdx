@@ -1,0 +1,158 @@
+---
+title: Namespaces and cgroups
+summary: A container is an ordinary process that the Linux kernel gives a world of its own with namespaces and limits with cgroups. This lesson looks at the namespaces of real containers, makes some by hand with unshare, and sets limits on memory, CPU and the number of processes to see what happens when a program hits them.
+facts:
+  - "Run for real in exercises/10_namespaces_cgroups.py against Docker Engine 29.2.1 (Linux 6.18 in WSL2, cgroup v2). It compares the namespace numbers from /proc/self/ns of containers that ran at the same time, uses --pid=container: and --network=container:, makes namespaces by hand with unshare in a privileged container, reads memory.max, cpu.max and pids.max in /sys/fs/cgroup, lets a Python program ask for memory 10 MB at a time under several limits, measures the CPU time it gets under --cpus and tries --pids-limit."
+  - "That namespaces control what a process can see and cgroups control the resources it can use comes from Container Security chapters 3 and 4 and was not run. Not tried: user namespaces with userns-remap, the cgroup namespace in detail, block I/O limits, making a cgroup by hand through files, and cgroup v1, which the book uses to explain. This computer uses v2."
+order: 10
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [containers, container-lifecycle]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import NamespaceLab from '../../../../components/labs/docker/NamespaceLab';
+import CgroupLab from '../../../../components/labs/docker/CgroupLab';
+
+<Step>
+
+## A namespace is a view of the kernel given to each process
+
+In [lesson 1](/en/docker/containers/#a-container-is-a-process-that-sees-a-small-world) we saw that a container is an ordinary process that sees itself as PID 1, and we called the mechanism the PID namespace without opening it. Now is the time. The book Container Security puts it briefly: if cgroups control the resources a process can use, namespaces control what it can see. Putting a process in a namespace restricts what that process can see (book: Container Security chapter 4, page 31). Linux supports seven kinds, `cgroup`, `ipc`, `mnt` (mount points), `net`, `pid`, `user` and `uts` (host name), and a process is always in exactly one namespace of each kind (book: Container Security chapter 4, page 32).
+
+We can look at them for real in the file `/proc/self/ns`, which shows the number of each namespace that process is in. In the exercise we start two containers at the same time, and compare them with a container that asks for the namespaces of the Linux that runs the engine (ran).
+
+| Namespace | Two containers compared | A container against the Linux that runs the engine |
+|---|---|---|
+| `cgroup`, `ipc`, `mnt`, `net`, `pid`, `uts` | differ | differ |
+| `user` | the same | the same |
+
+The first six differ everywhere, which means each container has its own full set. But `user` is the same for all, which means Docker does not use a user namespace by default. The `root` user inside a container is the same UID 0 as `root` of the Linux that runs the engine. We come back to that in [the last lesson of this path](/en/docker/capstone-pipeline/#lock-down-the-container-of-the-loader-layer-by-layer) (to separate them we would have to turn on `userns-remap`, which we have not tried and did not run).
+
+<Callout type="warn" title="A mistake we made while measuring">
+At first we ran the containers one after another and compared their namespace numbers, and they were all the same, which is wrong. We suppose that when the first container ends its namespace is released and the kernel gives that number to the namespace of the next one (that is our inference, and we did not read the kernel code). What we are sure of is the result we saw, and that the comparison has to be done with containers that are running at the same time, so we changed the exercise to do that (ran).
+</Callout>
+
+Switch the options in the lab. For each kind, choose between a namespace of the container's own and sharing that of the host with `--pid=host`, `--net=host` and `--uts=host`. What is seen from inside changes accordingly. For example, the process table goes from a handful of processes to the whole Linux.
+
+<NamespaceLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## Share a namespace on purpose, and make one without Docker
+
+Since a namespace is something that others can join, Docker lets us choose. With `--pid=container:A`, container B is in the same PID namespace as A and sees A's processes, and the exercise saw the `sleep 300` of A from B (ran). `--network=container:A` puts B in the same network namespace as A, with the same IP address (ran). This pattern is used when we want to attach an inspection tool to a running container without changing its image.
+
+Another interesting thing is that we can make a namespace ourselves without Docker. The Linux command `unshare` does what Docker does. In the exercise we run a `--privileged` container and use `unshare -u` to change the host name inside a new namespace. The result is
+
+```text
+inside=made-by-unshare
+outside=d4377a1e8f5a was=d4377a1e8f5a
+```
+
+Inside we could change it to `made-by-unshare`, while outside it kept its old name, and `unshare -p` made `ps` count from PID 1 (ran). So a container that Docker makes is several calls of this same mechanism at once, plus the other parts the book listed in [lesson 1](/en/docker/containers/), such as changing the root of the file system, dropping privileges and cgroups (book: Docker in Action section 1.1.4, page 6).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We run two containers at the same time and read /proc/self/ns of each to see the number of the pid namespace. What should we see with Docker's defaults?"
+  options={[
+    'The same number, because every container is in the same namespace as the host',
+    'Different numbers, because each container has its own PID namespace, unlike the user kind, which Docker shares with the host',
+    'Different numbers for every kind, including user',
+    'No number, because containers do not use namespaces'
+  ]}
+  answer={1}
+  why="Every container has its own namespaces of six kinds: processes, network, file system, host name, communication between processes and cgroup. The exercise saw different numbers for all of them when comparing containers that ran at the same time. But the seventh kind, the user one, was the same for all, because Docker does not turn on that separation by default (ran). We should compare while both containers are still running, otherwise the kernel may reuse the old number."
+/>
+
+</Step>
+
+<Step>
+
+## A cgroup is a limit written as a file
+
+Namespaces control what is seen, and the amount that can be used is the job of cgroups. The book says cgroups limit resources such as memory, CPU and network I/O that a group of processes can use, and there is a pid cgroup that limits the total number of processes, which stops the effect of a fork bomb. It adds that because a container is an ordinary process, cgroups can limit the resources of each container (book: Container Security chapter 3, page 23). The kernel passes information about cgroups as files in the folder `/sys/fs/cgroup`. The book explains with cgroup v1, which has files such as `memory.limit_in_bytes`, while this computer is on v2, where the file names are a little different. We give options to Docker and read these files from inside (ran).
+
+| File | No options | `--memory 64m --cpus 0.5 --pids-limit 20` |
+|---|---|---|
+| `memory.max` | `max` | `67108864` |
+| `cpu.max` | `max 100000` | `50000 100000` |
+| `pids.max` | `max` | `20` |
+
+The Docker options translate straight into the values in the files. `--memory 64m` is 67,108,864 bytes, and `--cpus 0.5` is a quota of 50,000 microseconds in every 100,000, which means the program may run half of each period. `docker inspect` reads the same limit from outside (ran). Now let us see what a program that hits a limit meets.
+
+We let a Python program ask for memory 10 MB at a time up to 120 MB, under several limits (ran).
+
+| Memory limit | Last MB printed | Result |
+|---|---|---|
+| none | 120 | finished |
+| 256 MB | 120 | finished |
+| 64 MB | 50 | killed (`OOMKilled`, exit code 137) |
+| 32 MB | 20 | killed |
+
+When memory runs out the kernel kills the program on the spot, which matches the exit code 137 that we saw in the lesson on [the life of a container](/en/docker/container-lifecycle/) is SIGKILL. CPU is different. We let a program spin in an empty loop for 2.5 seconds and measured how much CPU time it got per unit of real time (ran).
+
+| CPU limit | CPU time per real time | Times it was paused |
+|---|---|---|
+| none | 1.01 | 0 |
+| `--cpus 1` | 1.01 | 0 |
+| `--cpus 0.5` | 0.52 | 25 |
+| `--cpus 0.25` | 0.26 | 26 |
+
+The program does not die. The kernel only pauses it in turns until it matches the quota. The last one is the number of processes. We set `--pids-limit 10` and let a shell open 30 background processes, and the shell reported `can't fork: Resource temporarily unavailable` (ran). A fork past the limit was refused, which is what stops a fork bomb, as the book says. Choose limits in the lab to compare the two different ways of running out of a resource: being killed and being paused.
+
+<CgroupLab client:visible lang="en" />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A container runs a program that eats all the CPU it can, and we limit it to half a CPU. Compared with a program that asks for more memory than its limit, how do the two cases differ?"
+  options={[
+    'In both cases the program is killed with exit code 137',
+    'When CPU goes over the quota the program is paused in turns but does not die, while when memory goes over the limit the kernel kills the program with exit code 137',
+    'In both cases the program only slows down and does not die',
+    'When CPU goes over the quota the program is killed, while going over memory only slows it down'
+  ]}
+  answer={1}
+  why="CPU is a resource that can be given back, because a pause lets us use it again later, so the kernel pauses the program in turns according to the quota. The exercise saw about 0.52 of the real time as CPU time under the half-CPU limit, and 25 pauses, without the program dying. Memory cannot be taken back from a program that is still using it, so going over the limit means killing it. The exercise saw OOMKilled and exit code 137 under 64 MB and 32 MB (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A container has its own `pid`, `net`, `mnt`, `uts`, `ipc` and `cgroup` namespaces, and shares the `user` one with the Linux that runs the engine (compared with containers that ran at the same time) | ran: `exercises/10_namespaces_cgroups.py` |
+| The host name in a container's namespace is the container id, and under `--uts=host` it is the name of the Linux that runs the engine | ran: `exercises/10_namespaces_cgroups.py` |
+| `--pid=container:A` and `--network=container:A` let B see the processes of A and get the same IP as A | ran: `exercises/10_namespaces_cgroups.py` |
+| `unshare` makes uts and pid namespaces by hand: inside the host name changes while outside it does not, and PIDs count from 1 | ran: `exercises/10_namespaces_cgroups.py` |
+| `--memory 64m`, `--cpus 0.5` and `--pids-limit 20` become `67108864`, `50000 100000` and `20` in `memory.max`, `cpu.max` and `pids.max` | ran: `exercises/10_namespaces_cgroups.py` |
+| Under 64 MB and 32 MB the program that asks for memory is killed (`OOMKilled`, exit code 137) at 50 MB and 20 MB, and under 256 MB it finishes | ran: `exercises/10_namespaces_cgroups.py` |
+| Under `--cpus 0.5` and `0.25` the program gets about 0.52 and 0.26 of the real time as CPU time and is paused | ran: `exercises/10_namespaces_cgroups.py` |
+| `--pids-limit 10` makes the shell unable to fork (`Resource temporarily unavailable`) | ran: `exercises/10_namespaces_cgroups.py` |
+| Namespace numbers are reused after a container ends, so compare while they run at the same time | ran: `exercises/10_namespaces_cgroups.py` (the cause is our inference) |
+| Namespaces control what a process can see, there are seven kinds, and a process is in one of each kind | book: Container Security chapter 4, pages 31 and 32 |
+| Cgroups limit memory, CPU, I/O and the number of processes, and a container is an ordinary process | book: Container Security chapter 3, page 23 |
+| Docker builds a container from ten kernel features | book: Docker in Action section 1.1.4, page 6 |
+| `userns-remap`, the cgroup namespace, block I/O limits, making a cgroup by hand, cgroup v1 | not tried |
+
+</Step>

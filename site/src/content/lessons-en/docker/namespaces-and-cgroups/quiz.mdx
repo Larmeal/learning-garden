@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you can tell a namespace from a cgroup, read the result of a limit, and know how running out of memory differs from running out of CPU.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Which sentence correctly explains the difference between a namespace and a cgroup?"
+  options={[
+    'A namespace limits how much of a resource a process can use, while a cgroup limits what a process can see',
+    'A namespace controls what a process can see, such as the process table, the network and the host name, while a cgroup controls how much of a resource it can use, such as memory and CPU',
+    'Both limit the amount of a resource in the same way, but for different kinds of process',
+    'Namespaces exist only in Docker, while cgroups belong to the kernel'
+  ]}
+  answer={1}
+  why="The book sums it up: cgroups control the resources a process can use, and namespaces control what it can see (book: Container Security chapter 4, page 31). Both are kernel features that Docker calls, and neither belongs to Docker. The exercise saw that a namespace gave the container a smaller process table, while a cgroup set the limit in memory.max and cpu.max (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We set the memory limit of a container to 64 MB, and the program inside tries to use 100 MB. What happens?"
+  options={[
+    'The program slows down more and more but keeps working to the end',
+    'The kernel kills the program, the container ends with exit code 137, and Docker marks it as OOM killed',
+    'Docker raises the limit by itself until it is enough',
+    'The program gets an error but keeps running'
+  ]}
+  answer={1}
+  why="Memory cannot be taken back from a program that is using it, so the kernel kills the program when it goes over the limit. The exercise saw OOMKilled true and exit code 137, which is 128 plus the 9 of SIGKILL, under the limits of 64 MB and 32 MB, with the program getting as far as 50 MB and 20 MB (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We limit the CPU of a container to 0.25, and the program inside spins in a loop all the time. After ten seconds, what do we see?"
+  options={[
+    'The program was killed because it used too much CPU',
+    'The program is still running, but it got about a quarter of the real time as CPU time, because the kernel paused it in turns',
+    'The program ran at full speed, because the CPU has no real limit',
+    'The container stopped and must be started again'
+  ]}
+  answer={1}
+  why="A CPU limit does not kill the program. It pauses the program in turns so it gets only its quota. The exercise measured 0.26 of CPU time per real time under the limit of 0.25, and the program was paused 26 times while it kept running (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We compare the namespace numbers of two containers by running the first to the end and then running the second. The numbers come out the same. What should we conclude?"
+  options={[
+    'The two containers share the namespaces, because the numbers are equal',
+    'The result cannot be trusted, because a number may be reused after the first container ends, and we should compare while both are running at the same time',
+    'Docker does not use namespaces at all',
+    'We must repeat it ten times and take the average'
+  ]}
+  answer={1}
+  why="The exercise ran into exactly this. At first we ran them one at a time and the numbers were the same for every kind, and when we compared containers that were running together, six kinds differed as they should (ran). We suppose the number of a released namespace can be used again, which is our inference, but the right way to measure is to compare while both are still running."
+/>
+
+</Step>

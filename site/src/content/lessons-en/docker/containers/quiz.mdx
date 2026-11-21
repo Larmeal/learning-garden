@@ -1,0 +1,102 @@
+---
+title: Check your understanding
+summary: Five questions to check that you can tell a container from a virtual machine, know whose kernel a container uses, and read the result of a process seen from inside and outside.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We run one container from an image based on Debian and another from an image based on Alpine, on the same Docker Engine. If both print the version of the kernel, what do we get?"
+  options={[
+    'The Debian kernel from the first and the Alpine kernel from the second',
+    'The same kernel version from both, because containers use the Linux kernel that the engine runs on',
+    'The Windows kernel from both, because we run Docker on Windows',
+    'An error, because a container has no kernel to ask'
+  ]}
+  answer={1}
+  why="An image holds only system files (Debian or Alpine), no kernel. The program in a container talks to the one kernel of the host, which on this computer is the WSL2 Linux that Docker Desktop starts, not Windows. The exercise ran Alpine, Busybox and Debian and got the same version from all three (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A team must run 4 separate services. They compare 4 virtual machines with 4 containers. How does the total number of kernels differ?"
+  options={[
+    'Virtual machines need 4 kernels (one each), and containers use the one kernel that is already there',
+    'Both need 4 kernels',
+    'Containers need 4 kernels, and the virtual machines share one',
+    'Both use a single kernel, because the hypervisor provides it'
+  ]}
+  answer={0}
+  why="A virtual machine imitates hardware and installs a whole operating system on it, so each one has its own kernel. A container adds only a process and the files of the program on the same kernel. This picture is the structure from the book; the boot time and memory of a virtual machine were not measured in this lesson (book: Docker in Action section 1.1.3, page 5)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Inside a running container we print the host name and get twelve characters, for example c90db78e1566. What are they?"
+  options={[
+    'The name we gave the container with the Name option',
+    'The MAC address of the container',
+    'The first twelve characters of the container ID, which Docker uses as the host name when we do not set one',
+    'The name of the image the container was made from'
+  ]}
+  answer={2}
+  why="If we do not set a host name, Docker uses the first twelve characters of the container ID. The exercise checked that the host name read from inside equals the ID that docker inspect gives (ran). It helps when reading logs, because that string is often the name of the source."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We run a program that takes two seconds and exits on its own in a container. Thirty seconds later we ask Docker Inspect for the state. What do we see?"
+  options={[
+    'The container is not found, because Docker removes it when the program ends',
+    'The state Running, because a container stays open until we close it',
+    'The state Exited with the exit code the program returned, and the container is still listed',
+    'The state Paused, because Docker holds it for us'
+  ]}
+  answer={2}
+  why="A container lives as long as the process it runs. When the program ends the state becomes Exited and keeps the exit code, but Docker does not remove it unless we add the option --rm (ran). That is why we can still start it again, which runs the same program again (book: Docker in Action section 1.1.1, page 3)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A command from the book uses Docker Inspect to read the IPAddress field at the top level of NetworkSettings. On Docker 29.2.1 it says the field does not exist. What should we do?"
+  options={[
+    'Uninstall Docker and install an older version',
+    'Read the address from the field of each network, for example under the name bridge, where newer Docker keeps it',
+    'Add the option --force so that Docker returns the old field',
+    'Skip it, because the IP address of a container can no longer be read'
+  ]}
+  answer={1}
+  why="Docker 29 removed the top-level field. The address of a container is under the name of the network it is attached to, for example Networks.bridge.IPAddress, which the exercise reads without trouble (ran). When a command from an older book breaks, look at the full output of Docker Inspect first to see where the data moved."
+/>
+
+</Step>

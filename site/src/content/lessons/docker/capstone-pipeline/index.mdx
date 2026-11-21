@@ -1,0 +1,171 @@
+---
+title: Capstone
+summary: รวมทุกอย่างที่เรียนมาเป็น Pipeline เล็ก ๆ ที่โหลดไฟล์ CSV เข้า Postgres ด้วย Compose โดยล็อก Container ของตัวโหลดไว้ ทั้งผู้ใช้ที่ไม่ใช่ Root ระบบไฟล์ที่อ่านอย่างเดียว ไม่มี Capability จำกัด Memory ส่งรหัสผ่านเป็นไฟล์ความลับ และใช้ Network ที่ไม่มีทางออก แล้วลองทำให้พังสามแบบเพื่อดูว่าคำสั่งไหนบอกสาเหตุได้
+facts:
+  - "รันจริงใน exercises/12_capstone_pipeline.py กับ Docker Engine 29.2.1 และ Docker Compose v5.7.0 Build Image ของตัวโหลดจาก Dockerfile แล้วรันกับ Postgres 17, ตรวจแถวที่โหลดกับที่ปฏิเสธ, อ่านขีดจำกัดทุกอย่างจาก docker inspect, ลองเขียนไฟล์และอ่าน CapEff จากข้างในด้วย docker compose run, ค้นความลับในตัวแปรสภาพแวดล้อมกับ docker history, ลองเรียกอินเทอร์เน็ตจาก Network แบบ internal แล้วทำให้พังสามแบบ (ชื่อ Host ผิด, รหัสผ่านผิด, Memory น้อย) ดูผลจาก docker compose ps, logs, docker inspect และ docker events"
+  - "ส่วนที่ว่า setuid เป็นช่องให้ยกระดับสิทธิ์ และ Capabilities แบ่งสิทธิ์ของ root เป็นส่วนย่อย มาจากหนังสือ Container Security บทที่ 2 ไม่ได้รันเพิ่ม ที่ยังไม่ได้ลองคือ Seccomp และ AppArmor, Rootless Docker, การสแกนช่องโหว่ของ Image, Compose บนเซิร์ฟเวอร์จริง, การสำรองข้อมูล Volume และการ Push Image ไปที่ Registry จริง Pipeline ในบทนี้เป็นของเล่น (CSV ห้าแถว) จึงไม่ได้วัดประสิทธิภาพ"
+order: 12
+phase: E
+level: 5
+stage: sprout
+format: steps
+requires: [compose, small-and-safe-images, namespaces-and-cgroups]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import PipelineLab from '../../../../components/labs/docker/PipelineLab';
+
+<Step>
+
+## Pipeline ที่เราจะใส่ลง Container
+
+บทสุดท้ายนี้เรารวมสิ่งที่เรียนมาทั้งหมดเป็นงานเดียว สมมติว่ามีไฟล์ `orders.csv` ห้าแถวที่ต้องโหลดเข้า Postgres และมีแถวหนึ่งที่จำนวนสินค้าติดลบซึ่งต้องถูกปฏิเสธ เราเขียนตัวโหลด (`etl`) ด้วย Python สั้น ๆ ที่อ่านไฟล์ ตรวจแถว และ Insert แถวที่ผ่านเข้าตาราง `orders` แล้วใส่ทั้งหมดไว้ในไฟล์ Compose เดียว
+
+```yaml
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets: [db_password]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: {test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres"], interval: 2s, retries: 40}
+    networks: [backend]
+  etl:
+    build:
+      context: ./etl
+    depends_on: {db: {condition: service_healthy}}
+    secrets: [db_password]
+    volumes: ["./data:/data:ro"]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    pids_limit: 64
+    networks: [backend]
+networks:
+  backend: {internal: true}
+secrets:
+  db_password: {file: ./db_password.txt}
+volumes:
+  pgdata:
+```
+
+ส่วน Dockerfile ของ `etl` ใช้สิ่งที่เรียนในบทเรื่อง[Image ที่เล็กและปลอดภัย](/docker/small-and-safe-images/#ให้-container-รันด้วยผู้ใช้ที่ไม่ใช่-root)คือ Base Image แบบ Slim ติดตั้งแพ็กเกจแบบไม่เก็บ Cache สร้างผู้ใช้ `etl` (UID 10001) และ `COPY --chown` ให้ผู้ใช้นั้นเป็นเจ้าของไฟล์ แล้วสั่ง `USER etl`
+
+เมื่อ `docker compose up -d --build` Compose Build Image แล้วเริ่ม `db` รอจนมันสถานะ `healthy` (บท[Docker Compose](/docker/compose/#depends_on-ต้องรอให้บริการพร้อมก่อน)) แล้วจึงเริ่ม `etl` ผลที่แบบฝึกเห็นคือ `etl` จบด้วย Exit Code 0 พิมพ์ว่า `loaded 4 rejected 1 rows in table: 4` และตารางใน Postgres มีแถวหมายเลข 1, 2, 4, 5 ครบ ไม่มีแถวที่ 3 ที่จำนวนติดลบ (รัน)
+
+</Step>
+
+<Step>
+
+## ล็อก Container ของตัวโหลดทีละชั้น
+
+ในไฟล์ Compose ข้างบนมีหลายบรรทัดที่ไม่ได้ทำให้ Pipeline ทำงานเร็วขึ้น แต่ทำให้ปลอดภัยขึ้น เราตรวจแต่ละบรรทัดว่าทำงานจริง ทั้งจากข้างนอกด้วย `docker inspect` และจากข้างในด้วยการลองทำสิ่งที่ไม่ควรทำได้ (รัน)
+
+| บรรทัดใน Compose | สิ่งที่ตรวจเจอ |
+|---|---|
+| `USER etl` ใน Dockerfile | `id -u` ข้างในได้ `10001` |
+| `read_only: true` | เขียน `/x` ไม่ได้ ได้ข้อความ `Read-only file system` |
+| `tmpfs: [/tmp]` | แต่เขียน `/tmp` ได้ |
+| `volumes: ["./data:/data:ro"]` | เขียนลง `/data` ไม่ได้ |
+| `cap_drop: [ALL]` | `CapEff` ใน `/proc/self/status` เป็น `0000000000000000` |
+| `mem_limit: 128m`, `pids_limit: 64` | `docker inspect` ได้ 128 MB กับ 64 |
+
+ตัวที่น่าสนใจคือ `cap_drop` ในบท Namespace เราเห็นว่า Container ไม่มี User Namespace แยก ผู้ใช้ `root` ใน Container จึงเป็น UID 0 ตัวเดียวกับของ Linux ที่รัน Engine ดังนั้นการจำกัดสิทธิ์ของ Root ใน Container ให้เหลือเท่าที่ใช้จริงจึงสำคัญ สิทธิ์พิเศษของ Root ถูกแบ่งเป็นส่วนย่อยเรียกว่า Capability และ Docker ให้ Container ถือแค่บางส่วน หนังสือเล่าว่า Linux Kernel รุ่น 2.2 เริ่มแบ่งสิทธิ์ของ Root ออกเป็นส่วนย่อยด้วยกลไกนี้ แทนที่จะมีแค่ Root กับไม่ใช่ Root (หนังสือ: Container Security บทที่ 2 หน้า 19) Container ปกติที่ไม่ได้ตั้งอะไรมี `CapEff` เป็น `00000000a80425fb` ซึ่งหมายถึงถือ Capability หลายตัว ส่วน `etl` ที่ถอดทั้งหมดได้เป็นศูนย์ล้วน (รัน)
+
+ตัวเลือก `no-new-privileges` ป้องกันอีกทางหนึ่ง คือกันไม่ให้โปรแกรมได้สิทธิ์เพิ่มผ่านไฟล์ที่ตั้ง Setuid ไว้ หนังสืออธิบายว่า Setuid เป็นช่องที่นำไปสู่การยกระดับสิทธิ์ ตัวสแกน Image บางตัวจึงเตือนเมื่อเจอไฟล์ที่ตั้งบิตนี้ และสามารถป้องกันด้วยตัวเลือก `--no-new-privileges` ของ `docker run` (หนังสือ: Container Security บทที่ 2 หน้า 16) แบบฝึกตรวจแค่ว่าตัวเลือกนี้ถูกตั้งไว้ใน `docker inspect` เรายังไม่ได้ลองโจมตีด้วยไฟล์ Setuid จริง (ไม่ได้รัน)
+
+</Step>
+
+<Step>
+
+## ความลับเป็นไฟล์ และ Network ที่ไม่มีทางออก
+
+ในบทเรื่อง Image ที่ปลอดภัยเราส่งความลับเข้าตอน Build โดยไม่ทิ้งรอย ตอนรันก็มีวิธีเช่นกัน Compose ส่งความลับให้ Container เป็นไฟล์ใต้ `/run/secrets` ในแบบฝึกรหัสผ่านอยู่ในไฟล์ `db_password.txt` Postgres อ่านผ่านตัวแปร `POSTGRES_PASSWORD_FILE` ซึ่งชี้ไปที่ไฟล์ และโปรแกรม `etl` ก็เปิดไฟล์เดียวกันอ่าน ผลที่ตรวจได้คือค่ารหัสผ่านไม่ปรากฏในตัวแปรสภาพแวดล้อมของทั้งสอง Container (ดูจาก `docker inspect`) ไม่อยู่ใน `docker history` ของ Image ที่ Build และอ่านได้จากไฟล์ใต้ `/run/secrets` ตามที่ตั้งใจ (รัน) ข้อดีเทียบกับการใส่ในตัวแปรคือ ตัวแปรสภาพแวดล้อมมักถูกพิมพ์ลง Log หรือรายงานข้อผิดพลาดโดยไม่ตั้งใจ ส่วนไฟล์ต้องมีคนตั้งใจเปิดอ่าน (ข้อนี้เป็นความเห็นของผู้เขียน ไม่ได้ทดสอบ)
+
+เรื่องสุดท้ายคือเครือข่าย เราประกาศ `backend` เป็น `internal: true` ซึ่งทำให้ Container ใน Network นั้นคุยกันเองได้แต่ออกอินเทอร์เน็ตไม่ได้ แบบฝึกลองให้ `etl` เรียก `example.com` แล้วไม่สำเร็จ ส่วน `docker network inspect` ก็ยืนยันว่า `Internal` เป็นจริง (รัน) ตัวโหลดข้อมูลที่ถูกเจาะจึงส่งข้อมูลออกไปข้างนอกตรง ๆ ไม่ได้ และฐานข้อมูลก็ไม่ได้ Publish พอร์ตไว้ตั้งแต่ต้น ตรงกับที่เราเห็นในบท[Network ของ Docker](/docker/networks/#โปรแกรมหาฐานข้อมูลเจอด้วยชื่อ)
+
+<Callout type="note" title="สิ่งที่ Pipeline นี้ยังไม่ได้ป้องกัน">
+การล็อกทั้งหมดนี้ลดความเสียหายถ้าตัวโหลดถูกเจาะ แต่ไม่ได้ทำให้ระบบปลอดภัยสมบูรณ์ เรายังไม่ได้ลอง Seccomp และ AppArmor ที่จำกัด System Call, Rootless Docker ที่ไม่ให้ Engine รันเป็น Root, การสแกนช่องโหว่ของ Image และการเก็บรหัสผ่านใน Secret Manager จริง (ไม่ได้รัน) และ Pipeline นี้เป็นตัวอย่างเล็ก ๆ ที่มี CSV ห้าแถว
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Container ของตัวโหลดตั้ง cap_drop เป็น ALL และ read_only เป็นจริง ถ้าผู้โจมตีเจาะโปรแกรมในนั้นได้ สิ่งไหนจะเป็นจริง?"
+  options={[
+    'ผู้โจมตียังติดตั้งโปรแกรมใหม่ในระบบไฟล์ได้ตามปกติ เพราะ Container เป็น root',
+    'ผู้โจมตีเขียนทับระบบไฟล์ของ Container ไม่ได้ และถือ Capability ของ Root ไม่ได้ จึงทำอะไรที่ต้องใช้สิทธิ์พิเศษได้ยากขึ้น แม้จะเจาะโปรแกรมได้แล้ว',
+    'ผู้โจมตีออกอินเทอร์เน็ตไม่ได้เพราะ cap_drop ปิดเครือข่ายให้',
+    'ไม่มีอะไรเปลี่ยน เพราะ Namespace กั้นผู้โจมตีไว้แล้ว'
+  ]}
+  answer={1}
+  why="แบบฝึกเห็นการเขียนทับระบบไฟล์ล้มเหลวด้วย Read-only file system และ CapEff เป็นศูนย์ล้วนเทียบกับ Container ปกติที่ถือ Capability หลายตัว (รัน) สองข้อนี้ลดสิ่งที่ผู้โจมตีทำได้ ส่วนการออกอินเทอร์เน็ตไม่ได้มาจาก Network แบบ Internal ไม่ใช่ cap_drop และ Namespace ไม่ได้ทำให้ผู้โจมตีทำอะไรไม่ได้ เพราะภายใน Container ผู้ใช้ Root ยังเป็น UID 0 ตัวเดียวกับของ Linux ที่รัน Engine"
+/>
+
+</Step>
+
+<Step>
+
+## พังแล้วหาสาเหตุจากสถานะ Log และ Inspect
+
+Pipeline ที่ดีต้องหาสาเหตุได้เร็วเวลาพัง เราลองทำให้พังสามแบบโดยตั้งตัวแปรสภาพแวดล้อมของ Compose แล้วดูว่าคำสั่งไหนบอกอะไร (รัน)
+
+| ทำให้พังโดย | `docker compose ps -a` | Exit Code | OOMKilled | บรรทัดสุดท้ายของ Log |
+|---|---|---|---|---|
+| ชื่อ Host ผิด | `etl exited 1` | 1 | False | `failed to resolve host 'dbx'` |
+| รหัสผ่านผิด | `etl exited 1` | 1 | False | `password authentication failed for user "postgres"` |
+| Memory น้อยเกินไป | `etl exited 137` | 137 | True | (ว่างเปล่า) |
+
+ข้อสังเกตแรก สองกรณีแรกได้ Exit Code 1 เหมือนกัน แต่สาเหตุต่างกัน แค่สถานะจาก `compose ps` ไม่พอ ต้องเปิด Log ซึ่งบอกสาเหตุตรง ๆ ข้อสังเกตที่สอง กรณี Memory ได้ Exit Code 137 กับ `OOMKilled` เป็นจริงใน `docker inspect` ซึ่งตรงกับสิ่งที่เราเห็นในบท[Namespace และ Cgroup](/docker/namespaces-and-cgroups/#cgroup-คือขีดจำกัดที่เขียนเป็นไฟล์) และ Log ว่างเปล่าเพราะโปรแกรมถูกฆ่าก่อนจะพิมพ์อะไรได้ การรู้ว่า Log ว่างสื่อความหมายในตัวมันเอง ช่วยไม่ให้เสียเวลาไล่ดูโค้ดตัวโปรแกรม ส่วน `docker events` บันทึกเหตุการณ์ `oom` ของ Container ในกรณีนี้ด้วย (รัน) และพอแก้ค่ากลับ Pipeline ก็รันผ่านอีกครั้ง โดยตารางใน Volume ยังมีสี่แถวเดิม (รัน)
+
+ลำดับการหาสาเหตุที่ได้จึงเป็นบันไดสี่ขั้น ดูสถานะและ Exit Code ก่อน ต่อด้วย Log ต่อด้วย `docker inspect` เพื่อดู `OOMKilled` และ Exit Code ตัวจริง และสุดท้ายคือ `docker events` ถ้ายังไม่เห็นภาพ กดเลือกวิธีที่ทำให้พังใน Lab ดูว่าลูกศรหยุดตรงไหน และแต่ละคำสั่งพิมพ์อะไร
+
+<PipelineLab client:visible />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Container ของตัวโหลดจบด้วย Exit Code 1 และเรามีสองสมมติฐานคือ ชื่อ Host ผิด กับรหัสผ่านผิด คำสั่งไหนช่วยแยกสองกรณีนี้ได้?"
+  options={[
+    'Docker Compose Ps ดูสถานะ เพราะสองกรณีแสดงสถานะต่างกัน',
+    'Docker Compose Logs ดูบรรทัดสุดท้ายของ Log เพราะ Exit Code เหมือนกันทั้งคู่ แต่ข้อความผิดพลาดบอกว่าเป็นเรื่องชื่อ Host หรือรหัสผ่าน',
+    'Docker Inspect ดู OOMKilled เพราะสองกรณีต่างกันที่ตรงนั้น',
+    'Docker Events เพราะบันทึกรหัสผ่านที่ใช้'
+  ]}
+  answer={1}
+  why="แบบฝึกเห็นสองกรณีนี้ได้ Compose ps เป็น Etl Exited 1 และ OOMKilled เป็น False ทั้งคู่ ต่างกันที่ Log ซึ่งบอกว่าหา Host ไม่เจอ กับรหัสผ่านถูกปฏิเสธ (รัน) Exit Code บอกแค่ว่าโปรแกรมล้ม ไม่ได้บอกว่าล้มเพราะอะไร"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| `etl` โหลดสี่แถวและปฏิเสธหนึ่งแถว จบด้วย 0 และตารางมีแถว 1, 2, 4, 5 | รัน: `exercises/12_capstone_pipeline.py` |
+| ผู้ใช้ 10001, ระบบไฟล์อ่านอย่างเดียว, `cap_drop: [ALL]`, `no-new-privileges`, Memory 128 MB, 64 Process ตรวจจาก `docker inspect` | รัน: `exercises/12_capstone_pipeline.py` |
+| ข้างในเขียน `/` ไม่ได้, เขียน `/tmp` ได้, เขียน `/data` ไม่ได้ และ `CapEff` เป็นศูนย์ล้วนเทียบกับ Container ปกติที่เป็น `00000000a80425fb` | รัน: `exercises/12_capstone_pipeline.py` |
+| รหัสผ่านไม่อยู่ในตัวแปรสภาพแวดล้อมของ Container ทั้งสอง ไม่อยู่ใน `docker history` และอ่านได้จากไฟล์ใต้ `/run/secrets` | รัน: `exercises/12_capstone_pipeline.py` |
+| Network แบบ `internal` ทำให้ `etl` ออกอินเทอร์เน็ตไม่ได้ และ `docker network inspect` รายงาน Internal เป็นจริง | รัน: `exercises/12_capstone_pipeline.py` |
+| ชื่อ Host ผิดและรหัสผ่านผิดได้ Exit Code 1 ทั้งคู่ แต่ Log ต่างกัน ส่วน Memory น้อยได้ 137 กับ `OOMKilled` เป็นจริง และ `docker events` บันทึก `oom` | รัน: `exercises/12_capstone_pipeline.py` |
+| หลังแก้ค่ากลับ Pipeline รันผ่านและ Volume ยังมีข้อมูลเดิม | รัน: `exercises/12_capstone_pipeline.py` |
+| Linux Kernel รุ่น 2.2 เริ่มแบ่งสิทธิ์ของ Root เป็น Capability | หนังสือ: Container Security บทที่ 2 หน้า 19 |
+| Setuid เป็นช่องให้ยกระดับสิทธิ์ และ `--no-new-privileges` ป้องกันได้ | หนังสือ: Container Security บทที่ 2 หน้า 16 (ตรวจแค่ว่าตัวเลือกถูกตั้ง ไม่ได้ลองโจมตี) |
+| ไฟล์ความลับปลอดภัยกว่าตัวแปรสภาพแวดล้อมเพราะไม่ถูกพิมพ์ลง Log โดยไม่ตั้งใจ | ผู้เขียน |
+| Seccomp, AppArmor, Rootless Docker, การสแกนช่องโหว่, Secret Manager จริง, Compose บนเซิร์ฟเวอร์จริง, การสำรอง Volume | ไม่ได้ลอง |
+
+</Step>

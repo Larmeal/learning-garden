@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you know when containers can call each other by name, how networks stay apart, and what a published port is for.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We make two new networks, put container A in the first and container C in the second, and let A call C. What is the result, and what must we do to make it reach?"
+  options={[
+    'It reaches by name, because Docker resolves names on every network',
+    'It reaches neither by name nor by IP, and A has to join the network of C with the command Docker Network Connect',
+    'It reaches by IP but not by name',
+    'It does not reach, and we must publish the port of C first'
+  ]}
+  answer={1}
+  why="Each network is separate from the others. The exercise saw that a ping by name and a ping by IP both failed, and after Network Connect made A join the second network, A reached C by name (ran). Publishing a port does not matter here, because it is there for our computer to call in, not for crossing between networks."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We run a web server container with a publish option bound to the address 127.0.0.1. Who can call that port?"
+  options={[
+    'Every computer on the network, because publishing means opening it to everyone',
+    'Only programs on our own computer, calling through 127.0.0.1, because the port is bound to that address only',
+    'Nobody, because 127.0.0.1 is closed',
+    'Only other containers on the same network'
+  ]}
+  answer={1}
+  why="The 127.0.0.1 in -p binds the door to the loopback address that only our own computer can reach. The exercise saw that a call from our computer reached, and docker port showed the port bound to 127.0.0.1 as specified (ran). Other containers do not need this door, because they reach each other directly on one network. Writing only the port number without an address was not tried."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We give the same alias to two containers on a network we made, then ask DNS what the name is. What comes back?"
+  options={[
+    'One address, that of the container created first',
+    'The addresses of both containers, and the client gets several addresses and picks one',
+    'An error, because a name cannot be used twice',
+    'The address of the host'
+  ]}
+  answer={1}
+  why="The exercise gave one alias to two containers and nslookup returned two addresses that matched the IPs of both (ran). That is the simplest way to spread work with DNS. For finer control we would need a middle layer such as a load balancer (not run in this lesson)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We run a container with the option for no network at all (Network None) and look at the interfaces it sees inside. What do we see?"
+  options={[
+    'Eth0 and Lo as usual',
+    'Only Lo, its own loopback, because nothing connects it to the outside',
+    'No interface at all',
+    'All the interfaces of the host'
+  ]}
+  answer={1}
+  why="The exercise saw only lo with Network None, which the book treats as a special kind of attachment and not a real network (book: Docker in Action section 5.3, page 89). The last option describes Network Host, which sees all the interfaces of the host including docker0 (ran)."
+/>
+
+</Step>

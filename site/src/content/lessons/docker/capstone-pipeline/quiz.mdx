@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเลือกการล็อก Container ได้ถูกกับความเสี่ยง อ่านเหตุที่ Container จบได้ และรู้ว่าความลับควรไปถึง Container อย่างไร
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Container ตัวหนึ่งจบด้วย Exit Code 137 และ Docker Inspect แสดงว่า OOMKilled เป็นจริง สาเหตุที่น่าจะเป็นที่สุดคืออะไร และแก้ที่ไหน?"
+  options={[
+    'โปรแกรมมีบั๊กในโค้ด ต้องแก้โค้ดก่อน',
+    'โปรแกรมใช้ Memory เกินขีดจำกัดของ Container จึงถูก Kernel ฆ่า ควรดูว่าขีดจำกัดตั้งต่ำไปหรือโปรแกรมกิน Memory เกินจริง',
+    'รหัสผ่านฐานข้อมูลผิด',
+    'ชื่อ Host ของฐานข้อมูลผิด'
+  ]}
+  answer={1}
+  why="OOMKilled เป็นจริงพร้อม Exit Code 137 บอกว่า Kernel ฆ่าเพราะ Memory เกินขีด แบบฝึกเห็นเรื่องนี้เมื่อให้โปรแกรมขอ Memory เกินขีดจำกัด 128 MB และ Log ว่างเปล่าเพราะถูกฆ่าก่อนพิมพ์ (รัน) กรณีรหัสผ่านผิดกับชื่อ Host ผิดได้ Exit Code 1 กับ OOMKilled เป็นเท็จ"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ทีมต้องส่งรหัสผ่านฐานข้อมูลให้ Container ตอนรันใน Compose วิธีไหนปลอดภัยกว่ากัน?"
+  options={[
+    'เขียนลงตัวแปรสภาพแวดล้อมในไฟล์ Compose เพราะง่ายที่สุด',
+    'ส่งเป็นไฟล์ความลับของ Compose ที่ Container อ่านจากไฟล์ใต้ Run Secrets เพราะไม่ปรากฏในตัวแปรสภาพแวดล้อมที่ Docker Inspect แสดง และไม่ถูกพิมพ์ลง Log โดยไม่ตั้งใจ',
+    'ฝังลงใน Image ด้วย COPY แล้วลบทิ้งในบรรทัดถัดไป',
+    'ใส่ในชื่อของ Container'
+  ]}
+  answer={1}
+  why="แบบฝึกตรวจว่ารหัสผ่านที่ส่งเป็นไฟล์ไม่อยู่ในตัวแปรสภาพแวดล้อมของทั้งสอง Container ไม่อยู่ใน History ของ Image และอ่านได้จากไฟล์ที่ตั้งใจให้อ่าน (รัน) การ COPY แล้วลบทิ้งยังทิ้งไฟล์ไว้ใน Layer ตามที่เห็นในบท Layer"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราประกาศ Network ของโปรเจกต์ Compose ว่าเป็นแบบ Internal แล้วสิ่งใดเปลี่ยนไปสำหรับ Container ในนั้น?"
+  options={[
+    'Container เรียกกันเองไม่ได้อีกต่อไป',
+    'Container ยังคุยกันเองด้วยชื่อได้ แต่ออกอินเทอร์เน็ตไม่ได้ ซึ่งแบบฝึกเห็นว่าเรียก Example Dot Com ไม่สำเร็จ',
+    'Container ได้ IP จริงที่เรียกจากข้างนอกได้',
+    'Container เร็วขึ้นเพราะไม่ต้องผ่านอินเทอร์เน็ต'
+  ]}
+  answer={1}
+  why="Network แบบ Internal ตัดทางออกไปข้างนอกแต่ไม่ตัดการคุยกันเองภายใน แบบฝึกเห็นตัวโหลดยังเรียกฐานข้อมูลด้วยชื่อได้ แต่เรียกอินเทอร์เน็ตไม่ได้ และ docker network inspect รายงาน Internal เป็นจริง (รัน) การเรียกจากข้างนอกเข้ามายังต้อง Publish พอร์ตซึ่งเราไม่ได้ทำ"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ข้อไหนเป็นลำดับที่เหมาะสมในการหาสาเหตุเมื่อ Container ใน Pipeline จบด้วยความล้มเหลว?"
+  options={[
+    'อ่านโค้ดทั้งโปรแกรมก่อน แล้วค่อยดูสถานะ',
+    'ดูสถานะกับ Exit Code ก่อน ต่อด้วย Log ต่อด้วย Docker Inspect เพื่อดู OOMKilled และสุดท้ายคือ Docker Events',
+    'ลบ Container ทิ้งแล้วรันใหม่จนกว่าจะผ่าน',
+    'เปลี่ยน Image ฐานเป็นรุ่นใหม่ทุกครั้ง'
+  ]}
+  answer={1}
+  why="แบบฝึกเห็นว่าแต่ละคำสั่งบอกคนละอย่าง สถานะกับ Exit Code บอกว่าล้ม Log บอกว่าล้มเพราะอะไรในกรณี Exit Code 1 ส่วน Docker Inspect กับ Docker Events ยืนยันกรณี OOM (รัน) การไล่จากข้อมูลที่ถูกที่สุดและมีที่สุดไปก่อน ช่วยไม่ให้เสียเวลากับสมมติฐานที่ผิด"
+/>
+
+</Step>

@@ -1,0 +1,163 @@
+---
+title: Inside an image and a registry
+summary: An image on disk is a folder of files named by the sha256 hash of their own content. This lesson opens docker save to see where the manifest, the config and the layers are, runs a real registry to see what a push sends, how a tag differs from a digest, and why the tag of an official image points at an index with several platforms.
+facts:
+  - "Run for real in exercises/11_image_inside.py against Docker Engine 29.2.1. It saves alpine:3.22 with docker save and opens the tar to read oci-layout, index.json, manifest.json and the blobs in blobs/sha256, checks the hash of every blob, checks that the image id is the hash of the config, reads the history of an image we built, runs registry:3 in a container and pushes two images to it, reads its HTTP API, tries moving a tag and pulling by the old digest, and reads the index of alpine:3.22 on Docker Hub with docker buildx imagetools."
+  - "That a digest pins the content of an image, and that the free Docker registry is the software Distribution, comes from Docker in Action sections 8.6.1 and 9.3 and was not run further. Not tried: authentication to a registry, HTTPS, signed images, removing blobs from a registry, registries in the cloud, and pushing to Docker Hub. We did not read the Docker source."
+order: 11
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [images-and-layers, dockerfile]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ImageInsideLab from '../../../../components/labs/docker/ImageInsideLab';
+
+<Step>
+
+## An image on disk is a folder of blobs named by hash
+
+In [lesson 2](/en/docker/images-and-layers/#an-image-is-a-stack-of-layers) we looked at an image from the side of the user, as a stack of layers that have ids. This time we open the real files. The command `docker save` writes an image out as a `.tar` file that we can unpack. In the exercise we saved `alpine:3.22` and saw these files (ran).
+
+```text
+blobs/sha256/812e99317af7…  (611 bytes)
+blobs/sha256/b300ffecbfcf…  (400 bytes)
+blobs/sha256/cd14d7b4a4fb…  (749 bytes)
+blobs/sha256/fdc5834cb53a…  (8587264 bytes)
+index.json
+manifest.json
+oci-layout
+```
+
+Inside is a structure called an OCI layout. There is a file `oci-layout` that says the version, `index.json`, which points to the manifest, and a folder `blobs/sha256` that holds everything. The most important point is the file names in `blobs/sha256`. We checked that every file is named by the sha256 hash of the bytes inside it (ran). Naming by content like this is called content addressing. It lets one file be stored in one place, and we know at once whether a file is damaged, because the hash will not match.
+
+We unpack it layer by layer. `index.json` points at one blob (400 bytes), which is the manifest. Another blob (749 bytes), when opened, is the JSON of an old format of the config, which we guess was written so that older tools can read it (that is a guess, and we did not read the Docker source).
+
+Inside the manifest are the name of the config and the list of layers, by hash. The config (611 bytes) is a JSON file that holds the start command, the variables, the operating system, the architecture and the `diff_ids` of the layers. The layer (8,587,264 bytes) is a tar file of the file system, and when opened it holds `etc/alpine-release` and `bin/busybox` (ran). Two connections are interesting. First, the image id that `docker images` shows is exactly the sha256 hash of the config file. Second, the sha256 hash of the layer tar file is the `diff_ids` value written in the config (ran).
+
+</Step>
+
+<Step>
+
+## The config keeps the history of every Dockerfile line
+
+In [lesson 4](/en/docker/dockerfile/#a-dockerfile-is-a-recipe-that-docker-reads-line-by-line) we saw that `docker history` shows 0B for `ENV` and `CMD`. Now we know where that comes from. In the exercise we build an image from a Dockerfile with `ENV`, `COPY` and `CMD`, and save it (ran).
+
+| Kind | Created by |
+|---|---|
+| metadata only | `ENV GREETING=hi` |
+| layer | `COPY hello.txt /hello.txt` |
+| metadata only | `CMD ["cat", "/hello.txt"]` |
+
+The config has a `history` list that records every line of the Dockerfile, and a line that did not make a layer is marked `empty_layer`. In the exercise `history` has more lines than the manifest has layers. The manifest has two: exactly the layer of Alpine as before (the same hash that the base image has), and our own layer with one file, `hello.txt`. `ENV` and `CMD` sit in the `config` part of the config as `GREETING=hi` and the start command (ran). This matches what we saw in the Dockerfile lesson: those lines are labels on the image and not files.
+
+</Step>
+
+<Step>
+
+## A tag points through an index, a manifest and a config to a layer
+
+Once an image is on a registry (such as Docker Hub) the structure grows one link longer. A tag such as `alpine:3.22` points at an index, which has one manifest per platform. We asked Docker Hub with `docker buildx imagetools inspect` and found that this tag points at an index with seven platforms: `linux/386`, `linux/amd64`, `linux/arm`, `linux/arm64`, `linux/ppc64le`, `linux/riscv64` and `linux/s390x`, and the sha256 hash of the index is the hash that the tool reports (ran). The manifest for `linux/amd64` names the same config as the image on our computer, which means the image id is the same everywhere. The layer the registry keeps is compressed with gzip, so it has a different hash from the `diff_id` of the tar file on disk (ran).
+
+One thing we did not expect. The manifest that `docker save` writes on this computer (`b300ffecbfcf`) has a different hash from the manifest of `linux/amd64` on Docker Hub (`9db293488671`), although the config is the same. We did not look for the reason (not run). What we can use is that the image id, the hash of the config, is the identity that stays fixed, while the hash of a manifest may differ with how each tool writes it.
+
+Go through the boxes one at a time in the lab. You will see the chain from the tag to the layer, with real hashes.
+
+<ImageInsideLab client:visible lang="en" />
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="What does the image id that docker images shows correspond to in the structure of an image?"
+  options={[
+    'The sha256 hash of the config file of the image, the JSON file that holds the start command, the variables and the list of layers',
+    'The hash of the top layer of the image',
+    'A random number that Docker makes when it pulls the image',
+    'The name of the tag of the image written in hexadecimal'
+  ]}
+  answer={0}
+  why="The exercise found that the image id equals the name of the config blob in docker save, which is the sha256 of the bytes of that file, and the manifest of Docker Hub for the amd64 platform names the same config (ran). So the image id is a fixed identity. It does not depend on a tag and it is not random."
+/>
+
+</Step>
+
+<Step>
+
+## A push sends only what the registry does not have
+
+We run a registry of our own with the image `registry:3` in a container (the book says the free Docker registry is software called Distribution, which is open source with a license that costs nothing, and that `docker pull` and `docker push` work with it just as with a hosted registry, in book: Docker in Action section 9.3, page 183) and push our images to it (ran).
+
+| The push | The layers sent |
+|---|---|
+| The first image | two layers sent (the base layer and our own), shown as `Pushed` |
+| A second image on the same base | one layer sent, and the base layer shows `Mounted from lesson/app` |
+
+When we pushed the second image, Docker asked the registry which blobs it already had, by hash, and the registry said the base layer was already there in another repository, so it did not have to be uploaded again. This is the same principle as layers being shared on disk in [lesson 2](/en/docker/images-and-layers/), and it is why choosing the same base image saves both disk and transfer time.
+
+A registry is an ordinary HTTP server, and we can call its API directly. In the exercise we asked for the list of repositories and got `lesson/app` and `lesson/other`, asked for the list of tags and got `1`, and fetched a manifest, which came back with the header `Docker-Content-Digest` equal to the sha256 hash of the bytes of the manifest. When we downloaded a layer by its hash, its hash matched the name we asked for (ran).
+
+<Callout type="note" title="The registry in the exercise uses HTTP, not HTTPS">
+The registry we ran uses HTTP at `localhost`, which Docker allows as an exception for the loopback address. We did not try authentication, HTTPS, or a registry on another computer, which need more setup (not run).
+</Callout>
+
+</Step>
+
+<Step>
+
+## A tag can move, a digest does not change
+
+There is an important difference between two things that people often confuse. A tag is a label that its owner can move to another manifest at any time. A digest is the hash of the manifest itself, and it cannot change, because change one byte of content and the hash is different at once. In the exercise we pushed another image with different content under the same tag `1`. The tag moved to point at a new manifest (we got a different hash), but when we removed the local copy and pulled with the old digest, we got the old image back whole, and it printed `hello` as before (ran).
+
+That is why the book recommends using a content-addressable image identifier, which means putting `@sha256:...` in place of the tag in `FROM`, so that a build always starts from the same base image whenever it is run (book: Docker in Action section 8.6.1, page 168). The price is that we no longer get the security updates of the base image automatically, and we have to change the digest ourselves (that is the opinion of the author).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Our team wants every build to start from exactly the same base image, even if the owner of the base image pushes a new version under the same tag. What should we do?"
+  options={[
+    'Keep using the tag, because a tag never changes the content',
+    'Put the digest (@sha256 followed by the hash) in place of the tag on the FROM line, because a digest points at specific content that cannot change',
+    'Use the tag called Latest, because it is always the newest',
+    'Clear the cache before every build'
+  ]}
+  answer={1}
+  why="A tag can move. The exercise saw that a new push under the same tag moved the tag to a new manifest, while the old digest still pulled the old image (ran). The book recommends a content-addressable image identifier in FROM so that the build starts from a starting point that does not change (book: Docker in Action section 8.6.1, page 168). Clearing the cache does not help, because the tag would still point at the new one."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| `docker save` gives an OCI structure (`oci-layout`, `index.json`, `manifest.json`, `blobs/sha256`) and every blob is named by the sha256 of its own bytes | ran: `exercises/11_image_inside.py` |
+| The image id is the hash of the config, a layer is a tar file whose hash is the `diff_id`, and the config holds the start command and the platform | ran: `exercises/11_image_inside.py` |
+| `history` in the config records every Dockerfile line, and lines that make no layer are marked `empty_layer` | ran: `exercises/11_image_inside.py` |
+| The manifest of the image we built names the old Alpine layer and our own layer with one file | ran: `exercises/11_image_inside.py` |
+| The first push sends two layers, and the second push on the same base sends one and shows `Mounted from` | ran: `exercises/11_image_inside.py` |
+| The registry API answers repositories, tags and manifests, and the hash of a manifest equals the sha256 of the bytes returned | ran: `exercises/11_image_inside.py` |
+| A layer in the registry is compressed with gzip, so its hash differs from the `diff_id`, and it can be fetched by hash | ran: `exercises/11_image_inside.py` |
+| A new push under the old tag moves the tag to a new manifest, while the old digest still pulls the old image | ran: `exercises/11_image_inside.py` |
+| `alpine:3.22` on Docker Hub is an index with seven platforms, and the manifest for `linux/amd64` names the same config as the local image | ran: `exercises/11_image_inside.py` |
+| The manifest that `docker save` writes has a different hash from the one on Docker Hub, although the config is the same | ran: `exercises/11_image_inside.py` (the reason was not looked for) |
+| A digest in `FROM` makes a build start from the same base image every time | book: Docker in Action section 8.6.1, page 168 |
+| The open source Docker registry is Distribution, and it works with `pull` and `push` like a hosted registry | book: Docker in Action section 9.3, page 183 |
+| The price of pinning a digest is that base image updates do not arrive automatically | author |
+| Authentication, HTTPS, image signatures, removing blobs, registries in the cloud | not tried |
+
+</Step>

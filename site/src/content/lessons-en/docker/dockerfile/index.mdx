@@ -1,0 +1,192 @@
+---
+title: The Dockerfile
+summary: A Dockerfile is a recipe that Docker reads line by line to build an image. This lesson shows where each line lands, a layer or the label of the image, how CMD and ENTRYPOINT differ, why the shell and exec forms matter, how ENV and ARG differ, and what happens when a RUN line fails.
+facts:
+  - "Run for real in exercises/04_dockerfile.py against Docker Engine 29.2.1 (BuildKit). It builds images from several Dockerfiles and reads docker history, the layer count from docker image inspect, the result of CMD and ENTRYPOINT in exec and shell form, which process is PID 1, the variables of ENV and ARG, the difference between COPY and ADD with a .tar file, the owner of files after USER, and the message of a failing build."
+  - "That a Dockerfile must start with FROM, that the exec form is the better practice, and that COPY makes root the owner of files comes from Docker in Action sections 8.1 to 8.2, and we confirmed the COPY and root fact by running it. We did not try ONBUILD, VOLUME, HEALTHCHECK and SHELL, which are not in this lesson."
+order: 4
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [images-and-layers]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import DockerfileLab from '../../../../components/labs/docker/DockerfileLab';
+
+<Step>
+
+## A Dockerfile is a recipe that Docker reads line by line
+
+In the last two lessons we built images in passing without saying how. Now let us open the recipe. A Dockerfile is a plain text file that says how to build an image, one instruction per line, and the book names the one special rule: the first instruction must be `FROM` (book: Docker in Action section 8.1, page 145). Let us build a small Python program that prints a variable and the folder it works in.
+
+```dockerfile
+FROM python:3.13-slim
+LABEL org.example.course=docker
+ENV GREETING=hello
+WORKDIR /app
+COPY app.py .
+RUN python -c "open('/app/built.txt', 'w').write('x' * 1000)"
+EXPOSE 8080
+CMD ["python", "app.py"]
+```
+
+```bash
+docker build -t dlab-app .
+docker run --rm dlab-app
+```
+
+```text
+greeting: hello | cwd: /app | uid: 0
+```
+
+The command `docker build -t dlab-app .` reads the Dockerfile in the current folder (the dot at the end is that folder) and names the image `dlab-app`. When we run it, the container prints the variable `GREETING` set by `ENV`, says it works in `/app`, which came from `WORKDIR`, and runs the script given by `CMD` (ran).
+
+What is interesting is where each line lands in the image. From [lesson 2](/en/docker/images-and-layers/#an-image-is-a-stack-of-layers) we know an image is a stack of layers, but in the exercise these eight lines did not add eight layers. `docker history` shows 0B for `LABEL`, `ENV`, `WORKDIR`, `EXPOSE` and `CMD`, 105 bytes for `COPY` and 30.9 kB for `RUN` (ran). When we count the real layers of the image there are seven: the four of the base image plus one each for `WORKDIR`, `COPY` and `RUN`. `WORKDIR` gets a layer because it creates the folder `/app`, even though its size shows 0B. `ENV`, `LABEL` and `CMD` add no layer at all. We built a separate image with only those three lines and counted the same number of layers as the base (ran).
+
+Press through the lab one line at a time. Each line goes to one of two places. One is the stack of files, which `FROM`, `WORKDIR`, `COPY` and `RUN` write to. The other is the label of the image, or its config, which `LABEL`, `ENV`, `EXPOSE` and `CMD` write to. When we run `docker run`, the container reads that label to know what to do at start.
+
+<DockerfileLab client:visible lang="en" />
+
+The book explains the mechanism behind it: the builder does every instruction the way we would by hand. It creates a new container with the change, commits it as a layer, and goes to the next instruction (book: Docker in Action section 8.1, page 145). It also says to combine instructions whenever possible, because the builder does no optimization (book: Docker in Action section 8.2.1, page 149). That matches what we saw in [lesson 2](/en/docker/images-and-layers/), where a file deleted later still takes room in the image.
+
+</Step>
+
+<Step>
+
+## CMD and ENTRYPOINT decide how a container starts
+
+Two lines say what a container will run, and they work together. `ENTRYPOINT` is the program to run, and `CMD` is its default arguments. The book draws the relationship in figure 8.1 (book: Docker in Action section 8.2.2, page 153). In the exercise we build three images on Alpine and run each twice, once with nothing added and once with the word `docker` after the image name (ran).
+
+| Dockerfile | `docker run image` | `docker run image docker` |
+|---|---|---|
+| `ENTRYPOINT ["echo", "hello"]` and `CMD ["world"]` | hello world | hello docker |
+| `ENTRYPOINT echo hello` (shell form) and `CMD ["world"]` | hello | hello |
+| `CMD ["echo", "default"]` alone | default | fails with exit code 127 |
+
+The first row is the correct use. `ENTRYPOINT` stays fixed and `CMD` is a default that we can overwrite when we run. The third row has no `ENTRYPOINT`, so the argument we add replaces the whole command, and Docker tries to run a program called `docker`, which does not exist. The second row differs from the first only in how `ENTRYPOINT` is written, yet the result is very different, because the shell form makes `CMD` and every argument ignored, which matches the book's warning that it makes things less flexible (book: Docker in Action section 8.2.1, page 149). To change `ENTRYPOINT` at run time, use the option `--entrypoint`, which the exercise confirmed replaces it (ran).
+
+Both instructions come in two forms. The exec form is an array such as `["sleep", "300"]`, and the shell form is plain text such as `sleep 300`, which Docker wraps in `/bin/sh -c`. The book recommends the exec form wherever possible (book: Docker in Action section 8.2.2, page 153). Let us see what PID 1 is when we write it differently (ran).
+
+| How CMD is written | PID 1 in the container |
+|---|---|
+| `["sleep", "300"]` | `sleep 300` |
+| `sleep 300` | `sleep 300` |
+| `sleep 300 && echo done` | `/bin/sh -c sleep 300 && echo done` |
+
+The second row may be a surprise. We might expect the shell form to always make the shell PID 1, but on Alpine, which uses the BusyBox shell, when there is only one command the shell replaces itself with that command, so PID 1 is still `sleep`, just like the exec form. With two commands, the shell has to stay as the controller, so it is PID 1 and our program is its child. That connects to the problem in [the life of a container](/en/docker/container-lifecycle/#docker-stop-asks-politely-first-then-kills), because a shell that is PID 1 does not pass SIGTERM on to its child. We tried only Alpine (we did not run the shell of Debian or Bash), and the result may differ with another image.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A Dockerfile sets an exec-form ENTRYPOINT that runs Echo with the word Hello, and a CMD with the word World. We run a container and add the word There after the image name. What is printed?"
+  options={[
+    'Hello World There',
+    'Hello There, because the argument we add replaces CMD but ENTRYPOINT stays',
+    'There, because the argument replaces the whole command',
+    'It fails with exit code 127'
+  ]}
+  answer={1}
+  why="An exec-form ENTRYPOINT is a fixed program, and CMD is only the default argument. The argument we add when we run replaces CMD, as the exercise saw: the normal result is hello world, and it became hello docker when we added the word docker (ran). With the shell form of ENTRYPOINT the arguments are ignored completely, and with CMD alone the added argument replaces the whole command."
+/>
+
+</Step>
+
+<Step>
+
+## ENV lives in the container, ARG only at build time
+
+A Dockerfile has two kinds of variable. `ENV` writes a variable on the label of the image, so a container started from that image sees it, and we can also use its value on the next lines of the Dockerfile (book: Docker in Action section 8.2.1, page 149). `ARG` is available only at build time, and we pass a value in with `--build-arg`. In the exercise we build an image with both, with `ARG VERSION`, `ARG TOKEN` and `ENV APP_ENV=prod`, and pass `--build-arg VERSION=2.0` when building (ran).
+
+```text
+APP_ENV=prod
+building 2.0 with not-a-real-secret
+```
+
+The container sees `APP_ENV` but neither `VERSION` nor `TOKEN` in its environment. The second line comes from a file that `RUN` wrote at build time, which means the values given at build time already went into the files of the image. And here is something people often miss: an `ARG` that is used in a `RUN` line shows up in `docker history`, where anyone who has the image can read it, both `VERSION=2.0` and the value of `TOKEN` (ran). A variable set by `ENV` can be overridden with `docker run -e APP_ENV=dev` (ran).
+
+<Callout type="warn" title="Do not pass secrets through ARG or ENV">
+The `TOKEN` in our example is fake, but a real password would stay in `docker history` and in the files that `RUN` wrote, and anyone who gets the image can read it. We will come back to safer ways to handle secrets in the lesson on safe images.
+</Callout>
+
+</Step>
+
+<Step>
+
+## COPY, ADD and who owns the files
+
+There are two instructions that bring files from our computer into an image. `COPY` copies files as they are. `ADD` does the same and adds two things: it can fetch from a URL, and it unpacks an archive by itself (book: Docker in Action section 8.2.2, page 153). In the exercise we prepare a file `data.tar` that holds `hello.txt` and use both (ran).
+
+| Instruction | What we see in `/in` |
+|---|---|
+| `COPY data.tar /in/` | `data.tar` (still an archive) |
+| `ADD data.tar /in/` | `hello.txt` (unpacked for us) |
+
+The book advises against using `ADD` to fetch from a URL, because there is no way to remove what is not needed and it adds a layer. Use a `RUN` that downloads and deletes on the same line instead (book: Docker in Action section 8.2.2, page 153). That part was not run, because we did not try fetching from a URL.
+
+Another thing to know is who owns the files. We create a user called `app` (UID 1000) and use `USER app` before `COPY`. When it runs, `USER` makes the container work as UID 1000, and `WORKDIR` creates the folder and starts work there, but the file we copied is still owned by root (UID 0) and not by `app` (ran). The book warns about the same thing: a copied file belongs to root whatever user is set (book: Docker in Action section 8.2.2, page 153). If the program must overwrite that file at run time, it cannot. We will come back to user permissions in the lesson on safe images.
+
+</Step>
+
+<Step>
+
+## When a RUN line fails
+
+Last is something everyone meets when starting to write Dockerfiles: the build fails. In the exercise we write a `RUN nosuchcommand` line for a command that does not exist, and build (ran).
+
+```text
+ERROR: failed to build: failed to solve: process "/bin/sh -c nosuchcommand" did not complete successfully: exit code: 127
+```
+
+The build stops at once with a non-zero exit code and the lines after it never run. The message names the failing command and its exit code, which is 127, the same one we saw in [the life of a container](/en/docker/container-lifecycle/#the-exit-code-says-how-the-program-ended) for command not found. The book's example gets the same kind of message (book: Docker in Action section 8.1, page 145). To read it, look for the line marked `>>>` in the build log, which points at the failing command, and interpret the exit code the way we did before.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A Dockerfile sets an ARG called Token and uses its value in a RUN line at build time. Then we push the image for a teammate. Can the teammate read the Token?"
+  options={[
+    'No, because ARG is used only at build time and nothing is left in the image',
+    'Yes, because a value used in a RUN line stays in the docker history of the image, which everyone who has the image can read',
+    'Only while the container is running, because ARG becomes an environment variable',
+    'Only if the teammate has our password'
+  ]}
+  answer={1}
+  why="An ARG does not end up in the environment of the container, that is true, but Docker records the value used in a RUN line in the history of the layer. The exercise read both VERSION=2.0 and the value of the Token from docker history (ran). That is why we should not send secrets into an image with ARG or ENV."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The container sees `ENV` and `WORKDIR` and runs `CMD`, and arguments after the image name replace `CMD` | ran: `exercises/04_dockerfile.py` |
+| `LABEL`, `ENV`, `WORKDIR`, `EXPOSE` and `CMD` show 0B in `docker history`, while `COPY` and `RUN` have a size | ran: `exercises/04_dockerfile.py` |
+| The image has the layers of the base plus 3 from `WORKDIR`, `COPY` and `RUN`, and `ENV`, `LABEL` and `CMD` add no layer | ran: `exercises/04_dockerfile.py` |
+| `EXPOSE` is only a note and does not publish a port | ran: `exercises/04_dockerfile.py` |
+| An exec-form `ENTRYPOINT` with `CMD` gives hello world, an added argument replaces `CMD`, the shell form of `ENTRYPOINT` ignores everything, `CMD` alone is replaced whole, and `--entrypoint` replaces it | ran: `exercises/04_dockerfile.py` |
+| PID 1 for exec form and one-command shell form is the program itself, and for a two-command shell form it is `/bin/sh -c` (on Alpine) | ran: `exercises/04_dockerfile.py` |
+| `ENV` is in the container and `ARG` is not, and an `ARG` value used in `RUN` can be read from `docker history` | ran: `exercises/04_dockerfile.py` |
+| `COPY` does not unpack an archive and `ADD` does | ran: `exercises/04_dockerfile.py` |
+| After `USER`, a file from `COPY` is still owned by root, and `WORKDIR` creates the folder | ran: `exercises/04_dockerfile.py` |
+| A failing `RUN` stops the build and reports exit code 127 | ran: `exercises/04_dockerfile.py` |
+| A Dockerfile must start with `FROM`, and the builder makes each instruction a container committed as a layer | book: Docker in Action section 8.1, page 145 |
+| `ENV` values can be reused on later lines, instructions should be combined, and the shell form of `ENTRYPOINT` ignores arguments | book: Docker in Action section 8.2.1, page 149 |
+| `COPY` makes root the owner, `ADD` unpacks archives and fetches URLs, the exec form is preferred, and `CMD` is the arguments of `ENTRYPOINT` | book: Docker in Action section 8.2.2, page 153 |
+| `ONBUILD`, `VOLUME`, `HEALTHCHECK`, `SHELL`, and `ADD` from a URL | not tried |
+
+</Step>

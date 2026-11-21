@@ -1,0 +1,187 @@
+---
+title: Container Lifecycle
+summary: Container ผ่านสถานะ Created, Running, Paused และ Exited ด้วยคำสั่งไม่กี่ตัว บทนี้ลองสั่งทีละคำสั่งแล้วดู Exit Code ว่าบอกอะไร ดูว่าทำไมคำสั่งหยุด Container บางครั้งต้องรอนาน ดู Log กับการเปิด Process เพิ่ม และดูว่า Restart Policy ทำอะไรเมื่อโปรแกรมล้ม
+facts:
+  - "รันจริงใน exercises/03_lifecycle.py กับ Docker Engine 29.2.1 เดินคำสั่ง create, start, pause, unpause, stop, kill และ rm แล้วอ่านสถานะ, วัดเวลาของ docker stop กับโปรแกรมสามแบบ (Sleep ที่เป็น PID 1, Python ที่รับ SIGTERM และ Sleep ที่รันผ่าน --init), ลอง Exit Code ของโปรแกรมที่ล้ม, อ่าน docker logs, ลอง docker exec และ Restart Policy แบบ on-failure กับ always"
+  - "ส่วนที่ว่า Container มีหกสถานะ และ Process ที่เป็น PID 1 ถูก Kernel ปฏิบัติเหมือน init มาจากหนังสือ Docker in Action หัวข้อ 2.5 และ Docker Up and Running หัวข้อ Stopping a Container หน้า 105 ไม่ได้รัน ส่วนสถานะ removing ไม่ได้เจอในแบบฝึก และเวลารอของ docker stop ที่ไม่ใส่ -t วัดได้ประมาณ 3 วินาทีในเครื่องนี้ ซึ่งเราไม่ได้ไล่หาสาเหตุ"
+order: 3
+phase: A
+level: 2
+stage: sprout
+format: steps
+requires: [containers]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import LifecycleLab from '../../../../components/labs/docker/LifecycleLab';
+
+<Step>
+
+## สถานะของ Container และคำสั่งที่พามันไป
+
+ใน[บท 1](/docker/containers/#container-อยู่ได้เท่ากับที่-process-อยู่) เราเห็นแล้วว่า Container จบเมื่อโปรแกรมข้างในจบ ทีนี้ลองดูทั้งวงจรกัน หนังสือบอกว่า Container อยู่ในหนึ่งในหกสถานะ คือ Created, Running, Restarting, Paused, Removing และ Exited (ซึ่ง Exited ใช้กับ Container ที่ไม่เคยถูก Start ด้วย) (หนังสือ: Docker in Action หัวข้อ 2.5.1 หน้า 41) ในแบบฝึกเราเดินคำสั่งจริงทีละตัวแล้วอ่านสถานะหลังแต่ละคำสั่ง
+
+```text
+command         state afterwards  exit code
+docker create   created           0
+docker start    running           0
+docker pause    paused            0
+docker unpause  running           0
+docker stop     exited            0
+docker start    running           0
+docker kill     exited            137
+```
+
+มีสามเรื่องที่ควรสังเกต เรื่องแรก `docker create` สร้าง Container แต่ยังไม่รันโปรแกรม สถานะเป็น `created` และยังไม่มี Process (ค่า Pid เป็น 0) ส่วน `docker run` ที่เราใช้มาตลอดก็คือ `create` กับ `start` ต่อกัน เรื่องที่สอง `docker pause` ไม่ได้ทำให้โปรแกรมจบ มันแค่แช่แข็ง Process ไว้ ซึ่ง Process ก็ยังอยู่ (รัน) และเรื่องที่สาม Container ที่จบแล้วยังอยู่ในรายการจนกว่าจะสั่ง `docker rm` และ `docker start` ก็ทำให้มันรันโปรแกรมเดิมอีกรอบ (รัน)
+
+ลองกดคำสั่งใน Lab ตามลำดับดู ปุ่มที่ใช้ไม่ได้ในสถานะนั้นจะถูกปิดไว้ เช่น Pause Container ที่ยังไม่ได้ Start ไม่ได้ ถ้ากด `docker stop` จะเห็นเส้นเวลาด้านล่างด้วย เดี๋ยวเราจะกลับมาดูส่วนนั้นกัน
+
+<LifecycleLab client:visible />
+
+</Step>
+
+<Step>
+
+## Exit Code บอกว่าโปรแกรมจบอย่างไร
+
+ตอน Container จบ Docker เก็บ Exit Code ของโปรแกรมไว้ ตัวเลขนี้เป็นสิ่งแรกที่ควรดูเวลาหาสาเหตุว่าทำไม Container ถึงจบ ในแบบฝึกเรารันโปรแกรมสั้น ๆ ที่จบไม่เหมือนกัน (รัน)
+
+| โปรแกรม | Exit Code ของ `docker run` |
+|---|---|
+| `true` | 0 |
+| `false` | 1 |
+| `sh -c 'exit 3'` | 3 |
+| `sh -c nosuchcmd` (Shell หาคำสั่งไม่เจอ) | 127 |
+| `nosuchcmd` (ไม่มีโปรแกรมนี้ใน Image) | 127 |
+| `/etc/passwd` (มีไฟล์ แต่ไม่ใช่โปรแกรม) | 126 |
+
+ตัวเลข 0 แปลว่าจบเรียบร้อย ส่วนตัวเลขอื่นเป็นโค้ดที่โปรแกรมเลือกเอง ยกเว้น 126 กับ 127 ที่ใช้กันทั่วไปว่ารันไฟล์นั้นไม่ได้ และหาคำสั่งไม่เจอ (รัน) แถวที่สามกับสี่ต่างกันตรงที่ใครรายงาน แถวที่ `sh` หาไม่เจอ ตัว Shell รายงาน 127 เอง ส่วนแถวที่ไม่มีโปรแกรมใน Image เป็น Docker ที่ตอบว่า `executable file not found` แล้วคืน 127 ให้ ตัวเลขที่มากกว่า 128 บอกว่าโปรแกรมถูก Signal ฆ่า โดย 128 บวกเลขของ Signal เช่น 137 คือ 128 + 9 (SIGKILL) และ 143 คือ 128 + 15 (SIGTERM) ซึ่งเป็นเรื่องที่เราจะเจอในหัวข้อถัดไป
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Container ตัวหนึ่งจบด้วย Exit Code 137 สิ่งไหนน่าจะเกิดขึ้นกับโปรแกรมข้างใน?"
+  options={[
+    'โปรแกรมทำงานเสร็จเรียบร้อยแล้วออกเอง',
+    'โปรแกรมโดน SIGKILL ฆ่า เพราะ 137 คือ 128 บวก 9 ซึ่งเกิดได้ทั้งจาก Docker Kill และจาก Docker Stop ที่รอจนหมดเวลาแล้ว',
+    'Docker หาโปรแกรมที่สั่งไม่เจอใน Image',
+    'โปรแกรมโดน SIGTERM ฆ่า เพราะ 137 คือ 128 บวก 15'
+  ]}
+  answer={1}
+  why="เลขที่มากกว่า 128 บอกว่าโปรแกรมตายเพราะ Signal โดยเลขที่เกินมาคือหมายเลข Signal 137 ลบ 128 ได้ 9 ซึ่งคือ SIGKILL ส่วน SIGTERM คือ 15 จึงเป็น 143 ตามที่แบบฝึกเห็นกับ Sleep ที่รันผ่านตัวเลือก Init (รัน) ส่วนหาโปรแกรมไม่เจอได้ 127 และออกเรียบร้อยได้ 0"
+/>
+
+</Step>
+
+<Step>
+
+## Docker Stop ขอดี ๆ ก่อน แล้วค่อยฆ่า
+
+หนังสือเล่าว่า `docker stop` ส่ง SIGTERM ให้ Process ก่อน แล้วรอให้มันปิดตัวเองอย่างสุภาพ ถ้าใส่ `-t 25` ก็คือถ้าเกิน 25 วินาทีแล้วยังไม่จบ จะส่ง SIGKILL ไปฆ่า (หนังสือ: Docker Up and Running หัวข้อ Stopping a Container หน้า 105) สิ่งที่หนังสือไม่ได้พูดถึงคือ ถ้าโปรแกรมที่เป็น PID 1 ไม่ตอบรับ SIGTERM จะเกิดอะไรขึ้น เรามาลองกัน
+
+ในแบบฝึกเรารันโปรแกรมสามแบบและสั่ง `docker stop -t 5` กับทุกตัว (รัน)
+
+| โปรแกรมที่เป็น PID 1 | ใช้เวลา (วินาที) | Exit Code |
+|---|---|---|
+| `sleep 300` | 5.3 | 137 |
+| Python ที่ตั้ง Handler ให้ SIGTERM | 0.4 | 0 |
+| `sleep 300` ที่รันด้วย `--init` | 0.3 | 143 |
+
+`sleep` ตัวแรกไม่ตอบอะไรเลย Docker จึงรอจนหมด 5 วินาทีแล้วส่ง SIGKILL ซึ่งได้ 137 เหตุผลคือ Kernel ปฏิบัติกับ Process ที่เป็น PID 1 เหมือนเป็น Init หนังสือบอกไว้ว่า Process ที่มี PID 1 จะถูก Linux Kernel ปฏิบัติเหมือน Init Process แม้มันจะไม่ใช่ระบบ Init จริงก็ตาม (หนังสือ: Docker in Action หัวข้อ 2.5.2 หน้า 42) และสำหรับ Process ลักษณะนี้ Signal ที่ไม่มีตัวรับจะไม่ฆ่ามันเหมือน Process ธรรมดา (ข้อนี้เป็นความรู้ทั่วไปของ Linux ซึ่งเราไม่ได้เปิดเอกสารยืนยัน) ตัวที่สองมี Handler จึงปิดตัวเองทันทีด้วยรหัสที่มันเลือก และตัวที่สามมี `--init` ซึ่ง Docker ใส่โปรแกรม Init เล็ก ๆ เป็น PID 1 แทน แล้วมันส่ง SIGTERM ต่อให้ `sleep` ซึ่งตายเพราะ Signal นั้นจึงได้ 143
+
+ถ้าไม่ใส่ `-t` เลย ใน Engine ของคอมพิวเตอร์เครื่องนี้ `docker stop` กับ `sleep` ตัวเดียวกันใช้เวลาประมาณ 3.3 วินาที ซึ่งเป็นตัวเลขที่เราวัดได้ และเราไม่ได้ไล่หาสาเหตุว่ามาจากค่าตั้งต้นของ Engine ตัวนี้หรือของ Docker Desktop เรื่องนี้สอนให้เรารู้ว่าระยะเวลารอเป็นค่าตั้ง ไม่ใช่ตัวเลขตายตัว ถ้าบริการของเราต้องเก็บงานก่อนปิด ควรกำหนด `-t` ให้ชัดเจนเอง
+
+<Callout type="tip" title="โปรแกรมของเราควรจัดการ SIGTERM">
+ถ้าเราเขียนบริการที่ต้องเขียนข้อมูลค้างลงดิสก์ก่อนปิด ให้เราดักรับ SIGTERM ในโปรแกรมนั้นเอง หรือให้รันผ่าน Init อย่าง `--init` ไม่อย่างนั้น Docker จะรอจนหมดเวลาแล้วฆ่า ซึ่งงานที่ยังไม่จบจะหายไป หนังสือบอกว่า Init ที่นิยมมี Tini, Dumb-init และ Supervisord (หนังสือ: Docker in Action หัวข้อ 2.5.2 หน้า 42)
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="บริการของเราเป็นโปรแกรมที่ไม่มีโค้ดดักรับ SIGTERM และรันเป็น PID 1 ใน Container เราสั่ง Docker Stop แล้วสังเกตว่ามันช้า สิ่งไหนอธิบายได้ถูกต้อง?"
+  options={[
+    'Docker ส่ง SIGTERM แล้วโปรแกรมไม่ตอบ จึงต้องรอจนหมดเวลาที่กำหนดแล้ว Docker ส่ง SIGKILL ซึ่งทำให้ Exit Code เป็น 137',
+    'Docker ส่ง SIGKILL ทันที แต่ Engine ใช้เวลาลบไฟล์ของ Container',
+    'โปรแกรมกำลังเขียน Log จึงต้องรอให้เขียนเสร็จ',
+    'Docker Stop ต้องรอจน Container ใช้ CPU ต่ำลงก่อน'
+  ]}
+  answer={0}
+  why="PID 1 ไม่ตายเพราะ SIGTERM ถ้าโปรแกรมไม่ได้ติดตั้งตัวรับ Signal ไว้ Docker จึงรอจนครบเวลาที่ตั้ง แล้วส่ง SIGKILL ซึ่งฆ่าได้แน่ ๆ แบบฝึกวัด Sleep ที่เป็น PID 1 ได้ 5.3 วินาทีกับ -t 5 และ Exit Code 137 ส่วนโปรแกรมที่มี Handler หรือรันผ่านตัวเลือก Init หยุดภายในไม่ถึงหนึ่งวินาที (รัน) Docker Kill ถึงจะส่ง SIGKILL ทันที"
+/>
+
+</Step>
+
+<Step>
+
+## Log, Exec และ Stdin
+
+มีคำสั่งอีกสามอย่างที่ใช้ทุกวัน ตัวแรกคือ `docker logs` ที่อ่านสิ่งที่โปรแกรมพิมพ์ออกทาง Stdout และ Stderr ในแบบฝึกเรารันโปรแกรมที่พิมพ์ `to-stdout` ทาง Stdout และ `to-stderr` ทาง Stderr แล้ว `docker logs` ก็พิมพ์สองข้อความนั้นออกมาแยกทางกัน ตัวแรกออก Stdout ตัวหลังออก Stderr และ Container ที่จบไปแล้วก็ยังอ่าน Log ได้ (รัน) ตัวเลือก `-t` ใส่เวลาหน้าทุกบรรทัด (รัน) ข้อควรระวังคือ Stdout กับ Stderr เป็นสองช่องทาง ลำดับของบรรทัดจากสองช่องไม่ได้รับประกันว่าจะเรียงตามที่โปรแกรมพิมพ์ เราเคยเห็น `--tail 1` คืนบรรทัดของ Stderr ทั้งที่บรรทัดสุดท้ายที่โปรแกรมพิมพ์เป็นของ Stdout (รัน)
+
+ตัวที่สองคือ `docker exec` ที่เปิด Process เพิ่มอีกตัวใน Container ที่รันอยู่ ผลคือ Exit Code ของคำสั่งที่เรารันจะกลับมาให้เรา (เราสั่ง `exit 5` แล้วได้ 5) และ Container ไม่ได้ปิดตามไปเพราะ Process หลักยังอยู่ แต่ถ้า Container จบไปแล้ว `exec` จะถูกปฏิเสธ (รัน) ตัวที่สามคือตัวเลือก `-i` ที่ต่อ Stdin ของเรากับโปรแกรม เมื่อเราส่งข้อความผ่านท่อเข้า `docker run -i alpine cat` ก็ได้ข้อความเดิมกลับมา ถ้าไม่ใส่ `-i` โปรแกรมจะไม่เห็นข้อมูลที่เราส่ง (รัน)
+
+</Step>
+
+<Step>
+
+## Restart Policy ให้ Docker เปิดใหม่เมื่อโปรแกรมล้ม
+
+ตอนบริการล้มด้วยเหตุชั่วคราว การเปิดมันใหม่เองช่วยให้ระบบกลับมาเร็ว Docker ทำเรื่องนี้ด้วยตัวเลือก `--restart` ซึ่งหนังสือแบ่งเป็นไม่เปิดใหม่เลย (ค่าตั้งต้น) เปิดใหม่เมื่อล้ม เปิดใหม่เมื่อล้มแต่จำกัดครั้ง และเปิดใหม่เสมอ (หนังสือ: Docker in Action หัวข้อ 2.5.1 หน้า 41) ในแบบฝึกเรารันโปรแกรมที่จบทันทีสามแบบ (รัน)
+
+| Policy และโปรแกรม | จำนวนครั้งที่เปิดใหม่ | สถานะสุดท้าย |
+|---|---|---|
+| `on-failure:2` และโปรแกรมจบด้วย 1 | 2 | Exited |
+| `on-failure:2` และโปรแกรมจบด้วย 0 | 0 | Exited |
+| `always` และโปรแกรมจบด้วย 1 | เพิ่มไปเรื่อย ๆ (ดูได้ 4 ครั้งภายในไม่กี่วินาที) | ไม่หยุด |
+
+`on-failure:2` เปิดใหม่ให้เฉพาะตอนที่ล้ม และหยุดหลังเปิดครบสองครั้ง ถ้าโปรแกรมจบด้วย 0 มันไม่เปิดใหม่ ส่วน `always` เปิดใหม่ทุกครั้งโดยไม่สนใจเหตุผล หนังสืออธิบายว่า Docker ไม่ได้เปิดใหม่ทันที แต่ใช้ Exponential Backoff คือรอนานขึ้นเป็นสองเท่าทุกครั้ง เพื่อไม่ให้ระบบเอาแต่เปิดโปรแกรมที่ล้มซ้ำ ๆ (หนังสือ: Docker in Action หัวข้อ 2.5.1 หน้า 41) ระหว่างรอ Container อยู่ในสถานะ `restarting` และตอนนั้นสั่ง `docker exec` ไม่ได้ ซึ่งแบบฝึกเห็นข้อความปฏิเสธที่บอกว่า Container กำลัง Restarting (รัน) นี่คือเหตุผลที่หนังสือแนะนำให้ใช้ Policy ร่วมกับ Init หรือ Startup Script ที่คอยเปิดโปรแกรมข้างในให้ แทนที่จะปล่อยให้ทั้ง Container ต้องวนเปิดใหม่
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราตั้ง Container ให้ Restart แบบ On-failure จำกัดสองครั้ง และโปรแกรมข้างในจบด้วย Exit Code 0 ทุกครั้ง Docker จะทำอย่างไร?"
+  options={[
+    'เปิดใหม่สองครั้งแล้วหยุด เพราะเรากำหนดไว้สองครั้ง',
+    'เปิดใหม่ไปเรื่อย ๆ เพราะโปรแกรมจบเอง',
+    'ไม่เปิดใหม่เลย เพราะ On-failure เปิดเฉพาะตอนที่โปรแกรมจบด้วย Exit Code ที่ไม่ใช่ 0',
+    'ปฏิเสธการสร้าง Container เพราะ Policy กับโปรแกรมขัดกัน'
+  ]}
+  answer={2}
+  why="Policy แบบ On-failure ดูที่ Exit Code ถ้าเป็น 0 ถือว่าสำเร็จจึงไม่เปิดใหม่ แบบฝึกเห็นจำนวนครั้งที่เปิดใหม่เป็น 0 และ Container อยู่ในสถานะ Exited ส่วนโปรแกรมที่จบด้วย 1 ถูกเปิดใหม่สองครั้งตามที่กำหนดแล้วหยุด (รัน) ถ้าอยากให้เปิดใหม่ทุกกรณีต้องใช้ Always"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| `create` ให้สถานะ Created ที่ยังไม่มี Process, `start` ให้ Running, `pause` ให้ Paused โดย Process ยังอยู่, `stop` ให้ Exited | รัน: `exercises/03_lifecycle.py` |
+| `docker kill` ให้ Exit Code 137 และ Container ที่จบแล้วยังอยู่จนกว่าจะ `docker rm` | รัน: `exercises/03_lifecycle.py` |
+| Exit Code ของโปรแกรมเป็น Exit Code ของ `docker run` และ 127 กับ 126 ใช้กับหาไม่เจอกับรันไม่ได้ | รัน: `exercises/03_lifecycle.py` |
+| `docker stop -t 5` ใช้ 5.3 วินาทีและได้ 137 กับ Sleep ที่เป็น PID 1 แต่ 0.4 วินาทีและได้ 0 กับโปรแกรมที่มี Handler และ 0.3 วินาทีและได้ 143 กับ `--init` | รัน: `exercises/03_lifecycle.py` |
+| `docker stop` โดยไม่ใส่ `-t` ในเครื่องนี้ใช้ประมาณ 3.3 วินาที | รัน: `exercises/03_lifecycle.py` (ไม่ได้ไล่หาสาเหตุ) |
+| `docker logs` แยก Stdout กับ Stderr และอ่าน Log ของ Container ที่จบแล้วได้ | รัน: `exercises/03_lifecycle.py` |
+| `docker exec` คืน Exit Code ของคำสั่งที่รัน และถูกปฏิเสธเมื่อ Container จบแล้วหรือกำลัง Restarting | รัน: `exercises/03_lifecycle.py` |
+| `on-failure:2` เปิดใหม่สองครั้งแล้วหยุด, ไม่เปิดใหม่เมื่อจบด้วย 0, `always` เปิดใหม่ต่อเนื่อง | รัน: `exercises/03_lifecycle.py` |
+| `docker rm` ปฏิเสธ Container ที่กำลังรัน, `-i` ต่อ Stdin เข้าโปรแกรม | รัน: `exercises/03_lifecycle.py` |
+| Container มีหกสถานะ และ Restart Policy มีสี่แบบพร้อม Exponential Backoff | หนังสือ: Docker in Action หัวข้อ 2.5.1 หน้า 41 |
+| Process ที่เป็น PID 1 ถูก Kernel ปฏิบัติเหมือน Init และมี Init ที่นิยมใช้อยู่หลายตัว | หนังสือ: Docker in Action หัวข้อ 2.5.2 หน้า 42 |
+| `docker stop` ส่ง SIGTERM และ `-t` กำหนดเวลาก่อนส่ง SIGKILL | หนังสือ: Docker Up and Running หัวข้อ Stopping a Container หน้า 105 (ไม่ได้รัน) |
+| Signal ที่ไม่มีตัวรับไม่ฆ่า Process ที่เป็น PID 1 | ผู้เขียน (ความรู้ทั่วไปของ Linux ที่ไม่ได้เปิดเอกสารยืนยัน แต่ผลที่เห็นจากแบบฝึกสอดคล้องกัน) |
+| สถานะ Removing | ไม่ได้เจอในแบบฝึก |
+
+</Step>

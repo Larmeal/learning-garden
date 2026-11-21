@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you can read the result of the cache, know what breaks it, and know what the build context and the dockerignore file do.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A Dockerfile has four steps that were built and can all use the cache. Then we edit the second line of the Dockerfile so it differs. What happens to the third and fourth steps, which we did not touch, on the next build?"
+  options={[
+    'They still use the old cache, because their own lines did not change',
+    'They run again, because the cache is a chain, and the step that changed makes the base layer of every later step different',
+    'Only the third uses the cache, because it sits next to the step that changed',
+    'Docker asks first whether to use the cache'
+  ]}
+  answer={1}
+  why="Each layer is built on the one before it. If one step changes, every step after it runs again, even though its own line is the same. The exercise edited only the first of three RUN lines and saw all three run again (ran). That is why the lines that change least belong at the top."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We open a file and save it again without changing the content, so the modification date is newer. Then we build a Dockerfile that COPYs that file. What happens to the cache?"
+  options={[
+    'It breaks, because Docker compares the modification date of the file',
+    'It does not break, because Docker looks at the content of the files that COPY reads, not at the modification date',
+    'It breaks only at the COPY step, and the later steps still work',
+    'It depends on when we saved'
+  ]}
+  answer={1}
+  why="The exercise moved the modification time of the file an hour ahead with the same content and built again, and every step still used the cache (ran). Docker works from the content of the files that are read, so the same content gives the same result."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Our folder has a big unused file next to a Dockerfile that has only one COPY line, for one small file. On BuildKit in Docker 29.2.1, how big is the build context sent to the builder?"
+  options={[
+    'As big as the whole folder, because Docker always sends every file first',
+    'Small, because BuildKit sends only the files that COPY needs, but a COPY of the whole folder would send the big file too',
+    'Zero, because COPY reads straight from our disk',
+    'As big as the big file, because Docker picks the biggest file'
+  ]}
+  answer={1}
+  why="The exercise measured 38 bytes for a Dockerfile that copies one small file, although a 20 MB file sat next to it, and when we changed it to copy the whole folder it sent 20,980,000 bytes (ran). The book, printed in the time of the old builder, says the whole folder is always sent, which does not match the current BuildKit (book: Docker in Action section 8.1, page 145)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A COPY line in our Dockerfile points at a file that lives in the parent folder of the build context folder. What is the result?"
+  options={[
+    'The build succeeds, because Docker finds the file in any folder',
+    'The build fails, because COPY sees only what is inside the build context, so a file outside it is not found',
+    'The build succeeds but skips that line',
+    'Docker asks for permission before it reads the file'
+  ]}
+  answer={1}
+  why="The build context is the whole folder that is sent to the builder, and COPY sees only what is inside it. The exercise wrote a COPY to a file outside and the build failed with a message that the file was not found (ran). If we really need that file, it has to be moved into the folder that is the context."
+/>
+
+</Step>

@@ -1,0 +1,172 @@
+---
+title: Docker networks
+summary: Every container has its own IP, but containers can call each other by name only when they are on a network we made. This lesson shows how the default bridge differs from a network we create, how two networks stay apart, how a published port lets our computer reach a container, and how the container of a program finds its database by name.
+facts:
+  - "Run for real in exercises/08_networks.py against Docker Engine 29.2.1, with real ping, wget, nslookup, pg_isready and socket connections. It tests the default bridge, a network we make, two separate networks and docker network connect, published and unpublished ports from our computer and from another container, an alias used by two containers, --network none and host, and calling Postgres by name."
+  - "That a container gets an IP that other containers on the same network can reach, and that host and none are special kinds of attachment, comes from Docker in Action sections 5.2 and 5.3 and was not run. Not tried: overlay networks, macvlan, ipvlan, IPv6, limiting calls between containers with firewall rules, and how Docker makes the port really work with iptables (that is in the Networking subject)."
+order: 8
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [container-lifecycle]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import NetworkLab from '../../../../components/labs/docker/NetworkLab';
+
+<Step>
+
+## Every container has an IP, but does not know the names of the others
+
+The book says a container attached to a Docker network gets a unique IP address that other containers on the same network can reach, and that Docker treats a network as a thing with a life of its own, created and managed with the `docker network` commands (book: Docker in Action section 5.2, page 83). Every Docker installation comes with three networks: `bridge`, `host` and `none` (ran).
+
+We run two containers without naming a network, which puts both on the default `bridge`, and let A ping B in two ways (ran).
+
+| How we call | Result |
+|---|---|
+| Ping the IP of B (`172.17.x.x`) | reached |
+| Ping the container name of B | not reached |
+
+Both got addresses in the range `172.17.0.0/16` and can call each other by IP, but not by name, because the default bridge has no name resolution. The trouble is that the IP of a container changes every time it is created, so we cannot write an IP into a program. That leads to the next part.
+
+How a container is wired to the bridge, and with what address tables, is already explained in the Networking subject, in [lesson 13](/en/networking/proxies-and-containers/#a-container-is-a-network-namespace-plugged-into-a-bridge). This lesson looks from the side of someone using Docker.
+
+</Step>
+
+<Step>
+
+## A network we make has DNS
+
+The answer to the name problem is to make our own network with `docker network create` and let the containers join it (`--network name`). In the exercise we do that, and container A reaches B by name (ran). In the file `/etc/resolv.conf` inside the container the name server is `127.0.0.11`, which is a DNS that Docker puts there, and the new network gets an IP range of its own (in this run `172.19.0.0/16`), different from the default bridge (ran).
+
+The second thing we see is that each network is separate from the others. We made another network, `dlab-net2`, and put container C in it. A cannot reach C by name or by IP, but when we run `docker network connect dlab-net2 A`, so A joins the second one as well, A reaches C by name (ran). Here is everything in one table.
+
+| Layout | A calls B by IP | A calls B by name |
+|---|---|---|
+| Default bridge | reached | not reached |
+| The same network we made | reached | reached |
+| Different networks we made | not reached | not reached |
+| A joined both networks | reached | reached |
+
+Choose the layout and the caller in the lab one at a time. The arrow runs to the target or stops at the edge of a network, according to what was measured.
+
+<NetworkLab client:visible lang="en" />
+
+Two practical rules follow. First, if we want containers to call each other by name, we make our own network and do not use the default bridge. Second, a network can be used to keep apart containers that should not talk, for example to separate a database from services that do not need it (we did not try finer firewall rules between containers on one network, which was not run).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We run two containers on the default bridge without making a network, and let the first call the second by its container name. What is the result, and how should we fix it?"
+  options={[
+    'It is not reached, because the default bridge has no name resolution. Fix it by making our own network and letting both containers join it',
+    'It is reached, because Docker resolves container names on every network',
+    'It is not reached. Fix it by adding the option -p to both containers',
+    'It is reached but slowly, because it has to go through the host first'
+  ]}
+  answer={0}
+  why="The exercise saw that a ping by IP reached, but a ping by name did not on the default bridge, while a network we make has Docker DNS at 127.0.0.11 that resolves the name (ran). The option -p is not involved, because it opens a way from our computer into a container, and containers on one network can talk to each other without publishing."
+/>
+
+</Step>
+
+<Step>
+
+## Publish a port so that our computer can call in
+
+Now from the other side. We run two simple web servers (`python -m http.server 8000`) on one network. One has `-p 127.0.0.1:60808:8000` and the other does not, and we try to call them from our computer (Windows) and from another container on the same network (ran).
+
+| Who calls | To where | Result |
+|---|---|---|
+| Our computer | the published port (`127.0.0.1:60808`) | reached |
+| Our computer | the container with no `-p` (through the container IP) | not reached |
+| Another container on the same network | the one with `-p`, by name | reached |
+| Another container on the same network | the one with no `-p`, by name | reached |
+
+A published port is only a door opened on our computer that forwards into the container. If we do not publish, our computer cannot call in, but containers on the same network can always reach each other without publishing. The `127.0.0.1` in the command says to open the door only on that address, which only our computer can call. `docker port` confirms the port is bound to `127.0.0.1` as we said (ran). If we write just `-p 8000:8000`, Docker opens it on every address, and other computers on our network may be able to call in. We did not try that case (not run).
+
+What is underneath publishing is an iptables DNAT rule, which we already followed in [lesson 13 of the Networking subject](/en/networking/proxies-and-containers/#coming-in-a-published-port-is-a-dnat-rule). This lesson does not run it again.
+
+<Callout type="note" title="Why we cannot call the IP of a container from Windows directly">
+The containers live in the network of the Linux that Docker Desktop starts, and not in the network of Windows, so the `172.x.x.x` address of a container cannot be called from Windows directly, and the exercise saw that it was not reached. On a real Linux host it may behave differently, which we did not try.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Aliases, none and host
+
+Three short things come up often. First, aliases. We give a container an extra name with `--network-alias`, and we can give the same name to two containers. In the exercise we gave the alias `workers` to two containers, and `nslookup workers` answered with two addresses, which match the IPs of those two containers (ran). That is the simplest kind of spreading work with DNS: the client gets several addresses and picks one.
+
+The second and third are two special networks, which the book says are really kinds of attachment with a special meaning, and not real networks (book: Docker in Action section 5.3, page 89). `--network none` gives a container no network at all, and in the exercise we saw only the interface `lo`. `--network host` lets the container use the network of the host directly, with no separate network namespace, and the exercise saw the interfaces of the whole Linux that runs the engine, including `docker0` (ran). The book says it can see and bind every interface of the host. On this computer the host is the Linux inside Docker Desktop, and not Windows.
+
+| Kind of attachment | Interfaces seen inside the container |
+|---|---|
+| Normal (bridge) | `eth0` and `lo` |
+| `--network none` | `lo` only |
+| `--network host` | all of the host's, including `docker0` and other bridges |
+
+</Step>
+
+<Step>
+
+## A program finds its database by name
+
+This is the pattern used every day in data work. In the exercise we run Postgres named `dlab-db` on a network we made, and start another container on the same network to call `pg_isready -h dlab-db` (ran).
+
+```text
+dlab-db:5432 - accepting connections
+```
+
+The caller finds the database by the container name and port 5432, and we never published a port. Our own computer also cannot call `127.0.0.1:5432` (ran). So a database that is not published is hidden from the world outside, but the programs of ours on the same network can call it, which is a safer way than leaving a port open. We will see this pattern again in the lesson where we join several containers with Compose.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We did not publish a port for the container that runs the database, yet the container of our program on the same network calls the database by name and succeeds. Which explanation is right?"
+  options={[
+    'It is impossible. A port must be published first, or nobody can reach it',
+    'It works, because containers on one network can call each other by name. Publishing is only for our computer or the outside to call in',
+    'It works, because Docker opens the port for every container on our computer automatically',
+    'It works only with the host network type'
+  ]}
+  answer={1}
+  why="A network we make has DNS, and containers on the same network talk to each other directly. The exercise called pg_isready by the container name successfully, although our computer could not call 127.0.0.1:5432 because nothing was published (ran). Not publishing the database is the safer way for a system that needs nobody outside to call in."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| Docker always has the networks `bridge`, `host` and `none` | ran: `exercises/08_networks.py` |
+| On the default bridge containers can call each other by IP but not by name | ran: `exercises/08_networks.py` |
+| A network we make has DNS at `127.0.0.11` and its own IP range | ran: `exercises/08_networks.py` |
+| Containers on different networks cannot reach each other by name or IP until one joins both | ran: `exercises/08_networks.py` |
+| A published port can be called from our computer, an unpublished one cannot, but another container on the same network reaches both | ran: `exercises/08_networks.py` |
+| `docker port` shows the port bound to `127.0.0.1` as specified | ran: `exercises/08_networks.py` |
+| The same alias on two containers answers with two addresses | ran: `exercises/08_networks.py` |
+| `--network none` shows only `lo`, and `--network host` shows the interfaces of the host including `docker0` | ran: `exercises/08_networks.py` |
+| A container calls Postgres by name without publishing, and our computer cannot call port 5432 | ran: `exercises/08_networks.py` |
+| A container gets an IP that is reachable on its network, and networks have a life of their own | book: Docker in Action section 5.2, page 83 |
+| `host` and `none` are special kinds of attachment, not real networks, and host mode has no separate network namespace | book: Docker in Action section 5.3, page 89 |
+| The DNAT mechanism behind a published port | ran (in the Networking subject): `exercises/13_proxies_containers.py` |
+| Overlay networks, macvlan, ipvlan, IPv6, firewall rules between containers, publishing on every address | not tried |
+
+</Step>
