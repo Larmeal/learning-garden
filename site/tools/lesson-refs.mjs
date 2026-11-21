@@ -29,7 +29,7 @@ const GRAPH = args.has('--graph');
 
 // a book's name right before the number ("Ten Steps บทที่ 3", "หนังสือ: DDIA บทที่ 13", "book: DDIA chapter 13"), with no comma, full stop or
 // bracket between them
-const BOOK_JUST_BEFORE = /(?:DMBOK2|DQF|Ten Steps|Governance|FoDE|DDIA|DAMA|Medallion|Contracts|Davids|LaTour|Titze|Web Application Security|API Security in Action|OAuth 2 in Action|Networking and Kubernetes|TCP\/IP Illustrated|TCPIP|Practical Data Privacy|Anonymization Pipeline|Differential Privacy|หนังสือ|\bbook)[^,;.()\n]{0,16}$/i;
+const BOOK_JUST_BEFORE = /(?:DMBOK2|DQF|Ten Steps|Governance|FoDE|DDIA|DAMA|Medallion|Contracts|Davids|LaTour|Titze|Web Application Security|API Security in Action|OAuth 2 in Action|DuckDB in Action|Definitive Guide|Kafka in Action|Kafka Connect|Kafka Streams in Action|Networking and Kubernetes|TCP\/IP Illustrated|TCPIP|Practical Data Privacy|Anonymization Pipeline|Differential Privacy|DevOps Handbook|Fundamentals of DevOps|Software Delivery|Grokking Continuous Delivery|Learning GitHub Actions|Prometheus Up and Running|FDSD|DOH|หนังสือ|\bbook)[^,;.()\n]{0,16}$/i;
 const ALIASES = [
   [/great[ -]expectations|\bGX\b/i, 'great-expectations'],
   [/\bspark\b/i, 'spark'],
@@ -190,7 +190,7 @@ function linkLine(text, ctx) {
       const whole = m[0];
       // a book chapter, not a lesson
       const isBook =
-        (['data-quality', 'app-security', 'data-security'].includes(ctx.subject) && BOOK_JUST_BEFORE.test(before)) ||
+        (["data-quality", "app-security", "data-security", "devops", "duckdb", "kafka"].includes(ctx.subject) && BOOK_JUST_BEFORE.test(before)) ||
         /^\s*,?\s*(?:หน้า|page|pages|p\.)\s*\d/i.test(afterAll) ||
         /^\s*(?:ของเล่มเดียวกัน|ของหนังสือ|of the same book|of that book|of the book)/i.test(afterAll);
       if (isBook) {
