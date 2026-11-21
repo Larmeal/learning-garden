@@ -1,0 +1,105 @@
+---
+title: Control Plane
+summary: API Server เป็นประตูเดียวสู่ Etcd และ Component ที่เหลือเป็น Client ที่คอย Watch ออบเจ็กต์ของตัวเองแล้วเขียนออบเจ็กต์ถัดไป เราหยุด Scheduler กับ Controller Manager ทีละตัว ดูว่าอะไรหยุดและอะไรยังทำงานต่อ
+facts:
+  - "รันจริงใน exercises/10_control_plane.py บน minikube (Kubernetes v1.31.0): Manifest ของ Static Pod ทั้งสี่อยู่ใน /etc/kubernetes/manifests, ออบเจ็กต์เป็น Key ใน etcd (/registry/pods/<ns>/<name>, 30 ชนิดแรกระดับบน), Watch ได้ Event ADDED MODIFIED DELETED, resourceVersion เก่าถูกปฏิเสธด้วย Conflict, หยุด Scheduler แล้ว Pod ใหม่ค้าง Pending ไม่มี Node และไม่มี Event, หยุด Controller Manager แล้ว Pod ที่ถูกลบไม่ถูกแทนและการตั้ง replicas เป็น 5 ถูกเก็บแต่ไม่มีใครทำตาม, Lease ของ Node ถูกต่ออายุทุกประมาณ 10 วินาที และ --cascade=orphan ทำให้ ReplicaSet กับ Pod อยู่ต่อ"
+  - "minikube เริ่ม Scheduler กับ Controller Manager ด้วย --leader-elect=false เพราะมี Control Plane ตัวเดียว จึงไม่มี Lease ของ Leader Election ให้ดูในแบบฝึก ภาพรวมของ Control Plane มาจากหนังสือ Core Kubernetes บทที่ 11 และ 12 หน้า 205 ถึง 238 และ Programming Kubernetes บทที่ 1 และ 2 ไม่ได้อ่านซอร์สโค้ดของ Kubernetes"
+order: 10
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [storage]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ControlPlaneLab from '../../../../components/labs/kubernetes/ControlPlaneLab';
+
+<Step>
+
+## ที่เก็บของทุกอย่างคือ Etcd และประตูเดียวคือ API Server
+
+ใน[บทแรก](/kubernetes/why-kubernetes/)เราแยกชื่อ Component ของ Control Plane ไว้แล้ว คราวนี้ลงไปดูว่าเขาคุยกันอย่างไร เริ่มจากรู้ว่ามันรันอยู่ที่ไหน ในแบบฝึก เราเปิดโฟลเดอร์ `/etc/kubernetes/manifests` บน Control Plane แล้วเจอไฟล์สี่ไฟล์ `etcd.yaml`, `kube-apiserver.yaml`, `kube-controller-manager.yaml` และ `kube-scheduler.yaml` (รัน) Kubelet ของ Node นั้นอ่านโฟลเดอร์นี้โดยตรงและรันเป็น Pod ที่เรียกว่า Static Pod โดยไม่ต้องรอ API Server ซึ่งตอบคำถามว่าใครสร้าง API Server เมื่อยังไม่มี API Server และ Pod ที่เห็นใน `kube-system` เป็นเพียง Mirror Pod ที่ Kubelet สะท้อนเข้า API ให้เห็น โดยมี Node เป็นเจ้าของ (รัน) (หนังสือ: Core Kubernetes หัวข้อ 11.1 หน้า 206)
+
+API Server ถูกสตาร์ตด้วยพารามิเตอร์ `--etcd-servers=https://127.0.0.1:2379` (รัน) และมันเป็นตัวเดียวที่คุยกับ `etcd` ส่วน Component อื่นทุกตัวคุยกับ API Server เหมือนกับที่ `kubectl` คุย (หนังสือ: Core Kubernetes หัวข้อ 11.2 หน้า 207) เราเปิดอ่าน `etcd` ตรง ๆ ได้ Pod ตัวหนึ่งของเราเป็นหนึ่งคีย์คือ `/registry/pods/<namespace>/<name>` และใต้ `/registry/` มีประเภทของออบเจ็กต์ระดับบนทั้งหมด 30 ประเภท เช่น `pods`, `services`, `deployments`, `secrets` และ `leases` (รัน) ซึ่งหมายความว่าสถานะของคลัสเตอร์ทั้งก้อนคือฐานข้อมูลคีย์กับค่าก้อนนี้ (หนังสือ: Core Kubernetes หัวข้อ 12.2 หน้า 227)
+
+</Step>
+
+<Step>
+
+## Watch และการล็อกแบบมองโลกในแง่ดี
+
+ถ้าทุกส่วนคอยถาม API Server ว่า "มีอะไรเปลี่ยนไหม" ตลอดเวลา ระบบจะหนัก Kubernetes ใช้ Watch แทน คือเปิดคำขอ HTTP ค้างไว้ และ API Server ส่ง Event มาให้ทุกครั้งที่มีอะไรเปลี่ยน ในแบบฝึก เราเปิด Watch ที่ Pod ตัวหนึ่ง แล้วใส่ Label ลบ Pod ได้ Event ตามลำดับ `ADDED`, `MODIFIED` หลายครั้ง และ `DELETED` (รัน) เป็นเหตุผลที่คลัสเตอร์ตอบสนองเร็วโดยไม่ต้องถามซ้ำ (หนังสือ: Core Kubernetes หัวข้อ 12.2 หน้า 228 และ Programming Kubernetes หัวข้อ The HTTP Interface of the API Server หน้า 20)
+
+เมื่อหลายส่วนแก้ออบเจ็กต์ตัวเดียวกันพร้อมกัน เราจะไม่ให้ใครเขียนทับของคนอื่นโดยไม่รู้ตัว ทุกออบเจ็กต์มี `resourceVersion` ที่เปลี่ยนทุกครั้งที่แก้ ถ้าเราส่งการแก้ไขที่อ้างเลขเก่า API Server ปฏิเสธด้วย `Conflict` ในแบบฝึก เรา `replace` ConfigMap ด้วย `resourceVersion` เก่าแล้วได้ข้อความ `the object has been modified; please apply your changes to the latest version` และค่าที่เก็บไว้ไม่ถูกเขียนทับ (รัน) นี่คือ Optimistic Concurrency ที่ผู้ที่แพ้ต้องอ่านค่าใหม่แล้วลองอีกครั้ง (หนังสือ: Programming Kubernetes หัวข้อ Optimistic Concurrency หน้า 14)
+
+</Step>
+
+<Step>
+
+## หยุดทีละตัว: Scheduler กับ Controller Manager
+
+ข้อสงสัยที่ดีที่สุดวิธีหนึ่งคือถอด Component ออกแล้วดูว่าอะไรพัง ในแบบฝึก เราย้ายไฟล์ Manifest ของ Scheduler ออกจากโฟลเดอร์ Kubelet จึงเลิกรัน Pod นั้น แล้วสร้าง Pod ใหม่ ผลคือ Pod ถูกสร้างและเก็บใน API ได้ แต่ค้างเป็น `Pending` ไม่มี `nodeName` และไม่มี Event ใดเลย ไม่มีแม้แต่ `FailedScheduling` เพราะไม่มีใครมาพยายามวางมัน พอย้ายไฟล์กลับ Scheduler ตื่นขึ้นมา เห็น Pod ที่ค้างอยู่ แล้ววางให้เองภายในไม่กี่วินาที (รัน)
+
+จากนั้นเราทำกับ Controller Manager บ้าง เมื่อหยุดมัน Pod ของ Deployment ที่เราลบไปหนึ่งตัวไม่ถูกสร้างแทน (เหลือ 2 จาก 3 ตัว) และเมื่อเราสั่งเพิ่ม `replicas` เป็น 5 API Server รับและเก็บค่านี้ไว้ แต่ Pod ก็ยังเป็น 2 ตัว (รัน) พอเปิด Controller Manager คืน มันเห็นความต่างและเติมจนครบ 5 ตัว Ready ภายในไม่กี่สิบวินาที (รัน)
+
+ลองกดใน Lab ข้างล่าง เลือกว่าจะหยุดตัวไหนแล้วกดถัดไปตามการสร้าง Deployment ว่าขั้นไหนไม่เกิดขึ้น
+
+<ControlPlaneLab client:visible />
+
+บทเรียนของการทดลองนี้คือ Control Plane ไม่ได้เป็นเจ้านายที่สั่งงาน มันคือหลาย Loop ที่ต่างคนต่าง Watch ออบเจ็กต์ชนิดเดียวแล้วเขียนออบเจ็กต์ถัดไป เมื่อตัวหนึ่งหยุด สิ่งที่อยู่ก่อนหน้ายังทำงานต่อ (เก็บค่าได้) ส่วนสิ่งที่อยู่ถัดไปก็รอ และเมื่อกลับมา ก็ตามทันเองเพราะดูที่สถานะปัจจุบัน ไม่ใช่เหตุการณ์ที่พลาดไป ซึ่งหนังสือ Programming Kubernetes เรียกว่า Level-driven ต่างจาก Edge-driven ที่ต้องไม่พลาดเหตุการณ์ใดเลย (หนังสือ: Programming Kubernetes หัวข้อ Edge- Versus Level-Driven Triggers หน้า 9)
+
+</Step>
+
+<Step>
+
+## สัญญาณชีพ ผู้นำ และเจ้าของที่ถูกลบ
+
+ย้อนไปที่บทแรก ที่ Node ถูกประกาศ `NotReady` หลังเงียบประมาณ 40 วินาที ในแบบฝึก เราดู Namespace `kube-node-lease` ซึ่งมี Lease หนึ่งอันต่อ Node ชื่อ `garden`, `garden-m02` และ `garden-m03` และเวลา `renewTime` ของ `garden-m02` เปลี่ยนห่างกันประมาณ 10 วินาที (รัน) นี่คือสัญญาณชีพที่ Kubelet ส่งมา และเป็นสิ่งที่ Node Controller ดูก่อนติดป้าย NotReady (หนังสือ: Core Kubernetes หัวข้อ 9.3 หน้า 180)
+
+ในคลัสเตอร์ที่มี Control Plane หลายตัว Scheduler กับ Controller Manager ใช้ Lease แบบเดียวกันเลือกผู้นำ (Leader Election) เพื่อให้มีตัวเดียวที่ทำงานจริง แต่ Minikube สตาร์ตสองตัวนี้ด้วย `--leader-elect=false` เพราะมี Control Plane ตัวเดียว (รัน) จึงไม่มี Lease ของ Leader ให้ดูในแบบฝึก
+
+เรื่องสุดท้ายคือ Garbage Collection ตาม `ownerReferences` ที่เราเห็นมาตั้งแต่บท [Deployment](/kubernetes/deployments/) เมื่อเราลบ Deployment ด้วย `--cascade=orphan` ReplicaSet กับ Pod ทั้ง 5 ตัวยังอยู่ต่อ (รัน) ส่วนการลบ ReplicaSet แบบปกติจะลบ Pod ที่เป็นของมันตามไปด้วย (รัน) แม้ไม่มี Controller Manager รอบนั้น ก็ยังมีตัวเก็บกวาดที่ทำหน้าที่นี้
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ถ้า Scheduler หยุดทำงานไปชั่วคราว แล้วเราสร้าง Pod ใหม่ในช่วงนั้น เราจะเห็นอะไร และเมื่อ Scheduler กลับมาจะเกิดอะไรขึ้น"
+  options={[
+    'สร้าง Pod ไม่ได้ เพราะ API Server ปฏิเสธ',
+    'Pod ถูกสร้างและเก็บใน API แต่ค้างเป็น Pending ไม่มี Node ไม่มี Event และเมื่อ Scheduler กลับมาก็เห็น Pod ที่ค้างและวางให้เอง',
+    'Pod ถูกวางลง Node แบบสุ่มโดย Kubelet',
+    'Pod ถูกลบเองหลังหมดเวลา'
+  ]}
+  answer={1}
+  why="API Server ไม่ได้ขึ้นกับ Scheduler การสร้างออบเจ็กต์สำเร็จ ส่วนการวางเป็นงานของ Scheduler เมื่อไม่มีมัน Pod จึงรออยู่ เมื่อ Scheduler กลับมา มันมองหา Pod ที่ยังไม่มี Node แล้วจัดการให้ แบบฝึกเห็นผลตามนี้"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| ไฟล์ Manifest ทั้งสี่อยู่ใน `/etc/kubernetes/manifests` และ Pod ใน `kube-system` เป็น Mirror Pod ที่เป็นของ Node | รัน: `exercises/10_control_plane.py` |
+| API Server ตั้งค่า `--etcd-servers` และข้อมูลทุกชนิดเป็น Key ใต้ `/registry` (30 ชนิดระดับบน) | รัน: `exercises/10_control_plane.py` |
+| Watch ได้ Event ADDED, MODIFIED และ DELETED จากการเปลี่ยน Pod | รัน: `exercises/10_control_plane.py` |
+| การแก้ด้วย resourceVersion เก่าถูกปฏิเสธด้วย Conflict และค่าไม่ถูกเขียนทับ | รัน: `exercises/10_control_plane.py` |
+| หยุด Scheduler แล้ว Pod ค้าง Pending ไม่มี Node ไม่มี Event และถูกวางเมื่อ Scheduler กลับมา | รัน: `exercises/10_control_plane.py` |
+| หยุด Controller Manager แล้ว Pod ที่ถูกลบไม่ถูกแทน, Replicas 5 ถูกเก็บแต่ไม่มีใครทำตาม และ Deployment ตามทันเมื่อกลับมา | รัน: `exercises/10_control_plane.py` |
+| `minikube` ใช้ `--leader-elect=false` และ Lease ของ Node ถูกต่ออายุทุกประมาณ 10 วินาที | รัน: `exercises/10_control_plane.py` |
+| `--cascade=orphan` ทำให้ ReplicaSet กับ Pod อยู่ต่อ และการลบ ReplicaSet ลบ Pod ตาม | รัน: `exercises/10_control_plane.py` |
+| Static Pod ทำให้ Control Plane เริ่มได้ก่อนมี API Server | ผู้เขียน (อนุมานจากการที่ Kubelet อ่านโฟลเดอร์ Manifest โดยตรง ไม่ได้ทดลองแยก) |
+| Control Plane, API Server, Scheduler และ Controller Manager | หนังสือ: Core Kubernetes หัวข้อ 11.1 หน้า 206, 11.2 หน้า 207, 11.3 หน้า 214 |
+| Etcd เป็นที่เก็บข้อมูลและรองรับ Watch, Lease ของ Node | หนังสือ: Core Kubernetes หัวข้อ 12.2 หน้า 227 และหัวข้อ 9.3 หน้า 180 |
+| Optimistic Concurrency และ Controllers and Operators | หนังสือ: Programming Kubernetes หน้า 14 และหัวข้อ Edge- Versus Level-Driven Triggers หน้า 9 |
+
+</Step>

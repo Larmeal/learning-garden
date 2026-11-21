@@ -1,0 +1,100 @@
+---
+title: CRD และ Operator
+summary: เราสอน API ให้รู้จักออบเจ็กต์ชนิดใหม่ด้วย CustomResourceDefinition แล้วเขียน Operator ตัวเล็กที่เป็น Loop ซึ่งเห็น Greeter แล้วสร้างและดูแล Deployment ให้ตรงกับที่ Greeter ขอ ดูว่า Schema ปฏิเสธค่าผิด ออบเจ็กต์ที่ไม่มีใครดูแลทำอะไรไม่ได้ และ Operator ซ่อมของที่ถูกลบได้เอง
+facts:
+  - "รันจริงใน exercises/12_crd_operator.py บน minikube (Kubernetes v1.31.0) กับ Operator ตัวเล็กที่เขียนเองใน code/operator_lab.py (สคริปต์ Python ที่ Poll ทุกวินาที ไม่ใช่ Operator ระดับ Production): CRD เพิ่มชนิด Greeter ใน API (api-resources, explain), Schema ปฏิเสธ replicas เกินและชนิดข้อมูลผิด, Greeter ที่ไม่มี Operator ถูกเก็บแต่ไม่เกิดอะไร, ออบเจ็กต์เป็นคีย์ใน etcd, Operator สร้าง Deployment, ซ่อมเมื่อถูกลบ, อัปเดตเมื่อ spec เปลี่ยน, และ Garbage Collection ลบ Deployment เมื่อลบ Greeter โดยไม่ต้องใช้ Operator"
+  - "แนวคิดของ Custom Resource และ Operator มาจากหนังสือ Programming Kubernetes บทที่ 1 และ 4 (หน้า 1 ถึง 18 และ 74 ถึง 81) และ Kubernetes Up and Running บทที่ 16 หน้า 195 ถึง 205 ไม่ได้ลอง Operator Framework ใด ๆ (Kubebuilder, Operator SDK) และไม่ได้ลอง Operator ของจริงอย่างของฐานข้อมูล"
+order: 12
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [node-inside]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import OperatorLab from '../../../../components/labs/kubernetes/OperatorLab';
+
+<Step>
+
+## สอน API ให้รู้จักชนิดใหม่
+
+ในบท [Label และ API](/kubernetes/labels-and-api/) เราเห็นว่าคลัสเตอร์มีออบเจ็กต์ 58 ชนิด คราวนี้เราจะเพิ่มชนิดที่ 59 เอง ผ่านออบเจ็กต์ชื่อ CustomResourceDefinition (CRD) ที่บอก API ว่ามีชนิดใหม่ชื่อ `Greeter` ในกลุ่ม `lab.example.com` มีฟิลด์ `message` กับ `replicas` ที่ต้องอยู่ในช่วง 1 ถึง 5 (หนังสือ: Programming Kubernetes หัวข้อ Type Definitions หน้า 74)
+
+พอสร้าง CRD ได้ ผลที่เห็นคือ `kubectl api-resources` มีชนิดเพิ่มอีกหนึ่ง ชื่อ `greeters` ที่ชื่อสั้น `gr` และอยู่ใน Namespace (รัน) และ `kubectl explain greeter.spec` ก็อ่านชื่อฟิลด์จาก Schema ที่เราเขียนได้ทันที (รัน) แต่ที่น่าสนใจคือ API Server ตรวจ Schema ให้เอง ถ้าเราสร้าง Greeter ที่มี `replicas: 9` จะถูกปฏิเสธด้วยข้อความ `spec.replicas in body should be less than or equal to 5` และถ้าใส่ข้อความแทนตัวเลขก็ถูกปฏิเสธว่า `must be of type integer` ไม่มีอะไรถูกเก็บไว้เลย (รัน) (หนังสือ: Programming Kubernetes หัวข้อ Validating Custom Resources หน้า 76) เรายังตั้งชื่อสั้นกับคอลัมน์ที่โชว์ใน `kubectl get` ได้ด้วย (หนังสือ: Programming Kubernetes หัวข้อ Short Names and Categories หน้า 78 และ Printer Columns หน้า 80)
+
+</Step>
+
+<Step>
+
+## CRD อย่างเดียวไม่ทำอะไรเลย
+
+เราสร้าง Greeter ชื่อ `hello` ที่ขอ 2 ตัว แล้วรอสี่วินาที ผลคือมันอยู่ในรายการ `kubectl get gr` พร้อมคอลัมน์ที่เรากำหนด แต่ไม่มี Deployment ไม่มี Pod และ `status` ว่างเปล่า (รัน) ออบเจ็กต์ถูกเก็บอยู่ใน `etcd` เป็นคีย์ `/registry/lab.example.com/greeters/<namespace>/hello` เหมือนออบเจ็กต์ชนิดอื่น (รัน) CRD บอกแค่ว่า "ชนิดนี้มีอยู่และหน้าตาเป็นอย่างไร" ไม่ได้บอกว่าให้ทำอะไรเมื่อมีออบเจ็กต์ชนิดนี้ นี่คือสิ่งที่ Controller ทำใน[บทแรก](/kubernetes/why-kubernetes/)ไม่ได้เกิดขึ้นเอง และเป็นที่มาของคำว่า Operator
+
+Operator คือ Controller ที่เขียนขึ้นเองสำหรับงานเฉพาะอย่าง โดยอ่านออบเจ็กต์ชนิดใหม่ของเราแล้วทำให้โลกจริงตรงกับมัน (หนังสือ: Programming Kubernetes หัวข้อ Operators หน้า 16 และ Kubernetes Up and Running หัวข้อ Operators หน้า 205) ที่เรียกว่า Operator เพราะมันเข้ามาทำงานแทนคนที่ดูแลระบบ เช่น ฐานข้อมูลที่ต้องรู้ว่าตอนไหนต้อง Failover
+
+</Step>
+
+<Step>
+
+## Operator ตัวเล็กที่อ่านได้ในหนึ่งหน้า
+
+เราเขียน Operator ตัวหนึ่งเป็นสคริปต์ Python สั้น ๆ ใน `operator_lab.py` ที่ทำสามอย่างซ้ำทุกวินาที ดูว่า Greeter มีอะไรบ้าง เทียบกับ Deployment ที่ควรมี แล้วแก้ให้ตรง คือสร้าง Deployment ที่ชื่อ `greeter-<ชื่อ>` ตามจำนวน `replicas` และข้อความของ Greeter ใส่ `ownerReference` ชี้กลับไปที่ Greeter และเขียน `status` กลับ กดเล่น Lab นี้เพื่อดู Loop ทำงาน
+
+<OperatorLab client:visible />
+
+ในการรันจริง เมื่อเปิด Operator Greeter ก็กลายเป็น `Ready` ภายในสองสามวินาที (รัน) เราลองลบ Deployment ทิ้งเอง Operator เห็นในรอบถัดไปว่าของหายและสร้างใหม่ (ได้ `uid` ใหม่) จนกลับเป็น `Ready` อีกครั้ง (รัน) จากนั้นเราแก้ Greeter เป็น `replicas: 4` กับข้อความใหม่ Operator เห็นว่า Deployment ต่างจาก `spec` จึงอัปเดต Pod ตอบข้อความใหม่ได้ครบ 4 ตัว (รัน) บันทึกของ Operator สรุปเป็นสามบรรทัด สร้างหนึ่งครั้ง (ตอนเริ่ม) สร้างซ้ำหนึ่งครั้ง (ซ่อมของที่ถูกลบ) และอัปเดตหนึ่งครั้ง (รัน)
+
+Operator ตัวนี้ Poll ทุกวินาที ส่วน Operator ของจริงมักใช้ Watch ที่เรียนในบท [Control Plane](/kubernetes/control-plane/) เพื่อตอบสนองทันทีและไม่กวน API Server และมักเขียนด้วยเฟรมเวิร์กอย่าง Kubebuilder (หนังสือ: Programming Kubernetes บทที่ 6 หน้า 105) แต่ตัว Loop มีหน้าตาเดียวกันคือดู เทียบ ทำ ซึ่งเหมือนกับ Controller ใน [Orchestration และ GitOps](/devops/gitops/) ที่เราเขียนเองในเส้นทาง DevOps
+
+</Step>
+
+<Step>
+
+## ใครลบ Deployment เมื่อ Greeter ถูกลบ
+
+เมื่อเราหยุด Operator แล้วลบ Greeter Deployment กับ Pod ที่มันสร้างก็หายไปเอง ทั้งที่ไม่มี Operator ทำงานอยู่ (รัน) เพราะเรากำหนด `ownerReference` ให้ Deployment ชี้ไปที่ Greeter และ Garbage Collector ของ Kubernetes ที่เห็นในบท [Control Plane](/kubernetes/control-plane/) ลบของที่เจ้าของหายไปให้ นี่คือเทคนิคที่ Operator ทุกตัวใช้เพื่อไม่ต้องเขียนโค้ดเก็บกวาดเอง
+
+<Callout type="note" title="สิ่งที่บทนี้ไม่ได้ลอง">
+เราไม่ได้ลองเขียน Operator ด้วย Kubebuilder หรือ Operator SDK ไม่ได้ลอง Operator ของจริงอย่างของฐานข้อมูล และไม่ได้ลองหลายเวอร์ชันของ CRD (Conversion)
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราสร้าง CRD แล้วสร้างออบเจ็กต์ชนิดใหม่ขึ้นมาหนึ่งตัว แต่ไม่ได้รัน Operator ใด ๆ สิ่งที่เกิดขึ้นคืออะไร"
+  options={[
+    'Kubernetes สร้าง Pod ให้ตามค่าในออบเจ็กต์โดยอัตโนมัติ',
+    'ออบเจ็กต์ถูกตรวจ Schema และเก็บใน Etcd แต่ไม่มีอะไรเกิดขึ้นกับโลกจริง จนกว่าจะมี Controller หรือ Operator ที่ทำตามมัน',
+    'API Server ปฏิเสธการสร้าง เพราะไม่มี Operator รองรับ',
+    'ออบเจ็กต์ถูกลบเองเมื่อหมดเวลา'
+  ]}
+  answer={1}
+  why="CRD บอกแค่ว่ามีชนิดนี้และหน้าตาเป็นอย่างไร พร้อมให้ API Server ตรวจค่า การทำให้โลกจริงตรงกับออบเจ็กต์เป็นงานของ Controller ในแบบฝึก Greeter อยู่ในรายการโดยไม่มี Deployment และไม่มี Pod จนกว่า Operator จะเริ่มทำงาน"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| CRD เพิ่มชนิด Greeter ใน `api-resources` และ `kubectl explain` อ่านฟิลด์จาก Schema | รัน: `exercises/12_crd_operator.py` |
+| Schema ปฏิเสธ `replicas` ที่เกินและชนิดข้อมูลผิด และไม่เก็บอะไร | รัน: `exercises/12_crd_operator.py` |
+| Greeter ที่ไม่มี Operator ถูกเก็บและแสดงด้วยคอลัมน์ที่กำหนด แต่ไม่มี Deployment, Pod หรือ `status` | รัน: `exercises/12_crd_operator.py` |
+| ออบเจ็กต์ของ CRD เป็นคีย์ใน Etcd ที่ `/registry/<group>/<plural>/<namespace>/<name>` | รัน: `exercises/12_crd_operator.py` |
+| Operator สร้าง Deployment, ซ่อมเมื่อถูกลบ (Uid ใหม่), อัปเดตเมื่อ `spec` เปลี่ยน และบันทึกเป็นสร้าง 2 ครั้ง อัปเดต 1 ครั้ง | รัน: `exercises/12_crd_operator.py` |
+| ลบ Greeter ตอน Operator หยุด Deployment ถูก Garbage Collect ตาม `ownerReference` | รัน: `exercises/12_crd_operator.py` |
+| Operator ของจริงมักใช้ Watch และเฟรมเวิร์ก | ผู้เขียน (จากหนังสือและความเข้าใจทั่วไป Operator ในบทนี้เป็นสคริปต์ Poll ที่เขียนเอง) |
+| ชนิดข้อมูลของ CRD (Type Definitions, Validating, Short Names, Printer Columns) | หนังสือ: Programming Kubernetes หัวข้อ Type Definitions หน้า 74, Validating Custom Resources หน้า 76, Short Names and Categories หน้า 78, Printer Columns หน้า 80 |
+| แนวคิดของ Operator | หนังสือ: Programming Kubernetes หัวข้อ Operators หน้า 16 และ Kubernetes Up and Running หัวข้อ Operators หน้า 205 |
+
+</Step>

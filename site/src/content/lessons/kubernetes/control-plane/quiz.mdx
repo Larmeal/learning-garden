@@ -1,0 +1,63 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 3 ข้อ เพื่อเช็กว่ารู้ว่าใครคุยกับ Etcd รู้ว่า Component ของ Control Plane พึ่งพากันอย่างไร และเข้าใจว่า resourceVersion ป้องกันอะไร
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Component ไหนของคลัสเตอร์ที่คุยกับ Etcd โดยตรง"
+  options={[
+    'Scheduler และ Controller Manager ต่างคนต่างเขียนลง Etcd เอง',
+    'เฉพาะ API Server ส่วน Component อื่นคุยผ่าน API Server เหมือน kubectl',
+    'Kubelet ของทุก Node',
+    'kube-proxy'
+  ]}
+  answer={1}
+  why="API Server เป็นประตูเดียวสู่ Etcd ทำให้การตรวจสิทธิ์ ตรวจ Schema และ Watch ผ่านที่เดียวกันหมด ส่วน Component อื่นเป็นแค่ Client ของ API"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Controller Manager หยุดทำงาน แล้วเราลบ Pod ของ Deployment ไปหนึ่งตัวและสั่งเพิ่มจำนวนที่ต้องการ สิ่งที่เห็นคืออะไร"
+  options={[
+    'Pod ใหม่ถูกสร้างตามปกติเพราะ Kubelet เป็นคนสร้าง',
+    'จำนวนที่ต้องการถูกเก็บใน API แต่ไม่มีใครสร้าง Pod ตาม และเมื่อ Controller Manager กลับมาก็สร้างจนครบ',
+    'API Server ปฏิเสธการเปลี่ยนจำนวน',
+    'Deployment ถูกลบอัตโนมัติ'
+  ]}
+  answer={1}
+  why="การเก็บค่าเป็นหน้าที่ของ API Server ส่วนการเทียบจำนวนแล้วสร้าง Pod เป็นหน้าที่ของ Controller Manager เมื่อมันหยุด สิ่งที่ต้องการค้างอยู่ และพอมันกลับมาก็ตามทันเองเพราะดูที่สถานะปัจจุบัน"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="การแก้ออบเจ็กต์ที่อ้าง resourceVersion เก่าถูกปฏิเสธด้วย Conflict กลไกนี้ป้องกันอะไร"
+  options={[
+    'ป้องกันการเขียนทับการเปลี่ยนแปลงของคนอื่นโดยไม่รู้ตัว คนที่แพ้ต้องอ่านค่าล่าสุดแล้วลองใหม่',
+    'ป้องกันไม่ให้ใครอ่านออบเจ็กต์ได้',
+    'ป้องกันการลบออบเจ็กต์',
+    'ทำให้ Etcd เร็วขึ้น'
+  ]}
+  answer={0}
+  why="resourceVersion เปลี่ยนทุกครั้งที่แก้ ถ้าเราอ้างเลขเก่าแปลว่ามีคนแก้ไปแล้ว API Server จึงปฏิเสธแทนการเขียนทับ นี่คือการล็อกแบบมองโลกในแง่ดี (Optimistic Concurrency)"
+/>
+
+</Step>

@@ -1,0 +1,63 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 3 ข้อ เพื่อเช็กว่ารู้ว่า ClusterIP เป็นที่อยู่เสมือน รู้ว่า Readiness มีผลกับ Service อย่างไร และแยก NodePort ออกจาก Headless Service ได้
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ClusterIP ของ Service คืออะไรกันแน่"
+  options={[
+    'IP ของ Pod ตัวแรกในรายการ Endpoint',
+    'ที่อยู่เสมือนที่ไม่มี Pod หรือคอมพิวเตอร์ตัวไหนถือไว้ แต่กฎ Iptables ที่ Kube-proxy เขียนไว้บนทุก Node ทำให้คำขอไปที่มันถูกเปลี่ยนปลายทางเป็น Pod',
+    'IP ของ Control Plane',
+    'IP ของ Load Balancer ที่ Kubernetes สร้างให้ทุก Service'
+  ]}
+  answer={1}
+  why="ในแบบฝึก ClusterIP อยู่ในช่วงของ Service ไม่ตรงกับ IP ของ Pod ตัวไหน และไม่มีใครถือมัน กฎ DNAT ใน Iptables ของแต่ละ Node ทำให้มันใช้งานได้ โดยสุ่มเลือก Pod ในรายการ"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Pod ตัวหนึ่งของ Service ไม่ผ่าน Readiness Probe แต่ Container ยังรันอยู่ อะไรเกิดขึ้นกับคำขอที่ส่งผ่าน Service"
+  options={[
+    'Pod ถูก Restart และยังรับคำขอต่อ',
+    'IP ของ Pod หลุดจากรายการ Endpoint จึงไม่ได้รับคำขอ ส่วนตัว Pod ยัง Running และไม่ถูก Restart',
+    'Service ทั้งตัวหยุดรับคำขอ',
+    'คำขอยังไปที่ Pod ตัวนั้นตามเดิมจนกว่าจะถูกลบ'
+  ]}
+  answer={1}
+  why="Readiness บอก Kubernetes ว่าไม่ควรส่งงานให้ตอนนี้ EndpointSlice จึงเอา IP ออก ในการรันจริงคำขอทั้งหมดไปลงที่สอง Pod ที่เหลือ และ Pod ที่ไม่พร้อมไม่ถูกแตะ ถ้าอยากให้ Restart ต้องใช้ Liveness Probe"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ข้อไหนอธิบาย Headless Service (clusterIP เป็น None) ได้ถูกต้อง"
+  options={[
+    'ไม่มี ClusterIP และไม่มีกฎ Kube-proxy ให้ DNS ตอบเป็นรายการ IP ของ Pod โดยตรง เหมาะเมื่อผู้เรียกต้องเลือก Pod เอง',
+    'เปิดพอร์ตเดียวกันบนทุก Node ให้ข้างนอกเรียก',
+    'เป็น Service ที่ไม่มี Selector จึงไม่ส่งคำขอไปไหน',
+    'ใช้ได้เฉพาะกับ Pod ที่อยู่ Node เดียวกับผู้เรียก'
+  ]}
+  answer={0}
+  why="Headless Service ไม่มี IP กลางให้ส่งต่อ ผู้ถามชื่อได้ IP ของ Pod ทุกตัวกลับมา ส่วนการเปิดพอร์ตบนทุก Node เป็นของ NodePort"
+/>
+
+</Step>

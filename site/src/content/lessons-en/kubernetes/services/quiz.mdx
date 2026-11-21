@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Three questions to check that you know a ClusterIP is a virtual address, how readiness affects a Service, and can tell a NodePort from a headless Service.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="What exactly is the ClusterIP of a Service?"
+  options={[
+    'The IP of the first Pod in the endpoint list',
+    'A virtual address that no Pod or computer holds, but the iptables rules that kube-proxy writes on every node change the destination of a request to it into a Pod',
+    'The IP of the control plane',
+    'The IP of a load balancer that Kubernetes creates for every Service'
+  ]}
+  answer={1}
+  why="In the exercise the ClusterIP was in the Service range, equal to the IP of no Pod, and nobody held it. The DNAT rules in the iptables of each node make it work, by choosing a Pod from the list at random."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="One Pod of a Service fails its readiness probe, but its container is still running. What happens to requests sent through the Service?"
+  options={[
+    'The Pod is restarted and keeps taking requests',
+    'The IP of the Pod leaves the endpoint list, so it gets no requests, while the Pod itself stays Running and is not restarted',
+    'The whole Service stops taking requests',
+    'Requests still go to that Pod as before until it is deleted'
+  ]}
+  answer={1}
+  why="Readiness tells Kubernetes not to send work now, so the EndpointSlice takes the IP out. In the real run all requests went to the two Pods that were left, and the Pod that was not ready was not touched. For a restart we need a liveness probe."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Which statement describes a headless Service (clusterIP set to None) correctly?"
+  options={[
+    'It has no ClusterIP and no kube-proxy rules, and DNS answers with the IPs of the Pods directly. It suits callers who must choose the Pod themselves',
+    'It opens the same port on every node for the outside to call',
+    'It is a Service without a selector, so it sends requests nowhere',
+    'It works only with Pods on the same node as the caller'
+  ]}
+  answer={0}
+  why="A headless Service has no central IP to forward from. Whoever asks the name gets the IPs of all the Pods back. Opening a port on every node belongs to NodePort."
+/>
+
+</Step>

@@ -1,0 +1,142 @@
+---
+title: Pod
+summary: Two containers of one Pod share an IP and localhost but have file systems of their own. We see how a volume, an init container and a probe change that, and what the kubelet does when a container uses too much memory.
+facts:
+  - "Ran for real in exercises/02_pods.py on minikube (Kubernetes v1.31.0): two containers of one Pod get the same IP and hostname and reach each other on localhost, but do not see each other's files and processes; an emptyDir mounted in both, shareProcessNamespace, an init container, liveness and readiness probes, a memory limit that gets a container killed with exit code 137, QoS classes and restartPolicy."
+  - "The role of a Pod as a group of Linux namespaces comes from the book Core Kubernetes section 2.2 page 19 and Kubernetes Up and Running (Pods in Kubernetes, page 46) and was not run again. For probes and resources (pages 54 to 58) the author read the book and then ran it in the exercise."
+order: 2
+phase: A
+level: 1
+stage: sprout
+format: steps
+requires: [why-kubernetes]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import PodLab from '../../../../components/labs/kubernetes/PodLab';
+
+<Step>
+
+## A Pod is not one container
+
+In the last lesson we counted Pods as if each were one program, but a Pod is really a group of one or more containers placed together on the same node, sharing some things (book: Kubernetes Up and Running, Pods in Kubernetes, page 46). Let us make a Pod with two containers: `web`, which serves a web page on port 8080, and `sidecar`, which just sleeps.
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata: {name: pair}
+spec:
+  containers:
+  - name: web
+    image: busybox:1.37
+    command: ["sh", "-c", "mkdir -p /www; echo hello-from-web > /www/index.html; exec httpd -f -p 8080 -h /www"]
+  - name: sidecar
+    image: busybox:1.37
+    command: ["sh", "-c", "sleep 3600"]
+```
+
+After running it, let us ask each container for its IP and hostname (ran).
+
+| | web | sidecar | Pod |
+|---|---|---|---|
+| IP | 10.244.1.2 | 10.244.1.2 | 10.244.1.2 |
+| hostname | pair | pair | |
+
+Both see the same IP, which is the IP of the whole Pod. A container does not have an IP of its own, because every container of a Pod shares one network namespace. The result is that the sidecar can call `http://localhost:8080/` and get the answer `hello-from-web` from the web container, as if the two programs were on one computer, which is the truth as far as the network is concerned (ran). In [Docker](/en/docker/namespaces-and-cgroups/) we saw that a network namespace is a room the kernel hands out. A Pod just gives one room to several containers.
+
+</Step>
+
+<Step>
+
+## What is shared and what is not
+
+Only the network is shared. The rest is separate. Let us prove it. We let web write a file `/tmp/web-only` and let the sidecar try to read it. The answer is `No such file or directory`, because each container has the file system of its own image. If the sidecar lists processes it sees only its own `sleep 3600` as PID 1, and not the `httpd` of web (ran).
+
+If we want two containers to share files, we must say so to Kubernetes, with a volume of type `emptyDir`, an empty folder that is created with the Pod and can be mounted into several containers. In the exercise the container `writer` wrote `/drop/note`, and the container `reader` read the same text through another path, `/seen/note` (ran). For processes, `shareProcessNamespace: true` on the Pod lets every container see the others' processes, and PID 1 becomes `/pause`, a tiny program that Kubernetes puts in a Pod to hold the namespaces (ran). The lesson [Inside a node](/en/kubernetes/node-inside/) shows `/pause` on a real computer.
+
+Pick one thing at a time in the lab below. A band across both containers is shared, and two separate bands mean each has its own.
+
+<PodLab client:visible lang="en" />
+
+Ask yourself what belongs in one Pod. The simple answer is containers that must talk over localhost or share files, and that are created and deleted together, such as the main program and a log shipper (book: Kubernetes Up and Running, Thinking with Pods, page 46). A web server and a database that scale by different amounts belong in separate Pods.
+
+</Step>
+
+<Step>
+
+## Helpers that prepare, and checks that it still works: init containers and probes
+
+An init container is a container that must run to the end before the main container starts. In the exercise an init container called `prepare` slept three seconds and wrote a file into a volume, and only then did the main container start and read it (the init finished before the app started) (ran). This lets us prepare data or wait for another service to be ready. We use the same trick again in the [capstone](/en/kubernetes/capstone-pipeline/) to wait for the database.
+
+A probe is the kubelet asking our program from time to time whether it is still fine. There are two kinds that people mix up (book: Kubernetes Up and Running, Health Checks, page 54). We made each fail in turn in the exercise.
+
+**A readiness probe** asks whether it is ready for work. When we removed the file that the probe checks, the Pod became Not Ready, but `restartCount` stayed 0 and the phase stayed Running. It was taken off the list that receives work, and not restarted (ran).
+
+**A liveness probe** asks whether it is alive. When it failed, the kubelet killed the container and started it again. The Pod's events said `Container app failed liveness probe, will be restarted` (ran).
+
+The important difference is that when readiness fails the Pod is left alone but gets no work, and when liveness fails the container is restarted. We see what readiness does to a Service in the lesson [Service](/en/kubernetes/services/).
+
+</Step>
+
+<Step>
+
+## Requests, limits and memory over the limit
+
+A Pod can state how many resources it needs. The request is the amount the scheduler uses to decide which node can take it, and the limit is the ceiling that the kernel enforces (book: Kubernetes Up and Running, Resource Requests page 56 and Capping Resource Usage with Limits page 58). We made a container reserve 120 MB of memory while its limit was 32Mi.
+
+The container was killed with `reason=OOMKilled` and `exitCode=137` (ran). 137 is 128 plus 9, the code of a process killed by SIGKILL. It is the kernel that kills it, because the memory limit becomes the `memory.max` of a cgroup, which the Docker lesson [Namespaces and cgroups](/en/docker/namespaces-and-cgroups/) described. We see the real file in the lesson [Inside a node](/en/kubernetes/node-inside/).
+
+What we set also decides a class for the Pod, the QoS class, which matters when a node runs short of memory and some Pods must go first (ran).
+
+| What is set | QoS class |
+|---|---|
+| no request or limit at all | BestEffort |
+| only a request | Burstable |
+| request equal to limit, for both CPU and memory | Guaranteed |
+
+<Callout type="note" title="A Pod with no owner does not come back">
+A plain Pod that we create directly and then delete is just gone, and nothing creates it again (ran). That is why we have the Deployment of the last lesson, and why there is a `restartPolicy`, which says whether the kubelet starts a container again when it ends. With `Never`, a Pod that exits with code 1 stays Failed. With `OnFailure` it is started again. And a container that exits with code 0 under `Never` leaves the Pod Succeeded (ran).
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A Pod has two containers. The first serves a web page on port 8080, and the second needs to call it. Which statement tells how to call it correctly?"
+  options={[
+    'We must first find the IP of the first container, because each one has its own IP',
+    'It can call localhost port 8080 directly, because both use the same network namespace',
+    'It cannot be done. They must be split into two Pods before they can call each other',
+    'shareProcessNamespace must be turned on first'
+  ]}
+  answer={1}
+  why="Every container of a Pod has the same IP and the same network namespace, so they reach each other over localhost by default. shareProcessNamespace is about seeing each other's processes, and has nothing to do with the network."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| Two containers of one Pod have the same IP and hostname (the IP of the Pod) and reach each other over `localhost` | ran: `exercises/02_pods.py` |
+| A file in `/tmp` of one container does not appear in the other, and by default a container sees only its own processes | ran: `exercises/02_pods.py` |
+| An `emptyDir` mounted in two containers shows the same file, and `shareProcessNamespace` shows each other's processes with `/pause` as PID 1 | ran: `exercises/02_pods.py` |
+| An init container finishes before the main container starts, and the file it wrote can be read | ran: `exercises/02_pods.py` |
+| A failing readiness probe makes the Pod Not Ready without a restart, a failing liveness probe restarts the container | ran: `exercises/02_pods.py` |
+| A container over its memory limit is killed with OOMKilled and code 137 | ran: `exercises/02_pods.py` |
+| The QoS classes are BestEffort, Burstable, Guaranteed, by what request and limit are set | ran: `exercises/02_pods.py` |
+| `restartPolicy` Never leaves a Pod Failed or Succeeded, OnFailure restarts it, and a bare Pod that is deleted does not come back | ran: `exercises/02_pods.py` |
+| 137 is 128 plus 9 (SIGKILL) | author (general Linux knowledge, not checked by a run) |
+| A Pod is a group of containers that share some namespaces, and what should live in one Pod | book: Core Kubernetes section 2.2 page 19 and Kubernetes Up and Running, Thinking with Pods, page 46 |
+| Liveness and readiness probes, requests and limits | book: Kubernetes Up and Running, Health Checks page 54 and Resource Management page 56 |
+
+</Step>

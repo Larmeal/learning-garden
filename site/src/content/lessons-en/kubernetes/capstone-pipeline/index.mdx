@@ -1,0 +1,126 @@
+---
+title: Capstone, a data pipeline on Kubernetes
+summary: "We join everything learned into a small pipeline: Postgres in a StatefulSet with a PVC, a Secret mounted as a file, a locked down loader Job that waits for the database with an init container, a CronJob that can run again, and a NetworkPolicy that lets only the loader reach the database. Then we break it in three ways."
+facts:
+  - "Ran for real in exercises/15_capstone_pipeline.py on minikube (Kubernetes v1.31.0, postgres:17-alpine): Postgres as a StatefulSet with a PVC, a loader Job with an init container that waits for the database and then loads 1000 rows, a CronJob that made a second Job which added no rows (ON CONFLICT DO NOTHING), a loader running as uid 70 with a read-only file system, no capabilities and a password read from a file, a NetworkPolicy that blocked a Pod without the label role=loader, and three breakages (a misspelled Secret key, deleting the database Pod, a loader with the wrong label)."
+  - "The database is pinned to one worker because minikube volumes are folders on a node (see the lesson on volumes), so this is not a production pattern. Not run: a cloud, an Ingress to the database, backups, a database upgrade, or encryption of Secrets in etcd."
+order: 15
+phase: E
+level: 5
+stage: sprout
+format: steps
+requires: [helm-and-ops]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import PipelineLab from '../../../../components/labs/kubernetes/PipelineLab';
+
+<Step>
+
+## The map of the pipeline
+
+In the Docker path, the lesson [Capstone](/en/docker/capstone-pipeline/) put a data pipeline into containers with Compose on one computer. This time we do the same on a cluster, with the pieces we have learned.
+
+- A Secret `db` holds the database password, and a ConfigMap `load-sql` holds the SQL of the loader (lesson [ConfigMaps and Secrets](/en/kubernetes/config-secrets/)).
+- A StatefulSet `db` runs one Postgres 17, with a PVC `data-db-0` for the data and a readiness probe using `pg_isready`, and a Service `db` gives a fixed name (lessons [Job, CronJob, DaemonSet and StatefulSet](/en/kubernetes/jobs-and-stateful/) and [Services and DNS](/en/kubernetes/services/)).
+- A loader Job has an init container that waits for the database to be ready, and then the main container runs `psql` to load the data, and a CronJob `nightly` uses the same template to run it again.
+- A NetworkPolicy lets only Pods labelled `role=loader` reach the database (lesson [RBAC and security](/en/kubernetes/rbac-security/)).
+
+Look at the map in this lab, and keep the normal situation chosen for now. We come back to the broken ones later.
+
+<PipelineLab client:visible lang="en" />
+
+In the real run the database was ready within seconds to tens of seconds after `apply` (depending on whether the image had been pulled already), and the PVC was bound to a PV (ran).
+
+</Step>
+
+<Step>
+
+## The loader: wait, load, and be safe to run again
+
+The loader Job has two stages. An init container called `wait-for-db` loops on `pg_isready -h db` until the database accepts connections (the log shows `accepting connections`) and then ends. Then the main container starts, creates the table, inserts 1000 rows and counts them (ran).
+
+```text
+CREATE TABLE
+INSERT 0 1000
+1000
+```
+
+The SQL is written to be **safe to run again**, with `CREATE TABLE IF NOT EXISTS` and `INSERT ... ON CONFLICT (id) DO NOTHING`. We proved it by making a new Job from the CronJob with `kubectl create job --from=cronjob/nightly`. The second round inserted `INSERT 0 0` and the table still had 1000 rows (ran). This is an important condition for work that can be retried, like a Job with a `backoffLimit`, taught in the lesson [Job, CronJob, DaemonSet and StatefulSet](/en/kubernetes/jobs-and-stateful/), because a Pod that fails half way is run again from the start. Work that inserts twice and duplicates the data would distort the result.
+
+</Step>
+
+<Step>
+
+## Locking down: the loader and the database
+
+The loader is set to be able to do as little as possible. We checked from the Job object that was really created (ran).
+
+- It runs as uid 70 (`runAsUser: 70`, `runAsNonRoot: true`), not root.
+- `allowPrivilegeEscalation: false`, `readOnlyRootFilesystem: true` and `capabilities: drop: [ALL]`.
+- It has no `env` at all. The password comes from a file mounted read only from the Secret at `/secrets/password` and is passed to `psql` through a temporary variable of the command (so that the password is not in an environment variable of the Pod that can be seen through the API).
+
+The other layer is the network. The NetworkPolicy lets only Pods labelled `role=loader` reach port 5432 of the database. We created a Pod `stranger` without that label and tried `pg_isready -h db`, which gave `no response` (ran), while the loader got in and loaded the data as usual.
+
+</Step>
+
+<Step>
+
+## Break it in three ways
+
+Choose a situation in the lab above to see which box turns orange, and then read each way we did it in the exercise.
+
+**The first way is a misspelled key of the Secret.** We made a new loader that refers to a key called `pasword` in the Secret volume. The Pod never even reached the init container, because the kubelet could not mount the volume. The Pod's event said `FailedMount ... references non-existent secret key: pasword` (ran). The Job did not finish and no data came from it. This differs from a wrong key in an environment variable, seen in the lesson [ConfigMaps and Secrets](/en/kubernetes/config-secrets/), which gave `CreateContainerConfigError`. Here we use a volume, so we see `FailedMount`. Read it in the events of the Pod.
+
+**The second way is deleting the Pod of the database.** We deleted `db-0`. The StatefulSet made `db-0` again (the same name and a new `uid`) and mounted the old claim again. It took only about 3 seconds, and the table still had 1000 rows (ran), because the data lives in the PVC and not in the Pod, as seen in the lesson [Volumes, PVCs and StorageClasses](/en/kubernetes/storage/).
+
+**The third way is a loader with the wrong label.** We made a loader labelled `role=etl` instead of `role=loader`. The NetworkPolicy blocked it, so the init container waited and waited. Its log printed `db:5432 - no response` and `waiting for db` again and again. The Pod stayed at `Init:0/1` and the Job never finished. There was no failure or restart to see, only waiting (ran). When we deleted that Job and created it again with `role=loader`, it finished, and the table still had 1000 rows (ran). A symptom of "waiting with no error" like this needs a look at the log of the init container, and a thought about NetworkPolicy.
+
+<Callout type="warn" title="This is not yet a production pattern">
+The database is pinned to one worker because minikube volumes are folders on a node (the lesson [Volumes, PVCs and StorageClasses](/en/kubernetes/storage/)), and there is one database, no backup, no encryption of Secrets in `etcd`, and Postgres starts as root, so it lives in a namespace set to Pod Security level `baseline` and not `restricted`.
+</Callout>
+
+If you want to see Kubernetes in the setting of Spark, a program that asks for Pods itself through the API, read the page [Kubernetes cluster manager](/en/spark/architecture/kubernetes/) of the Spark path, and the lesson [Orchestration and GitOps](/en/devops/gitops/) of the DevOps path, where we wrote the same kind of controller by hand before Kubernetes was there to use.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A loader Job was created and is stuck at Init:0/1. There is no error and no restart. The log of the init container shows the message waiting for the database again and again, and the database itself is healthy. The loader Pod has no label that the NetworkPolicy of the database allows. What are the cause and the right fix?"
+  options={[
+    'The init container is failing, so backoffLimit must be raised',
+    'The NetworkPolicy blocks the loader, so it cannot reach the database. Give the Pod the label that the policy allows',
+    'The database is not ready yet, and we must wait for the PVC to be bound',
+    'The Secret was deleted and must be created again'
+  ]}
+  answer={1}
+  why="Waiting with no error, while the database is healthy, points at the network. In the exercise a loader labelled role=etl was blocked by the NetworkPolicy, and with role=loader it got through. A wrong Secret would give a different symptom, FailedMount."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The StatefulSet database is ready and the PVC is bound | ran: `exercises/15_capstone_pipeline.py` |
+| The loader Job waits with an init container, loads the table and 1000 rows, and the log shows what is printed | ran: `exercises/15_capstone_pipeline.py` |
+| The second Job from the CronJob inserts 0 rows and the table stays at 1000 | ran: `exercises/15_capstone_pipeline.py` |
+| The loader runs as uid 70, with no privilege escalation, a read-only file system, drop ALL capabilities and no `env` | ran: `exercises/15_capstone_pipeline.py` |
+| A Pod without `role=loader` cannot reach the database (no response) | ran: `exercises/15_capstone_pipeline.py` |
+| A wrong Secret key in a volume gives FailedMount and the Job does not finish | ran: `exercises/15_capstone_pipeline.py` |
+| After `db-0` is deleted it returns within about 3 seconds with all 1000 rows | ran: `exercises/15_capstone_pipeline.py` |
+| A loader with `role=etl` stays at Init:0/1 with the waiting message, and with `role=loader` it finishes | ran: `exercises/15_capstone_pipeline.py` |
+| Work that can be retried must be idempotent | author (a general principle, and the exercise proves it only for the SQL of this loader) |
+| Postgres starts as root and so fits only level baseline | author (understanding of the Postgres image, not checked by running restricted) |
+| The password is in a temporary variable of the command and not in the `env` of the Pod | author (checked from the Job spec having no env, not checked that nothing inside leaks it elsewhere) |
+
+</Step>

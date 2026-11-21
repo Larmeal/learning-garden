@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Three questions to check that you can choose how settings reach a Pod, understand what a Secret protects and what it does not, and read the symptom when a referenced value is missing.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Our program can reread its settings file by itself every minute, and we want to change settings without restarting the Pod. How should the ConfigMap be passed in?"
+  options={[
+    'As an environment variable',
+    'As a file mounted as a whole folder',
+    'As a file mounted with subPath',
+    'It cannot be done. We must restart every time'
+  ]}
+  answer={1}
+  why="A file mounted as a whole folder is updated by the kubelet to follow the ConfigMap (slowly, in rounds). Variables and subPath files are not updated at all until a restart."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A colleague says that keeping a password in a Secret makes it safe because it is already encrypted. Which statement is right?"
+  options={[
+    'Right. A Secret always encrypts every value with the cluster key',
+    'Wrong. A value in a Secret is only base64, anyone who may get it can read it, and in etcd it is plain text if no encryption provider is set. Safety comes from controlling access and turning on encryption',
+    'Wrong. A Secret cannot be read at all, even by the cluster administrator',
+    'Right, but only when it is passed as an environment variable'
+  ]}
+  answer={1}
+  why="In the exercise base64 decoded with one command and the value in etcd was readable as plain text. A Secret separates secrets from the image and controls access separately with RBAC, but it does not encrypt by itself."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A Pod is stuck in CreateContainerConfigError and the message says couldn't find key ... in Secret. What should we do?"
+  options={[
+    'Give the Pod more memory',
+    'Check that the Secret and the key name the Pod refers to really exist and are spelled the same, and create or fix them',
+    'Delete the node and create it again',
+    'Change the image to a newer version'
+  ]}
+  answer={1}
+  why="CreateContainerConfigError means a value the Pod refers to (a Secret, a ConfigMap or a key) cannot be found. The message points at the key by name. In the exercise it was pasword instead of password. It has nothing to do with memory, nodes or images."
+/>
+
+</Step>

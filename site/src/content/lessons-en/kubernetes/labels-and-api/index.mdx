@@ -1,0 +1,113 @@
+---
+title: Labels, Namespaces and the API
+summary: Everything in Kubernetes is an object of one shape, and objects find each other by labels. We pick Pods with several selectors, see how a namespace separates names, and see that kubectl is only an HTTP caller.
+facts:
+  - "Ran for real in exercises/03_labels_api.py on minikube (Kubernetes v1.31.0): the shape of an object (apiVersion, kind, metadata, spec, status), 6 selectors over 4 Pods, a Pod that leaves the selection when its label is removed, the same name in two namespaces, a second kubectl apply that says unchanged, a repeated create that fails with AlreadyExists, kubectl diff, dry-run=server and kubectl get --raw."
+  - "The ideas of labels and selectors and their uses come from the book Kubernetes Up and Running, Labels, pages 65 to 71, and were not run again. The number of object kinds (58) is the count of the minikube cluster used, not a number for every Kubernetes."
+order: 3
+phase: A
+level: 1
+stage: sprout
+format: steps
+requires: [pods]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import LabelsLab from '../../../../components/labs/kubernetes/LabelsLab';
+
+<Step>
+
+## Every kind of object has the same shape
+
+When we create a Pod and ask for the whole object as JSON, we see only five top level keys: `apiVersion`, `kind`, `metadata`, `spec` and `status` (ran). We fill in the first three and `spec`. The `status` is not ours. It is the state the cluster writes back, such as the `phase: Running` that the kubelet writes. And `metadata` gains things we did not write, `uid`, `resourceVersion`, `creationTimestamp` and `namespace`, because the API server adds them when it stores the object.
+
+The same shape is used for every kind, whether a Pod, a Deployment or a Service (book: Kubernetes Up and Running, Viewing Kubernetes API Objects, page 38). We write `spec`, what we want, and `status` is what is. This matches the idea of desired state from the [first lesson](/en/kubernetes/why-kubernetes/).
+
+If we ask how many kinds the API has, this cluster answers 58 kinds in 19 groups (ran). The number changes with the version and with what is installed, and we can add kinds of our own in the lesson [CRDs and operators](/en/kubernetes/crd-operator/).
+
+</Step>
+
+<Step>
+
+## A label is a tag we attach, and a selector is a question we ask
+
+A Pod can carry several tags, such as `app: shop`, `tier: web`, `env: prod`. These are key and value pairs that we choose. Kubernetes does not interpret them. It uses them as a handle for asking "give me the ones that match this" (book: Kubernetes Up and Running, Labels page 65 and Label Selectors page 68).
+
+We created four Pods with different tags and tried six selectors. The results from the real run are in this lab. Pick them one at a time, and also try taking a label off Pod `a2`.
+
+<LabelsLab client:visible lang="en" />
+
+Two things to notice. First, the comma in `app=shop,tier=web` means "and": both must match. Second, `env!=dev` also selects Pods that have no `env` at all (here every Pod has one). When we took `app` off a2 with `kubectl label pod a2 app-`, that Pod left the selection `app=shop` at once (ran).
+
+This matters more than it looks. Services and Deployments, which we meet next, do not keep a list of Pods. They keep a selector and ask again all the time who matches now. If a label is wrong, a Service will not find the Pods it should, and this is the most common symptom of a mistyped label (book: Kubernetes Up and Running, Labels in the Kubernetes Architecture, page 71).
+
+</Step>
+
+<Step>
+
+## A namespace separates names, not the network
+
+A namespace lets object names repeat. In the real run we created a Pod called `a1` in two namespaces and got two Pods with different `uid`s (ran). A new cluster has four namespaces made by the system: `default`, `kube-system`, `kube-public` and `kube-node-lease` (ran).
+
+Do not think a namespace stops Pods from talking to each other. It separates only names, and rights that are set per namespace. Blocking the network needs a NetworkPolicy, in the lesson [RBAC and security](/en/kubernetes/rbac-security/).
+
+</Step>
+
+<Step>
+
+## apply, create, and looking before doing
+
+Two commands look alike and think differently: `kubectl create`, which says "make this one", and `kubectl apply`, which says "let it be like this". In the real run we applied the same ConfigMap three times and got `created`, `unchanged` and then `configured` (after we changed a value), while a second `create` failed with `AlreadyExists` (ran). An `apply` that changes nothing also leaves `resourceVersion` alone (ran). This is why GitOps uses `apply`: running it again and again is safe.
+
+Two commands let us look before acting. `kubectl diff -f` prints only what would change (in the exercise we saw the lines `-  greeting: sawasdee` and `+  greeting: hello`) and exits with code 1 when something differs. `--dry-run=server` sends the object to the API server for real validation but stores nothing (ran).
+
+</Step>
+
+<Step>
+
+## kubectl is only an HTTP caller
+
+Every `kubectl` command is an HTTP request to the API server. We asked directly with `kubectl get --raw /api/v1/namespaces/<ns>/pods/a1` and got the same JSON as `kubectl get -o json` (ran), and asking `/version` gave `v1.31.0` (ran). The book Programming Kubernetes explains that the API server is the HTTP face of the whole system (book: Programming Kubernetes, The HTTP Interface of the API Server, page 20).
+
+This shows that every part of the cluster, the scheduler, the kubelet or a program we write, talks to the cluster in the same way `kubectl` does.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A Service has the selector app=web, but we mistyped the label on a Pod as app=wbe. What is the result?"
+  options={[
+    'Kubernetes reports an error when the Pod is created, because the label does not match the Service',
+    'The Service is created normally, but no Pod matches, so there is no endpoint to send requests to',
+    'The Service selects that Pod anyway, because the names are close',
+    'The Pod is deleted because no Service takes it'
+  ]}
+  answer={1}
+  why="A selector is a question that is asked again and again, not a check of right or wrong. If no Pod has a matching label, the answer is just an empty list. This is the most common symptom when a label is mistyped."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| An object has the top level keys apiVersion, kind, metadata, spec, status, and the API server adds uid, resourceVersion, creationTimestamp, namespace | ran: `exercises/03_labels_api.py` |
+| Six selectors pick Pods as the lab shows, and removing `app` from a2 takes it out of the selection | ran: `exercises/03_labels_api.py` |
+| The same name can live in two namespaces, and a new cluster has four namespaces | ran: `exercises/03_labels_api.py` |
+| Three `apply`s give created, unchanged, configured, a repeated `create` gives AlreadyExists, and an `apply` that changes nothing does not move resourceVersion | ran: `exercises/03_labels_api.py` |
+| `kubectl diff` exits with 1 when something differs, and `--dry-run=server` stores nothing | ran: `exercises/03_labels_api.py` |
+| `kubectl get --raw` gives the same object as `get -o json`, `/version` gives v1.31.0, and the API has 58 kinds in 19 groups in this cluster | ran: `exercises/03_labels_api.py` |
+| A namespace separates names, not the network | author (the NetworkPolicy results that were run are in the [lesson RBAC and security](/en/kubernetes/rbac-security/)) |
+| Labels, selectors, and how Services and Deployments hook onto them | book: Kubernetes Up and Running, Labels page 65, Label Selectors page 68, Labels in the Kubernetes Architecture page 71 |
+| API objects, and kubectl as an API caller | book: Kubernetes Up and Running, Viewing Kubernetes API Objects page 38, and Programming Kubernetes, The HTTP Interface of the API Server, page 20 |
+
+</Step>

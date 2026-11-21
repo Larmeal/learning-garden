@@ -1,0 +1,109 @@
+---
+title: ConfigMaps and Secrets
+summary: Settings that live outside the image reach a Pod in two ways, as an environment variable that is read once at start, or as a file that the kubelet keeps up to date. We see whether each follows a change, and what a Kubernetes Secret really protects.
+facts:
+  - "Ran for real in exercises/08_config_secrets.py on minikube (Kubernetes v1.31.0): a ConfigMap reaching a Pod as an environment variable, a file and a subPath file, the file following the ConfigMap after an edit while the variable and the subPath file did not, an immutable ConfigMap that cannot be edited, a Secret that base64 decodes with one command, the value of a Secret in etcd being plain text (read from inside the etcd Pod), and a Pod that names a Secret key that does not exist stuck in CreateContainerConfigError."
+  - "The time the file took to follow a ConfigMap edit was measured at 86 seconds in the run that saved the numbers for the lab, and much less in one verify run. It depends on the sync period of the kubelet, so it ranges from seconds to about a minute and a half, and is not a fixed number. The ideas of ConfigMap and Secret come from the book Kubernetes Up and Running chapter 13 pages 153 to 161."
+order: 8
+phase: C
+level: 2
+stage: sprout
+format: steps
+requires: [services]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ConfigLab from '../../../../components/labs/kubernetes/ConfigLab';
+
+<Step>
+
+## Settings do not belong in the image
+
+In the lesson [Environments, config and secrets](/en/devops/config-secrets/) of the DevOps path we saw the principle that one image should run in every environment, with only the settings passed in at run time changing. Kubernetes has two kinds of object for this: a ConfigMap for ordinary settings and a Secret for confidential values. Both reach a Pod in two ways, as environment variables or as files mounted into a folder (book: Kubernetes Up and Running, Using a ConfigMap, page 154).
+
+They differ when a value changes. An environment variable is read once when the container starts, while a file is updated by the kubelet later. Look at the real numbers in this lab. Choose "leave the Pod" and press play, then choose "restart the Pod" and play again.
+
+<ConfigLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## What was measured: three entrances, three behaviours
+
+We made a ConfigMap with `LEVEL: info` and a file `app.properties` containing `level=info`, and let a Pod use it in three ways: as the variable `LEVEL`, as a file mounted as a whole folder at `/etc/app`, and as a single file mounted with `subPath` at `/etc/pinned/app.properties`. Then we changed the ConfigMap to `debug` (ran).
+
+| Entrance | After the ConfigMap edit |
+|---|---|
+| the environment variable `LEVEL` | still `info` |
+| the file mounted as a whole folder | became `debug` once the kubelet synced, which took 86 seconds in the recorded run |
+| the file mounted with `subPath` | still `info` |
+
+The variable does not change because it is read only when the container starts. The file mounted as a whole folder is synced by the kubelet in rounds, so it takes from seconds to nearly two minutes (much faster in another verify run), and the file mounted with `subPath` is never updated, so the Pod must be restarted to see the new value (book: Kubernetes Up and Running, Using a ConfigMap, page 154). If our program can reread settings by itself, use a file mounted as a whole folder. If settings should change only on a deploy, use a variable or `immutable`.
+
+A ConfigMap can be set to `immutable: true`, and then an edit of its data fails with `field is immutable when immutable is set` (ran). This guards against slips and reduces the load on the API server.
+
+</Step>
+
+<Step>
+
+## A Secret is not a safe
+
+A Secret looks like a ConfigMap, but its values are stored as base64 (book: Kubernetes Up and Running, Secrets, page 157). We created a Secret with `password=s3cr3t-pw` and read it through the API and got `czNjcjN0LXB3`, which anyone who may `get` this Secret can decode with one command. `kubectl get` asking for YAML does not hide it either (ran). base64 is an encoding of characters, not secret encryption.
+
+Now one layer deeper. In the exercise we went into `etcd` on the control plane and read the key `/registry/secrets/<namespace>/db` directly. What we saw was the text `password` followed by `s3cr3t-pw` as plain characters (ran), because this cluster has no encryption provider set for Secrets. In a real cluster that has to be set, and who may read it is in the lesson [RBAC and security](/en/kubernetes/rbac-security/). The book Core Kubernetes has a section on etcd encryption at rest (book: Core Kubernetes, section 12.7 page 236).
+
+What a Secret gives us is separating confidential values from the image and from the Deployment files in a Git folder, and controlling who may read them separately with RBAC, as taught in [Environments, config and secrets](/en/devops/config-secrets/). It is not encryption in itself.
+
+<Callout type="warn" title="Mounting as a file is better than passing a variable">
+Environment variables leak more easily, for example into an error message or a dump of the program. In the [capstone](/en/kubernetes/capstone-pipeline/) we mount the password as a file for the loader to read instead.
+</Callout>
+
+</Step>
+
+<Step>
+
+## When a referenced value is missing, the Pod does not start
+
+We created a Pod that names the Secret key `pasword` (a typo) although the Secret has `password`. The Pod stuck in the status `CreateContainerConfigError`, and the message said plainly `couldn't find key pasword in Secret ...` (ran). This is another common symptom, and the message is clear. Read it in the events of `kubectl describe pod`, or in the field `state.waiting.message` of the container.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A Pod reads the value LEVEL from an environment variable that comes from a ConfigMap. We edit the ConfigMap and wait two minutes. What value of LEVEL does the Pod see, and what must we do to see the new one?"
+  options={[
+    'The new value, because the kubelet updates the variable every minute',
+    'Still the old value, because the variable is read when the container starts. We must restart the Pod (or switch to a file mounted as a whole folder)',
+    'An empty value, because the ConfigMap was edited while the Pod was running',
+    'The Pod is restarted automatically'
+  ]}
+  answer={1}
+  why="An environment variable is set once when the container starts, so it does not follow an edit of the ConfigMap. In the exercise it stayed info while the file mounted as a whole folder had already become debug, and nothing restarted the Pod by itself."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A ConfigMap reaches a Pod as a variable, a file mounted as a whole folder, and a `subPath` file | ran: `exercises/08_config_secrets.py` |
+| After a ConfigMap edit the file follows but the variable and the `subPath` file do not (the file followed after 86 seconds in the recorded run, faster in other runs) | ran: `exercises/08_config_secrets.py` |
+| An immutable ConfigMap refuses an edit of its data | ran: `exercises/08_config_secrets.py` |
+| A Secret shows as base64, decodes with one command, and `kubectl get -o yaml` does not hide it | ran: `exercises/08_config_secrets.py` |
+| The value of a Secret in etcd is plain text when no encryption provider is set | ran: `exercises/08_config_secrets.py` |
+| A Pod that names a missing key is stuck in CreateContainerConfigError with a message naming the key | ran: `exercises/08_config_secrets.py` |
+| Mounting as a file leaks less than passing a variable, and `immutable` lowers the load on the API server | author (general advice and understanding from documentation, not compared by a run) |
+| ConfigMap and Secret as objects that reach a Pod in two ways | book: Kubernetes Up and Running, Using a ConfigMap page 154 and Secrets page 157 |
+| etcd encryption at rest | book: Core Kubernetes, section 12.7 page 236 |
+
+</Step>

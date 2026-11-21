@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Three questions to check that you know how a Deployment differs from a ReplicaSet, can choose an update strategy, and can read the symptoms of a stuck update.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We change the image in a running Deployment. What happens to the ReplicaSets?"
+  options={[
+    'The existing ReplicaSet is edited to use the new image and every Pod is restarted at once',
+    'The Deployment makes a new ReplicaSet and slowly moves Pods from the old one to the new one, keeping the old one at 0 Pods',
+    'The Deployment deletes the old ReplicaSet at once, so no resources are wasted',
+    'Nothing happens until we delete the Pods ourselves'
+  ]}
+  answer={1}
+  why="A ReplicaSet remembers only one template, so an update needs two ReplicaSets side by side during the move. The old one is kept at 0 Pods so that rollout undo can reuse it."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A service must never have an old and a new version running at the same time, because the two would write incompatible data structures. Which strategy should we choose, and what must we accept?"
+  options={[
+    'A rolling update, accepting two versions side by side for a short time',
+    'Recreate, accepting a moment with no Pods serving',
+    'Set maxSurge as high as possible',
+    'No choice is needed, because Kubernetes protects against it already'
+  ]}
+  answer={1}
+  why="Recreate stops all the old Pods before creating the new ones, so there are never two versions together. In the exercise Ready went down to 0, which is the price. A rolling update deliberately keeps both versions side by side during the change."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We update with an image that does not exist. What do we see after a while?"
+  options={[
+    'Every old Pod has been deleted, so users cannot get in',
+    'The new Pods stick in ImagePullBackOff, but the old Pods that are Ready keep serving, and the Deployment reports that the deadline has passed',
+    'Kubernetes rolls back to the old version by itself',
+    'The new Pods run normally, using the old image kept on the computer'
+  ]}
+  answer={1}
+  why="The Deployment does not remove more old Pods when Ready would fall below the promise, so users can still work. But Kubernetes does not roll back by itself. We run rollout undo, which in the exercise gave four Pods again."
+/>
+
+</Step>

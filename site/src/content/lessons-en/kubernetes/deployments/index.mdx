@@ -1,0 +1,109 @@
+---
+title: Deployments and updates
+summary: A Deployment looks after a ReplicaSet, which looks after the Pods. We see how a rolling update moves Pods step by step without letting Ready fall below the promise, how Recreate leaves a moment with nothing running, and how a bad image stops an update while the old Pods keep serving.
+facts:
+  - "Ran for real in exercises/04_deployments.py on minikube (Kubernetes v1.31.0): a Pod owned by a ReplicaSet and the ReplicaSet owned by a Deployment, a rolling update with maxSurge 1 and maxUnavailable 1 that never had more than 5 Pods or fewer than 3 Ready, rollout undo going back to the old template, Recreate going down to 0 Ready, and an image that does not exist leaving the rollout at ProgressDeadlineExceeded with 3 old Pods Ready."
+  - "The overview of ReplicaSets, deployment strategies and the reconciliation loop comes from the book Kubernetes Up and Running chapter 9 page 103 and chapter 10 page 113 and was not run again. The numbers in the lab are snapshots taken when the ReplicaSet counts changed, not every small step."
+order: 4
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [labels-and-api]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import RolloutLab from '../../../../components/labs/kubernetes/RolloutLab';
+
+<Step>
+
+## A Deployment does not look after Pods directly
+
+We met the Deployment in the first lesson. This time let us ask who owns whom. In the real run we created a Deployment of four Pods and read the `ownerReferences` of each layer. A Pod is owned by a ReplicaSet, and that ReplicaSet is owned by the Deployment called `app`. The names hint at it already: the Pod name is the ReplicaSet name plus a random suffix, and the ReplicaSet name is the Deployment name plus a hash of the template (ran).
+
+The book says a ReplicaSet is the layer responsible for making the number of Pods match what is wanted, by comparing them in a reconciliation loop (book: Kubernetes Up and Running, Reconciliation Loops, page 104). A Deployment works one layer higher, looking after the change from one revision of the template to the next (book: Kubernetes Up and Running, Deployment Internals, page 114). Two layers are needed because a ReplicaSet remembers only one template. To have two revisions side by side during an update, there must be two ReplicaSets.
+
+</Step>
+
+<Step>
+
+## Rolling update: move one step at a time
+
+When we change the Pod template (say the message the program prints, or the image), the Deployment makes a new ReplicaSet and slowly adds Pods to the new one and removes them from the old one, under two numbers: `maxSurge`, how many Pods may exist above the target, and `maxUnavailable`, how many may be missing from it (book: Kubernetes Up and Running, RollingUpdate Strategy, page 123). In the exercise we set both to 1 with a Deployment of 4 Pods, and watched the ReplicaSet counts every half second (ran).
+
+| Time | Old ReplicaSet | New ReplicaSet |
+|---|---|---|
+| before | 4 Pods, Ready 4 | none |
+| 0.1 s | 3 Pods, Ready 3 | 2 Pods, Ready 0 |
+| 4.7 s | 1 Pod, Ready 1 | 4 Pods, Ready 2 |
+| 8.0 s | 0 | 4 Pods, Ready 4 |
+
+At no moment were there more than 5 Pods in all (4 plus `maxSurge` 1), and never fewer than 3 Ready (4 minus `maxUnavailable` 1) (ran). One thing to notice is that a new Pod must pass its readiness probe before it counts as Ready, which is why the probes in the lesson [Pod](/en/kubernetes/pods/) matter for updates.
+
+Press through each strategy in the lab below. Start with the rolling update, then switch to Recreate and the bad image.
+
+<RolloutLab client:visible lang="en" />
+
+The old ReplicaSet is not deleted when the update finishes. It is kept at 0 Pods so that we can go back. With `kubectl rollout undo` the Deployment brings the old template back, reusing the same ReplicaSet and recording it as revision 3 (ran). History does not go backwards. It moves on, reusing the old thing.
+
+</Step>
+
+<Step>
+
+## Recreate: accept a moment with nothing running
+
+`strategy: Recreate` stops every old Pod first, and only then creates the new ones. In the exercise Ready went down to 0 (ran). It is used when old and new Pods must not run together, for example when both versions would lock the same file or the data schemas are incompatible, accepting that for a moment nothing serves (book: Kubernetes Up and Running, Recreate Strategy, page 123).
+
+</Step>
+
+<Step>
+
+## With a bad image the update stops, and users do not notice
+
+This is the main reason a rolling update is safe. We changed the image to `busybox:no-such-tag`, which does not exist. In the real run the two new Pods stuck in `ImagePullBackOff`, while the 3 old Pods stayed Ready, because the Deployment will not remove more old Pods if that would take Ready below the promise (ran). After `progressDeadlineSeconds` (we set 20 s) the Deployment reported `ProgressDeadlineExceeded` and `kubectl rollout status` exited abnormally, while users could carry on, because the old Pods still took requests. Then `kubectl rollout undo` brought back all four Pods (ran).
+
+This is where the two numbers saved us. If `maxUnavailable` is set too high, for instance equal to the number of Pods, a rolling update turns into Recreate without anyone meaning it to.
+
+<Callout type="note" title="Compare with the DevOps path">
+In the lesson [Releasing safely](/en/devops/release/) of the DevOps path we compared rolling, canary and blue-green with numbers from a simulation. Here we see that rolling is something Kubernetes does for us through a Deployment.
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A Deployment of 4 Pods with maxSurge 1 and maxUnavailable 1 is updating. At any moment, what is the highest total number of Pods, and the lowest number of Ready Pods, that was promised?"
+  options={[
+    'At most 4 in all and at least 4 Ready',
+    'At most 5 in all and at least 3 Ready',
+    'At most 8 in all and at least 0 Ready',
+    'At most 5 in all and at least 4 Ready'
+  ]}
+  answer={1}
+  why="maxSurge 1 allows one Pod above the target, so at most 5 in all. maxUnavailable 1 allows one below the target, so at least 3 Ready. In the real run we saw exactly these two values. Recreate is the case where Ready goes down to 0."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A Pod is owned by a ReplicaSet and the ReplicaSet by a Deployment, with names built from the layer above | ran: `exercises/04_deployments.py` |
+| A rolling update has at most 5 Pods and at least 3 Ready, and uses the full allowance | ran: `exercises/04_deployments.py` |
+| The old ReplicaSet is kept at 0 and `rollout undo` reuses it as revision 3 | ran: `exercises/04_deployments.py` |
+| Recreate has a moment with 0 Ready | ran: `exercises/04_deployments.py` |
+| A bad image leaves new Pods in ImagePullBackOff, 3 old Pods Ready, the rollout at ProgressDeadlineExceeded, and undo repairs it | ran: `exercises/04_deployments.py` |
+| If maxUnavailable equals the whole number of Pods, a rolling update becomes Recreate | author (inferred from what the values mean, not run) |
+| A ReplicaSet is the reconciliation loop of the Pod count, and a Deployment handles revision changes with several ReplicaSets | book: Kubernetes Up and Running, Reconciliation Loops page 104 and Deployment Internals page 114 |
+| The Recreate and RollingUpdate strategies with maxSurge and maxUnavailable | book: Kubernetes Up and Running, Deployment Strategies page 123 |
+
+</Step>

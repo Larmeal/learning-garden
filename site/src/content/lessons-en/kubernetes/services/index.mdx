@@ -1,0 +1,127 @@
+---
+title: Services and DNS
+summary: A Service gives a name and an address that do not change to Pods that come and go. We see that the endpoints are the list of Pods that are Ready and match the selector, how DNS in the cluster works, which rules kube-proxy uses to send a request to a Pod, and how NodePort differs from a headless Service.
+facts:
+  - "Ran for real in exercises/07_services.py on minikube (Kubernetes v1.31.0): a ClusterIP inside 10.96.0.0/12 that is the IP of no Pod, an EndpointSlice equal to the IPs of the Ready Pods, short and long DNS names, /etc/resolv.conf with a search path and ndots:5, 60 requests spread over three Pods, a Pod whose readiness failed leaving the endpoints, a selector that matches nothing giving empty endpoints and Connection refused, the iptables rules of kube-proxy, a NodePort answering on every node, and a headless Service."
+  - "The ideas of Service, Service DNS and kube-proxy come from the book Kubernetes Up and Running chapter 7 pages 75 to 86 and Core Kubernetes section 5.2 page 97, and were not run again. The spread of requests in the lab uses a fixed order, not a real random draw."
+order: 7
+phase: C
+level: 2
+stage: sprout
+format: steps
+requires: [jobs-and-stateful]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ServiceLab from '../../../../components/labs/kubernetes/ServiceLab';
+
+<Step>
+
+## Pods come and go, but a caller needs an address that stays
+
+We have seen that a Pod can be created again at any time, and every time it gets a new IP. If another program has to call it, where do we write the IP? Kubernetes answers with a Service, an object that gives a fixed name and address and passes requests on to the Pods that match a selector (book: Kubernetes Up and Running, The Service Object, page 76).
+
+We created a Deployment of three Pods labelled `app: web`, and a Service called `web` with the selector `app: web` that listens on port 80 and sends to port 8080 of the Pod. What we get is one ClusterIP (in the real run in the range `10.96.0.0/12`, the Service range and not the Pod range), which matches the IP of no Pod at all (ran). So the ClusterIP is a virtual address. No computer or Pod really holds it. We see below how the rules of `kube-proxy` make it work.
+
+Who the Service sends to is kept in an EndpointSlice object, which Kubernetes creates and updates by itself. In the real run the list equalled the IPs of the three Ready Pods exactly (ran). The book calls this part the endpoints (book: Kubernetes Up and Running, Endpoints, page 82).
+
+</Step>
+
+<Step>
+
+## DNS: call it by name
+
+A Pod does not need to know the ClusterIP. It calls by name. In the same namespace `http://web/` works, and from another namespace we use the full name `web.<namespace>.svc.cluster.local`. Both reached a web Pod in the real run (ran), and asking DNS gave back the ClusterIP.
+
+Why does the short name work? Open `/etc/resolv.conf` of a Pod and we see this (ran).
+
+```text
+search klab-services.svc.cluster.local svc.cluster.local cluster.local
+nameserver 10.96.0.10
+options ndots:5
+```
+
+The `search` line says to try adding these domains to the end of a name in order, so `web` becomes `web.klab-services.svc.cluster.local`, which starts with the Pod's own namespace. `ndots:5` means a name with fewer than 5 dots is tried with the `search` domains first. Notice that `nameserver 10.96.0.10` is also the ClusterIP of a Service, called `kube-dns` in the namespace `kube-system` (ran). The DNS of the cluster uses the Service mechanism to give out its own address (book: Kubernetes Up and Running, Service DNS, page 77, and Core Kubernetes, section 10.3 page 200). If you want to revise how DNS works, the lesson [UDP and DNS](/en/networking/udp-dns/) of the Networking path explains it in detail.
+
+</Step>
+
+<Step>
+
+## Watch requests travel, and the list change
+
+Pick a situation in the lab below and press play. Each dot is one request leaving the client, reaching the Service and being passed on to a Pod, and the endpoint list in the middle is shown as it goes.
+
+<ServiceLab client:visible lang="en" />
+
+The first case is normal. In the real run we sent 60 requests. All three Pods answered, with close but unequal counts (no Pod got all of them), because the choice is random per connection (ran).
+
+In the second case one Pod fails its readiness probe. We removed the file the probe checks, and the IP of that Pod left the EndpointSlice within a few seconds. The next 40 requests went only to the other two (20 and 20), while that Pod was still `Running` and was not restarted (ran). This is why the readiness probe in the lesson [Pod](/en/kubernetes/pods/) matters: it tells whether a request should be sent to it. And during the update in the lesson [Deployments](/en/kubernetes/deployments/), a new Pod was counted only once it passed the probe, which also keeps the Service from sending requests to a Pod that is not ready.
+
+The third case is a mistyped selector. We changed the selector to `app: nobody`, the EndpointSlice became empty at once, and requests failed with `Connection refused` in about 1.3 seconds (ran). The Service was created normally, with no error message at all. This is the symptom we meet most often when a Service cannot be called. Run `kubectl get endpoints <name>` first.
+
+</Step>
+
+<Step>
+
+## How a ClusterIP works when nobody holds it
+
+It works because `kube-proxy`, which runs on every node, writes rules into the `iptables` of that node. In the real run we looked at the NAT table on a worker (ran) and saw that
+
+- one rule sends every packet for the ClusterIP of the Service to a chain whose name starts with `KUBE-SVC-`
+- the chain of the Service has one rule per Pod. The first has `statistic mode random probability 0.33333333349`, the second has `0.5`, and the last has no condition (which comes to one third each)
+- every Pod has a chain of its own, `KUBE-SEP-...`, that does a `DNAT` to change the destination to the Pod IP and port 8080
+
+The result is that a request sent to the ClusterIP has its destination changed to one randomly chosen Pod before it leaves the sender's node, without passing through any middle program (book: Core Kubernetes, section 5.2 page 97). DNAT and NAT are explained in the Networking lesson [DHCP, NAT and firewalls](/en/networking/nat-dhcp/), and containers reaching each other through rules like these is in [Proxies, load balancers and container networks](/en/networking/proxies-and-containers/).
+
+</Step>
+
+<Step>
+
+## Opening it to the outside, and a Service with no IP
+
+A `ClusterIP` Service works only inside the cluster. Change it to `NodePort` and Kubernetes opens the same port (in the range 30000 to 32767) on every node. In the real run we called `<node IP>:<port>` on all three nodes and every one answered, including the control plane, which has no web Pod at all, because the `kube-proxy` of that node forwarded to a Pod on another node (ran). The book calls this the most portable way to let the outside in (book: Kubernetes Up and Running, Looking Beyond the Cluster, page 79). Opening through an Ingress with host names and paths is on the page [Ingress](/en/kubernetes/services/ingress/).
+
+The other kind is a headless Service with `clusterIP: None`. It has no ClusterIP and no `kube-proxy` rules. DNS answers with the IPs of all the Pods directly. In the real run asking the name of a headless Service returned the IPs of all three Pods (ran). It is used when the caller wants to choose the Pod itself, for example for a database whose members have different roles, and it is the kind a StatefulSet from the last lesson uses to name its Pods.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We create a Service with the selector app=api, but our Pods are labelled app=apii (a typo), and we try to call the Service. What is the result, and what should we check first?"
+  options={[
+    'Kubernetes reports an error when the Service is created, so we fix the selector',
+    'The Service is created, but it has no endpoints and cannot be reached. We should check the endpoint list of the Service first',
+    'The Service sends requests to the Pod anyway because the names are close',
+    'The Pod is deleted because no Service matches it'
+  ]}
+  answer={1}
+  why="A selector is a question that is asked again and again, not a check of correctness. If no Pod matches, the endpoint list is empty and requests fail. Looking at the endpoints of the Service is the fastest first step when hunting for the cause."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The ClusterIP is in 10.96.0.0/12 and is not a Pod IP, and the EndpointSlice equals the IPs of the Ready Pods | ran: `exercises/07_services.py` |
+| The short and the long Service name reach a Pod, and DNS answers the ClusterIP | ran: `exercises/07_services.py` |
+| `/etc/resolv.conf` has a search path starting with the Pod's namespace, `ndots:5`, and a nameserver that is the ClusterIP of `kube-dns` | ran: `exercises/07_services.py` |
+| 60 requests spread over three Pods, close but unequal | ran: `exercises/07_services.py` |
+| A Pod whose readiness fails leaves the EndpointSlice and gets no requests, but stays Running | ran: `exercises/07_services.py` |
+| A selector that matches nothing gives empty endpoints and Connection refused (about 1.3 s) | ran: `exercises/07_services.py` |
+| `iptables` has a rule for the ClusterIP, a chain per Service with statistic 0.33333 and 0.5, and DNAT to Pod:8080 | ran: `exercises/07_services.py` |
+| A NodePort answers on every node, including a node with no Pod, and a headless Service answers with Pod IPs | ran: `exercises/07_services.py` |
+| A headless Service suits callers who must choose the Pod | author (an observation from use and from the StatefulSet lesson, this point alone was not run) |
+| Service Object, Service DNS, Endpoints and Looking Beyond the Cluster | book: Kubernetes Up and Running, The Service Object page 76, Service DNS page 77, Looking Beyond the Cluster page 79, Endpoints page 82 |
+| kube-proxy and Services on iptables, and DNS of a Pod | book: Core Kubernetes, section 5.2 page 97 and section 10.3 page 200 |
+
+</Step>

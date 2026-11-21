@@ -1,0 +1,63 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 3 ข้อ เพื่อเช็กว่าอ่านข้อความ Pending เป็น แยก Taint ออกจาก Toleration ได้ และรู้ว่า Drain กับ PodDisruptionBudget ทำงานร่วมกันอย่างไร
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราติด Taint บน Node หนึ่ง แล้วสร้าง Pod ที่มี Toleration ตรงกับ Taint นั้น ข้อไหนถูกต้อง"
+  options={[
+    'Pod ต้องไปลงที่ Node นั้นเท่านั้น เพราะ Toleration ดึงดูด Pod',
+    'Pod ลงที่ Node นั้นได้ แต่ก็ลง Node อื่นได้เช่นกัน Toleration เป็นการอนุญาต ไม่ได้บังคับ',
+    'Pod ลงที่ Node นั้นไม่ได้ เพราะ Taint ห้ามทุก Pod',
+    'Pod ที่รันอยู่แล้วบน Node นั้นถูกไล่ออกทันที'
+  ]}
+  answer={1}
+  why="Taint บอกว่าห้ามวาง Pod ที่ไม่ทนป้ายนี้ Toleration แค่ทำให้ Pod ผ่านด่านได้ ไม่ได้บอกให้ไปที่นั่น ถ้าอยากบังคับให้ไป ต้องใช้ nodeSelector หรือ Affinity เพิ่ม และ NoSchedule ไม่ไล่ Pod ที่อยู่เดิม"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Pod ค้างที่ Pending พร้อมข้อความ 0/3 nodes are available: 2 Insufficient Cpu, 1 node had untolerated taint ข้อไหนสรุปปัญหาได้ถูก"
+  options={[
+    'Container ของ Pod เริ่มไม่ขึ้นเพราะ Image ผิด',
+    'ไม่มี Node ไหนรับ Pod ได้ สองตัวมี CPU ไม่พอสำหรับ Request และอีกตัวติด Taint ที่ Pod ไม่ทน',
+    'Scheduler ยังไม่ได้เริ่มทำงาน',
+    'Pod ถูกลบไปแล้วแต่ยังแสดงอยู่'
+  ]}
+  answer={1}
+  why="ข้อความ FailedScheduling บอกว่า Node ทุกตัวตกเพราะอะไร ปัญหาอยู่ที่ขั้นวาง Pod ไม่ใช่ขั้นรัน Container (ไม่มี Node ให้รันด้วยซ้ำ) แก้โดยลด Request เพิ่ม Node หรือเพิ่ม Toleration"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราสั่ง Drain Node หนึ่ง ขณะที่ Deployment มี Pod 6 ตัวและมี PodDisruptionBudget ที่ minAvailable เป็น 6 ผลเป็นอย่างไร"
+  options={[
+    'Drain สำเร็จทันที และ Pod ถูกย้ายไป Node อื่น',
+    'Drain ไล่ Pod ออกไม่ได้เพราะจะทำให้ Ready ต่ำกว่า 6 จึงรอจนหมดเวลาแล้วล้มเหลว จนกว่าจะแก้หรือลบ PDB',
+    'Kubernetes ลบ PodDisruptionBudget ให้เอง',
+    'Pod ทุกตัวถูกลบพร้อมกัน'
+  ]}
+  answer={1}
+  why="PDB คือสัญญาที่บอกว่า Pod ต้อง Ready อย่างน้อยกี่ตัว Drain เคารพสัญญานี้ ถ้าไล่ตัวไหนแล้วผิดสัญญาก็ไม่ไล่ ในแบบฝึกเราเห็น Drain ล้มเหลว และสำเร็จทันทีหลังลบ PDB"
+/>
+
+</Step>

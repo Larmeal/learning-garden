@@ -1,0 +1,112 @@
+---
+title: Label และ API
+summary: ทุกอย่างใน Kubernetes เป็นออบเจ็กต์หน้าตาเดียวกัน และหาตัวอื่นเจอด้วย Label เราลองเลือก Pod ด้วย Selector หลายแบบ ดูว่า Namespace แยกชื่ออย่างไร และเห็นว่า Kubectl เป็นแค่ตัวเรียก HTTP
+facts:
+  - "รันจริงใน exercises/03_labels_api.py บน minikube (Kubernetes v1.31.0): โครงสร้างของออบเจ็กต์ (apiVersion, kind, metadata, spec, status), Selector 6 แบบกับ Pod 4 ตัว, การเอา Label ออกแล้ว Pod หลุดจากการเลือก, ชื่อซ้ำกันได้ใน Namespace ต่างกัน, kubectl apply ครั้งที่สองบอกว่า unchanged, create ซ้ำล้มเหลวด้วย AlreadyExists, kubectl diff, dry-run=server และ kubectl get --raw"
+  - "แนวคิดเรื่อง Label และ Selector กับตัวอย่างการใช้งานมาจากหนังสือ Kubernetes Up and Running หัวข้อ Labels หน้า 65 ถึง 71 ไม่ได้รันซ้ำ จำนวน Kind ของออบเจ็กต์ (58) ในเวอร์ชันนี้เป็นตัวเลขของคลัสเตอร์ minikube ที่ใช้ ไม่ใช่ตัวเลขของ Kubernetes ทุกที่"
+order: 3
+phase: A
+level: 1
+stage: sprout
+format: steps
+requires: [pods]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import LabelsLab from '../../../../components/labs/kubernetes/LabelsLab';
+
+<Step>
+
+## ออบเจ็กต์ทุกชนิดหน้าตาเหมือนกัน
+
+เมื่อเราสร้าง Pod แล้วขอดูทั้งตัวในรูป JSON จะเห็นคีย์ระดับบนห้าตัวเท่านั้น `apiVersion`, `kind`, `metadata`, `spec` และ `status` (รัน) เรากรอกให้สามตัวแรกกับ `spec` ส่วน `status` ไม่ใช่ของเรา มันคือสถานะที่คลัสเตอร์เขียนกลับมา เช่น `phase: Running` ที่ Kubelet เขียน แล้ว `metadata` ก็มีของที่เราไม่ได้เขียนเพิ่มเข้ามาคือ `uid`, `resourceVersion`, `creationTimestamp` และ `namespace` เพราะ API Server เติมให้ตอนเก็บ
+
+โครงเดียวกันนี้ใช้กับทุกชนิด ไม่ว่าจะเป็น Pod, Deployment หรือ Service (หนังสือ: Kubernetes Up and Running หัวข้อ Viewing Kubernetes API Objects หน้า 38) เราเขียน `spec` คือสิ่งที่เราต้องการ ส่วน `status` คือสิ่งที่เป็นอยู่ ตรงกับแนวคิด Desired State ที่เห็นใน[บทแรก](/kubernetes/why-kubernetes/)
+
+ถ้าถามว่า API มีกี่ชนิด ในคลัสเตอร์ที่ใช้อยู่ตอบว่า 58 ชนิดใน 19 กลุ่ม (รัน) ตัวเลขนี้เปลี่ยนไปตามรุ่นและสิ่งที่ติดตั้ง และเราจะเพิ่มชนิดใหม่ของเราเองได้ในบท [CRD และ Operator](/kubernetes/crd-operator/)
+
+</Step>
+
+<Step>
+
+## Label คือป้ายที่เราติด และ Selector คือคำถามที่เราถาม
+
+Pod ติดป้ายได้หลายอัน เช่น `app: shop`, `tier: web`, `env: prod` ป้ายเหล่านี้คือคู่ Key กับ Value ที่เราตั้งเอง Kubernetes ไม่ได้ตีความ แต่ใช้มันเป็นที่เกาะสำหรับถามว่า "เอาตัวที่เข้าเงื่อนไขนี้" (หนังสือ: Kubernetes Up and Running หัวข้อ Labels หน้า 65 และ Label Selectors หน้า 68)
+
+เราสร้าง Pod สี่ตัวที่ติดป้ายต่างกัน แล้วลอง Selector หกแบบ ผลที่ได้ในการรันจริงอยู่ใน Lab นี้ ลองเลือกทีละแบบ แล้วลองเอา Label ออกจาก Pod `a2` ด้วย
+
+<LabelsLab client:visible />
+
+มีสองอย่างที่ควรสังเกต อย่างแรก เครื่องหมายจุลภาคใน `app=shop,tier=web` หมายถึง "และ" คือต้องตรงทั้งสองข้อ อย่างที่สอง `env!=dev` เลือก Pod ที่ไม่มี `env` เลยด้วย (ในที่นี้ทุกตัวมี) ส่วนตอนเอา `app` ออกจาก a2 ด้วย `kubectl label pod a2 app-` Pod ตัวนั้นหลุดจากการเลือก `app=shop` ทันที (รัน)
+
+เรื่องนี้สำคัญกว่าที่เห็น เพราะ Service กับ Deployment ที่เราจะเจอต่อไปไม่ได้เก็บรายชื่อ Pod ไว้ มันเก็บ Selector แล้วถามใหม่ตลอดว่าตอนนี้ใครตรง ถ้าติดป้ายผิด Service จะไม่เจอ Pod ที่ควรเจอ และนี่คืออาการที่เจอบ่อยที่สุดตอนพิมพ์ Label ผิด (หนังสือ: Kubernetes Up and Running หัวข้อ Labels in the Kubernetes Architecture หน้า 71)
+
+</Step>
+
+<Step>
+
+## Namespace คือการแยกชื่อ ไม่ใช่การแยกเครือข่าย
+
+Namespace ทำให้ชื่อออบเจ็กต์ซ้ำกันได้ ในการรันจริงเราสร้าง Pod ชื่อ `a1` ใน Namespace สองอันและได้ Pod สองตัวที่มี `uid` ต่างกัน (รัน) คลัสเตอร์ใหม่มี Namespace ที่ระบบสร้างให้สี่อัน คือ `default`, `kube-system`, `kube-public` และ `kube-node-lease` (รัน)
+
+อย่าเข้าใจผิดว่า Namespace กั้น Pod ไม่ให้คุยกัน มันกั้นแค่ชื่อกับสิทธิ์ที่ตั้งเป็นรายอัน ส่วนการกั้นเครือข่ายต้องใช้ NetworkPolicy ในบท [RBAC และความปลอดภัย](/kubernetes/rbac-security/)
+
+</Step>
+
+<Step>
+
+## Apply, Create และการดูก่อนทำ
+
+คำสั่งสองคำสั่งที่ดูเหมือนกันแต่คิดต่างกัน คือ `kubectl create` ที่บอกว่า "สร้างอันนี้" และ `kubectl apply` ที่บอกว่า "ให้เป็นแบบนี้" ในการรันจริง เรา `apply` ConfigMap ตัวเดียวกันสามครั้ง ได้ `created`, `unchanged` แล้ว `configured` (หลังเราแก้ค่า) ส่วน `create` ซ้ำอีกรอบล้มเหลวด้วย `AlreadyExists` (รัน) นอกจากนี้ `apply` ที่ไม่มีอะไรเปลี่ยนก็ไม่เปลี่ยน `resourceVersion` ด้วย (รัน) นี่เป็นเหตุผลที่ GitOps ใช้ `apply` เพราะรันซ้ำกี่ครั้งก็ปลอดภัย
+
+มีสองคำสั่งที่ใช้ดูก่อนลงมือ `kubectl diff -f` พิมพ์เฉพาะส่วนที่จะเปลี่ยน (ในแบบฝึกเห็นบรรทัด `-  greeting: sawasdee` กับ `+  greeting: hello`) และออกด้วยรหัส 1 เมื่อมีอะไรต่าง ส่วน `--dry-run=server` ส่งไปให้ API Server ตรวจจริงแต่ไม่เก็บ (รัน)
+
+</Step>
+
+<Step>
+
+## Kubectl เป็นแค่ตัวเรียก HTTP
+
+ทุกคำสั่งของ `kubectl` ก็คือคำขอ HTTP ไปหา API Server เราลองขอตรง ๆ ด้วย `kubectl get --raw /api/v1/namespaces/<ns>/pods/a1` ได้ JSON ชุดเดียวกับ `kubectl get -o json` (รัน) และขอ `/version` ได้ `v1.31.0` (รัน) หนังสือ Programming Kubernetes อธิบายว่า API Server คือหน้าตา HTTP ของระบบทั้งหมด (หนังสือ: Programming Kubernetes หัวข้อ The HTTP Interface of the API Server หน้า 20)
+
+เรื่องนี้ทำให้เข้าใจว่า ทุกส่วนของคลัสเตอร์ไม่ว่าจะเป็น Scheduler, Kubelet หรือโปรแกรมที่เราเขียนเอง คุยกับคลัสเตอร์ด้วยวิธีเดียวกับ `kubectl` เสมอ
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Service ตัวหนึ่งมี Selector เป็น App=Web แต่เราพิมพ์ Label บน Pod ว่า App=Wbe ผลที่ได้คืออะไร"
+  options={[
+    'Kubernetes แจ้งข้อผิดพลาดตอนสร้าง Pod เพราะ Label ไม่ตรงกับ Service',
+    'Service สร้างได้ปกติ แต่ไม่มี Pod ที่ตรง จึงไม่มี Endpoint ให้ส่งคำขอไป',
+    'Service เลือก Pod ตัวนั้นอยู่ดี เพราะชื่อใกล้เคียงกัน',
+    'Pod ถูกลบเพราะไม่มี Service รับ'
+  ]}
+  answer={1}
+  why="Selector เป็นคำถามที่ถามซ้ำตลอดเวลา ไม่ใช่การตรวจว่าถูกหรือผิด ถ้าไม่มี Pod ที่ Label ตรงก็แค่ได้รายการว่าง ซึ่งเป็นอาการที่พบบ่อยที่สุดเวลา Label พิมพ์ผิด"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| ออบเจ็กต์มีคีย์ระดับบน `apiVersion`, `kind`, `metadata`, `spec`, `status` และ API Server เติม `uid`, `resourceVersion`, `creationTimestamp`, `namespace` | รัน: `exercises/03_labels_api.py` |
+| Selector หกแบบเลือก Pod ตามที่ Lab แสดง และเอา `app` ออกจาก a2 แล้วหลุดจากการเลือก | รัน: `exercises/03_labels_api.py` |
+| ชื่อซ้ำกันได้ใน Namespace ต่างกัน และคลัสเตอร์ใหม่มี Namespace สี่อัน | รัน: `exercises/03_labels_api.py` |
+| `apply` สามครั้งได้ Created, Unchanged, Configured, `create` ซ้ำได้ AlreadyExists และ `apply` ที่ไม่เปลี่ยนไม่ขยับ resourceVersion | รัน: `exercises/03_labels_api.py` |
+| `kubectl diff` ออกรหัส 1 เมื่อมีสิ่งต่าง และ `--dry-run=server` ไม่เก็บอะไร | รัน: `exercises/03_labels_api.py` |
+| `kubectl get --raw` ให้ออบเจ็กต์เดียวกับ `get -o json`, `/version` ได้ v1.31.0, API มี 58 ชนิดใน 19 กลุ่มในคลัสเตอร์นี้ | รัน: `exercises/03_labels_api.py` |
+| Namespace แยกชื่อ ไม่แยกเครือข่าย | ผู้เขียน (ผลของ NetworkPolicy ที่รันจริงอยู่ใน[บท RBAC และความปลอดภัย](/kubernetes/rbac-security/)) |
+| Label, Selector และการเกาะของ Service กับ Deployment | หนังสือ: Kubernetes Up and Running หัวข้อ Labels หน้า 65, Label Selectors หน้า 68, Labels in the Kubernetes Architecture หน้า 71 |
+| ออบเจ็กต์ API และ Kubectl เป็นตัวเรียก API | หนังสือ: Kubernetes Up and Running หัวข้อ Viewing Kubernetes API Objects หน้า 38 และ Programming Kubernetes หัวข้อ The HTTP Interface of the API Server หน้า 20 |
+
+</Step>

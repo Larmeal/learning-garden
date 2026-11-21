@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you know what containers of one Pod share, can tell liveness from readiness, and know what happens to a container that uses too much memory.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Two containers are in one Pod. The first writes a file into its own /tmp folder. Can the second read that file, if nothing else is set?"
+  options={[
+    'Yes, because one Pod shares a file system',
+    'No, because each container has the file system of its own image. To share files we need a volume such as emptyDir',
+    'Yes, but shareProcessNamespace must be turned on first',
+    'No, because containers of one Pod cannot talk to each other at all'
+  ]}
+  answer={1}
+  why="What containers of one Pod share by default is the network (IP and localhost). The file systems are separate. To share files, mount the same volume into both. shareProcessNamespace is about processes, not files."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The program in one Pod hangs and does not answer. We want Kubernetes to restart the container by itself. Which probe should we use, and what does the other kind do?"
+  options={[
+    'A readiness probe: if it fails the container is restarted. A liveness probe takes the Pod off the Service',
+    'A liveness probe: if it fails the container is restarted. When readiness fails the Pod is taken off the Service without a restart',
+    'Either one, both do the same thing',
+    'No probe is needed, because Kubernetes already sees that the program hangs'
+  ]}
+  answer={1}
+  why="Liveness asks whether it is alive. If not, the kubelet kills it and starts it again. Readiness asks whether it is ready for work. If not, the Pod stays, but gets no work from the Service. In the exercise restartCount stayed 0 in the readiness case."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A container has a memory limit of 32Mi, but the program tries to use 120 MB. What do we see?"
+  options={[
+    'The container slows down because it is squeezed, but keeps working',
+    'The container is killed by the kernel, with status OOMKilled and exit code 137',
+    'The Pod is moved to a node that has more memory',
+    'The scheduler refuses to start the Pod'
+  ]}
+  answer={1}
+  why="A memory limit becomes a ceiling in a cgroup that the kernel enforces. When it is exceeded the kernel kills the process with SIGKILL, code 137 (128 plus 9), and Kubernetes reports OOMKilled. CPU differs: it is throttled and slowed down instead of killed."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A Pod has a request equal to its limit, for both CPU and memory, in every container. What is its QoS class?"
+  options={[
+    'BestEffort',
+    'Burstable',
+    'Guaranteed',
+    'Critical'
+  ]}
+  answer={2}
+  why="A request equal to the limit for both CPU and memory gives Guaranteed. Setting only some of them, or only a request, gives Burstable, and setting nothing gives BestEffort. In the exercise we saw all three classes."
+/>
+
+</Step>

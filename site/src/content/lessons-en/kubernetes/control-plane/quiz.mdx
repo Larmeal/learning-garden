@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Three questions to check that you know who talks to etcd, how the control plane components depend on each other, and what resourceVersion protects against.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Which component of the cluster talks to etcd directly?"
+  options={[
+    'The scheduler and the controller manager each write to etcd themselves',
+    'Only the API server. The other components talk through the API server, like kubectl',
+    'The kubelet of every node',
+    'kube-proxy'
+  ]}
+  answer={1}
+  why="The API server is the only door to etcd, so permission checks, schema checks and watches all pass through one place. The other components are just clients of the API."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The controller manager is stopped, then we delete one Pod of a Deployment and raise the number wanted. What do we see?"
+  options={[
+    'A new Pod is created as usual, because the kubelet creates it',
+    'The number wanted is stored in the API, but nobody creates Pods to match, and when the controller manager returns it creates them until the count is right',
+    'The API server refuses the change of number',
+    'The Deployment is deleted automatically'
+  ]}
+  answer={1}
+  why="Storing values is the job of the API server, while comparing counts and creating Pods is the controller manager's. When it stops, what we want just waits, and when it returns it catches up by itself, because it looks at the current state."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="An edit that quotes an old resourceVersion is refused with Conflict. What does this mechanism protect against?"
+  options={[
+    'Overwriting somebody else\'s change without knowing it. The loser must read the latest value and try again',
+    'Anyone reading the object',
+    'Deleting the object',
+    'It makes etcd faster'
+  ]}
+  answer={0}
+  why="resourceVersion changes at every edit. If we quote an old number, somebody has already changed it, so the API server refuses instead of overwriting. This is optimistic concurrency."
+/>
+
+</Step>

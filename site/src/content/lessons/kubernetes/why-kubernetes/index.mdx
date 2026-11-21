@@ -1,0 +1,167 @@
+---
+title: Why Kubernetes
+summary: คลัสเตอร์ที่มีสามคอมพิวเตอร์ถูกสร้างขึ้นจริง แล้วเราลบ Pod ทิ้งและปิดคอมพิวเตอร์หนึ่งเครื่อง เพื่อดูว่าตัวเลขที่เราต้องการกับตัวเลขที่มีอยู่จริงถูกเทียบกันและแก้ให้ตรงได้อย่างไร
+facts:
+  - "รันจริงใน exercises/01_cluster.py บนคลัสเตอร์ minikube 3 Node (Kubernetes v1.31.0, containerd 1.7.21) ดูว่า Component ไหนอยู่ Node ไหน, ลบ Pod แล้ว Deployment สร้างตัวใหม่ (ชื่อใหม่) ภายในหลักวินาที, ปรับ replicas ด้วยตัวเลขตัวเดียว, ฆ่า Container ใน Pod แล้ว Kubelet สั่งเริ่มใหม่, และหยุด Node ทั้งเครื่องแล้ว Pod ถูกสร้างใหม่บน Node ที่เหลือ"
+  - "ส่วนที่ว่า Kubernetes แก้ปัญหา Infrastructure Drift และจัดการสิ่งที่เราต้องการเป็น YAML มาจากหนังสือ Core Kubernetes หัวข้อ 1.2 หน้า 2 และ 1.4 หน้า 5 และ Kubernetes Up and Running ไม่ได้รัน"
+  - "ค่ารอ 300 วินาทีของ Pod บน Node ที่หายไปเป็นค่าเริ่มต้นของ Kubernetes แบบฝึกนี้ลดเหลือ 10 วินาทีด้วย tolerationSeconds เพื่อไม่ต้องรอนาน จึงไม่ได้วัดค่า 300 วินาทีโดยตรง"
+order: 1
+phase: A
+level: 1
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ClusterLab from '../../../../components/labs/kubernetes/ClusterLab';
+
+<Step>
+
+## คลัสเตอร์หนึ่งชุดหน้าตาเป็นอย่างไร
+
+ในเส้นทาง Docker เราเอา Container ไปรันบนคอมพิวเตอร์เครื่องเดียว และใช้ [Docker Compose](/docker/compose/) เล่าให้ Docker ฟังว่ามี Service อะไรบ้าง ถ้าคอมพิวเตอร์เครื่องนั้นดับ ทุก Container ก็ดับไปพร้อมกัน แล้วเราก็ต้องเข้าไปสั่งรันใหม่เอง ในบท [Orchestration และ GitOps](/devops/gitops/) ของเส้นทาง DevOps เราเขียน Controller ตัวเล็ก ๆ ขึ้นมาเองเพื่อให้เห็นว่าการ "เทียบของที่ต้องการกับของที่มี แล้วแก้ให้ตรง" ทำงานอย่างไร Kubernetes คือระบบที่ทำเรื่องเดียวกันนี้ แต่ทำกับคอมพิวเตอร์หลายเครื่องพร้อมกัน
+
+เส้นทางนี้เราจะใช้คลัสเตอร์จริงที่ตั้งด้วย `minikube` บนคอมพิวเตอร์ของเรา มีสามคอมพิวเตอร์ ตัวหนึ่งเป็น Control Plane และอีกสองตัวเป็น Worker ลองถามคลัสเตอร์ว่ามีใครอยู่บ้าง (รัน)
+
+```bash
+kubectl get nodes
+```
+
+```text
+NAME         STATUS   ROLES           VERSION   CONTAINER-RUNTIME
+garden       Ready    control-plane   v1.31.0   containerd://1.7.21
+garden-m02   Ready    <none>          v1.31.0   containerd://1.7.21
+garden-m03   Ready    <none>          v1.31.0   containerd://1.7.21
+```
+
+`kubectl` คือโปรแกรมที่เราใช้คุยกับคลัสเตอร์ คำสั่ง `get nodes` ขอรายการ Node ซึ่งก็คือคอมพิวเตอร์แต่ละตัวในคลัสเตอร์ จะเห็นว่าทุกตัวรัน Kubernetes รุ่นเดียวกัน และรัน Container ด้วย `containerd` ซึ่งคือตัวรัน Container ที่ Docker เองก็ใช้อยู่ข้างใน (หนังสือ: Core Kubernetes หัวข้อ 1.6 หน้า 9)
+
+คอมพิวเตอร์ที่เขียนว่า `control-plane` ไม่ได้มีไว้รันโปรแกรมของเรา มันมีหน้าที่เป็นสมองของคลัสเตอร์ คอมพิวเตอร์สองตัวที่เหลือคือ Worker ที่รับ Pod ไปรัน ใน Kubernetes เราไม่ได้สั่งรัน Container ตรง ๆ แต่เรารัน Pod ซึ่งเป็นกลุ่มของ Container ที่อยู่ด้วยกัน เดี๋ยว[บทถัดไป](/kubernetes/pods/)เราจะมาดูกันว่า Pod คืออะไร ตอนนี้ขอให้นึกว่า Pod หนึ่งตัวคือโปรแกรมหนึ่งตัวของเรา
+
+</Step>
+
+<Step>
+
+## เราไม่สั่งให้รัน แต่เราบอกว่าอยากได้กี่ตัว
+
+ลองบอกคลัสเตอร์ว่าเราอยากได้โปรแกรมชื่อ `web` สามตัว ผ่านวัตถุที่เรียกว่า Deployment ไฟล์ YAML มีหน้าตาแบบนี้ (ตัดบางส่วนออกให้สั้น)
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 3
+  selector:
+    matchLabels: {app: web}
+  template:
+    metadata:
+      labels: {app: web}
+    spec:
+      containers:
+      - name: web
+        image: busybox:1.37
+```
+
+บรรทัด `replicas: 3` คือตัวเลขที่เราต้องการ ส่วน `template` คือแม่แบบของ Pod ที่จะถูกสร้างออกมาสามตัว เมื่อสั่ง `kubectl apply -f web.yaml` Pod ทั้งสามก็ขึ้นมา โดยกระจายอยู่บน Worker สองเครื่อง ไม่มีตัวไหนไปอยู่บน Control Plane (รัน)
+
+เอ๊ะ แล้วถ้ามีคนลบ Pod ไปหนึ่งตัวล่ะ เรามาลองดูกัน
+
+```bash
+kubectl delete pod web-6947b489d8-f6hlk
+```
+
+ในการรันจริง Pod ใหม่ที่ชื่อ `web-6947b489d8-glpbx` ขึ้นมาแทนและพร้อมใช้งานภายใน 2.3 วินาที ชื่อต่างจากตัวเก่า เพราะ Pod ไม่ได้ถูกซ่อมแล้วกลับมา มันถูกสร้างใหม่ทั้งตัว ไม่มีใครบอกให้สร้าง เราแค่ลบ แล้วมีบางอย่างเห็นว่าตัวเลขสองตัวไม่เท่ากัน (ต้องการ 3 แต่เจอ 2) และแก้ให้ตรง ถ้าเปิดดู Event ของ Namespace จะเห็นหลายคนช่วยกันทำงานนี้ คือ `replicaset-controller` สร้าง Pod, `default-scheduler` เลือก Node ให้ และ `kubelet` ของ Node นั้นรัน Container (รัน)
+
+กดเล่น Lab ข้างล่างแล้วเปลี่ยนไปดูอุบัติเหตุแบบที่สอง จะเห็นว่าตัวเลขสองตัวบนการ์ดเปลี่ยนไปตอนไหน และใครเป็นคนทำให้มันเท่ากันอีกครั้ง
+
+<ClusterLab client:visible />
+
+เรื่องนี้เป็นแกนของ Kubernetes ทั้งระบบ คือเราเขียนสิ่งที่เราต้องการ (Desired State) ไว้ในรูป YAML แล้วมี Loop คอยเทียบกับสิ่งที่เป็นอยู่จริง (Actual State) และแก้ให้ตรงตลอดเวลา หนังสือ Core Kubernetes เรียกปัญหาที่ระบบนี้แก้ว่า Infrastructure Drift คือสภาพจริงของระบบค่อย ๆ เพี้ยนไปจากที่เราตั้งใจ (หนังสือ: Core Kubernetes หัวข้อ 1.2 หน้า 2 และหัวข้อ 1.4 หน้า 5)
+
+<Callout type="note" title="ปรับจำนวนก็แค่เปลี่ยนเลขตัวเดียว">
+ในแบบฝึก เราสั่ง `kubectl scale deployment/web --replicas=5` แล้ว Pod เพิ่มเป็น 5 ตัว สั่งลดเป็น 2 ก็ลดตาม ตัวเลข `spec.replicas` กับ `status.readyReplicas` เท่ากันทั้งคู่ตอนจบ ไม่ต้องไปบอกว่าตัวไหนเริ่ม ตัวไหนหยุด (รัน)
+</Callout>
+
+</Step>
+
+<Step>
+
+## ข้างในคลัสเตอร์มีใครอยู่บ้าง
+
+ถ้าถามว่าตัวไหนทำงานอะไร เราลองดู Pod ของระบบที่รันอยู่ใน Namespace `kube-system` แล้วจัดกลุ่มตาม Node ที่มันอยู่ (รัน)
+
+| Node | Pod ของระบบที่อยู่บนมัน |
+|---|---|
+| `garden` (Control Plane) | `etcd`, `kube-apiserver`, `kube-controller-manager`, `kube-scheduler`, `coredns`, `storage-provisioner`, `kindnet`, `kube-proxy` |
+| `garden-m02` (Worker) | `kindnet`, `kube-proxy` |
+| `garden-m03` (Worker) | `kindnet`, `kube-proxy` |
+
+ฝั่ง Control Plane มีสี่ตัวที่เป็นแกนหลัก `etcd` เก็บข้อมูลทุกอย่างของคลัสเตอร์ `kube-apiserver` เป็นประตูเดียวที่ทุกคนใช้คุยกับคลัสเตอร์ `kube-scheduler` เลือกว่า Pod ใหม่ควรไปอยู่ Node ไหน และ `kube-controller-manager` รวม Loop หลายตัวที่คอยเทียบตัวเลขเหมือนที่เห็นข้างบน ส่วนทุก Node ไม่ว่าจะเป็น Worker หรือไม่ มี `kube-proxy` ที่จัดการเรื่องเครือข่ายของ Service กับ `kindnet` ที่ต่อเครือข่ายให้ Pod และบนทุก Node ยังมี Kubelet ซึ่งไม่ได้รันเป็น Pod แต่เป็นโปรแกรมของระบบปฏิบัติการ ทำหน้าที่รับ Pod ที่ถูกกำหนดมาให้ Node ตัวเองแล้วสั่งตัวรัน Container ให้ทำงาน (หนังสือ: Core Kubernetes หัวข้อ 1.6 หน้า 9 และหัวข้อ 2.3 หน้า 29)
+
+มีเรื่องหนึ่งที่เราควรสังเกต ในแบบฝึก Worker ไม่มี Pod ของ Control Plane เลยสักตัว ส่วน Control Plane ก็ไม่รับ Pod ทั่วไป เพราะมีป้ายที่เรียกว่า Taint ติดอยู่ บท [Scheduler](/kubernetes/scheduling/) จะอธิบายเรื่องนี้
+
+ทั้งหมดนี้แยกคนละหน้าที่กับโปรแกรมของเรา เราจะกลับมาเปิดดูข้างในของ [Control Plane](/kubernetes/control-plane/) และของ [Node](/kubernetes/node-inside/) ทีละชิ้นในช่วงหลังของเส้นทางนี้
+
+</Step>
+
+<Step>
+
+## ของพังได้สามระดับ และแต่ละระดับมีคนรับผิดชอบต่างกัน
+
+เราลองทำให้ของพังสามแบบ แล้วดูว่าใครเป็นคนแก้ในแต่ละแบบ
+
+**แบบแรก** Container ตายอยู่ข้างใน Pod ในแบบฝึก เราสั่งหยุด Container ของ Pod ตัวหนึ่งด้วย `crictl stop` ผลคือ Pod ตัวเดิมบน Node เดิมยังอยู่ แต่ `restartCount` เป็น 1 คนที่เริ่ม Container ใหม่คือ Kubelet ของ Node นั้นเอง ไม่ต้องไปถามใคร (รัน)
+
+**แบบที่สอง** Pod ถูกลบ อย่างที่เห็นข้างบน ผลคือได้ Pod ตัวใหม่ที่มีชื่อใหม่ คนที่สร้างคือ ReplicaSet Controller ซึ่งเป็นส่วนหนึ่งของ Controller Manager
+
+**แบบที่สาม** คอมพิวเตอร์ทั้งเครื่องหยุดทำงาน เราสั่งหยุด Worker ตัวที่มี Pod สองตัว (รัน) Control Plane ไม่ได้รู้ทันที ต้องรอจนเงียบไปประมาณ 43 วินาที Node ถึงถูกประกาศเป็น `NotReady` เพราะ Kubelet ของแต่ละ Node ต้องส่ง Lease เป็นสัญญาณชีพทุกประมาณ 10 วินาที และถ้าเงียบนาน 40 วินาที Node Controller จะติดป้ายว่าไม่พร้อม จากนั้น Pod ที่เคยอยู่บน Node นั้นถูกสร้างใหม่บน Worker ที่เหลือ จนมี Pod พร้อมครบสามตัวที่ 61 วินาที
+
+<Callout type="warn" title="ในแบบฝึกเรารอสั้นกว่าปกติ">
+ค่าเริ่มต้นของ Kubernetes คือ Pod บน Node ที่หายไปจะถูกเก็บไว้อีก 300 วินาทีก่อนสร้างใหม่ ในแบบฝึกเราใส่ `tolerationSeconds: 10` ให้ Pod ของเราเพื่อไม่ต้องรอห้านาที ตัวเลข 61 วินาทีจึงเป็นเวลาของการตั้งค่านี้ ไม่ใช่ค่าปกติ
+</Callout>
+
+เหตุผลที่แบบที่สามช้ากว่า เพราะ Control Plane แยกไม่ออกระหว่าง "Node ตายจริง" กับ "สายเครือข่ายหลุดชั่วคราว" ถ้าไปสร้าง Pod ซ้ำเร็วเกินไป อาจกลายเป็นว่ามีสอง Pod ที่ทำงานเดียวกันพร้อมกัน เราจะกลับมาที่เรื่อง Lease ในบท [Control Plane](/kubernetes/control-plane/)
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราลบ Pod ของ Deployment ที่ตั้งไว้ว่าต้องมี 3 ตัว ไปหนึ่งตัว ผ่านไปไม่กี่วินาทีเรามี Pod ครบสามตัวอีกครั้ง ข้อไหนอธิบายสิ่งที่เกิดขึ้นได้ถูกต้องที่สุด"
+  options={[
+    'Pod ตัวที่ถูกลบถูกซ่อมแล้วกลับมา จึงมีชื่อเดิม',
+    'Controller เห็นว่าที่ต้องการคือ 3 แต่เจอ 2 จึงสร้าง Pod ตัวใหม่ที่มีชื่อใหม่',
+    'Kubelet ของ Node ที่ Pod เคยอยู่สั่งให้ Container เดิมเริ่มใหม่',
+    'คนที่ลบ Pod ต้องสั่งสร้างใหม่ด้วยตัวเองอีกครั้ง'
+  ]}
+  answer={1}
+  why="Pod ไม่ได้ถูกซ่อมกลับมา มันถูกสร้างใหม่ทั้งตัวและได้ชื่อใหม่ ผู้ที่สั่งสร้างคือ ReplicaSet Controller ซึ่งเทียบตัวเลขที่ต้องการกับตัวเลขที่เจอเป็นระยะ ส่วนการเริ่ม Container ใหม่ภายใน Pod เดิมเป็นหน้าที่ของ Kubelet และใช้เฉพาะเมื่อ Container ตาย ไม่ใช่เมื่อ Pod ถูกลบ"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| คลัสเตอร์มี Node สามตัว หนึ่งตัวเป็น `control-plane` ทุกตัวรัน Kubernetes v1.31.0 บน `containerd` | รัน: `exercises/01_cluster.py` |
+| `etcd`, `kube-apiserver`, `kube-controller-manager`, `kube-scheduler` อยู่บน Control Plane และทุก Node มี `kube-proxy` กับ `kindnet` | รัน: `exercises/01_cluster.py` |
+| Deployment ที่ตั้ง `replicas: 3` วาง Pod บน Worker สองตัว และไม่วางบน Control Plane | รัน: `exercises/01_cluster.py` |
+| Pod ที่ถูกลบถูกแทนด้วย Pod ชื่อใหม่ในประมาณ 2 วินาที และ Event มาจาก `replicaset-controller`, `default-scheduler`, `kubelet` | รัน: `exercises/01_cluster.py` |
+| เปลี่ยน `replicas` เป็น 5 แล้วเป็น 2 ด้วยคำสั่งเดียว และ `spec` กับ `status` ตรงกันตอนจบ | รัน: `exercises/01_cluster.py` |
+| Container ที่ถูกหยุดถูก Kubelet เริ่มใหม่ใน Pod เดิม (`restartCount` เป็น 1) | รัน: `exercises/01_cluster.py` |
+| Node ที่หยุดกลายเป็น NotReady หลังประมาณ 43 วินาที และ Pod ถูกสร้างใหม่ที่ Worker ที่เหลือภายใน 61 วินาที (ใช้ `tolerationSeconds: 10`) | รัน: `exercises/01_cluster.py` |
+| Node ถูกประกาศ NotReady เมื่อเงียบเกิน 40 วินาที และ Pod รอ 300 วินาทีโดยค่าเริ่มต้น | ผู้เขียน (ค่าเริ่มต้นของ Kubernetes ไม่ได้วัดตรง ๆ ค่า 40 วินาทีสอดคล้องกับเวลาที่วัดได้) |
+| `containerd` เป็นตัวรัน Container ระดับล่างที่ Docker ใช้ด้วย และ Control Plane ไม่รีบสร้าง Pod ใหม่เพราะแยก Node ที่ตายออกจากเครือข่ายที่หลุดชั่วคราวไม่ได้ | ผู้เขียน (ความเข้าใจทั่วไป ไม่ได้รันตรวจ) |
+| Kubernetes แก้ปัญหา Infrastructure Drift และเก็บกฎของระบบเป็น YAML | หนังสือ: Core Kubernetes หัวข้อ 1.2 หน้า 2 และ 1.4 หน้า 5 |
+| คลัสเตอร์ประกอบด้วย Control Plane กับ Node และทุกส่วนคุยผ่าน API | หนังสือ: Core Kubernetes หัวข้อ 1.6 หน้า 9 และ 2.3 หน้า 29 |
+
+</Step>

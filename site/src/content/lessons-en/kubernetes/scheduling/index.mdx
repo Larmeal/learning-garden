@@ -1,0 +1,121 @@
+---
+title: The scheduler and Pod placement
+summary: The scheduler does not run Pods. It only picks a node. We see that a request is what gets added up and not real use, how taints and tolerations close and open doors, what to watch when spreading Pods, and how drain and a PodDisruptionBudget work.
+facts:
+  - "Ran for real in exercises/05_scheduling.py on minikube (Kubernetes v1.31.0): a Pod asking for 64 CPUs stuck in Pending with a FailedScheduling message, 6 Pods asking for 6360m with 2 placed per worker and 2 waiting, nodeSelector, a NoSchedule taint with a toleration, topologySpreadConstraints that needed nodeTaintsPolicy: Honor, cordon, drain, and a PodDisruptionBudget that made drain fail."
+  - "The idea of automated placement and the placement options come from the books Kubernetes Patterns, Automated Placement, page 47, and Kubernetes Up and Running, Resource Requests, page 56, and were not run again. The 1000m case in the lab is computed the same way and was not run."
+order: 5
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [deployments]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import SchedulerLab from '../../../../components/labs/kubernetes/SchedulerLab';
+
+<Step>
+
+## The scheduler writes a node into a Pod, once
+
+When we create a new Pod it has no node in the field `spec.nodeName`. The scheduler is the component that looks for such Pods and chooses a node for them, by writing the node name into that field, and that is all. It does not run containers and does not create Pods. The rest is the job of the kubelet on the chosen node (book: Core Kubernetes, section 2.3 page 29, kube-scheduler on page 31). In the real run an ordinary Pod got a worker as its node and never landed on the control plane, because the control plane carries a taint (ran).
+
+What if no node is suitable? We created a Pod that asks for 64 CPUs although each node has 16. The Pod stayed `Pending` with no node. In its events we find a message that says why each node was rejected (ran).
+
+```text
+0/3 nodes are available: 1 node(s) had untolerated taint {node-role.kubernetes.io/control-plane: },
+2 Insufficient cpu.
+```
+
+It reads: of 3 nodes, 1 fell because of a taint the Pod does not tolerate and 2 fell because the CPU requested was not available. This message is the main tool whenever a Pod sits in Pending, because it names both the condition that failed and how many nodes failed it.
+
+</Step>
+
+<Step>
+
+## The scheduler adds up requests, not real use
+
+The scheduler decides by the sum of the requests of all Pods on a node, not by how much CPU is used right now (book: Kubernetes Up and Running, Resource Requests, page 56). In the exercise each worker had 15,900m of CPU free out of 16,000m (100m was requested by system Pods). We created six Pods that each asked for 6360m, two fifths of what is free. Each worker took two (12,720m together). A third would go over the ceiling, so 4 Pods found a place and 2 waited in Pending (ran).
+
+An interesting point is that these Pods run `sleep`, which uses almost no CPU, yet the node counts as "full" because the quota of requests is already reserved. If requests are set far too high the cluster fills up while CPU is idle. If they are set too low, nodes get packed until they are slow. So this value should be close to what the program really uses.
+
+Pick a request size and a taint in the lab. The Pods that find no place wait in the queue at the top, and the text below gives the reason the scheduler gives.
+
+<SchedulerLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## Choosing with tags: nodeSelector, taints and tolerations
+
+There are three tools to tell the scheduler where a Pod should or should not go.
+
+**nodeSelector** says this Pod must go to a node with this label. In the exercise we put the label `klab-disk=ssd` on one node, and a Pod with the matching `nodeSelector` always landed there (ran).
+
+**A taint** works the other way round. It is a tag on a node that says "do not put a Pod here unless it tolerates this tag". We put the taint `klab-team=data:NoSchedule` on both workers, and a new ordinary Pod stayed Pending because no node was left, while a Pod with a matching **toleration** could land (ran). A toleration does not attract a Pod to the node. It only allows it. A tolerating Pod may still land on another node.
+
+Two details to remember. First, `NoSchedule` does not throw out Pods that were already running. They stay (ran). To evict them you need `NoExecute`. Second, when we removed the taint, the Pod that had been waiting was placed by itself (ran), because the scheduler looks at Pods without a node again and again.
+
+</Step>
+
+<Step>
+
+## Spreading Pods: the control plane counts as an empty place
+
+To spread the replicas of a Deployment over all nodes we use `topologySpreadConstraints`, with a `maxSkew`, the largest allowed difference in the number of Pods between two places. In the exercise we set `maxSkew: 1` by hostname for a Deployment of 6. The first result was only 1 Pod per worker, and the other 4 stuck (ran). Hmm, why?
+
+The reason is that the control plane is counted as a place holding 0 Pods, although our Pods cannot land there because of its taint. Once each worker has its first Pod, a second one on a worker would make the difference from the control plane (0) equal to 2, which is over `maxSkew` for both, so no more can be placed. The fix is `nodeTaintsPolicy: Honor`, so the scheduler ignores nodes the Pod cannot tolerate. After that the 6 Pods split 3 and 3 (ran). It is a good example of a default that looks sensible but gives a surprise when the cluster has taints.
+
+</Step>
+
+<Step>
+
+## cordon, drain and a PodDisruptionBudget
+
+To repair or upgrade a node we have three commands in order. `kubectl cordon` makes the node `SchedulingDisabled`: no new Pods, but the existing ones stay. In the exercise, when we raised replicas to 8, the extra Pods did not land on the cordoned node (ran). Then `kubectl drain` asks Pods to leave the node politely (evicts them), and a controller creates new ones elsewhere.
+
+If everything is evicted at once the service goes down. That is the job of a PodDisruptionBudget (PDB), which says how many Pods must always be Ready. In the exercise we set `minAvailable: 6` for a Deployment of 6, meaning not even one may be lost. The result was that `drain` could not evict any Pod and failed after waiting until it timed out (ran). When we removed the PDB the drain succeeded, and all 6 Pods moved to the worker that was left (ran). A PDB is the owner of a service telling whoever looks after the cluster how far they may go.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A worker has 16,000m of CPU free. We create three Pods that each request 6000m, and all three run programs that use almost no CPU. How many Pods can the scheduler place on this worker (no other node to choose)?"
+  options={[
+    'All three, because the CPU actually used is almost 0',
+    'Two, because the requests of two total 12,000m, and a third would go over 16,000m',
+    'One, because the scheduler places one at a time',
+    'None, because a Pod must have a limit first'
+  ]}
+  answer={1}
+  why="The scheduler adds up requests only, and does not look at real use. Two together are 12,000m, within the 16,000m ceiling, but a third would make 18,000m, so it stays Pending. In the exercise we met the same situation with Pods that asked for 6360m."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A Pod asking for 64 CPUs stays Pending with no node, and the event gives the number of nodes that failed for each reason | ran: `exercises/05_scheduling.py` |
+| A worker has 15,900m of CPU free, and 6 Pods asking for 6360m are placed 2 per worker, 2 Pending | ran: `exercises/05_scheduling.py` |
+| `nodeSelector` places a Pod on a labelled node | ran: `exercises/05_scheduling.py` |
+| A NoSchedule taint makes an ordinary Pod Pending, a toleration allows it, running Pods are not evicted, and after the taint is removed the waiting Pod is placed by itself | ran: `exercises/05_scheduling.py` |
+| `topologySpreadConstraints` first placed only 1 per worker and needed `nodeTaintsPolicy: Honor` to give 3 and 3 | ran: `exercises/05_scheduling.py` |
+| cordon gives SchedulingDisabled and takes no new Pods, drain fails with a PodDisruptionBudget, and drain succeeds without it | ran: `exercises/05_scheduling.py` |
+| The reason the control plane counts as a place with 0 Pods blocks the second one | author (inferred from the result and from Honor fixing it, the scheduler source was not read) |
+| The 1000m case in the lab (3 per worker) | author (computed the same way, not run) |
+| The scheduler chooses a node for a Pod through the API | book: Core Kubernetes, section 2.3 page 29 |
+| Requests decide placement, and the Automated Placement pattern | book: Kubernetes Up and Running, Resource Requests page 56 and Kubernetes Patterns, Automated Placement page 47 |
+
+</Step>

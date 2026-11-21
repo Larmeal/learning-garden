@@ -1,0 +1,130 @@
+---
+title: Inside a node
+summary: The kubelet does not run containers itself. It tells containerd through the CRI. We open up a real worker and see the sandbox called pause, the namespaces that the containers of one Pod share, the cgroup files that hold requests and limits, and the veth and routes that join a Pod to the network.
+facts:
+  - "Ran for real in exercises/11_node_inside.py on a minikube worker (Kubernetes v1.31.0, containerd 1.7.21, cgroup v2 with the cgroupfs driver, CNI kindnet): containerd listening on the unix socket the kubelet is configured with, a Pod as a sandbox running /pause plus containers, all containers sharing one network namespace but with separate mount and PID namespaces, a memory limit as memory.max, a CPU limit as cpu.max and a CPU request as cpu.weight, a container in a busy loop squeezed to about 10%, each node's Pod CIDR, a veth, routes to other nodes, ping across nodes giving TTL 62 against 63 on the same node, and restarting the kubelet not restarting the containers."
+  - "Other networks (Calico, Antrea) and cgroup v1 were not tried. The details of the kubelet and the CRI come from the book Core Kubernetes chapters 4, 5 and 9, pages 69 to 190. The source of the kubelet and containerd was not read."
+order: 11
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [control-plane]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import NodeLab from '../../../../components/labs/kubernetes/NodeLab';
+
+<Step>
+
+## The kubelet gives the order, the runtime does the work
+
+In the lesson [Control plane](/en/kubernetes/control-plane/) the kubelet is the part that sees a Pod assigned to its own node and makes it run. But the kubelet does not run containers itself. It talks to the container runtime through a standard called the CRI (Container Runtime Interface), which is the reason the runtime can be swapped without the kubelet knowing (book: Core Kubernetes, section 9.3 page 182 and 9.4 page 185). In the real run on a worker, the kubelet's config file pointed at `unix:///run/containerd/containerd.sock`, and `containerd` was really listening on that socket (ran). It is the same low level runtime that Docker uses inside. In the Docker path we saw a container as a process on a kernel that Docker prepared rooms for, and the lesson [Namespaces and cgroups](/en/docker/namespaces-and-cgroups/) tells about those rooms. This time we see how Kubernetes uses the same rooms to make a Pod.
+
+We created a Pod with two containers (`a`, which loops using all the CPU it can, and `b`, which just sleeps) and asked `containerd` through the tool `crictl` on the node. A Pod turned out to be one sandbox plus the containers `a` and `b` (ran), and the process of the sandbox is `/pause`, a tiny program that does nothing except hold the namespaces for the other containers to join (ran). This is why `ps` in a Pod with `shareProcessNamespace` shows `/pause` as PID 1 (book: Core Kubernetes, section 9.3 page 184, on the pause container).
+
+</Step>
+
+<Step>
+
+## One namespace in common, but not all of them
+
+Let us ask the kernel which namespaces `/pause` and the two containers are in, by reading the links `/proc/<pid>/ns/<kind>` of the processes on the node. The result (ran):
+
+| Kind of namespace | The three processes (pause, a, b) |
+|---|---|
+| `net` | the same number for all, 1 shared |
+| `mnt` | all three different, 3 in all |
+| `pid` | all three different, 3 in all |
+
+This fits the lesson [Pod](/en/kubernetes/pods/) exactly. Containers of one Pod share the network, so they reach each other over `localhost`, but have separate mount and PID namespaces, so they do not see each other's files and processes (book: Core Kubernetes, section 2.2 page 22). The remaining mechanisms are cgroups and the network. Step through them one at a time in the lab below.
+
+<NodeLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## Requests and limits become files in a cgroup
+
+The Pod has a container `a` with a CPU request of 50m, a CPU limit of 100m and a memory limit of 64Mi, and `b` with nothing set. The kubelet makes it real by writing files in a cgroup that the kernel reads. In the exercise we opened the Pod's folder under `/sys/fs/cgroup/kubepods/burstable/pod<uid>/` (the folder `burstable` is the QoS class of this Pod) and read the values (ran).
+
+| File | Value for container a | Meaning |
+|---|---|---|
+| `memory.max` | 67108864 | a memory ceiling of 64Mi, killed when exceeded |
+| `cpu.max` | `10000 100000` | may use 10 ms in every 100 ms, which is 10% of one CPU |
+| `cpu.weight` | 2 | its share when CPU is contended, from the 50m request |
+
+Container `b` has no limit, so its `memory.max` is `max` and `cpu.max` has no ceiling. And `a`, which wants all the CPU, is really squeezed. Over three seconds it used about 10% of one CPU and was throttled in every 100 ms period (31 of 31) (ran). This matches what the Docker lesson [Namespaces and cgroups](/en/docker/namespaces-and-cgroups/) explains about `cpu.max` (book: Core Kubernetes, section 4.4 page 79 and section 4.5 page 83 on QoS classes). That a container over its memory is killed with code 137 we already saw in the lesson [Pod](/en/kubernetes/pods/).
+
+</Step>
+
+<Step>
+
+## The network: a veth, routes and two hops
+
+A Pod gets an IP from the range that its node owns. In the real run the three nodes each had a different `/24` Pod CIDR (`10.244.0.0/24`, `10.244.1.0/24`, `10.244.2.0/24`), and a Pod's IP fell in the range of the node it runs on (ran). On the Pod side we see an `eth0`, which is one end of a veth pair whose other end is on the node (ran). If we go back to the lesson [Ethernet, switches and ARP](/en/networking/link-layer/) on layer 2 and [Proxies, load balancers and container networks](/en/networking/proxies-and-containers/), where containers join a bridge, we see that this time it is different.
+
+The CNI that minikube uses is kindnet, configured as the `ptp` plugin together with `host-local` and `portmap` (ran). The `ptp` type means a direct veth with no bridge. The result is two groups of routes on the node (ran).
+
+```text
+10.244.0.0/24 via 192.168.67.2 dev eth0      # CIDR of another node, sent through that node's IP
+10.244.1.123 dev veth3a83eacd scope host      # a Pod on this node, sent straight into its veth
+10.244.2.0/24 via 192.168.67.4 dev eth0
+```
+
+We measured the number of hops with the TTL used in the lesson [Routers, TTL and the path of a packet](/en/networking/ip-routing/). When we pinged from a Pod to a Pod on the same node, the answer came back with TTL 63 (one less at the node), and when we pinged a Pod on another node the TTL was 62 (reduced twice, by passing two nodes) (ran), which fits what the routes say (book: Core Kubernetes, section 5.4 page 104, on the architecture of a CNI plugin).
+
+</Step>
+
+<Step>
+
+## Restarting the kubelet does not kill containers
+
+One last thing to know. When the kubelet dies or is restarted, the containers that are running do not die with it, because a container is a process that `containerd` looks after. In the exercise we ran `systemctl restart kubelet` on a worker. After the node was Ready again the list of containers of the Pod had the same ids, the process of `a` had the same number, and the `restartCount` of the Pod was still 0 (ran). This is why a kubelet can be upgraded without interrupting the service.
+
+<Callout type="note" title="What this lesson did not try">
+We looked at one CNI, kindnet in `ptp` mode. Other CNIs such as Calico or Antrea use bridges, tunnels or overlays differently (book: Core Kubernetes, section 5.3 page 102 and 5.4 page 103), and we did not try cgroup v1.
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We ping from one Pod to another in a cluster whose CNI has each node forward packets itself. The answer from a Pod on the same node has TTL 63. If we ping a Pod on another node, what TTL should we get, and why?"
+  options={[
+    '63, because wherever the Pod is the traffic passes the same switch',
+    '62, because the packet is forwarded by both the source node and the destination node, which lowers the TTL twice',
+    '64, because nodes do not lower the TTL',
+    '60, because it has to pass the API server'
+  ]}
+  answer={1}
+  why="Each node that forwards a packet acts like a router, which lowers the TTL by 1. 63 on the same node means passing one node, and across nodes it passes two, leaving 62. The exercise saw both values, and requests between Pods do not pass the API server."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The kubelet is configured with the containerd socket and containerd is listening | ran: `exercises/11_node_inside.py` |
+| A Pod is a sandbox running `/pause` plus our containers | ran: `exercises/11_node_inside.py` |
+| Containers share one net namespace (1) and have separate mnt and pid (3) | ran: `exercises/11_node_inside.py` |
+| `memory.max` 67108864, `cpu.max` `10000 100000`, `cpu.weight` 2, a container with no limit gets max, and a looping container is squeezed to about 10% (throttled every period) | ran: `exercises/11_node_inside.py` |
+| A /24 Pod CIDR per node, a veth, routes to other nodes' CIDRs through the node IP, and the plugins ptp, host-local and portmap | ran: `exercises/11_node_inside.py` |
+| ping TTL is 63 on the same node and 62 across nodes | ran: `exercises/11_node_inside.py` |
+| Restarting the kubelet does not restart the containers (same ids and process, restartCount 0) | ran: `exercises/11_node_inside.py` |
+| A kubelet can be upgraded without interrupting the service, and `containerd` is the same runtime that Docker uses inside | author (inferred from the run and from general understanding, an upgrade was not tried) |
+| The CRI and the pause container, QoS classes and the architecture of CNI | book: Core Kubernetes, section 9.3 pages 182 and 184, 9.4 page 185, 4.4 page 79, 4.5 page 83, 5.4 page 104 |
+| A Pod as a group of namespaces | book: Core Kubernetes, section 2.2 page 22 |
+
+</Step>

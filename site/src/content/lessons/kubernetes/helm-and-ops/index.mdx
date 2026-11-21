@@ -1,0 +1,120 @@
+---
+title: Helm, HPA และ Debug
+summary: Helm แพ็กออบเจ็กต์ทั้งชุดเป็น Release ที่มีประวัติและย้อนกลับได้ HorizontalPodAutoscaler ปรับจำนวน Pod ตาม CPU ขึ้นเร็วลงช้า และเมื่อ Pod พัง สถานะที่เห็นบอกว่าชั้นไหนมีปัญหา และควรถามด้วยคำสั่งไหน
+facts:
+  - "รันจริงใน exercises/14_helm_hpa_debug.py บน minikube (Kubernetes v1.31.0, Helm v3.13.3, metrics-server v0.7.2): Chart ที่เขียนเอง (helm lint, template, ลำดับค่า ค่าเริ่มต้น น้อยกว่า -f ไฟล์ น้อยกว่า --set), helm install ที่ได้ Release พร้อม Secret ต่อ Revision, upgrade และ rollback ที่เพิ่ม Revision ใหม่เสมอ, upgrade ที่พังด้วย Image ผิดเป็น failed ขณะที่ Pod เดิมยังรับงาน, uninstall ที่ลบ Secret ของ Release, HPA ที่อ่านได้ 200% เทียบเป้า 50% แล้วเพิ่มจาก 1 เป็น 4 และลดกลับเป็น 1 หลังหยุดโหลด และ Pod ที่พัง 3 แบบ (ImagePullBackOff, CrashLoopBackOff, Pending) กับ Service ที่ Selector ผิดจนไม่มี Endpoint"
+  - "เวลาในการสเกลของ HPA (78 วินาทีขึ้น และ 120 วินาทีลง) รวมเวลาที่ metrics-server ใช้ก่อนอ่านค่าแรก และมีหน้าต่างรอ 20 วินาทีที่เราตั้งเอง ไม่ใช่ค่าปกติ (ค่าปกติหน้าต่างรอลดคือ 5 นาที) แนวคิดมาจากหนังสือ Learning Helm หน้า 18 ถึง 37, Kubernetes Patterns หัวข้อ Elastic Scale หน้า 203 และ Kubernetes Up and Running หน้า 40 และ 110 ไม่ได้ลองส่วนอื่นของ Helm (Repository, Dependency, Hook, Chart ที่ซับซ้อน)"
+order: 14
+phase: E
+level: 4
+stage: sprout
+format: steps
+requires: [rbac-security]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import HelmLab from '../../../../components/labs/kubernetes/HelmLab';
+import AutoscaleLab from '../../../../components/labs/kubernetes/AutoscaleLab';
+import DebugLab from '../../../../components/labs/kubernetes/DebugLab';
+
+<Step>
+
+## Helm: แพ็กทั้งชุดเป็นหนึ่ง Release
+
+ในบทที่ผ่านมาเราเขียน YAML ทีละไฟล์ แต่แอปจริงมี Deployment, Service, ConfigMap และอื่น ๆ รวมกันเป็นสิบไฟล์ และต้องการค่าต่างกันในแต่ละที่ที่รัน Helm คือเครื่องมือที่แพ็กไฟล์เหล่านั้นเป็น Chart โดยมีแม่แบบ (Template) กับค่าเริ่มต้น (`values.yaml`) แล้วทำให้เป็น Release ที่มีชื่อและประวัติ (หนังสือ: Learning Helm หัวข้อ Resources, Installations, And Releases หน้า 18)
+
+เราเขียน Chart ตัวเล็กชื่อ `webapp` ที่มีแม่แบบ Deployment กับ Service และค่าเริ่มต้นสามค่า `replicas`, `message`, `image` (รัน) คำสั่ง `helm lint` ผ่าน และ `helm template` พิมพ์ YAML ออกมาโดยยังไม่สร้างอะไรในคลัสเตอร์เลย (รัน) ค่าถูกแทนเข้าไปตามลำดับความสำคัญ ค่าเริ่มต้นต่ำสุด รองลงมาคือไฟล์ที่ส่งด้วย `-f` และสูงสุดคือ `--set` ในการรันจริงเราเห็น Replicas เป็น 2 (ค่าเริ่มต้น), 5 (`--set`), 7 (`-f prod.yaml`) และ 9 เมื่อใช้ทั้ง `-f` กับ `--set` (รัน) (หนังสือ: Learning Helm หัวข้อ Configuration at Installation Time หน้า 30)
+
+</Step>
+
+<Step>
+
+## Release มีประวัติ และย้อนกลับได้
+
+กดไปทีละขั้นใน Lab นี้ เพื่อดูว่า Revision ของ Release ซ้อนกันอย่างไร
+
+<HelmLab client:visible />
+
+`helm install` สร้าง Release ที่ Revision 1 ได้ Deployment กับ Service ที่ติด Label `managed-by: Helm` และ Helm เก็บแต่ละ Revision ไว้เป็น Secret ชนิด `helm.sh/release.v1` ชื่อ `sh.helm.release.v1.demo.v1` (รัน) (หนังสือ: Learning Helm หัวข้อ How Helm Stores Release Information หน้า 37) `helm upgrade` ได้ Revision 2 และ Revision 1 กลายเป็น `superseded` ส่วน `helm rollback 1` ไม่ได้ย้อนประวัติ มันสร้าง Revision 3 ที่มีเนื้อหาเหมือน Revision 1 ประวัติจึงเดินหน้าอย่างเดียว (รัน)
+
+แล้วถ้า Upgrade พังล่ะ เราลอง Upgrade ด้วย Image ที่ไม่มีอยู่จริงและใส่ `--wait` ผลคือคำสั่งล้มเหลวด้วย `UPGRADE FAILED: context deadline exceeded` และ Release ถูกทำเครื่องหมาย `failed` (Revision 4) แต่ Pod ของ Revision ก่อนหน้ายังพร้อมอยู่ 2 ตัว เพราะ Rolling Update ที่เห็นในบท [Deployment](/kubernetes/deployments/) ไม่ถอด Pod เก่าจนกว่าตัวใหม่จะพร้อม จากนั้น `helm rollback 3` ได้ Revision 5 สถานะ `deployed` (รัน) สุดท้าย `helm uninstall` ลบ Deployment, Service และ Secret ของทุก Revision (รัน)
+
+</Step>
+
+<Step>
+
+## Autoscaling: ขึ้นเร็ว ลงช้า
+
+ปกติเราตั้งจำนวน Pod ด้วยมือ แต่ HorizontalPodAutoscaler (HPA) ปรับให้ตามโหลด ตัวมันอ่าน CPU เฉลี่ยของ Pod จาก Metrics-server แล้วคำนวณจำนวนที่ต้องการ = ปัดขึ้น(จำนวนปัจจุบัน × การใช้ ÷ เป้า) จำกัดด้วยค่าต่ำสุดและสูงสุด (หนังสือ: Kubernetes Patterns หัวข้อ Elastic Scale หน้า 203 และ Kubernetes Up and Running หัวข้อ Autoscaling a ReplicaSet หน้า 110)
+
+ในแบบฝึก เราให้ Container ตัวหนึ่งวนลูปเต็ม CPU แต่มี Limit 200m ในขณะที่ Request 100m และตั้ง HPA เป้า 50% กับ Replicas ตั้งแต่ 1 ถึง 4 ผลที่อ่านได้คือ 200% ของ Request เทียบกับเป้า 50% ได้จำนวนที่ต้องการ 4 พอดี HPA เพิ่มจาก 1 เป็น 4 (รัน) เมื่อเราหยุดโหลด ค่าตกเกือบ 0 และ HPA ลดกลับเป็น 1 หลังหน้าต่างรอ (Stabilization) ที่เราตั้งไว้ 20 วินาที รวมใช้เวลา 120 วินาที (รัน)
+
+<AutoscaleLab client:visible />
+
+มีข้อควรจำสองอย่าง ข้อแรก เวลา 78 วินาทีส่วนใหญ่คือรอ Metrics-server อ่านค่าแรก และหน้าต่างรอลดของจริงมีค่าปกติ 5 นาที เราย่นเหลือ 20 วินาทีเพื่อไม่ต้องรอ ข้อสอง การตั้ง Request ต้องสมเหตุสมผล เพราะ HPA วัดเป็นเปอร์เซ็นต์ของ Request ถ้าไม่ได้ตั้ง Request HPA คำนวณไม่ได้
+
+</Step>
+
+<Step>
+
+## Pod พัง: สถานะบอกว่าชั้นไหนมีปัญหา
+
+เรื่องสุดท้ายคือหาสาเหตุเมื่อมีอะไรผิด สถานะที่เห็นใน `kubectl get pods` บอกชั้นของปัญหา แล้วเราถามออบเจ็กต์ด้วยคำสั่งที่ตรงกับชั้นนั้น (หนังสือ: Kubernetes Up and Running หัวข้อ Debugging Commands หน้า 40) ในการรันจริง เราทำให้พังหลายแบบ ผลที่ได้ (รัน)
+
+| สถานะที่เห็น | เกิดจาก | คำสั่งที่เปิดเผยสาเหตุ |
+|---|---|---|
+| `ImagePullBackOff` | ชื่อหรือ Tag ของ Image ผิด | `kubectl describe pod` ได้ `Failed to pull image "busybox:no-such-tag"` |
+| `CrashLoopBackOff` | โปรแกรมจบด้วยรหัสผิดปกติซ้ำ ๆ | `kubectl logs --previous` ได้ผลลัพธ์ของรอบก่อน (`boom`) |
+| `Pending` ไม่มีสถานะ Container | ไม่มี Node ที่วางได้ | `kubectl describe pod` ส่วน Events ได้ `Insufficient cpu` |
+| `CreateContainerConfigError` | Secret หรือ Key ที่อ้างไม่มี | อ่านข้อความของ `state.waiting.message` |
+| `OOMKilled` | ใช้ Memory เกิน Limit | `state.terminated` ได้ Exit Code 137 |
+| Service ไม่มี Endpoint | Selector ไม่ตรง Label | `kubectl get endpoints` ว่าง |
+
+กดเลือกอาการใน Lab ข้างล่างเพื่อดูชุดคำถามกับผลที่ได้ทีละแบบ
+
+<DebugLab client:visible />
+
+หลักง่าย ๆ คือ ถ้า Pod ยังไม่ได้ Node (`Pending`) ปัญหาอยู่ที่ Scheduler ถ้า Pod ได้ Node แล้วแต่ Container ไม่ขึ้น (`ImagePullBackOff`, `CreateContainerConfigError`) ปัญหาอยู่ที่ Image หรือค่าที่อ้าง ถ้า Container ขึ้นแล้วตาย (`CrashLoopBackOff`, `OOMKilled`) ปัญหาอยู่ที่โปรแกรมหรือทรัพยากร และถ้า Pod Running แต่ไม่ได้รับงาน (Not Ready หรือไม่มี Endpoint) ปัญหาอยู่ที่ Probe หรือ Label
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Pod ตัวหนึ่งมีสถานะ CrashLoopBackOff และ restartCount เพิ่มขึ้นเรื่อย ๆ ควรทำอะไรเป็นอย่างแรกเพื่อหาสาเหตุ"
+  options={[
+    'ลบ Node ที่ Pod อยู่',
+    'อ่าน Log ของรอบที่เพิ่งตาย ด้วยตัวเลือก Previous ของคำสั่ง Logs',
+    'เพิ่มจำนวน replicas',
+    'เปลี่ยน Service ให้เป็น NodePort'
+  ]}
+  answer={1}
+  why="CrashLoopBackOff แปลว่า Container ขึ้นแล้วตายซ้ำ ผลลัพธ์ของรอบก่อนอยู่ใน Log ของ Container ที่ตายไปแล้ว ซึ่งคำสั่ง Logs ตามปกติอ่านไม่ได้ ต้องใช้ตัวเลือก Previous ในแบบฝึกได้ข้อความ Boom ที่โปรแกรมพิมพ์ก่อนออกด้วยรหัส 1"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| `helm lint` ผ่าน, `helm template` ไม่สร้างอะไรในคลัสเตอร์ และค่าเรียงตามลำดับ ค่าเริ่มต้น น้อยกว่า `-f` น้อยกว่า `--set` (2, 5, 7, 9) | รัน: `exercises/14_helm_hpa_debug.py` |
+| `helm install` ได้ Release พร้อม Label managed-by Helm และ Secret ต่อ Revision | รัน: `exercises/14_helm_hpa_debug.py` |
+| Upgrade ได้ Revision 2, Rollback ได้ Revision 3 (เนื้อหาเหมือน Revision 1) และประวัติไม่ย้อนกลับ | รัน: `exercises/14_helm_hpa_debug.py` |
+| Upgrade ด้วย Image ผิดล้มเหลวและ Release เป็น Failed โดย Pod เดิมยังพร้อม และ Rollback แก้ได้ | รัน: `exercises/14_helm_hpa_debug.py` |
+| `helm uninstall` ลบ Deployment, Service และ Secret ทุก Revision | รัน: `exercises/14_helm_hpa_debug.py` |
+| HPA อ่านได้ 200% เทียบเป้า 50%, เพิ่มจาก 1 เป็น 4 และลดเป็น 1 หลังหยุดโหลด | รัน: `exercises/14_helm_hpa_debug.py` |
+| อาการ ImagePullBackOff, CrashLoopBackOff, Pending และ Service ที่ไม่มี Endpoint พร้อมคำสั่งที่เปิดเผยสาเหตุ | รัน: `exercises/14_helm_hpa_debug.py` |
+| อาการ CreateContainerConfigError และ OOMKilled | รัน: `exercises/08_config_secrets.py` และ `exercises/02_pods.py` |
+| หน้าต่างรอลดของ HPA โดยปกติคือ 5 นาที | ผู้เขียน (ค่าเริ่มต้นของ Kubernetes ไม่ได้วัด แบบฝึกตั้งเป็น 20 วินาที) |
+| การแบ่งชั้นปัญหาตามสถานะ Pod ในย่อหน้าสุดท้าย | ผู้เขียน (ข้อสรุปจากผลที่รัน ไม่ใช่รายการครบถ้วน) |
+| Chart, Release, ค่าตอนติดตั้ง และการเก็บ Release | หนังสือ: Learning Helm หัวข้อ Resources, Installations, And Releases หน้า 18, Configuration at Installation Time หน้า 30 และ How Helm Stores Release Information หน้า 37 |
+| HPA และคำสั่งตรวจ | หนังสือ: Kubernetes Patterns หัวข้อ Elastic Scale หน้า 203 และ Kubernetes Up and Running หัวข้อ Autoscaling a ReplicaSet หน้า 110 และ Debugging Commands หน้า 40 |
+
+</Step>

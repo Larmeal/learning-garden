@@ -1,0 +1,106 @@
+---
+title: Inside the control plane
+summary: The API server is the only door to etcd, and the other components are clients that each watch the objects they care about and write the next object. We stop the scheduler and the controller manager one at a time, and see what stops and what keeps working.
+facts:
+  - "Ran for real in exercises/10_control_plane.py on minikube (Kubernetes v1.31.0): the four static Pod manifests in /etc/kubernetes/manifests, objects as keys in etcd (/registry/pods/<ns>/<name>, 30 top level kinds), a watch that received ADDED, MODIFIED and DELETED events, a stale resourceVersion refused with Conflict, a stopped scheduler leaving a new Pod Pending with no node and no event, a stopped controller manager leaving a deleted Pod unreplaced and a replica count of 5 stored but not acted on, node Leases renewed about every 10 seconds, and --cascade=orphan leaving the ReplicaSet and Pods alive."
+  - "minikube starts the scheduler and the controller manager with --leader-elect=false because there is one control plane node, so there was no leader election Lease to look at in the exercise. The overview of the control plane comes from the books Core Kubernetes chapters 11 and 12, pages 205 to 238, and Programming Kubernetes chapters 1 and 2. The Kubernetes source code was not read."
+order: 10
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [storage]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ControlPlaneLab from '../../../../components/labs/kubernetes/ControlPlaneLab';
+
+<Step>
+
+## Everything is stored in etcd, and the only door is the API server
+
+In the [first lesson](/en/kubernetes/why-kubernetes/) we named the components of the control plane. This time we go down to see how they talk. Start by finding where they run. In the exercise we opened the folder `/etc/kubernetes/manifests` on the control plane and found four files: `etcd.yaml`, `kube-apiserver.yaml`, `kube-controller-manager.yaml` and `kube-scheduler.yaml` (ran). The kubelet of that node reads this folder directly and runs them as Pods called static Pods, without waiting for an API server. That answers the question of who creates the API server when there is no API server yet. The Pods we see in `kube-system` are only mirror Pods that the kubelet reflects into the API, with the Node as their owner (ran) (book: Core Kubernetes, section 11.1 page 206).
+
+The API server is started with the parameter `--etcd-servers=https://127.0.0.1:2379` (ran), and it is the only one that talks to `etcd`. Every other component talks to the API server, the same way `kubectl` does (book: Core Kubernetes, section 11.2 page 207). We can read `etcd` directly. One of our Pods is a single key, `/registry/pods/<namespace>/<name>`, and under `/registry/` there are 30 top level kinds of object in all, such as `pods`, `services`, `deployments`, `secrets` and `leases` (ran). That means the whole state of the cluster is this one key and value database (book: Core Kubernetes, section 12.2 page 227).
+
+</Step>
+
+<Step>
+
+## Watches, and optimistic locking
+
+If every part kept asking the API server "has anything changed?", the system would be heavy. Kubernetes uses a watch instead: it opens an HTTP request and leaves it open, and the API server sends an event each time something changes. In the exercise we opened a watch on a Pod, then added a label and deleted the Pod, and received the events `ADDED`, several `MODIFIED`, and `DELETED` in order (ran). This is why the cluster reacts fast without asking again and again (book: Core Kubernetes, section 12.2 page 228, and Programming Kubernetes, The HTTP Interface of the API Server, page 20).
+
+When several parts edit the same object at once, we do not want one to overwrite another without knowing. Every object has a `resourceVersion` that changes at every edit. If we send an edit that quotes an old number, the API server refuses with `Conflict`. In the exercise we did a `replace` of a ConfigMap with an old `resourceVersion` and got the message `the object has been modified; please apply your changes to the latest version`, and the stored value was not overwritten (ran). This is optimistic concurrency, where the loser must read the new value and try again (book: Programming Kubernetes, Optimistic Concurrency, page 14).
+
+</Step>
+
+<Step>
+
+## Stop them one at a time: the scheduler and the controller manager
+
+One of the best ways to understand something is to take a component away and see what breaks. In the exercise we moved the manifest of the scheduler out of the kubelet's folder, so that Pod stopped running, and then created a new Pod. The Pod was created and stored in the API, but stayed `Pending` with no `nodeName` and not one event, not even `FailedScheduling`, because nobody tried to place it. When we moved the file back the scheduler woke up, saw the waiting Pod, and placed it within seconds (ran).
+
+Then we did the same to the controller manager. While it was stopped, a Pod of a Deployment that we deleted was not replaced (2 left out of 3), and when we raised `replicas` to 5 the API server accepted and stored the number, yet there were still only 2 Pods (ran). When the controller manager came back it saw the difference and filled up to 5 Ready Pods within a few tens of seconds (ran).
+
+Try it in the lab below. Pick which component to stop and press Next through the creation of a Deployment, and see which step does not happen.
+
+<ControlPlaneLab client:visible lang="en" />
+
+The lesson of this experiment is that the control plane is not a boss giving orders. It is several loops that each watch one kind of object and write the next one. When one stops, what comes before it keeps working (values are still stored) and what comes after waits, and when it returns it catches up by itself, because it looks at the current state and not at the events it missed. The book Programming Kubernetes calls this level-driven, as against edge-driven, which must never miss an event (book: Programming Kubernetes, Edge- Versus Level-Driven Triggers, page 9).
+
+</Step>
+
+<Step>
+
+## Heartbeats, leaders and deleted owners
+
+Back to the first lesson, where a node was declared `NotReady` after about 40 seconds of silence. In the exercise we looked at the namespace `kube-node-lease`, which has one Lease per node, `garden`, `garden-m02` and `garden-m03`, and the `renewTime` of `garden-m02` moved on by about 10 seconds each time (ran). This is the heartbeat the kubelet sends, and what the node controller looks at before it marks a node NotReady (book: Core Kubernetes, section 9.3 page 180).
+
+In a cluster with several control plane nodes, the scheduler and the controller manager use a Lease of the same kind to elect a leader, so that only one really works. But minikube starts these two with `--leader-elect=false` because it has only one control plane node (ran), so there was no leader Lease to look at in the exercise.
+
+The last thing is garbage collection by `ownerReferences`, which we have seen since the Deployment lesson. When we deleted a Deployment with `--cascade=orphan`, the ReplicaSet and all 5 Pods stayed (ran), while deleting a ReplicaSet the normal way removes the Pods it owns (ran). Even with no controller manager that time, there was still a collector doing this job.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="If the scheduler stops for a while and we create a new Pod during that time, what do we see, and what happens when the scheduler returns?"
+  options={[
+    'The Pod cannot be created, because the API server refuses',
+    'The Pod is created and stored in the API but stays Pending with no node and no event, and when the scheduler returns it sees the waiting Pod and places it',
+    'The Pod is placed on a random node by the kubelet',
+    'The Pod is deleted by itself after a timeout'
+  ]}
+  answer={1}
+  why="The API server does not depend on the scheduler, so creating the object succeeds. Placement is the scheduler's job, so without it the Pod waits. When the scheduler returns it looks for Pods with no node and handles them. The exercise showed exactly this."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The four manifests are in /etc/kubernetes/manifests and the Pods in kube-system are mirror Pods owned by the Node | ran: `exercises/10_control_plane.py` |
+| The API server has `--etcd-servers` set, and every kind of data is a key under /registry (30 top level kinds) | ran: `exercises/10_control_plane.py` |
+| A watch received the events ADDED, MODIFIED and DELETED from changing a Pod | ran: `exercises/10_control_plane.py` |
+| An edit with an old resourceVersion is refused with Conflict and the value is not overwritten | ran: `exercises/10_control_plane.py` |
+| With the scheduler stopped a Pod stays Pending with no node and no event, and is placed when the scheduler returns | ran: `exercises/10_control_plane.py` |
+| With the controller manager stopped a deleted Pod is not replaced, replicas 5 is stored but not acted on, and the Deployment catches up when it returns | ran: `exercises/10_control_plane.py` |
+| minikube uses `--leader-elect=false`, and node Leases are renewed about every 10 seconds | ran: `exercises/10_control_plane.py` |
+| `--cascade=orphan` leaves the ReplicaSet and Pods, and deleting a ReplicaSet removes its Pods | ran: `exercises/10_control_plane.py` |
+| Static Pods let the control plane start before there is an API server | author (inferred from the kubelet reading the manifest folder directly, not tested separately) |
+| The control plane, the API server, the scheduler and the controller manager | book: Core Kubernetes, section 11.1 page 206, 11.2 page 207, 11.3 page 214 |
+| etcd as the data store with watch support, and node Leases | book: Core Kubernetes, section 12.2 page 227 and section 9.3 page 180 |
+| Optimistic concurrency, and edge versus level driven triggers | book: Programming Kubernetes, page 14, and Edge- Versus Level-Driven Triggers, page 9 |
+
+</Step>

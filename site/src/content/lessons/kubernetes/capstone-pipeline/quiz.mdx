@@ -1,0 +1,63 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 3 ข้อ เพื่อเช็กว่ารู้ว่างานที่ Retry ได้ต้องทำอย่างไร อ่านอาการ FailedMount ออก และรู้ว่าข้อมูลอยู่ที่ไหนเมื่อ Pod ฐานข้อมูลถูกลบ
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Loader Job มี backoffLimit และ Pod อาจล้มเหลวกลางทางแล้วถูกรันใหม่ทั้งตัว ข้อไหนบอกสิ่งที่ SQL ของ Loader ควรทำได้ถูกต้อง"
+  options={[
+    'แทรกข้อมูลทุกครั้งโดยไม่ตรวจ เพราะ Retry ไม่เคยเกิดขึ้น',
+    'ออกแบบให้รันซ้ำได้ เช่นแทรกโดยไม่ทำซ้ำเมื่อมีแถวนั้นอยู่แล้ว เพื่อให้รันกี่รอบผลก็เท่าเดิม',
+    'ลบตารางทั้งหมดก่อนทุกครั้ง',
+    'ปิด Retry'
+  ]}
+  answer={1}
+  why="Pod ที่ล้มเหลวถูกรันใหม่ทั้งตัว ถ้างานแทรกซ้ำแล้วข้อมูลซ้ำ ผลจะเพี้ยน ในแบบฝึกใช้ ON CONFLICT DO NOTHING รอบสองจาก CronJob จึงแทรก 0 แถว และตารางยังมี 1000 แถว"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Loader Pod ค้างก่อนที่ Init Container จะเริ่ม และ Events ของ Pod บอกว่า MountVolume.SetUp Failed: references non-existent secret key ควรแก้ที่ไหน"
+  options={[
+    'เพิ่ม Memory ของ Pod',
+    'แก้ชื่อ Key ในการอ้างถึง Secret ของ Volume ให้ตรงกับ Key ที่มีอยู่จริง',
+    'ลบ NetworkPolicy',
+    'เปลี่ยน Image ของฐานข้อมูล'
+  ]}
+  answer={1}
+  why="Kubelet Mount Volume ของ Secret ไม่ได้เพราะ Key ที่ระบุไม่มีอยู่ Pod จึงไม่ผ่านขั้น Mount ไปถึง Init Container แก้ที่ชื่อ Key ในแบบฝึกคือพิมพ์ Pasword แทน Password"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Pod ฐานข้อมูล (db-0) ของ StatefulSet ถูกลบ ข้อมูลในตารางเป็นอย่างไรเมื่อ Pod ใหม่ขึ้นมา"
+  options={[
+    'หายหมด เพราะข้อมูลอยู่ใน Pod',
+    'ยังอยู่ครบ เพราะข้อมูลอยู่ใน PVC ที่ StatefulSet ผูกกับชื่อ db-0 และ Pod ใหม่ Mount Claim เดิมกลับ',
+    'ถูกคัดลอกจาก Pod ตัวอื่น',
+    'ต้องกู้จากการสำรองข้อมูลเสมอ'
+  ]}
+  answer={1}
+  why="StatefulSet ผูก Claim กับชื่อ Pod ไม่ใช่กับตัว Pod ในแบบฝึก db-0 กลับมาใน 3 วินาทีและตารางยังมี 1000 แถว (ในคลัสเตอร์นี้ข้อมูลอยู่ที่ Worker ตัวที่ตรึงไว้ จึงต้องวาง Pod ที่นั่นเหมือนเดิม)"
+/>
+
+</Step>

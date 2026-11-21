@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่ารู้ว่า Container ใน Pod เดียวกันใช้อะไรร่วมกัน และแยก Liveness ออกจาก Readiness และรู้ว่า Container ที่ใช้ Memory เกินจะเกิดอะไรขึ้น
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Container สองตัวอยู่ใน Pod เดียวกัน ตัวแรกเขียนไฟล์ลงโฟลเดอร์ชั่วคราวของตัวเอง ตัวที่สองอ่านไฟล์เดียวกันนั้นได้หรือไม่ ถ้าไม่ได้ตั้งอะไรเพิ่ม"
+  options={[
+    'ได้ เพราะ Pod เดียวกันใช้ระบบไฟล์ร่วมกัน',
+    'ไม่ได้ เพราะแต่ละ Container มีระบบไฟล์ของ Image ตัวเอง ต้องใช้ Volume เช่น emptyDir ถ้าอยากแบ่งไฟล์กัน',
+    'ได้ แต่ต้องเปิด shareProcessNamespace ก่อน',
+    'ไม่ได้ เพราะ Container ใน Pod เดียวกันคุยกันไม่ได้เลย'
+  ]}
+  answer={1}
+  why="ที่ Container ใน Pod เดียวกันใช้ร่วมกันโดยค่าเริ่มต้นคือเครือข่าย (IP และ Localhost) ระบบไฟล์แยกกัน ถ้าอยากแบ่งไฟล์ ต้อง Mount Volume เดียวกันเข้าทั้งสองตัว ส่วน shareProcessNamespace เกี่ยวกับ Process ไม่ใช่ไฟล์"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="โปรแกรมใน Pod ตัวหนึ่งค้างและตอบไม่ได้ เราอยากให้ Kubernetes เริ่ม Container ใหม่ให้เอง ควรใช้ Probe ชนิดไหน และผลของอีกชนิดหนึ่งคืออะไร"
+  options={[
+    'ใช้ Readiness Probe ถ้าล้ม Container จะถูกเริ่มใหม่ ส่วน Liveness ทำให้ Pod ถูกถอดออกจาก Service',
+    'ใช้ Liveness Probe ถ้าล้ม Container จะถูกเริ่มใหม่ ส่วน Readiness ล้มแล้ว Pod ถูกถอดออกจาก Service โดยไม่ถูกเริ่มใหม่',
+    'ใช้ชนิดไหนก็ได้ ทั้งสองชนิดทำสิ่งเดียวกัน',
+    'ไม่ต้องใช้ Probe เพราะ Kubernetes เห็นอยู่แล้วว่าโปรแกรมค้าง'
+  ]}
+  answer={1}
+  why="Liveness ถามว่ายังมีชีวิตอยู่ไหม ถ้าไม่ Kubelet ฆ่าแล้วเริ่มใหม่ Readiness ถามว่าพร้อมรับงานหรือยัง ถ้าไม่ Pod ยังอยู่ แค่ไม่ได้รับงานจาก Service ในแบบฝึก restartCount ของกรณี Readiness ยังเป็น 0"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Container ตั้ง Limit Memory ไว้ 32Mi แต่โปรแกรมพยายามใช้ 120 MB ผลที่เห็นคืออะไร"
+  options={[
+    'Container ช้าลงเพราะถูกบีบ แต่ยังทำงานต่อ',
+    'Container ถูก Kernel ฆ่า สถานะ OOMKilled รหัสออก 137',
+    'Pod ถูกย้ายไป Node ที่มี Memory มากกว่า',
+    'Scheduler ปฏิเสธไม่ให้ Pod เริ่ม'
+  ]}
+  answer={1}
+  why="Limit ของ Memory กลายเป็นเพดานใน Cgroup ที่ Kernel บังคับ เมื่อเกิน Kernel ฆ่า Process ด้วย SIGKILL รหัส 137 (128 บวก 9) และ Kubernetes รายงานเป็น OOMKilled CPU ต่างจากนี้ คือถูกบีบให้ช้าลงแทนที่จะถูกฆ่า"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Pod ตั้ง Request เท่ากับ Limit ทั้ง CPU และ Memory ใน Container ทุกตัว ชั้นของ Pod (QoS Class) คืออะไร"
+  options={[
+    'BestEffort',
+    'Burstable',
+    'Guaranteed',
+    'Critical'
+  ]}
+  answer={2}
+  why="Request เท่ากับ Limit ทั้ง CPU และ Memory ได้ Guaranteed ตั้งเพียงบางส่วนหรือตั้งแค่ Request ได้ Burstable และไม่ตั้งอะไรเลยได้ BestEffort ในแบบฝึกเราเห็นครบทั้งสามชั้น"
+/>
+
+</Step>

@@ -1,0 +1,101 @@
+---
+title: CRDs and operators
+summary: We teach the API a new kind of object with a CustomResourceDefinition, and then write a small operator, a loop that sees a Greeter and creates and looks after a Deployment to match what the Greeter asks for. We see the schema refuse bad values, an object that nobody looks after do nothing, and the operator repair something that was deleted.
+facts:
+  - "Ran for real in exercises/12_crd_operator.py on minikube (Kubernetes v1.31.0) with a small operator written for the exercise in code/operator_lab.py (a Python script that polls every second, not a production operator): a CRD adding the kind Greeter to the API (api-resources, explain), a schema refusing replicas that are too high and a wrong data type, a Greeter with no operator stored but with nothing happening, the object as a key in etcd, the operator creating a Deployment, repairing it when it was deleted, updating it when the spec changed, and garbage collection deleting the Deployment when the Greeter was deleted without any operator."
+  - "The ideas of custom resources and operators come from the book Programming Kubernetes chapters 1 and 4 (pages 1 to 18 and 74 to 81) and Kubernetes Up and Running chapter 16 pages 195 to 205. No operator framework (Kubebuilder, Operator SDK) was tried, and no real operator such as one for a database."
+order: 12
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [node-inside]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import OperatorLab from '../../../../components/labs/kubernetes/OperatorLab';
+
+<Step>
+
+## Teach the API a new kind
+
+In the lesson [Labels, namespaces and the API](/en/kubernetes/labels-and-api/) we saw that the cluster had 58 kinds of object. This time we add a 59th ourselves, with an object called a CustomResourceDefinition (CRD) that tells the API there is a new kind called `Greeter` in the group `lab.example.com`, with fields `message` and `replicas`, where `replicas` must be between 1 and 5 (book: Programming Kubernetes, Type Definitions, page 74).
+
+Once the CRD exists, `kubectl api-resources` lists one more kind, `greeters`, with the short name `gr`, in a namespace (ran), and `kubectl explain greeter.spec` reads the field names from the schema we wrote straight away (ran). What is interesting is that the API server checks the schema by itself. A Greeter with `replicas: 9` is refused with the message `spec.replicas in body should be less than or equal to 5`, and a piece of text where a number belongs is refused with `must be of type integer`. Nothing at all is stored (ran) (book: Programming Kubernetes, Validating Custom Resources, page 76). We can also set a short name and the columns shown by `kubectl get` (book: Programming Kubernetes, Short Names and Categories page 78 and Printer Columns page 80).
+
+</Step>
+
+<Step>
+
+## A CRD alone does nothing
+
+We created a Greeter called `hello` asking for 2, and waited four seconds. It appeared in the list `kubectl get gr` with the columns we defined, but there was no Deployment, no Pod, and the `status` was empty (ran). The object was stored in `etcd` as the key `/registry/lab.example.com/greeters/<namespace>/hello`, like an object of any other kind (ran). A CRD only says "this kind exists and looks like this". It does not say what to do when an object of this kind appears. That is what a controller does in the [first lesson](/en/kubernetes/why-kubernetes/), and it does not happen by itself, which is where the word operator comes from.
+
+An operator is a controller written for one particular job, which reads objects of our new kind and makes the real world match them (book: Programming Kubernetes, Operators, page 16, and Kubernetes Up and Running, Operators, page 205). It is called an operator because it steps in for the person who looks after the system, for example a database that must know when to fail over.
+
+</Step>
+
+<Step>
+
+## A small operator that fits on one page
+
+We wrote an operator as a short Python script, `operator_lab.py`, that does three things again every second: look at which Greeters exist, compare with the Deployments that should exist, and fix the difference. It creates a Deployment called `greeter-<name>` with as many `replicas` as the Greeter says and its message, puts an `ownerReference` pointing back at the Greeter, and writes the `status` back. Press play in this lab to see the loop work.
+
+<OperatorLab client:visible lang="en" />
+
+In the real run, once the operator was on, the Greeter became `Ready` within a couple of seconds (ran). We deleted the Deployment ourselves. On its next pass the operator saw that something was missing and created it again (with a new `uid`), until the Greeter was `Ready` again (ran). Then we changed the Greeter to `replicas: 4` and a new message. The operator saw that the Deployment differed from the `spec` and updated it, and all 4 Pods answered with the new message (ran). The log of the operator comes to three lines: one creation (at the start), one creation again (the repair of what was deleted), and one update (ran).
+
+This operator polls every second. A real operator usually uses a watch, as learned in the lesson [Control plane](/en/kubernetes/control-plane/), to respond at once without bothering the API server, and is usually written with a framework such as Kubebuilder (book: Programming Kubernetes, chapter 6, page 105). But the shape of the loop is the same: look, compare, act, just like the controller we wrote ourselves in [Orchestration and GitOps](/en/devops/gitops/) in the DevOps path.
+
+</Step>
+
+<Step>
+
+## Who deletes the Deployment when the Greeter is deleted
+
+When we stopped the operator and deleted the Greeter, the Deployment and Pods it had made went away by themselves, with no operator running (ran). This is because we gave the Deployment an `ownerReference` pointing at the Greeter, and the garbage collector of Kubernetes, seen in the lesson [Control plane](/en/kubernetes/control-plane/), removes things whose owner is gone. This is a technique every operator uses so that it does not have to write cleanup code itself.
+
+<Callout type="note" title="What this lesson did not try">
+We did not write an operator with Kubebuilder or the Operator SDK, did not try a real operator such as one for a database, and did not try several versions of a CRD (conversion).
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We create a CRD and then create one object of the new kind, but we do not run any operator. What happens?"
+  options={[
+    'Kubernetes creates Pods for it automatically from the values in the object',
+    'The object is checked against the schema and stored in etcd, but nothing happens in the real world until a controller or operator acts on it',
+    'The API server refuses to create it, because there is no operator to handle it',
+    'The object is deleted by itself after a timeout'
+  ]}
+  answer={1}
+  why="A CRD only says that the kind exists and what it looks like, and lets the API server check the values. Making the real world match an object is a controller's job. In the exercise the Greeter was in the list with no Deployment and no Pod until the operator started."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A CRD adds the kind Greeter to `api-resources`, and `kubectl explain` reads fields from the schema | ran: `exercises/12_crd_operator.py` |
+| The schema refuses a `replicas` that is too high and a wrong data type, and stores nothing | ran: `exercises/12_crd_operator.py` |
+| A Greeter with no operator is stored and shown with the columns we defined, but there is no Deployment, Pod or `status` | ran: `exercises/12_crd_operator.py` |
+| A CRD object is a key in etcd at `/registry/<group>/<plural>/<namespace>/<name>` | ran: `exercises/12_crd_operator.py` |
+| The operator creates a Deployment, repairs it when it is deleted (new uid), updates it when the `spec` changes, and its log is 2 creations and 1 update | ran: `exercises/12_crd_operator.py` |
+| Deleting the Greeter while the operator is stopped garbage collects the Deployment through its `ownerReference` | ran: `exercises/12_crd_operator.py` |
+| A real operator usually uses a watch and a framework | author (from the books and general understanding, the operator in this lesson is a polling script we wrote) |
+| Type definitions of a CRD (Type Definitions, Validating, Short Names, Printer Columns) | book: Programming Kubernetes, Type Definitions page 74, Validating Custom Resources page 76, Short Names and Categories page 78, Printer Columns page 80 |
+| The idea of an operator | book: Programming Kubernetes, Operators page 16 and Kubernetes Up and Running, Operators page 205 |
+
+</Step>

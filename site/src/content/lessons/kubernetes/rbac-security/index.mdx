@@ -1,0 +1,120 @@
+---
+title: RBAC และ Security
+summary: Kubernetes เปิดทางเครือข่ายไว้และปิดทาง API ไว้ตั้งแต่แรก เราดูว่า ServiceAccount ในทุก Pod มีสิทธิ์อะไร Role กับ RoleBinding เปิดสิทธิ์ทีละน้อยอย่างไร securityContext กับ Pod Security ลดสิ่งที่ Container ทำได้อย่างไร และ NetworkPolicy ปิดเครือข่ายให้เหลือเส้นทางที่อนุญาต
+facts:
+  - "รันจริงใน exercises/13_rbac_security.py บน minikube (Kubernetes v1.31.0, CNI kindnet ซึ่งบังคับ NetworkPolicy จริง): Token ของ ServiceAccount ในทุก Pod, ServiceAccount default ได้ 403 เมื่อเรียก API จากข้างใน Pod, Role กับ RoleBinding ให้สิทธิ์ list pods ใน Namespace เดียว (kubectl auth can-i ตอบ yes และ no ตามที่แสดง), resourceNames จำกัดสิทธิ์ให้ Secret ตัวเดียว, automountServiceAccountToken: false เอา Token ออก, runAsNonRoot ปฏิเสธ Image ที่รันเป็น root, readOnlyRootFilesystem กับ capabilities drop ALL, Pod Security Admission ระดับ restricted ปฏิเสธ Pod ที่ privileged และ Pod ธรรมดา, และ NetworkPolicy ปิดแล้วเปิดเส้นทางทีละเส้น"
+  - "หนังสือที่อ้างคือ Kubernetes Up and Running (บทที่ 14 หน้า 168 ถึง 175) และ Core Kubernetes (บทที่ 13 และ 14 หน้า 240 ถึง 279) ซึ่งพิมพ์ก่อน Pod Security Admission จึงเล่าถึง Pod Security Policies ที่ถูกถอดออกไปแล้ว บทนี้จึงใช้ผลที่รันจริงของ Pod Security Admission แทน ส่วนที่ไม่ได้รัน คือ ClusterRole, Group ในการผูกสิทธิ์, OPA Gatekeeper, TLS ระหว่าง Component และการเข้ารหัส Secret"
+order: 13
+phase: E
+level: 4
+stage: sprout
+format: steps
+requires: [crd-operator]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import SecurityLab from '../../../../components/labs/kubernetes/SecurityLab';
+
+<Step>
+
+## ใครเรียก API ได้บ้าง
+
+ทุก Pod ที่เราสร้างมีของติดมาด้วยสามอย่างที่ Mount เป็นไฟล์ที่ `/var/run/secrets/kubernetes.io/serviceaccount` คือ `token`, `ca.crt` และ `namespace` (รัน) Token นี้เป็นตัวตนของ ServiceAccount ที่ Pod ใช้ ถ้าไม่ได้ระบุก็คือ `default` เราลองเอา Token นั้นเรียก API Server จากข้างใน Pod ด้วย `curl` ที่ `/api/v1/namespaces/<ns>/pods` ผลคือ `403 Forbidden` พร้อมข้อความที่บอกว่า `system:serviceaccount:<ns>:default` ไม่มีสิทธิ์ List Pods (รัน) นั่นคือ API Server รู้ว่าเราเป็นใคร แต่ยังไม่อนุญาตอะไรเลย ระบบแบบนี้เรียกว่า RBAC (Role-Based Access Control) (หนังสือ: Kubernetes Up and Running หัวข้อ Identity in Kubernetes หน้า 168)
+
+</Step>
+
+<Step>
+
+## Role กับ RoleBinding: เปิดสิทธิ์ทีละน้อย
+
+RBAC แยกสองเรื่อง Role บอกว่า "ทำอะไรกับอะไรได้" (กริยากับชนิดออบเจ็กต์) และ RoleBinding บอกว่า "ใครได้สิทธิ์นั้น" (หนังสือ: Kubernetes Up and Running หัวข้อ Understanding Roles and Role Bindings หน้า 169 และ Core Kubernetes หัวข้อ 14.2 หน้า 261) เราสร้าง Role ที่อนุญาต `get` กับ `list` บน `pods` แล้วผูกกับ ServiceAccount ของ Pod ก่อนลองเรียก ถามได้ด้วย `kubectl auth can-i` ซึ่งเป็นคำสั่งที่ควรใช้ก่อนเดาเอง (หนังสือ: Kubernetes Up and Running หัวข้อ Testing Authorization with can-i หน้า 172) ผลในการรันจริง (รัน)
+
+| ถาม | ผล |
+|---|---|
+| List Pods ใน Namespace เดียวกัน | `yes` |
+| Delete Pods ใน Namespace เดียวกัน | `no` |
+| List Secrets ใน Namespace เดียวกัน | `no` |
+| List Pods ใน Namespace อื่น | `no` |
+
+แล้วการเรียกจากข้างใน Pod ครั้งเดิมก็ได้ `200` และรายการ Pod ส่วน Namespace อื่นยัง 403 (รัน) สิทธิ์ที่ให้จึงเล็กและจำกัดตามที่เขียนจริง เราจำกัดให้ละเอียดขึ้นได้อีกด้วย `resourceNames` ในแบบฝึกเราให้สิทธิ์ `get` เฉพาะ Secret ชื่อ `s1` ผลคืออ่าน `s1` ได้ อ่าน `s2` ไม่ได้ และ List ไม่ได้ (รัน) และถ้า Pod ไม่จำเป็นต้องคุยกับ API เลย ปิดได้ที่ต้นทางด้วย `automountServiceAccountToken: false` ซึ่งทำให้ Pod ไม่มี Token ให้โจรขโมยเลย (รัน) (หนังสือ: Core Kubernetes หัวข้อ 13.3 หน้า 251)
+
+</Step>
+
+<Step>
+
+## securityContext: ลดสิ่งที่ Container ทำได้
+
+เรื่องที่สองคือจำกัดสิ่งที่ Container ทำได้บน Node ลองสามอย่าง (หนังสือ: Core Kubernetes หัวข้อ 13.3 หน้า 245 เรื่อง Security Context และหัวข้อ 13.2 หน้า 243 เรื่อง Container Users)
+
+- `runAsNonRoot: true` กับ Image ที่รันเป็น Root ทำให้ Container ไม่เริ่ม ค้างที่ `CreateContainerConfigError` ด้วยข้อความ `container has runAsNonRoot and image will run as root` (รัน)
+- Pod ที่ตั้ง `runAsUser: 10001`, `readOnlyRootFilesystem: true`, `allowPrivilegeEscalation: false` และ `capabilities: drop: [ALL]` รันเป็น Uid 10001 เขียนไฟล์ลงระบบไฟล์หลักไม่ได้ (`Read-only file system`) และมีชุดสิทธิ์พิเศษ (Capability) ว่างเปล่า `0000000000000000` ขณะที่ Pod ธรรมดามี `00000000a80425fb` และรันเป็น Root (Uid 0) (รัน)
+
+ตั้งค่าเหล่านี้ทีละ Pod ลืมได้ง่าย Kubernetes จึงมี Pod Security Admission ตรวจให้ตอนรับ Pod เข้า โดยติด Label ที่ Namespace เช่น `pod-security.kubernetes.io/enforce=restricted` ในแบบฝึก Pod ที่ตั้ง `privileged: true` ถูกปฏิเสธด้วยข้อความ `violates PodSecurity "restricted:latest"` Pod ธรรมดาก็ถูกปฏิเสธและข้อความบอกว่าขาดอะไรบ้างครบ เช่น `allowPrivilegeEscalation != false` และ Pod ที่ตั้งห้าอย่างครบถูกรับเข้า (รัน) Pod ที่รันอยู่ก่อนแล้วไม่ถูกแตะ เพราะตรวจแค่ตอนรับเข้า (รัน)
+
+<Callout type="note" title="หนังสือพูดถึงของเก่า">
+Core Kubernetes พูดถึง Pod Security Policy ซึ่ง Kubernetes ถอดออกไปแล้ว ตัวที่มาแทนคือ Pod Security Admission ที่เราใช้ในแบบฝึกนี้ ผลที่รันจริงจึงมาจากการลองเอง ไม่ใช่จากหนังสือ
+</Callout>
+
+</Step>
+
+<Step>
+
+## NetworkPolicy: ปิดเครือข่ายที่เปิดอยู่
+
+ต่างจาก API ที่ปิดไว้ก่อน เครือข่ายของ Pod เปิดทุกทาง ในแบบฝึก เราสร้าง Pod สี่ตัว คือ `srv`, `friend`, `stranger` และ `victim` ที่อยู่คนละ Namespace จากนั้นเพิ่มกฎทีละขั้น ลองเลือกขั้นต่าง ๆ ใน Lab ข้างล่าง ทั้งส่วน RBAC และ Pod Security ด้วย
+
+<SecurityLab client:visible />
+
+ผลของ NetworkPolicy ในการรันจริง (รัน)
+
+| กฎ | Friend | Stranger | Pod จาก Namespace อื่น |
+|---|---|---|---|
+| ไม่มี Policy | ถึง | ถึง | ถึง |
+| Policy ที่เลือก Srv แต่ไม่ระบุกฎ Ingress | ถูกกั้น | ถูกกั้น | ถูกกั้น |
+| อนุญาตเฉพาะ `app=friend` | ถึง | ถูกกั้น | ถูกกั้น |
+
+มีสองข้อที่ควรสังเกต ข้อแรก Policy ที่เลือก Pod ใดแล้วไม่ระบุกฎอนุญาตเลย ถือว่าปิดทุกทางเข้าสำหรับ Pod นั้น ข้อสอง `podSelector` ที่ไม่มี `namespaceSelector` หมายถึง Pod ใน Namespace เดียวกัน Pod จาก Namespace อื่นจึงไม่ผ่านแม้ Label ตรง และ Pod ที่ไม่มี Policy ใดเลือกยังเปิดอยู่เหมือนเดิม (ในแบบฝึก `stranger` ยังเรียก `victim` ได้) (หนังสือ: Core Kubernetes หัวข้อ 14.4 หน้า 269)
+
+NetworkPolicy ใช้ได้ก็ต่อเมื่อ CNI ของคลัสเตอร์บังคับให้ ในแบบฝึกเราตรวจแล้วว่า Kindnet ทำได้ (กฎ Deny ทำให้ Pod ค้างจริง) ถ้า CNI ไม่รองรับ ตัวออบเจ็กต์ยังสร้างได้แต่ไม่มีผล
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราสร้าง NetworkPolicy ที่เลือก Pod ฐานข้อมูล และกำหนดทางเข้าเฉพาะ Pod ที่ติด Label Role=Loader จาก Namespace เดียวกัน Pod ของเว็บใน Namespace เดียวกันที่ไม่มี Label นั้นเรียกฐานข้อมูลได้ไหม และ Pod ฐานข้อมูลเรียก Pod อื่นออกไปได้ไหม"
+  options={[
+    'เว็บเรียกฐานข้อมูลได้ เพราะอยู่ Namespace เดียวกัน และฐานข้อมูลเรียกออกไม่ได้',
+    'เว็บเรียกฐานข้อมูลไม่ได้ เพราะไม่ตรงกฎอนุญาต ส่วนทางออกของฐานข้อมูลไม่ถูกจำกัด เพราะ Policy นี้กำหนดแค่ Ingress',
+    'เว็บเรียกได้ทุกพอร์ต ฐานข้อมูลเรียกออกไม่ได้',
+    'ทั้งสองทางถูกปิดหมด'
+  ]}
+  answer={1}
+  why="Policy ที่เลือก Pod ฐานข้อมูลและระบุเฉพาะกฎ Ingress จะจำกัดแค่ทางเข้า ใครไม่ตรงกฎอนุญาตเข้าไม่ได้ ส่วนทางออกไม่ถูกจำกัด เพราะไม่ได้ระบุ Egress ในแบบฝึกเห็นผลของกฎ Ingress แบบเดียวกันนี้"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| ทุก Pod มี `token`, `ca.crt`, `namespace` และ ServiceAccount Default ได้ 403 เมื่อเรียก API | รัน: `exercises/13_rbac_security.py` |
+| Role กับ RoleBinding ให้ List Pods ใน Namespace เดียว ผล `can-i` และการเรียกจริงได้ 200 กับ 403 ตามตาราง | รัน: `exercises/13_rbac_security.py` |
+| `resourceNames` จำกัดให้ Secret ตัวเดียว และ `automountServiceAccountToken: false` เอา Token ออก | รัน: `exercises/13_rbac_security.py` |
+| `runAsNonRoot` ปฏิเสธ Image ที่รันเป็น Root และ Pod ที่ตั้งห้าอย่างรันเป็น Uid 10001, เขียนระบบไฟล์ไม่ได้ และไม่มี Capability | รัน: `exercises/13_rbac_security.py` |
+| Pod Security Admission ระดับ Restricted ปฏิเสธ Pod ที่ Privileged และ Pod ธรรมดา รับ Pod ที่ตั้งครบ และไม่แตะ Pod เดิม | รัน: `exercises/13_rbac_security.py` |
+| NetworkPolicy ทำให้ทุกอย่างเปิดโดยไม่มี Policy, ปิดทั้งหมดเมื่อเลือกโดยไม่มีกฎ, เปิดเฉพาะ Friend, ปิด Namespace อื่น และ Pod ที่ไม่ถูกเลือกยังเปิด | รัน: `exercises/13_rbac_security.py` |
+| Kindnet บังคับ NetworkPolicy จริง | รัน: `exercises/13_rbac_security.py` (เห็นจากผลที่กั้น Pod ไม่ใช่จากเอกสารของ Kindnet) |
+| Policy ที่ระบุแค่ Ingress ไม่จำกัดทางออกของ Pod | ผู้เขียน (ความเข้าใจจากความหมายของ `policyTypes` ไม่ได้รันกรณีนี้โดยตรง) |
+| RBAC, Role, RoleBinding, `can-i` | หนังสือ: Kubernetes Up and Running หัวข้อ Identity in Kubernetes หน้า 168, Understanding Roles and Role Bindings หน้า 169, Testing Authorization with can-i หน้า 172 และ Core Kubernetes หัวข้อ 14.2 หน้า 261 |
+| Security Context, ไม่ Mount Token และ NetworkPolicy | หนังสือ: Core Kubernetes หัวข้อ 13.3 หน้า 245 และ 251 และหัวข้อ 14.4 หน้า 269 |
+| Pod Security Policy ถูกถอดออกและมี Pod Security Admission มาแทน | ผู้เขียน (ความรู้ทั่วไปของ Kubernetes รุ่นใหม่ ไม่ได้ตรวจจากเอกสารในบทนี้) |
+
+</Step>

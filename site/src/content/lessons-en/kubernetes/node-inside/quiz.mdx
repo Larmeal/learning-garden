@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Three questions to check that you know who really runs containers, what a limit becomes in the kernel, and which namespaces the containers of one Pod share.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We restart the kubelet on a worker that has Pods running. What happens to the containers in those Pods?"
+  options={[
+    'They are all stopped and started again, because the kubelet runs the containers',
+    'They keep running untouched, because the containers are looked after by the container runtime (containerd), not by the kubelet',
+    'They are moved to another node at once',
+    'They are removed from the cluster'
+  ]}
+  answer={1}
+  why="The kubelet instructs the container runtime through the CRI, but it is not the parent of the processes. In the exercise the container ids and processes were the same after the restart, and restartCount was still 0."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A container has a CPU limit of 100m and the program loops using all the CPU it can. What happens to it, and which cgroup file decides this?"
+  options={[
+    'It is killed at once, decided by memory.max',
+    'It is squeezed to about 10% of one CPU (throttled), decided by cpu.max',
+    'It is moved to a node with more CPU',
+    'Nothing, because a CPU limit is only a hint'
+  ]}
+  answer={1}
+  why="A CPU limit becomes cpu.max (10 ms in every 100), which pauses the program for part of each period. This is called throttling. It differs from memory, where going over the limit gets the process killed."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Which namespaces do the containers of one Pod share by default?"
+  options={[
+    'All of mount, PID and network',
+    'Only the network (so they reach each other over localhost), while mount and PID are separate',
+    'Only PID',
+    'None at all'
+  ]}
+  answer={1}
+  why="/pause holds the network namespace for every container to join, while mount and PID are separate. In the exercise we saw one net, and three each of mnt and pid."
+/>
+
+</Step>

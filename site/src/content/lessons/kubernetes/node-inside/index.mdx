@@ -1,0 +1,129 @@
+---
+title: Node Internals
+summary: Kubelet ไม่ได้รัน Container เอง มันสั่ง Containerd ผ่าน CRI เราเปิดดูข้างในของ Worker จริง เห็น Sandbox ที่ชื่อ Pause, Namespace ที่ Container ในหนึ่ง Pod ใช้ร่วมกัน, ไฟล์ Cgroup ที่เก็บ Request กับ Limit, และ Veth กับ Route ที่ต่อ Pod เข้าเครือข่าย
+facts:
+  - "รันจริงใน exercises/11_node_inside.py บน Worker ของ minikube (Kubernetes v1.31.0, containerd 1.7.21, cgroup v2 แบบ cgroupfs, CNI kindnet): containerd ฟัง unix socket ที่ Kubelet ตั้งค่าไว้, Pod หนึ่งตัวคือ Sandbox ที่รัน /pause กับ Container, ทุก Container ใช้ Network Namespace เดียวกันแต่ Mount และ PID แยกกัน, Limit Memory เป็น memory.max, Limit CPU เป็น cpu.max และ Request CPU เป็น cpu.weight, Container ที่วนลูปเต็ม CPU ถูกบีบเหลือประมาณ 10%, Pod CIDR ของแต่ละ Node, veth, Route ไป Node อื่น, ping ข้าม Node ได้ TTL 62 กับ Node เดียวกันได้ 63, และการ Restart Kubelet ไม่ทำให้ Container ถูกเริ่มใหม่"
+  - "ไม่ได้ลองเครือข่ายแบบอื่น (Calico, Antrea) และ cgroup v1 รายละเอียดเรื่อง Kubelet กับ CRI มาจากหนังสือ Core Kubernetes บทที่ 4, 5 และ 9 หน้า 69 ถึง 190 ไม่ได้อ่านซอร์สของ Kubelet หรือ containerd"
+order: 11
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [control-plane]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import NodeLab from '../../../../components/labs/kubernetes/NodeLab';
+
+<Step>
+
+## Kubelet สั่ง ตัวรันทำ
+
+ในบท [Control Plane](/kubernetes/control-plane/) Kubelet คือส่วนที่เห็น Pod ที่ถูกกำหนดมาให้ Node ตัวเองแล้วจัดการให้รัน แต่ Kubelet ไม่ได้รัน Container เอง มันคุยกับตัวรัน Container ผ่านมาตรฐานที่เรียกว่า CRI (Container Runtime Interface) ซึ่งมีเหตุผลให้เปลี่ยนตัวรันได้โดย Kubelet ไม่ต้องรู้เรื่อง (หนังสือ: Core Kubernetes หัวข้อ 9.3 หน้า 182 และ 9.4 หน้า 185) ในการรันจริงบน Worker ตัวหนึ่ง ไฟล์ตั้งค่าของ Kubelet ชี้ไปที่ `unix:///run/containerd/containerd.sock` และมี `containerd` ฟัง Socket นั้นอยู่จริง (รัน) ซึ่งเป็นตัวรัน Container เดียวกันกับที่ Docker ใช้ข้างใน ในเส้นทาง Docker เราเห็น Container เป็น Process บน Kernel ที่ Docker เตรียมห้องให้ [บท Namespace และ Cgroup](/docker/namespaces-and-cgroups/) เล่าเรื่องห้องเหล่านั้น คราวนี้เราจะเห็นว่า Kubernetes ใช้ห้องเดียวกันนี้เพื่อสร้าง Pod
+
+เราสร้าง Pod ที่มี Container สองตัว (`a` ที่วนลูปเต็ม CPU กับ `b` ที่หลับเฉย ๆ) แล้วถาม `containerd` ผ่านเครื่องมือ `crictl` บน Node ผลคือ Pod หนึ่งตัวคือ Sandbox หนึ่งก้อนบวก Container `a` กับ `b` (รัน) และ Process ของ Sandbox คือ `/pause` โปรแกรมเล็กที่ไม่ทำอะไรเลยนอกจากถือ Namespace ไว้ให้ Container อื่นเข้ามาร่วม (รัน) นี่คือเหตุผลที่ใน Pod ของเรา `ps` เห็น `/pause` เป็น PID 1 ตอนเปิด `shareProcessNamespace` (หนังสือ: Core Kubernetes หัวข้อ 9.3 หน้า 184 เรื่อง Pause Container)
+
+</Step>
+
+<Step>
+
+## ใช้ Namespace เดียวกัน แต่ไม่ใช่ทุกอัน
+
+ลองถาม Kernel ว่า `/pause` กับ Container ทั้งสองอยู่ใน Namespace ไหนบ้าง ด้วยการอ่านลิงก์ `/proc/<pid>/ns/<kind>` ของ Process บน Node ผลที่ได้ (รัน)
+
+| ชนิด Namespace | Process ทั้งสาม (Pause, a, b) |
+|---|---|
+| `net` | เลขเดียวกันหมด ใช้ร่วมกัน 1 อัน |
+| `mnt` | ต่างกันทั้งสาม รวม 3 อัน |
+| `pid` | ต่างกันทั้งสาม รวม 3 อัน |
+
+ตรงกับที่เราเห็นในบท [Pod](/kubernetes/pods/) พอดี Container ใน Pod เดียวกันใช้เครือข่ายร่วมกันจึงเรียกกันทาง `localhost` ได้ แต่แยก Mount กับ PID จึงไม่เห็นไฟล์และ Process ของกัน (หนังสือ: Core Kubernetes หัวข้อ 2.2 หน้า 22) ต่อไปเราจะเห็นกลไกที่เหลือคือ Cgroup กับเครือข่าย ลองกดดูทีละขั้นใน Lab ข้างล่าง
+
+<NodeLab client:visible />
+
+</Step>
+
+<Step>
+
+## Request กับ Limit กลายเป็นไฟล์ใน Cgroup
+
+Pod ของเรามี Container `a` ที่ตั้ง Request CPU 50m, Limit CPU 100m และ Limit Memory 64Mi ส่วน `b` ไม่ได้ตั้งอะไร Kubelet ทำให้เป็นจริงโดยเขียนไฟล์ใน Cgroup ที่ Kernel อ่าน ในแบบฝึกเปิดโฟลเดอร์ของ Pod ใต้ `/sys/fs/cgroup/kubepods/burstable/pod<uid>/` (โฟลเดอร์ `burstable` คือชั้น QoS ของ Pod นี้) แล้วอ่านค่า (รัน)
+
+| ไฟล์ | ค่าของ Container a | ความหมาย |
+|---|---|---|
+| `memory.max` | 67108864 | เพดาน Memory 64Mi พอเกินก็ถูกฆ่า |
+| `cpu.max` | `10000 100000` | ใช้ได้ 10 มิลลิวินาทีในทุก 100 มิลลิวินาที เท่ากับ 10% ของ CPU หนึ่งตัว |
+| `cpu.weight` | 2 | สัดส่วนเมื่อ CPU ถูกแย่ง มาจาก Request 50m |
+
+Container `b` ที่ไม่ตั้ง Limit มี `memory.max` เป็น `max` และ `cpu.max` ไม่มีเพดาน ส่วน `a` ที่ต้องการ CPU เต็มที่ถูกบีบจริง ในช่วงสามวินาทีมันใช้ CPU ราว 10% ของหนึ่งตัว และถูก Throttle ในทุกรอบ 100 มิลลิวินาที (31 จาก 31 รอบ) (รัน) ตรงกับที่ [บท Namespace และ Cgroup](/docker/namespaces-and-cgroups/) ของ Docker อธิบายเรื่อง `cpu.max` (หนังสือ: Core Kubernetes หัวข้อ 4.4 หน้า 79 และหัวข้อ 4.5 หน้า 83 เรื่อง QoS Class) ส่วนเรื่องที่ Memory เกินแล้ว Container ถูกฆ่าด้วยรหัส 137 เราเห็นแล้วในบท [Pod](/kubernetes/pods/)
+
+</Step>
+
+<Step>
+
+## เครือข่าย: Veth, Route และสองฮ็อป
+
+Pod ได้ IP จากช่วงที่ Node เป็นเจ้าของ ในการรันจริง Node ทั้งสามมี Pod CIDR ตัวละ `/24` ไม่ซ้ำกัน (`10.244.0.0/24`, `10.244.1.0/24`, `10.244.2.0/24`) และ IP ของ Pod ตกในช่วงของ Node ที่มันรันอยู่ (รัน) ฝั่ง Pod เห็น `eth0` ตัวหนึ่ง ซึ่งเป็นปลายด้านหนึ่งของ Veth คู่หนึ่งที่ปลายอีกด้านอยู่บน Node (รัน) ถ้ากลับไปดู [บท Ethernet, Switch และ ARP](/networking/link-layer/) เรื่อง Layer 2 และ [บท Proxy, Load Balancer และ Container Network](/networking/proxies-and-containers/) ที่ Container ต่อเข้า Bridge จะเห็นว่าคราวนี้ต่างออกไป
+
+CNI ที่ Minikube ใช้คือ Kindnet ซึ่งตั้งค่าเป็นปลั๊กอิน `ptp` ต่อกับ `host-local` และ `portmap` (รัน) แบบ `ptp` หมายถึงต่อ Veth ตรงไม่มี Bridge ผลคือบน Node มี Route สองกลุ่ม (รัน)
+
+```text
+10.244.0.0/24 via 192.168.67.2 dev eth0      # CIDR ของ Node อื่น ส่งผ่าน IP ของ Node นั้น
+10.244.1.123 dev veth3a83eacd scope host      # Pod บน Node นี้ ส่งตรงเข้า veth ของมัน
+10.244.2.0/24 via 192.168.67.4 dev eth0
+```
+
+เราลองวัดจำนวนฮ็อปด้วย TTL ที่ใช้ในบท [Router, TTL และเส้นทางของ Packet](/networking/ip-routing/) เมื่อ Ping จาก Pod หนึ่งไปหา Pod บน Node เดียวกัน คำตอบกลับมาด้วย TTL 63 (ลดไป 1 ที่ Node) และเมื่อ Ping ไปหา Pod บนอีก Node หนึ่ง TTL เป็น 62 (ลด 2 ครั้ง ผ่านสอง Node) (รัน) ซึ่งตรงกับสิ่งที่ Route บอก (หนังสือ: Core Kubernetes หัวข้อ 5.4 หน้า 104 เรื่องสถาปัตยกรรมของ CNI Plugin)
+
+</Step>
+
+<Step>
+
+## Restart Kubelet ไม่ทำให้ Container ตาย
+
+ข้อสุดท้ายที่ควรรู้ เมื่อ Kubelet ตายหรือถูก Restart Container ที่รันอยู่ไม่ได้ตายตาม เพราะ Container เป็น Process ที่ `containerd` ดูแลอยู่ ในแบบฝึกเราสั่ง `systemctl restart kubelet` บน Worker ผลคือหลัง Node กลับ Ready รายการ Container ของ Pod เป็นรหัสเดิมทุกตัว Process ของ `a` เป็นเลขเดิม และ `restartCount` ของ Pod ยังเป็น 0 (รัน) นี่เป็นเหตุผลที่การอัปเกรด Kubelet ทำได้โดยไม่ทำให้บริการสะดุด
+
+<Callout type="note" title="สิ่งที่ไม่ได้ลองในบทนี้">
+เราดู CNI ตัวเดียวคือ Kindnet แบบ `ptp` CNI ตัวอื่นอย่าง Calico หรือ Antrea ใช้ Bridge, Tunnel หรือ Overlay ต่างกัน (หนังสือ: Core Kubernetes หัวข้อ 5.3 หน้า 102 และ 5.4 หน้า 103) และเราไม่ได้ลอง Cgroup แบบ v1
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เรา Ping จาก Pod หนึ่งไปหา Pod ในคลัสเตอร์ที่ใช้ CNI แบบที่แต่ละ Node ส่งต่อแพ็กเก็ตเอง คำตอบจาก Pod บน Node เดียวกันมี TTL 63 ถ้า Ping ไปหา Pod บน Node อื่น ควรได้ TTL เท่าไร เพราะอะไร"
+  options={[
+    '63 เพราะไม่ว่า Pod อยู่ที่ไหนก็ผ่านสวิตช์เดียวกัน',
+    '62 เพราะแพ็กเก็ตถูกส่งต่อโดย Node ต้นทางและ Node ปลายทางทั้งสอง ลด TTL ไปสองครั้ง',
+    '64 เพราะ Node ไม่ลด TTL',
+    '60 เพราะต้องผ่าน API Server'
+  ]}
+  answer={1}
+  why="แต่ละ Node ที่ส่งต่อแพ็กเก็ตทำหน้าที่เหมือน Router ซึ่งลด TTL ลง 1 ตัวเลข 63 ที่ Node เดียวกันคือผ่านหนึ่ง Node ส่วนข้าม Node ผ่านสอง Node จึงเหลือ 62 ในแบบฝึกเห็นทั้งสองค่า และคำขอระหว่าง Pod ไม่ผ่าน API Server"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Kubelet ตั้งค่าให้ใช้ Socket ของ Containerd และ Containerd ฟังอยู่ | รัน: `exercises/11_node_inside.py` |
+| Pod เป็น Sandbox ที่รัน `/pause` กับ Container ของเรา | รัน: `exercises/11_node_inside.py` |
+| Container ใช้ Net ร่วมกัน (1 อัน) และมี Mnt กับ Pid แยกกัน (3 อัน) | รัน: `exercises/11_node_inside.py` |
+| `memory.max` 67108864, `cpu.max` `10000 100000`, `cpu.weight` 2, Container ที่ไม่ตั้ง Limit ได้ Max, และ Container ที่วนลูปถูกบีบเหลือประมาณ 10% (Throttle ทุกรอบ) | รัน: `exercises/11_node_inside.py` |
+| Pod CIDR แบบ /24 ต่อ Node, Veth, Route ไป CIDR ของ Node อื่นผ่าน IP ของ Node, ปลั๊กอิน Ptp, Host-local และ Portmap | รัน: `exercises/11_node_inside.py` |
+| TTL ของ Ping เป็น 63 ใน Node เดียวกันและ 62 ข้าม Node | รัน: `exercises/11_node_inside.py` |
+| Restart Kubelet ไม่ทำให้ Container ถูกเริ่มใหม่ (รหัสและ Process เดิม, restartCount 0) | รัน: `exercises/11_node_inside.py` |
+| การอัปเกรด Kubelet ทำได้โดยไม่ทำให้บริการสะดุด และ `containerd` เป็นตัวรัน Container เดียวกับที่ Docker ใช้ข้างใน | ผู้เขียน (อนุมานจากผลการรันและความเข้าใจทั่วไป ไม่ได้ลองอัปเกรดจริง) |
+| CRI และ Pause Container, QoS Class และสถาปัตยกรรม CNI | หนังสือ: Core Kubernetes หัวข้อ 9.3 หน้า 182 และ 184, 9.4 หน้า 185, 4.4 หน้า 79, 4.5 หน้า 83, 5.4 หน้า 104 |
+| Pod เป็นกลุ่มของ Namespace | หนังสือ: Core Kubernetes หัวข้อ 2.2 หน้า 22 |
+
+</Step>

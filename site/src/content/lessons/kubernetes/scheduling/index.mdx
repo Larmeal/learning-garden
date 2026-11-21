@@ -1,0 +1,120 @@
+---
+title: Scheduler
+summary: Scheduler ไม่รัน Pod มันแค่เลือก Node ให้ เราดูว่า Request คือสิ่งที่ถูกบวกไม่ใช่การใช้จริง Taint กับ Toleration กั้นและเปิดทางอย่างไร การกระจาย Pod ต้องระวังอะไร และ Drain กับ PodDisruptionBudget ทำงานอย่างไร
+facts:
+  - "รันจริงใน exercises/05_scheduling.py บน minikube (Kubernetes v1.31.0): Pod ที่ขอ 64 CPU ค้าง Pending พร้อมข้อความ FailedScheduling, Pod 6 ตัวที่ขอ 6360m วางได้ Worker ละ 2 ตัวและอีก 2 ตัวรอ, nodeSelector, Taint NoSchedule กับ Toleration, topologySpreadConstraints ที่ต้องใช้ nodeTaintsPolicy: Honor, cordon, drain และ PodDisruptionBudget ที่ทำให้ drain ล้มเหลว"
+  - "แนวคิด Automated Placement และตัวเลือกการวางมาจากหนังสือ Kubernetes Patterns หัวข้อ Automated Placement หน้า 47 และ Kubernetes Up and Running หัวข้อ Resource Requests หน้า 56 ไม่ได้รันซ้ำ ผลของกรณี Request 1000m ใน Lab คำนวณด้วยวิธีเดียวกันและไม่ได้รัน"
+order: 5
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [deployments]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import SchedulerLab from '../../../../components/labs/kubernetes/SchedulerLab';
+
+<Step>
+
+## Scheduler เขียน Node ลงใน Pod แค่ครั้งเดียว
+
+เมื่อเราสร้าง Pod ใหม่ มันยังไม่มี Node ในช่องที่ชื่อ `spec.nodeName` Scheduler คือ Component ที่คอยมองหา Pod แบบนี้ แล้วเลือก Node ให้โดยเขียนชื่อ Node ลงในช่องนั้น เท่านั้นเอง มันไม่ได้รัน Container ไม่ได้สร้าง Pod ที่เหลือจากนั้นเป็นหน้าที่ของ Kubelet บน Node ที่ถูกเลือก (หนังสือ: Core Kubernetes หัวข้อ 2.3 หน้า 29 ส่วน Kube-scheduler หน้า 31) ในการรันจริง Pod ธรรมดาตัวหนึ่งได้ Worker เป็น Node และไม่ลงที่ Control Plane เพราะ Control Plane ติด Taint ไว้ (รัน)
+
+ถ้าไม่มี Node ที่เหมาะเลยล่ะ เราลองสร้าง Pod ที่ขอ CPU 64 ตัวทั้งที่ Node ละ 16 ผลคือ Pod ค้างเป็น `Pending` และไม่มี Node เลย ถ้าดู Event จะเห็นข้อความที่บอกว่าแต่ละ Node ตกเพราะอะไร (รัน)
+
+```text
+0/3 nodes are available: 1 node(s) had untolerated taint {node-role.kubernetes.io/control-plane: },
+2 Insufficient cpu.
+```
+
+อ่านได้ว่าจาก 3 Node มี 1 ตัวที่ตกเพราะมี Taint ที่ Pod ไม่ทน และอีก 2 ตัวตกเพราะ CPU ที่ขอไม่พอ ข้อความนี้คือเครื่องมือหลักเวลาที่ Pod ค้าง Pending เพราะบอกทั้งเงื่อนไขที่ตกและจำนวน Node ที่ตก
+
+</Step>
+
+<Step>
+
+## Request คือสิ่งที่ Scheduler บวก ไม่ใช่การใช้จริง
+
+Scheduler ตัดสินด้วยผลรวมของ Request ที่ Pod ทุกตัวบน Node ขอไว้ ไม่ใช่ปริมาณ CPU ที่ใช้จริงตอนนี้ (หนังสือ: Kubernetes Up and Running หัวข้อ Resource Requests หน้า 56) ในแบบฝึก Worker แต่ละตัวมี CPU ว่าง 15,900m จาก 16,000m (หัก 100m ที่ Pod ของระบบขอไว้) เราสร้าง Pod หกตัวที่ขอตัวละ 6360m ซึ่งเป็นสองในห้าของที่ว่าง ผลคือแต่ละ Worker รับได้สองตัว (รวม 12,720m) ตัวที่สามเกินเพดานจึงวางไม่ได้ จึงมี 4 ตัวที่ได้ที่ และอีก 2 ตัวรออยู่ใน Pending (รัน)
+
+มีจุดที่น่าสนใจคือ Pod พวกนี้รัน `sleep` ซึ่งแทบไม่ใช้ CPU เลย แต่ Node ก็ถือว่า "เต็ม" เพราะโควตาของ Request ถูกจองไว้แล้ว ถ้าตั้ง Request สูงเกินจริง คลัสเตอร์จะเต็มทั้งที่ CPU ว่างอยู่ ส่วนถ้าตั้งต่ำเกินจริง Node จะถูกยัดจนช้า เพราะฉะนั้นค่านี้คือค่าที่ควรตั้งใกล้การใช้จริงของโปรแกรม
+
+กดเลือกขนาด Request และ Taint ใน Lab ดู ตัวที่ไม่มีที่ลงจะรออยู่ในคิวด้านบน ข้อความด้านล่างบอกเหตุผลที่ Scheduler ให้
+
+<SchedulerLab client:visible />
+
+</Step>
+
+<Step>
+
+## เลือกด้วยป้าย: nodeSelector, Taint และ Toleration
+
+เรามีสามเครื่องมือที่ใช้บอก Scheduler ว่า Pod ควรไปหรือไม่ควรไปที่ไหน
+
+**nodeSelector** คือการบอกว่า Pod นี้ต้องไปที่ Node ที่ติด Label นี้ ในแบบฝึกเราติด Label `klab-disk=ssd` ให้ Node หนึ่ง Pod ที่มี `nodeSelector` ตรงกันก็ลงที่ Node นั้นเสมอ (รัน)
+
+**Taint** กลับด้านกัน เป็นป้ายที่ติดบน Node บอกว่า "ห้ามวาง Pod ที่ไม่ทนป้ายนี้" เราติด Taint `klab-team=data:NoSchedule` บน Worker ทั้งสองตัว Pod ธรรมดาที่สร้างใหม่ก็ค้าง Pending เพราะไม่มี Node เหลือ ส่วน Pod ที่มี **Toleration** ตรงกับ Taint ลงได้ (รัน) Toleration ไม่ได้ดึงดูด Pod ไปที่ Node นั้น มันแค่อนุญาตให้ไปได้ Pod ที่ทนอาจไปลงที่ Node อื่นก็ได้
+
+มีสองรายละเอียดที่ควรจำ อย่างแรก `NoSchedule` ไม่ไล่ Pod ที่รันอยู่ก่อนแล้วออก Pod ที่อยู่ก่อนยังอยู่ต่อ (รัน) ถ้าจะไล่ต้องใช้ `NoExecute` อย่างที่สอง เมื่อเราถอด Taint ออก Pod ที่ค้างอยู่ก็ถูกจัดวางเองโดยไม่ต้องทำอะไรเพิ่ม (รัน) เพราะ Scheduler ดู Pod ที่ยังไม่มี Node ซ้ำตลอด
+
+</Step>
+
+<Step>
+
+## กระจาย Pod: Control Plane นับเป็นที่ว่างด้วย
+
+ถ้าอยากให้ Replica ของ Deployment กระจายไปทุก Node เราใช้ `topologySpreadConstraints` โดยกำหนด `maxSkew` ซึ่งคือความต่างสูงสุดของจำนวน Pod ระหว่างสองที่ ในแบบฝึกเราตั้ง `maxSkew: 1` ตาม Hostname ให้ Deployment ที่มี 6 ตัว ผลที่ได้ในครั้งแรกคือมีแค่ Worker ละ 1 ตัว ที่เหลืออีก 4 ตัวค้าง (รัน) เอ๊ะ ทำไมถึงเป็นแบบนั้น
+
+เหตุผลคือ Control Plane ถูกนับเป็นที่ที่มี Pod อยู่ 0 ตัว ทั้งที่ Pod ของเราลงไม่ได้เพราะ Taint พอ Worker ได้ตัวแรกคนละตัว การเพิ่มตัวที่สองจะทำให้ต่างจาก Control Plane (0 ตัว) เป็น 2 ซึ่งเกิน `maxSkew` ทั้งคู่ จึงวางไม่ได้อีก ทางแก้คือเพิ่ม `nodeTaintsPolicy: Honor` ให้ Scheduler ไม่นับ Node ที่ Pod ทนไม่ได้ พอแก้แล้ว 6 ตัวก็แบ่งได้ 3 กับ 3 (รัน) เป็นตัวอย่างที่ดีของค่าเริ่มต้นที่ดูสมเหตุสมผลแต่ให้ผลที่ไม่คาดคิดเมื่อคลัสเตอร์มี Taint
+
+</Step>
+
+<Step>
+
+## Cordon, Drain และ PodDisruptionBudget
+
+เวลาจะซ่อมหรืออัปเกรด Node เรามีสามคำสั่งตามลำดับ `kubectl cordon` ทำให้ Node เป็น `SchedulingDisabled` คือไม่รับ Pod ใหม่ แต่ Pod เดิมยังอยู่ ในแบบฝึก เมื่อเพิ่ม Replicas เป็น 8 Pod ที่เพิ่มไม่ลงบน Node ที่ถูก Cordon (รัน) จากนั้น `kubectl drain` ไล่ Pod ออกจาก Node อย่างสุภาพ (Evict) แล้ว Controller สร้างตัวใหม่ที่อื่นให้
+
+ถ้าไล่ออกพร้อมกันหมด บริการก็ล่ม นี่คือหน้าที่ของ PodDisruptionBudget (PDB) ซึ่งบอกว่า Pod ต้อง Ready อย่างน้อยกี่ตัวเสมอ ในแบบฝึกเราตั้ง `minAvailable: 6` กับ Deployment ที่มี 6 ตัว คือห้ามหายแม้แต่ตัวเดียว ผลคือ `drain` ไม่สามารถไล่ Pod ใดออกได้ และล้มเหลวหลังรอจนหมดเวลา (รัน) พอลบ PDB ออก `drain` สำเร็จ และ Pod ทั้ง 6 ตัวไปรวมที่ Worker ที่เหลือ (รัน) PDB จึงเป็นสัญญาของเจ้าของบริการที่บอกคนดูแลคลัสเตอร์ว่าไล่ได้แค่ไหน
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Worker ตัวหนึ่งมี CPU ว่าง 16,000m เราสร้าง Pod สามตัวที่แต่ละตัวขอ Request 6000m แต่ทั้งสามตัวรันโปรแกรมที่แทบไม่ใช้ CPU เลย Scheduler วาง Pod ได้กี่ตัวบน Worker ตัวนี้ (ไม่มี Node อื่นให้เลือก)"
+  options={[
+    'ทั้งสามตัว เพราะ CPU ที่ใช้จริงแทบเป็น 0',
+    'สองตัว เพราะ Request รวมสองตัวคือ 12,000m และตัวที่สามจะทำให้เกิน 16,000m',
+    'ตัวเดียว เพราะ Scheduler วางได้ทีละตัว',
+    'ไม่มีเลย เพราะ Pod ต้องมี Limit ก่อน'
+  ]}
+  answer={1}
+  why="Scheduler บวกค่า Request เท่านั้น และไม่ดูการใช้จริง สองตัวรวมกัน 12,000m ยังอยู่ในเพดาน 16,000m แต่ตัวที่สามจะทำให้รวมเป็น 18,000m จึงค้าง Pending ในแบบฝึกเรากับ Pod ที่ขอ 6360m เจอสถานการณ์เดียวกัน"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Pod ที่ขอ 64 CPU ค้าง Pending ไม่มี Node และ Event บอกจำนวน Node ที่ตกแต่ละเหตุผล | รัน: `exercises/05_scheduling.py` |
+| Worker มี CPU ว่าง 15,900m และ Pod 6 ตัวที่ขอ 6360m วางได้ Worker ละ 2 ตัว อีก 2 ตัว Pending | รัน: `exercises/05_scheduling.py` |
+| `nodeSelector` วาง Pod บน Node ที่ติด Label | รัน: `exercises/05_scheduling.py` |
+| Taint NoSchedule ทำให้ Pod ธรรมดา Pending, Toleration อนุญาตได้, Pod ที่อยู่ก่อนไม่ถูกไล่, ถอด Taint แล้ว Pod ที่รอถูกวางเอง | รัน: `exercises/05_scheduling.py` |
+| `topologySpreadConstraints` ครั้งแรกวางได้แค่ 1 ตัวต่อ Worker และต้องใช้ `nodeTaintsPolicy: Honor` จึงได้ 3 กับ 3 | รัน: `exercises/05_scheduling.py` |
+| Cordon ทำให้ SchedulingDisabled และไม่รับ Pod ใหม่, Drain ล้มเหลวเมื่อมี PodDisruptionBudget, Drain สำเร็จเมื่อถอด PDB | รัน: `exercises/05_scheduling.py` |
+| สาเหตุที่ Control Plane ถูกนับเป็นที่ที่มี 0 ตัวทำให้วางตัวที่สองไม่ได้ | ผู้เขียน (อนุมานจากผลที่รัน และการแก้ด้วย Honor ที่ได้ผลจริง ไม่ได้อ่านซอร์สของ Scheduler) |
+| ผลของกรณี Request 1000m ใน Lab (Worker ละ 3 ตัว) | ผู้เขียน (คำนวณด้วยวิธีเดียวกัน ไม่ได้รัน) |
+| Scheduler เลือก Node ให้ Pod ผ่าน API | หนังสือ: Core Kubernetes หัวข้อ 2.3 หน้า 29 |
+| Request เป็นสิ่งที่ใช้ตัดสินการวาง และรูปแบบ Automated Placement | หนังสือ: Kubernetes Up and Running หัวข้อ Resource Requests หน้า 56 และ Kubernetes Patterns หัวข้อ Automated Placement หน้า 47 |
+
+</Step>

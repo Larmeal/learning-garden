@@ -1,0 +1,108 @@
+---
+title: ConfigMap และ Secret
+summary: ค่าตั้งที่อยู่นอก Image เข้า Pod ได้สองทาง คือตัวแปรสภาพแวดล้อมที่อ่านครั้งเดียวตอนเริ่ม และไฟล์ที่ Kubelet อัปเดตให้ เราดูว่าแต่ละทางตามการเปลี่ยนแปลงหรือไม่ และ Secret ใน Kubernetes ปกป้องอะไรได้จริง
+facts:
+  - "รันจริงใน exercises/08_config_secrets.py บน minikube (Kubernetes v1.31.0): ConfigMap เข้า Pod เป็นตัวแปรสภาพแวดล้อม เป็นไฟล์ และเป็นไฟล์ subPath, ไฟล์ตาม ConfigMap หลังแก้แต่ตัวแปรกับไฟล์ subPath ไม่ตาม, ConfigMap แบบ immutable แก้ไม่ได้, Secret ที่ถอดรหัส base64 ได้ด้วยคำสั่งเดียว, ค่าของ Secret ใน etcd เป็นข้อความธรรมดา (อ่านจากข้างใน Pod ของ etcd), และ Pod ที่อ้าง Key ของ Secret ที่ไม่มีค้างที่ CreateContainerConfigError"
+  - "เวลาที่ไฟล์ตามการแก้ ConfigMap วัดได้ 86 วินาทีในรอบที่บันทึกตัวเลขใน Lab และเร็วกว่านั้นมากในรอบ verify หนึ่งรอบ ค่านี้ขึ้นกับรอบการซิงก์ของ Kubelet จึงเป็นช่วงตั้งแต่หลักวินาทีถึงประมาณหนึ่งนาทีครึ่ง ไม่ใช่ตัวเลขคงที่ แนวคิดของ ConfigMap และ Secret มาจากหนังสือ Kubernetes Up and Running บทที่ 13 หน้า 153 ถึง 161"
+order: 8
+phase: C
+level: 2
+stage: sprout
+format: steps
+requires: [services]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ConfigLab from '../../../../components/labs/kubernetes/ConfigLab';
+
+<Step>
+
+## ค่าตั้งไม่ควรอยู่ใน Image
+
+ในเส้นทาง DevOps บท [Environment, Config และ Secrets](/devops/config-secrets/) เราเห็นหลักการว่า Image ตัวเดียวควรรันได้ทุก Environment โดยเปลี่ยนแค่ค่าตั้งที่ส่งเข้าไปตอนรัน Kubernetes มีออบเจ็กต์สำหรับเรื่องนี้สองชนิดคือ ConfigMap สำหรับค่าตั้งทั่วไป และ Secret สำหรับค่าที่เป็นความลับ ทั้งคู่เข้าไปใน Pod ได้สองทาง คือเป็นตัวแปรสภาพแวดล้อม หรือเป็นไฟล์ที่ Mount ลงในโฟลเดอร์ (หนังสือ: Kubernetes Up and Running หัวข้อ Using a ConfigMap หน้า 154)
+
+ต่างกันตรงที่การเปลี่ยนค่า ตัวแปรสภาพแวดล้อมถูกอ่านครั้งเดียวตอน Container เริ่ม ส่วนไฟล์ถูก Kubelet อัปเดตให้ภายหลัง ลองดูตัวเลขจริงใน Lab นี้ เลือก "ปล่อย Pod ไว้" แล้วกดเล่น จากนั้นเลือก "Restart Pod" แล้วเล่นใหม่
+
+<ConfigLab client:visible />
+
+</Step>
+
+<Step>
+
+## ผลที่วัดได้: สามทางเข้า สามพฤติกรรม
+
+เราสร้าง ConfigMap ที่มี `LEVEL: info` และไฟล์ `app.properties` ที่มี `level=info` แล้วให้ Pod เอาไปใช้สามแบบ เป็นตัวแปร `LEVEL`, เป็นไฟล์ที่ Mount ทั้งโฟลเดอร์ที่ `/etc/app` และเป็นไฟล์เดี่ยวที่ Mount ด้วย `subPath` ที่ `/etc/pinned/app.properties` จากนั้นเราแก้ ConfigMap ให้เป็น `debug` (รัน)
+
+| ทางเข้า | หลังแก้ ConfigMap |
+|---|---|
+| ตัวแปรสภาพแวดล้อม `LEVEL` | ยังเป็น `info` |
+| ไฟล์ที่ Mount ทั้งโฟลเดอร์ | เปลี่ยนเป็น `debug` เมื่อ Kubelet ซิงก์ ในรอบบันทึกใช้เวลา 86 วินาที |
+| ไฟล์ที่ Mount ด้วย `subPath` | ยังเป็น `info` |
+
+ตัวแปรไม่เปลี่ยนเพราะมันถูกอ่านตอน Container เริ่ม เท่านั้น ส่วนไฟล์ที่ Mount ทั้งโฟลเดอร์ Kubelet ซิงก์เป็นรอบ จึงใช้เวลาหลักวินาทีถึงเกือบสองนาที (ในรอบ Verify อื่นเร็วกว่านี้มาก) และไฟล์ที่ Mount ด้วย `subPath` ไม่ถูกอัปเดตเลย ต้อง Restart Pod จึงจะเห็นค่าใหม่ (หนังสือ: Kubernetes Up and Running หัวข้อ Using a ConfigMap หน้า 154) ถ้าโปรแกรมของเราอ่านค่าตั้งใหม่ได้เอง ใช้ไฟล์ที่ Mount ทั้งโฟลเดอร์ ถ้าต้องการให้ค่าตั้งเปลี่ยนเมื่อ Deploy เท่านั้น ใช้ตัวแปรหรือ `immutable`
+
+ConfigMap ตั้งเป็น `immutable: true` ได้ ผลคือคำสั่งแก้ข้อมูลล้มเหลวด้วยข้อความ `field is immutable when immutable is set` (รัน) ช่วยกันการแก้พลาดและลดภาระ API Server
+
+</Step>
+
+<Step>
+
+## Secret ไม่ใช่ตู้เซฟ
+
+Secret มีหน้าตาเหมือน ConfigMap แต่ค่าถูกเก็บเป็น base64 (หนังสือ: Kubernetes Up and Running หัวข้อ Secrets หน้า 157) เราสร้าง Secret ที่มี `password=s3cr3t-pw` แล้วอ่านดูผ่าน API ได้ `czNjcjN0LXB3` ซึ่งใครมีสิทธิ์ `get` Secret นี้ก็ถอดกลับได้ด้วยคำสั่งเดียว `kubectl get secret` ที่ขอ YAML ก็ไม่ได้ซ่อนมัน (รัน) base64 คือการเข้ารหัสตัวอักษร ไม่ใช่การเข้ารหัสลับ
+
+ทีนี้ลงไปลึกอีกชั้น ในแบบฝึก เราเปิด `etcd` ใน Control Plane แล้วอ่านคีย์ `/registry/secrets/<namespace>/db` ตรง ๆ ผลคือเห็นข้อความ `password` ตามด้วย `s3cr3t-pw` เป็นตัวอักษรธรรมดา (รัน) เพราะคลัสเตอร์นี้ไม่ได้ตั้ง Encryption Provider สำหรับ Secret ในคลัสเตอร์จริง ค่านี้ต้องตั้งเอง และมีเรื่องสิทธิ์ของคนที่อ่านได้อยู่ในบท [RBAC และความปลอดภัย](/kubernetes/rbac-security/) หนังสือ Core Kubernetes มีหัวข้อเรื่อง etcd Encryption at Rest ไว้ (หนังสือ: Core Kubernetes หัวข้อ 12.7 หน้า 236)
+
+สิ่งที่ Secret ให้ได้คือแยกค่าลับออกจาก Image และจากไฟล์ Deployment ในโฟลเดอร์ Git และคุมสิทธิ์การอ่านแยกต่างหากด้วย RBAC ตามที่เรียนในบท [Environment, Config และ Secrets](/devops/config-secrets/) ไม่ใช่การเข้ารหัสในตัวมันเอง
+
+<Callout type="warn" title="Mount เป็นไฟล์ดีกว่าส่งเป็นตัวแปร">
+ตัวแปรสภาพแวดล้อมรั่วได้ง่ายกว่า เช่นปรากฏในข้อความ Error หรือ Dump ของโปรแกรม ในบท [Capstone](/kubernetes/capstone-pipeline/) เรา Mount รหัสผ่านเป็นไฟล์ให้ตัวโหลดอ่านแทน
+</Callout>
+
+</Step>
+
+<Step>
+
+## เมื่อค่าที่อ้างไม่มี Pod ไม่ขึ้น
+
+เราสร้าง Pod ที่อ้าง Key ของ Secret ชื่อ `pasword` (พิมพ์ผิด) ทั้งที่ Secret มี `password` ผลคือ Pod ค้างที่สถานะ `CreateContainerConfigError` และข้อความบอกตรง ๆ ว่า `couldn't find key pasword in Secret ...` (รัน) นี่เป็นอีกอาการที่เจอบ่อย และข้อความก็ชัดเจน ให้อ่านที่ `kubectl describe pod` ส่วน Events หรือฟิลด์ `state.waiting.message` ของ Container
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Pod อ่านค่า LEVEL จากตัวแปรสภาพแวดล้อมที่มาจาก ConfigMap เราแก้ ConfigMap แล้วรอสองนาที ค่า LEVEL ที่ Pod เห็นเป็นอย่างไร และต้องทำอะไรให้เห็นค่าใหม่"
+  options={[
+    'เป็นค่าใหม่แล้ว เพราะ Kubelet อัปเดตตัวแปรให้ทุกนาที',
+    'ยังเป็นค่าเก่า เพราะตัวแปรถูกอ่านตอน Container เริ่ม ต้อง Restart Pod (หรือเปลี่ยนไปใช้ไฟล์ที่ Mount ทั้งโฟลเดอร์)',
+    'เป็นค่าว่าง เพราะ ConfigMap ถูกแก้ระหว่างที่ Pod รันอยู่',
+    'Pod ถูก Restart ให้เองโดยอัตโนมัติ'
+  ]}
+  answer={1}
+  why="ตัวแปรสภาพแวดล้อมถูกกำหนดครั้งเดียวตอน Container เริ่ม จึงไม่ตามการแก้ ConfigMap ในแบบฝึกค่ายังเป็น Info ขณะที่ไฟล์ที่ Mount ทั้งโฟลเดอร์เปลี่ยนเป็น Debug แล้ว และไม่มีอะไร Restart Pod ให้เอง"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| ConfigMap เข้า Pod เป็นตัวแปร เป็นไฟล์ Mount ทั้งโฟลเดอร์ และเป็นไฟล์ `subPath` | รัน: `exercises/08_config_secrets.py` |
+| หลังแก้ ConfigMap ไฟล์ตามแต่ตัวแปรกับไฟล์ `subPath` ไม่ตาม (ไฟล์ตามหลัง 86 วินาทีในรอบที่บันทึกตัวเลข เร็วกว่านั้นในรอบอื่น) | รัน: `exercises/08_config_secrets.py` |
+| ConfigMap แบบ Immutable ปฏิเสธการแก้ข้อมูล | รัน: `exercises/08_config_secrets.py` |
+| Secret แสดงเป็น base64, ถอดได้ด้วยคำสั่งเดียว และ `kubectl get -o yaml` ไม่ซ่อน | รัน: `exercises/08_config_secrets.py` |
+| ค่า Secret ใน Etcd เป็นข้อความธรรมดาเมื่อไม่ตั้ง Encryption Provider | รัน: `exercises/08_config_secrets.py` |
+| Pod ที่อ้าง Key ไม่มีค้างที่ CreateContainerConfigError พร้อมข้อความชื่อ Key | รัน: `exercises/08_config_secrets.py` |
+| Mount เป็นไฟล์รั่วยากกว่าส่งเป็นตัวแปร และ `immutable` ลดภาระ API Server | ผู้เขียน (ข้อแนะนำทั่วไปและความเข้าใจจากเอกสาร ไม่ได้รันเทียบ) |
+| ConfigMap และ Secret ในฐานะออบเจ็กต์ที่เข้า Pod ได้สองทาง | หนังสือ: Kubernetes Up and Running หัวข้อ Using a ConfigMap หน้า 154 และ Secrets หน้า 157 |
+| etcd encryption at rest | หนังสือ: Core Kubernetes หัวข้อ 12.7 หน้า 236 |
+
+</Step>

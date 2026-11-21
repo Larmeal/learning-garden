@@ -1,0 +1,107 @@
+---
+title: Job, CronJob, DaemonSet and StatefulSet
+summary: Not every job runs for ever. We look at a Job that must succeed a number of times, a CronJob that makes Jobs on a schedule, a DaemonSet that needs one Pod per node, and a StatefulSet that gives each Pod a name and a disk of its own.
+facts:
+  - "Ran for real in exercises/06_jobs_stateful.py on minikube (Kubernetes v1.31.0): a Job with completions 6 and parallelism 2 (never more than 2 at once), a Job that failed past its backoffLimit, a CronJob on an every-minute schedule that made a Job by itself plus kubectl create job --from, a DaemonSet on the workers and then on the control plane once it had a toleration, a StatefulSet of 3 with names db-0 to db-2 and a PVC each, and a deleted db-1 that came back with its old data."
+  - "The ideas of Batch Job, Periodic Job, Daemon Service and Stateful Service come from the book Kubernetes Patterns (pages 63, 69, 73 and 87) and Kubernetes Up and Running chapters 11 and 12, and were not run again. The StatefulSet in the exercise is pinned to one worker, because minikube volumes are folders on a node (see the lesson on volumes)."
+order: 6
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [scheduling]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import WorkloadsLab from '../../../../components/labs/kubernetes/WorkloadsLab';
+
+<Step>
+
+## A Deployment suits only things that run for ever
+
+The Deployment we have used was made for programs that should stay up all the time. If a Pod ends it makes a new one. But much of a data engineer's work is not like that: a load that runs and finishes, a job that runs every night, a log collector that must be on every node, or a database that needs a name and data of its own. Kubernetes has a workload for each (book: Kubernetes Patterns, Batch Job page 63, Periodic Job page 69, Daemon Service page 73 and Stateful Service page 87). Choose by what must stay true, and let us go through them one by one in this lab.
+
+<WorkloadsLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## Job: succeed a number of times, then stop
+
+A Job creates Pods that run to the end, and counts how many succeeded (book: Kubernetes Up and Running, Job Patterns, page 140). We set `completions: 6` and `parallelism: 2`, meaning six successes are needed, with at most two running together. In the real run at most 2 Pods ran at once, and it ended `Complete` after about 18 seconds. Finished Pods are not deleted. All six were left as `Succeeded`, so their logs can be read later (ran).
+
+What if the program fails? We made a Job with `backoffLimit: 2` and a program that exits with code 1 every time. The Job tried until 3 Pods had failed and then gave up, with the reason `BackoffLimitExceeded` (ran). For a Job we usually set `restartPolicy` to `Never` or `OnFailure`, and not `Always` as a Deployment does, because otherwise a Pod that ends would be started again for ever.
+
+</Step>
+
+<Step>
+
+## CronJob: Jobs created on a schedule
+
+A CronJob only makes Jobs on a schedule like Linux cron. It runs nothing itself (book: Kubernetes Up and Running, CronJobs, page 150). In the exercise we set `"* * * * *"`, every minute. A few seconds after the CronJob was made, a new Job called `tick-<number>` was created from the template by itself (ran). We can also make a Job from a CronJob by hand with `kubectl create job --from=cronjob/<name>`, handy for tests or an extra run, and the Job is marked as owned by the CronJob through `ownerReference` (ran).
+
+Two settings are worth knowing. `concurrencyPolicy: Forbid` skips a round if the last one has not finished, and `successfulJobsHistoryLimit` sets how many Jobs are kept. We use a real CronJob in the [capstone](/en/kubernetes/capstone-pipeline/) to run the loader again.
+
+</Step>
+
+<Step>
+
+## DaemonSet: one per node
+
+A DaemonSet has no `replicas` number. The number of Pods follows the number of nodes that qualify. It suits log collectors, system metrics and networking programs (book: Kubernetes Up and Running, DaemonSet Scheduler, page 132). In the exercise a plain DaemonSet put a Pod on both workers, but not on the control plane, because of its taint (ran). After we added a toleration that tolerates everything, the control plane got one too, three in all (ran). This is how `kube-proxy` and `kindnet`, which we saw in the first lesson, run on every node including the control plane.
+
+</Step>
+
+<Step>
+
+## StatefulSet: a name and a disk that go with the Pod
+
+A database differs from a web server because each member has its own identity and its own data. A StatefulSet gives a Pod three things: a fixed name with a number, a one by one start order, and a volume of its own made from a template (book: Kubernetes Patterns, Stateful Service page 87, and Kubernetes Up and Running, Kubernetes-Native Storage with StatefulSets, page 186).
+
+In the real run a StatefulSet of 3 got Pods called `db-0`, `db-1` and `db-2`, created in order (start times rising), and three PersistentVolumeClaims called `data-db-0`, `data-db-1` and `data-db-2`, one each (ran). We wrote a file to the disk of `db-1` and then deleted the Pod `db-1`. The StatefulSet made `db-1` again with the same name (and a new `uid`), and it found the file that the earlier Pod wrote, because the claim is tied to the Pod name and not to the Pod itself (ran).
+
+<Callout type="warn" title="In the exercise we pinned the Pods to one worker">
+The volume that minikube makes is a folder on the node where the Pod runs. If `db-1` were created again on another node it would find an empty folder. So the exercise gives all the Pods a `nodeSelector` and keeps them on one worker. The lesson [Volumes and storage](/en/kubernetes/storage/) has the details. In a real cluster that uses network disks there is no need to pin.
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We must run a data load every night at 2 a.m., and each round must run to the end once. Which workload should we choose?"
+  options={[
+    'A Deployment with replicas set to 1',
+    'A CronJob with the schedule set to 2 a.m., which makes a Job that runs a Pod to the end each round',
+    'A DaemonSet, because it must run every night',
+    'A StatefulSet, because there is data to keep'
+  ]}
+  answer={1}
+  why="A job that runs on a schedule and ends is a CronJob's work. A Deployment would create a new Pod every time the job ends, so it would run again for ever. A DaemonSet is for one per node, and a StatefulSet is for Pods that need a name and a disk of their own."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| A Job with completions 6 and parallelism 2 has at most 2 Pods at once, ends Complete, and finished Pods are kept as Succeeded | ran: `exercises/06_jobs_stateful.py` |
+| A Job with backoffLimit 2 and a program that always fails has 3 failed Pods and stops with BackoffLimitExceeded | ran: `exercises/06_jobs_stateful.py` |
+| An every-minute CronJob makes a Job by itself within seconds, and `create job --from` gives a Job owned by the CronJob | ran: `exercises/06_jobs_stateful.py` |
+| A DaemonSet puts Pods on both workers, none on the control plane, and does with a toleration | ran: `exercises/06_jobs_stateful.py` |
+| A StatefulSet gives db-0 to db-2 in order, PVCs data-db-0 to 2, and a deleted db-1 returns with its name and data | ran: `exercises/06_jobs_stateful.py` |
+| A Job should use restartPolicy Never or OnFailure | author (the meaning of the policies from the lesson on Pods, and common use) |
+| Batch Job, Periodic Job, Daemon Service and Stateful Service are separate patterns | book: Kubernetes Patterns, Batch Job page 63, Periodic Job page 69, Daemon Service page 73, Stateful Service page 87 |
+| Job Patterns, CronJobs and DaemonSet Scheduler | book: Kubernetes Up and Running, Job Patterns page 140, CronJobs page 150, DaemonSet Scheduler page 132 |
+| StatefulSets and storage | book: Kubernetes Up and Running, Kubernetes-Native Storage with StatefulSets page 186 |
+
+</Step>

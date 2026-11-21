@@ -1,0 +1,106 @@
+---
+title: Job และ StatefulSet
+summary: ไม่ใช่ทุกงานที่ต้องรันตลอดไป เราดู Job ที่ต้องสำเร็จครบจำนวนครั้ง CronJob ที่สร้าง Job ตามเวลา DaemonSet ที่ต้องมีหนึ่งตัวต่อ Node และ StatefulSet ที่ให้ชื่อกับดิสก์ประจำตัวแต่ละ Pod
+facts:
+  - "รันจริงใน exercises/06_jobs_stateful.py บน minikube (Kubernetes v1.31.0): Job completions 6 parallelism 2 (ทำพร้อมกันไม่เกิน 2), Job ที่ล้มเหลวจนเกิน backoffLimit, CronJob ที่ Schedule แบบทุกนาทีสร้าง Job เองและ kubectl create job --from, DaemonSet บน Worker แล้วเพิ่มบน Control Plane เมื่อมี Toleration, StatefulSet 3 ตัวที่ได้ชื่อ db-0 ถึง db-2 กับ PVC คนละอัน และ db-1 ที่ถูกลบกลับมาพร้อมข้อมูลเดิม"
+  - "แนวคิดของ Batch Job, Periodic Job, Daemon Service และ Stateful Service มาจากหนังสือ Kubernetes Patterns (หน้า 63, 69, 73 และ 87) และ Kubernetes Up and Running บทที่ 11 และ 12 ไม่ได้รันซ้ำ StatefulSet ในแบบฝึกถูกตรึงไว้ที่ Worker ตัวเดียวเพราะ Volume ของ minikube เป็นโฟลเดอร์บน Node (ดูบท Volume)"
+order: 6
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [scheduling]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import WorkloadsLab from '../../../../components/labs/kubernetes/WorkloadsLab';
+
+<Step>
+
+## Deployment เหมาะกับงานที่รันตลอดไปเท่านั้น
+
+Deployment ที่เราใช้มา สร้างมาเพื่อโปรแกรมที่ควรรันค้างอยู่ตลอด ถ้า Pod จบ มันก็สร้างใหม่ให้ แต่งานของวิศวกรข้อมูลจำนวนมากไม่เป็นแบบนั้น เช่น งานโหลดข้อมูลที่รันแล้วจบ งานที่ต้องรันทุกคืน ตัวเก็บ Log ที่ต้องมีทุก Node หรือฐานข้อมูลที่ต้องมีชื่อกับข้อมูลของตัวเอง Kubernetes มี Workload สำหรับแต่ละแบบ (หนังสือ: Kubernetes Patterns หัวข้อ Batch Job หน้า 63 และ Periodic Job หน้า 69 และ Daemon Service หน้า 73 และ Stateful Service หน้า 87) เลือกชนิดตามสิ่งที่ต้องคงอยู่จริง ซึ่งเรามาดูกันทีละชนิดใน Lab นี้
+
+<WorkloadsLab client:visible />
+
+</Step>
+
+<Step>
+
+## Job: ทำให้สำเร็จครบจำนวนครั้ง แล้วหยุด
+
+Job สร้าง Pod ที่รันจนจบ และนับว่าสำเร็จกี่ครั้ง (หนังสือ: Kubernetes Up and Running หัวข้อ Job Patterns หน้า 140) เราตั้ง `completions: 6` กับ `parallelism: 2` แปลว่าต้องสำเร็จหกครั้ง โดยรันพร้อมกันได้ไม่เกินสองตัว ในการรันจริงมี Pod ทำงานพร้อมกันสูงสุด 2 ตัว และจบด้วยสถานะ `Complete` ใช้เวลา 18 วินาที Pod ที่เสร็จแล้วไม่ถูกลบ มันเหลือสถานะ `Succeeded` ทั้งหกตัวให้เราอ่าน Log ภายหลังได้ (รัน)
+
+ถ้าโปรแกรมล้มเหลวล่ะ เราสร้าง Job ที่ตั้ง `backoffLimit: 2` กับโปรแกรมที่ออกด้วยรหัส 1 ทุกครั้ง ผลคือ Job ลองจนมี Pod ล้มเหลวทั้งหมด 3 ตัวแล้วยอมแพ้ ด้วยเหตุผล `BackoffLimitExceeded` (รัน) สำหรับ Job เรามักตั้ง `restartPolicy` เป็น `Never` หรือ `OnFailure` ไม่ตั้ง `Always` อย่าง Deployment เพราะไม่อย่างนั้น Pod ที่จบแล้วจะถูกสั่งรันใหม่ไม่รู้จบ
+
+</Step>
+
+<Step>
+
+## CronJob: Job ที่ถูกสร้างตามเวลา
+
+CronJob เป็นแค่ตัวสร้าง Job ตาม Schedule แบบเดียวกับ Cron ของ Linux ไม่ได้รันอะไรเอง (หนังสือ: Kubernetes Up and Running หัวข้อ CronJobs หน้า 150) ในแบบฝึกเราตั้ง `"* * * * *"` คือทุกนาที ผลคือภายในไม่กี่วินาทีหลังสร้าง CronJob ก็มี Job ใหม่ชื่อ `tick-<เลข>` ที่ถูกสร้างเองจากแม่แบบ (รัน) และเราสร้าง Job จาก CronJob ด้วยมือได้ด้วย `kubectl create job --from=cronjob/<ชื่อ>` ซึ่งสะดวกเวลาอยากทดสอบหรือรันซ้ำนอกรอบ Job ที่ได้ถูกระบุว่าเป็นของ CronJob ผ่าน `ownerReference` (รัน)
+
+มีสองค่าที่ควรรู้จัก `concurrencyPolicy: Forbid` จะข้ามรอบถ้ารอบก่อนยังไม่จบ และ `successfulJobsHistoryLimit` กำหนดจำนวน Job ที่เก็บไว้ เราจะใช้ CronJob จริงใน [Capstone](/kubernetes/capstone-pipeline/) เพื่อรัน Loader ซ้ำ
+
+</Step>
+
+<Step>
+
+## DaemonSet: หนึ่งตัวต่อ Node
+
+DaemonSet ไม่มีเลข `replicas` จำนวน Pod ขึ้นกับจำนวน Node ที่เข้าเงื่อนไข เหมาะกับตัวเก็บ Log ตัววัดระบบ และโปรแกรมเครือข่าย (หนังสือ: Kubernetes Up and Running หัวข้อ DaemonSet Scheduler หน้า 132) ในแบบฝึก DaemonSet ธรรมดาให้ Pod บน Worker ทั้งสองตัว แต่ไม่ได้ลงที่ Control Plane เพราะ Taint (รัน) พอเราเพิ่ม Toleration ที่ทนทุกอย่าง Control Plane ก็ได้ Pod ด้วย รวมเป็นสามตัว (รัน) นี่คือวิธีที่ `kube-proxy` กับ `kindnet` ที่เราเห็นในบทแรกรันบนทุก Node รวมถึง Control Plane
+
+</Step>
+
+<Step>
+
+## StatefulSet: ชื่อและดิสก์ที่ติดตัว
+
+ฐานข้อมูลต่างจากเว็บตรงที่แต่ละตัวมีตัวตนไม่เหมือนกัน และมีข้อมูลของตัวเอง StatefulSet ให้สามอย่างแก่ Pod คือชื่อที่คงที่และเรียงเลข ลำดับการเริ่มที่ทีละตัว และ Volume ประจำตัวที่ถูกสร้างจากแม่แบบ (หนังสือ: Kubernetes Patterns หัวข้อ Stateful Service หน้า 87 และ Kubernetes Up and Running หัวข้อ Kubernetes-Native Storage with StatefulSets หน้า 186)
+
+ในการรันจริง StatefulSet ที่ตั้ง 3 ตัวได้ Pod ชื่อ `db-0`, `db-1`, `db-2` ซึ่งถูกสร้างตามลำดับ (เวลาเริ่มเรียงจากน้อยไปมาก) และได้ PersistentVolumeClaim สามอัน ชื่อ `data-db-0`, `data-db-1` และ `data-db-2` อย่างละหนึ่ง (รัน) เราเขียนไฟล์ลงดิสก์ของ `db-1` แล้วลบ Pod `db-1` ทิ้ง ผลคือ StatefulSet สร้าง `db-1` ขึ้นใหม่ด้วยชื่อเดิม (แต่ `uid` ใหม่) และมันเจอไฟล์ที่ Pod ตัวก่อนเขียนไว้ เพราะ Claim ถูกผูกกับชื่อ Pod ไม่ใช่กับตัว Pod (รัน)
+
+<Callout type="warn" title="ในแบบฝึก เราตรึง Pod ไว้ที่ Worker ตัวเดียว">
+Volume ที่ Minikube สร้างให้เป็นโฟลเดอร์บน Node ที่ Pod รันอยู่ ถ้า `db-1` ถูกสร้างใหม่บน Node อื่นก็จะเจอโฟลเดอร์ว่าง แบบฝึกจึงใส่ `nodeSelector` ให้ Pod ทั้งหมดอยู่ Worker ตัวเดียว เรื่องนี้ละเอียดอยู่ในบท [Volume และ Storage](/kubernetes/storage/) ในคลัสเตอร์จริงที่ใช้ดิสก์เครือข่ายจะไม่ต้องตรึง
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราต้องรันงานโหลดข้อมูลทุกคืนเวลาตีสอง และแต่ละรอบต้องรันจนจบหนึ่งครั้ง ควรเลือก Workload ใด"
+  options={[
+    'Deployment ที่ตั้ง Replicas เป็น 1',
+    'CronJob ที่ตั้ง Schedule เป็นตีสอง ซึ่งสร้าง Job ที่รัน Pod จนจบในแต่ละรอบ',
+    'DaemonSet เพราะต้องรันทุกคืน',
+    'StatefulSet เพราะมีข้อมูลที่ต้องเก็บ'
+  ]}
+  answer={1}
+  why="งานที่รันตามเวลาแล้วจบคือหน้าที่ของ CronJob ส่วน Deployment จะสร้าง Pod ใหม่ทุกครั้งที่งานจบ ทำให้รันซ้ำไม่รู้จบ DaemonSet ใช้เมื่อต้องการหนึ่งตัวต่อ Node และ StatefulSet ใช้เมื่อ Pod ต้องมีชื่อและดิสก์ประจำตัว"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Job Completions 6 Parallelism 2 มี Pod ทำงานพร้อมกันไม่เกิน 2 จบด้วย Complete และ Pod ที่เสร็จถูกเก็บไว้เป็น Succeeded | รัน: `exercises/06_jobs_stateful.py` |
+| Job ที่ตั้ง backoffLimit 2 กับโปรแกรมที่ล้มเสมอ ล้มเหลว 3 Pod แล้วหยุดด้วย BackoffLimitExceeded | รัน: `exercises/06_jobs_stateful.py` |
+| CronJob Schedule ทุกนาทีสร้าง Job เองภายในไม่กี่วินาทีหลังสร้าง และ `create job --from` ได้ Job ที่ CronJob เป็นเจ้าของ | รัน: `exercises/06_jobs_stateful.py` |
+| DaemonSet ให้ Pod บน Worker ทั้งสอง ไม่ลง Control Plane และลงเมื่อมี Toleration | รัน: `exercises/06_jobs_stateful.py` |
+| StatefulSet ให้ db-0 ถึง db-2 ตามลำดับ กับ PVC data-db-0 ถึง 2 และ db-1 ที่ถูกลบกลับมาด้วยชื่อเดิมพร้อมข้อมูลเดิม | รัน: `exercises/06_jobs_stateful.py` |
+| Job ควรใช้ restartPolicy Never หรือ OnFailure | ผู้เขียน (ความหมายของ Policy ที่เห็นในบท Pod และการใช้งานทั่วไป) |
+| Batch Job, Periodic Job, Daemon Service และ Stateful Service เป็นรูปแบบแยกกัน | หนังสือ: Kubernetes Patterns หัวข้อ Batch Job หน้า 63, Periodic Job หน้า 69, Daemon Service หน้า 73, Stateful Service หน้า 87 |
+| Job Patterns, CronJobs และ DaemonSet Scheduler | หนังสือ: Kubernetes Up and Running หัวข้อ Job Patterns หน้า 140, CronJobs หน้า 150, DaemonSet Scheduler หน้า 132 |
+| StatefulSet กับ Storage | หนังสือ: Kubernetes Up and Running หัวข้อ Kubernetes-Native Storage with StatefulSets หน้า 186 |
+
+</Step>

@@ -1,0 +1,97 @@
+---
+title: Ingress
+summary: An Ingress is a set of rules that says which Service a request from outside goes to, by host name and path. The part that does the work is a controller, an ordinary Pod running nginx. We see how a rule is chosen, and what to watch for with paths.
+facts:
+  - "Ran for real in exercises/07b_ingress.py on minikube with ingress-nginx v1.11.2 (enabled with the minikube addon): the controller is an ordinary Pod, every request got 404 before any Ingress existed, rules by host and path (longest prefix wins), a host with no rule got the controller's own 404, /apix did not match /api, the controller forwards the whole path without stripping the prefix, the rules became server_name and location lines in nginx.conf, and a Service with no Pod gave 503."
+  - "The idea of the Ingress spec being separate from the Ingress controller, and path rewriting, come from the book Kubernetes Up and Running chapter 8 pages 90 to 98 and were not run again. Other ways in from outside (a cloud LoadBalancer, TLS) were not run."
+order: 71
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import IngressLab from '../../../../components/labs/kubernetes/IngressLab';
+
+<Step>
+
+## An Ingress is only a set of rules
+
+The lesson [Services and DNS](/en/kubernetes/services/) gave fixed addresses inside the cluster. To open several services to the outside through one place, separated by host name or path, such as `shop.example.com` to the shop and `/api` to an API, we have an Ingress, an object that holds rules like these. But it does nothing by itself. The book separates the Ingress spec, which is the rules, from the Ingress controller, a program that reads the rules and acts on them (book: Kubernetes Up and Running, Ingress Spec Versus Ingress Controllers, page 90).
+
+In the real run we turned on a controller called `ingress-nginx` with a minikube addon. It looks like one ordinary Pod running `nginx`. Before we created any Ingress at all, every request sent to it got `404` back (ran), because it had no rules yet.
+
+</Step>
+
+<Step>
+
+## Choosing a rule by host and path
+
+We made three Services, `shop`, `api` and `blog`, and wrote an Ingress with three rules: `shop.test` at `/` goes to shop, `shop.test` at `/api` goes to api, and `blog.test` at `/` goes to blog (book: Kubernetes Up and Running, Using Hostnames page 94 and Using Paths page 95). Pick a request in the lab and see which rule lights up and where the request ends.
+
+<IngressLab client:visible lang="en" />
+
+The results from the real run are summed up here (ran).
+
+| Host | Path | Code | Answered by |
+|---|---|---|---|
+| `shop.test` | `/` | 200 | shop |
+| `shop.test` | `/api/x/` | 200 | api |
+| `shop.test` | `/apix` | 404 | the shop Pod (no such file) |
+| `blog.test` | `/` | 200 | blog |
+| `blog.test` | `/api/x/` | 200 | blog |
+| `other.test` | `/` | 404 | the controller's own 404 page |
+
+Three things to notice. First, when a request matches several rules, the rule with the longer path wins, so `shop.test/api/x/` goes to api. Second, a prefix path is compared by whole segments of the path. The rule `/api` applies to `/api` and `/api/...` only, so `/apix` does not match, falls to the `/` rule of shop, which has no such file, and gets a 404 from the Pod, which looks different from the 404 of the controller (all capital letters). Third, the controller sends the whole path `/api/x/` to the Pod, without removing `/api`. If the api Pod has no such route it answers 404. To strip the prefix we need extra settings, which belong to each controller (book: Kubernetes Up and Running, Path Rewriting, page 98).
+
+</Step>
+
+<Step>
+
+## The rules of an Ingress become nginx settings
+
+The controller reads the Ingress objects from the API and writes them as nginx settings inside its own Pod. In the real run we opened `/etc/nginx/nginx.conf` in the controller and found one block each for `server_name blog.test` and `server_name shop.test`, and lines that name the destination of each of the three Services (`klab-ingress-shop-80` and the others) (ran). So an Ingress is no magic. It is one more controller loop that reads what we want and makes a real program match it, just as we saw in the first lesson.
+
+What if the Service that a rule points to has no Ready Pod at all? We scaled blog to 0. Requests to `blog.test` got `503` while `shop.test` was not affected (ran). The rule is right, but the destination is gone.
+
+<Callout type="note" title="What this exercise did not run">
+We did not try opening the Ingress through a cloud LoadBalancer and did not try TLS. Every request was sent from inside the control plane node straight to its IP, with a `Host` header that we set ourselves. It is therefore a test of the rules, not of the path from the internet.
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="An Ingress has two rules for one host. The first uses the root path and goes to a Service called Shop. The second uses a path that starts with the word Api and goes to a Service called Api. A request that goes deeper under Api (for example Api followed by Orders) goes to which Service, and what path does the Pod receive?"
+  options={[
+    'To Shop, because the root path rule matches everything',
+    'To Api, because the rule with the longer path wins, and the Pod receives the whole path, with the prefix not stripped',
+    'To Api, and the Pod receives the path with the prefix removed, because an Ingress always strips it',
+    'It fails, because two rules match'
+  ]}
+  answer={1}
+  why="When several rules match, the rule with the longer path wins. In the real run the controller always sent the whole path to the Pod without stripping the prefix. If the Pod has no such route it answers 404 itself."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The controller is an ordinary Pod, and before any Ingress every request gets 404 | ran: `exercises/07b_ingress.py` |
+| The six requests gave the results in the table (rules by host and path, longest prefix wins, `/apix` does not match `/api`, a host with no rule gets the controller's 404) | ran: `exercises/07b_ingress.py` |
+| The controller sends the whole path without stripping the prefix | ran: `exercises/07b_ingress.py` |
+| The rules become `server_name` and destination names for Services in nginx.conf | ran: `exercises/07b_ingress.py` |
+| A Service with no Ready Pod gives 503 | ran: `exercises/07b_ingress.py` |
+| The Ingress spec is separate from the Ingress controller, Using Hostnames, Using Paths and Path Rewriting | book: Kubernetes Up and Running, Ingress Spec Versus Ingress Controllers page 90, Using Hostnames page 94, Using Paths page 95, Path Rewriting page 98 |
+| A cloud LoadBalancer and TLS | not run |
+
+</Step>

@@ -1,0 +1,63 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 3 ข้อ เพื่อเช็กว่ารู้ว่าใครรัน Container จริง รู้ว่า Limit กลายเป็นอะไรใน Kernel และรู้ว่า Container ใน Pod เดียวกันใช้ Namespace อะไรร่วมกัน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เรา Restart Kubelet บน Worker ตัวหนึ่งที่มี Pod รันอยู่ Container ใน Pod เหล่านั้นเป็นอย่างไร"
+  options={[
+    'ถูกหยุดทั้งหมดและเริ่มใหม่ เพราะ Kubelet เป็นคนรัน Container',
+    'ยังรันต่อโดยไม่ถูกแตะ เพราะ Container ถูกดูแลโดยตัวรัน Container (Containerd) ไม่ใช่ Kubelet',
+    'ถูกย้ายไป Node อื่นทันที',
+    'ถูกลบออกจากคลัสเตอร์'
+  ]}
+  answer={1}
+  why="Kubelet สั่งตัวรัน Container ผ่าน CRI แต่ไม่ได้เป็นพ่อของ Process ในแบบฝึก รหัส Container และ Process เดิมหลัง Restart Kubelet และ restartCount ยังเป็น 0"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Container ตั้ง Limit CPU ไว้ 100m และโปรแกรมวนลูปใช้ CPU เต็มที่ สิ่งที่เกิดกับโปรแกรมคืออะไร และไฟล์ไหนใน Cgroup ที่กำหนดเรื่องนี้"
+  options={[
+    'ถูกฆ่าทันที และกำหนดโดย memory.max',
+    'ถูกบีบให้ใช้ได้ราว 10% ของ CPU หนึ่งตัว (Throttle) และกำหนดโดย cpu.max',
+    'ย้ายไป Node ที่มี CPU มากกว่า',
+    'ไม่มีผลอะไร เพราะ Limit CPU เป็นเพียงคำแนะนำ'
+  ]}
+  answer={1}
+  why="Limit CPU กลายเป็น cpu.max (10 มิลลิวินาทีต่อทุก 100) ซึ่งทำให้โปรแกรมถูกหยุดชั่วคราวในแต่ละรอบ เรียกว่า Throttle ต่างจาก Memory ที่เกิน Limit แล้วถูกฆ่า"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Container สองตัวใน Pod เดียวกันใช้ Namespace ชนิดไหนร่วมกันโดยค่าเริ่มต้น"
+  options={[
+    'Mount, PID และ Network ทั้งหมด',
+    'เฉพาะ Network (จึงเรียกกันทาง Localhost ได้) ส่วน Mount และ PID แยกกัน',
+    'เฉพาะ PID',
+    'ไม่มี Namespace ไหนเลย'
+  ]}
+  answer={1}
+  why="Sandbox ที่รัน Pause ถือ Network Namespace ไว้ให้ Container ทุกตัวเข้าร่วม ส่วน Mount กับ PID แยกกัน ในแบบฝึกเห็น Namespace ของเครือข่ายหนึ่งอัน และของ Mount กับ PID อย่างละสามอัน"
+/>
+
+</Step>

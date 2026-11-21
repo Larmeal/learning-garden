@@ -1,0 +1,63 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 3 ข้อ เพื่อเช็กว่ารู้ว่า Helm Rollback ทำอะไรกับประวัติ รู้ว่า HPA คิดจำนวน Pod อย่างไร และอ่านสถานะ Pending กับ ImagePullBackOff แยกกันได้
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Release ของ Helm มี Revision 1, 2 และ 3 แล้วเราสั่ง Rollback ไป Revision 1 ผลคืออะไร"
+  options={[
+    'ประวัติถูกย้อน เหลือ Revision 1 อย่างเดียว',
+    'ได้ Revision 4 ที่มีเนื้อหาเหมือน Revision 1 ประวัติยังเดินหน้า',
+    'Revision 2 และ 3 ถูกลบ',
+    'Helm ปฏิเสธ เพราะ Revision 1 ถูกแทนที่ไปแล้ว'
+  ]}
+  answer={1}
+  why="Rollback ไม่ย้อนประวัติ มันสร้าง Revision ใหม่ที่ก๊อปเนื้อหาของเก่า ในแบบฝึก Rollback ไป Revision 1 ได้ Revision 3 ที่เนื้อหาเหมือน Revision 1 และประวัติมีครบ"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="HPA ตั้งเป้า CPU 50% ปัจจุบันมี Pod 2 ตัว และอ่านค่าเฉลี่ยได้ 100% ของ Request ถ้าไม่ติดค่าสูงสุด จำนวน Pod ที่ต้องการควรเป็นเท่าไร"
+  options={[
+    '2 ตัว เพราะค่าเกินแต่ไม่ต้องทำอะไร',
+    '4 ตัว เพราะปัดขึ้นของ 2 คูณ 100 หารด้วย 50',
+    '1 ตัว',
+    '3 ตัว'
+  ]}
+  answer={1}
+  why="จำนวนที่ต้องการ = ปัดขึ้นของ (จำนวนปัจจุบัน × การใช้ ÷ เป้า) = 2 × 100 ÷ 50 = 4 ในแบบฝึกเห็นสูตรเดียวกันนี้ 1 × 200 ÷ 50 = 4"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Pod สองตัวมีอาการต่างกัน ตัวแรก Pending และไม่มี Node ตัวที่สอง ImagePullBackOff และมี Node แล้ว ข้อไหนบอกชั้นของปัญหาได้ถูก"
+  options={[
+    'ทั้งสองปัญหาอยู่ที่ Image',
+    'ตัวแรกปัญหาอยู่ที่การวางของ Scheduler (Request ไม่พอ หรือ Taint) ตัวที่สองปัญหาอยู่ที่การดึง Image หลังได้ Node แล้ว',
+    'ตัวแรกปัญหาอยู่ที่ Kubelet ตัวที่สองปัญหาอยู่ที่ Scheduler',
+    'ทั้งสองปัญหาอยู่ที่ Service'
+  ]}
+  answer={1}
+  why="Pending ที่ไม่มี Node แปลว่า Scheduler วางไม่ได้ ข้อความ FailedScheduling บอกเหตุ ส่วน ImagePullBackOff เกิดหลังมี Node แล้ว เมื่อ Kubelet ดึง Image ไม่ได้ ดูได้ที่ Describe Pod"
+/>
+
+</Step>

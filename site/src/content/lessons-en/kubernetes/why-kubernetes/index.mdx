@@ -1,0 +1,168 @@
+---
+title: Why Kubernetes
+summary: A real cluster of three computers is built, and then we delete a Pod and switch one computer off, to see how the number we want and the number that exists are compared and made equal again.
+facts:
+  - "Ran for real in exercises/01_cluster.py on a 3 node minikube cluster (Kubernetes v1.31.0, containerd 1.7.21): which component runs on which node, a deleted Pod replaced by a Pod with a new name within seconds, a replica count changed by one number, a container killed inside a Pod and restarted by the kubelet, and a whole node stopped with its Pods created again on the node that is left."
+  - "The statements that Kubernetes fixes infrastructure drift and keeps what we want as YAML come from the book Core Kubernetes, section 1.2 page 2 and 1.4 page 5, and from Kubernetes Up and Running. They were not run."
+  - "The default wait of 300 seconds for Pods on a lost node is Kubernetes' default. The exercise shortens it to 10 seconds with tolerationSeconds so that it does not wait long, so the 300 seconds was not measured directly."
+order: 1
+phase: A
+level: 1
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ClusterLab from '../../../../components/labs/kubernetes/ClusterLab';
+
+<Step>
+
+## What does a cluster look like
+
+In the Docker path we put containers on one computer and used [Docker Compose](/en/docker/compose/) to tell Docker which services exist. If that computer goes down, every container goes with it, and we have to log in and start them again ourselves. In the lesson [Orchestration and GitOps](/en/devops/gitops/) of the DevOps path we wrote a small controller of our own, to show how "compare what we want with what exists, and fix the difference" works. Kubernetes is the system that does exactly this, but for many computers at once.
+
+In this path we use a real cluster that minikube set up on our own computer. It has three computers: one is a control plane and two are workers. Let us ask the cluster who is in it (ran).
+
+```bash
+kubectl get nodes
+```
+
+```text
+NAME         STATUS   ROLES           VERSION   CONTAINER-RUNTIME
+garden       Ready    control-plane   v1.31.0   containerd://1.7.21
+garden-m02   Ready    <none>          v1.31.0   containerd://1.7.21
+garden-m03   Ready    <none>          v1.31.0   containerd://1.7.21
+```
+
+`kubectl` is the program we use to talk to the cluster. The command `get nodes` asks for the list of nodes, which are the computers of the cluster. Every one runs the same Kubernetes version, and runs containers with `containerd`, the low level container runtime that Docker itself uses inside (book: Core Kubernetes section 1.6 page 9).
+
+The computer marked `control-plane` is not there to run our programs. It is the brain of the cluster. The other two are workers that take Pods to run. In Kubernetes we do not start containers directly. We run Pods, which are groups of containers that live together. [The next lesson](/en/kubernetes/pods/) looks at what a Pod is. For now, think of one Pod as one program of ours.
+
+</Step>
+
+<Step>
+
+## We do not say "run this", we say how many we want
+
+Let us tell the cluster that we want three copies of a program called `web`, through an object called a Deployment. The YAML looks like this (shortened).
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 3
+  selector:
+    matchLabels: {app: web}
+  template:
+    metadata:
+      labels: {app: web}
+    spec:
+      containers:
+      - name: web
+        image: busybox:1.37
+```
+
+The line `replicas: 3` is the number we want, and `template` is the mould of the Pods that will be made. After `kubectl apply -f web.yaml` all three Pods come up, spread over the two workers, and none lands on the control plane (ran).
+
+Hmm, what if somebody deletes one Pod? Let us try.
+
+```bash
+kubectl delete pod web-6947b489d8-f6hlk
+```
+
+In the real run a new Pod called `web-6947b489d8-glpbx` came up in its place and was ready within 2.3 seconds. The name is different from the old one, because the Pod was not repaired and brought back. It was made again, whole. Nobody told anything to create it. We only deleted a Pod, and something noticed that two numbers were different (we want 3, we found 2) and fixed it. If we open the events of the namespace we can see several parties working together: `replicaset-controller` creates the Pod, `default-scheduler` picks a node, and the `kubelet` of that node runs the container (ran).
+
+Press play in the lab below and switch to the second accident, and watch when the two numbers on the card change, and who makes them equal again.
+
+<ClusterLab client:visible lang="en" />
+
+This is the core of the whole Kubernetes system. We write what we want (the desired state) as YAML, and a loop keeps comparing it with what really exists (the actual state) and fixes the difference all the time. The book Core Kubernetes calls the problem this solves infrastructure drift: the real state of a system slowly moves away from what we meant (book: Core Kubernetes section 1.2 page 2 and section 1.4 page 5).
+
+<Callout type="note" title="Scaling is changing one number">
+In the exercise we ran `kubectl scale deployment/web --replicas=5` and the Pods grew to 5. Scaling down to 2 shrank them. `spec.replicas` and `status.readyReplicas` were equal at the end. We never said which Pod starts and which stops (ran).
+</Callout>
+
+</Step>
+
+<Step>
+
+## Who lives inside the cluster
+
+To see who does what, let us list the system Pods in the namespace `kube-system` and group them by the node they run on (ran).
+
+| Node | System Pods on it |
+|---|---|
+| `garden` (control plane) | `etcd`, `kube-apiserver`, `kube-controller-manager`, `kube-scheduler`, `coredns`, `storage-provisioner`, `kindnet`, `kube-proxy` |
+| `garden-m02` (worker) | `kindnet`, `kube-proxy` |
+| `garden-m03` (worker) | `kindnet`, `kube-proxy` |
+
+Four of the control plane parts are the core. `etcd` stores all the data of the cluster. `kube-apiserver` is the one door everybody uses to talk to the cluster. `kube-scheduler` decides which node a new Pod goes to. `kube-controller-manager` bundles many loops that compare numbers, like the one we just saw. Every node, worker or not, has `kube-proxy`, which does the networking of Services, and `kindnet`, which connects the network for Pods. Every node also has a kubelet, which is not a Pod but a program of the operating system. It takes the Pods that were assigned to its node and tells the container runtime to run them (book: Core Kubernetes section 1.6 page 9 and section 2.3 page 29).
+
+One thing to notice. In the exercise no worker had a control plane Pod, and the control plane took no ordinary Pod, because it carries a label called a taint. The lesson [Scheduler](/en/kubernetes/scheduling/) explains it.
+
+All of this is separate from our own programs. We come back to open the [control plane](/en/kubernetes/control-plane/) and the [node](/en/kubernetes/node-inside/) piece by piece in the later part of the path.
+
+</Step>
+
+<Step>
+
+## Things break at three levels, and a different party fixes each
+
+Let us break things in three ways and see who fixes each one.
+
+**The first way** is a container that dies inside a Pod. In the exercise we stopped the container of one Pod with `crictl stop`. The same Pod stayed on the same node, with `restartCount` at 1. The one that started the container again was the kubelet of that node, with nobody else involved (ran).
+
+**The second way** is a Pod that is deleted, as we saw above. We got a new Pod with a new name. The one that created it was the ReplicaSet controller, which is part of the controller manager.
+
+**The third way** is a whole computer that stops. We stopped the worker that had two Pods (ran). The control plane did not know at once. It waited until the node had been silent for about 43 seconds before declaring it `NotReady`, because the kubelet of each node has to renew a Lease as a heartbeat about every 10 seconds, and when it is silent for 40 seconds the node controller marks the node not ready. After that the Pods that had been on that node were created again on the worker that was left, until all three were ready at 61 seconds.
+
+<Callout type="warn" title="In the exercise we wait less than usual">
+By default Kubernetes keeps Pods on a lost node for another 300 seconds before creating them again. In the exercise we gave our Pods `tolerationSeconds: 10` so as not to wait five minutes. The 61 seconds is therefore the time with this setting, not the normal time.
+</Callout>
+
+The third case is slower because the control plane cannot tell "the node is really dead" from "the network cable came loose for a moment". If it created copies too early, two Pods doing the same job could end up running at the same time. We come back to leases in the lesson [Control Plane](/en/kubernetes/control-plane/).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We delete one Pod of a Deployment that is set to need 3. A few seconds later we have three Pods again. Which statement describes what happened best?"
+  options={[
+    'The deleted Pod was repaired and came back, so it has the same name',
+    'A controller saw that we want 3 but found 2, and created a new Pod with a new name',
+    'The kubelet of the node where the Pod used to be told the old container to start again',
+    'Whoever deleted the Pod has to create it again by hand'
+  ]}
+  answer={1}
+  why="A Pod is not repaired and brought back. It is created again, whole, with a new name. The one that creates it is the ReplicaSet controller, which compares the number we want with the number it finds from time to time. Restarting a container inside the same Pod is the kubelet's job and applies only when a container dies, not when the Pod is deleted."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The cluster has three nodes, one `control-plane`, all running Kubernetes v1.31.0 on `containerd` | ran: `exercises/01_cluster.py` |
+| `etcd`, `kube-apiserver`, `kube-controller-manager`, `kube-scheduler` run on the control plane, and every node has `kube-proxy` and `kindnet` | ran: `exercises/01_cluster.py` |
+| A Deployment with `replicas: 3` puts Pods on the two workers and not on the control plane | ran: `exercises/01_cluster.py` |
+| A deleted Pod is replaced by a Pod with a new name in about 2 seconds, and the events come from `replicaset-controller`, `default-scheduler`, `kubelet` | ran: `exercises/01_cluster.py` |
+| Changing `replicas` to 5 and then 2 with one command, and `spec` and `status` agree at the end | ran: `exercises/01_cluster.py` |
+| A stopped container is restarted by the kubelet in the same Pod (`restartCount` is 1) | ran: `exercises/01_cluster.py` |
+| A stopped node becomes NotReady after about 43 seconds and its Pods are created again on the worker that is left within 61 seconds (with `tolerationSeconds: 10`) | ran: `exercises/01_cluster.py` |
+| A node is declared NotReady after more than 40 seconds of silence, and Pods wait 300 seconds by default | author (Kubernetes defaults, not measured directly; the 40 seconds agrees with the measured time) |
+| `containerd` is the low level runtime that Docker also uses, and the control plane does not rush to recreate Pods because it cannot tell a dead node from a brief network break | author (general understanding, not checked by a run) |
+| Kubernetes solves infrastructure drift and keeps the rules of the system as YAML | book: Core Kubernetes section 1.2 page 2 and 1.4 page 5 |
+| A cluster is a control plane and nodes, and every part talks through the API | book: Core Kubernetes section 1.6 page 9 and 2.3 page 29 |
+
+</Step>

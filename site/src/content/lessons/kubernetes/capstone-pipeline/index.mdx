@@ -1,0 +1,125 @@
+---
+title: Capstone
+summary: เรารวมทุกอย่างที่เรียนมาเป็น Pipeline เล็ก ๆ คือ Postgres ใน StatefulSet พร้อม PVC, Secret ที่ Mount เป็นไฟล์, Loader Job ที่รอฐานข้อมูลด้วย Init Container และถูกล็อกสิทธิ์, CronJob ที่รันซ้ำได้ และ NetworkPolicy ที่ให้เข้าฐานข้อมูลได้เฉพาะ Loader แล้วทำให้พังสามแบบ
+facts:
+  - "รันจริงใน exercises/15_capstone_pipeline.py บน minikube (Kubernetes v1.31.0, postgres:17-alpine): Postgres เป็น StatefulSet ที่มี PVC, Loader Job ที่มี Init Container รอฐานข้อมูลแล้วโหลด 1000 แถว, CronJob ที่สร้าง Job รอบสองแล้วไม่เพิ่มแถว (ON CONFLICT DO NOTHING), Loader ที่รันเป็น uid 70 ระบบไฟล์ read-only ไม่มี capability และอ่านรหัสผ่านจากไฟล์, NetworkPolicy ที่กั้น Pod ที่ไม่มี Label role=loader, ความพังสามแบบ (ชื่อ Key ของ Secret พิมพ์ผิด, ลบ Pod ของฐานข้อมูล, Loader ใช้ Label ผิด)"
+  - "ฐานข้อมูลถูกตรึงไว้ที่ Worker ตัวเดียวเพราะ Volume ของ minikube เป็นโฟลเดอร์บน Node (ดูบท Volume) จึงไม่ใช่รูปแบบสำหรับ Production ไม่ได้รันกับ Cloud, Ingress ไปที่ฐานข้อมูล, การสำรองข้อมูล, การอัปเกรดฐานข้อมูล หรือการเข้ารหัส Secret ใน etcd"
+order: 15
+phase: E
+level: 5
+stage: sprout
+format: steps
+requires: [helm-and-ops]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import PipelineLab from '../../../../components/labs/kubernetes/PipelineLab';
+
+<Step>
+
+## แผนที่ของ Pipeline
+
+ในเส้นทาง Docker บท [Capstone](/docker/capstone-pipeline/) เราใส่ Pipeline ข้อมูลลง Container ด้วย Compose บนคอมพิวเตอร์เครื่องเดียว คราวนี้เราทำสิ่งเดียวกันบนคลัสเตอร์ ด้วยชิ้นส่วนที่ได้เรียนมาแล้ว
+
+- Secret `db` เก็บรหัสผ่านของฐานข้อมูล และ ConfigMap `load-sql` เก็บคำสั่ง SQL ของ Loader (บท [ConfigMap และ Secret](/kubernetes/config-secrets/))
+- StatefulSet `db` รัน Postgres 17 หนึ่งตัว มี PVC `data-db-0` เก็บข้อมูลและ Readiness Probe ด้วย `pg_isready` และ Service `db` ให้ชื่อที่คงที่ (บท [Job, CronJob, DaemonSet และ StatefulSet](/kubernetes/jobs-and-stateful/) และบท [Service และ DNS](/kubernetes/services/))
+- Job ชื่อ Loader ที่มี Init Container รอให้ฐานข้อมูลพร้อมก่อน แล้ว Container หลักรัน `psql` โหลดข้อมูล และ CronJob `nightly` ที่ใช้แม่แบบเดียวกันเพื่อรันซ้ำ
+- NetworkPolicy ที่ให้เข้าฐานข้อมูลได้เฉพาะ Pod ที่ติด `role=loader` (บท [RBAC และความปลอดภัย](/kubernetes/rbac-security/))
+
+ดูแผนที่ใน Lab นี้ แล้วเลือกสถานการณ์ปกติไว้ก่อน เดี๋ยวเราจะกลับมาเลือกสถานการณ์ที่พังทีหลัง
+
+<PipelineLab client:visible />
+
+ในการรันจริง ฐานข้อมูลพร้อมใช้ภายในหลักวินาทีถึงหลักสิบวินาทีหลังสั่ง `apply` (ขึ้นกับว่า Image ถูกดึงมาไว้แล้วหรือยัง) และ PVC ถูกผูกกับ PV แล้ว (รัน)
+
+</Step>
+
+<Step>
+
+## Loader: รอ โหลด และรันซ้ำได้
+
+Loader Job มีสองขั้น Init Container ชื่อ `wait-for-db` วนลูป `pg_isready -h db` จนฐานข้อมูลรับ Connection ได้ (ในบันทึกเห็นข้อความ `accepting connections`) แล้วจบ จากนั้น Container หลักค่อยเริ่ม สร้างตารางและแทรก 1000 แถวแล้วนับ (รัน)
+
+```text
+CREATE TABLE
+INSERT 0 1000
+1000
+```
+
+คำสั่ง SQL ที่ใช้เขียนให้ **รันซ้ำได้** ด้วย `CREATE TABLE IF NOT EXISTS` และ `INSERT ... ON CONFLICT (id) DO NOTHING` เราพิสูจน์ด้วยการสร้าง Job ใหม่จาก CronJob ด้วย `kubectl create job --from=cronjob/nightly` ผลคือรอบสองแทรก `INSERT 0 0` และตารางยังมี 1000 แถว (รัน) นี่คือเงื่อนไขสำคัญของงานที่ถูก Retry ได้ อย่าง Job ที่มี `backoffLimit` ซึ่งเรียนในบท [Job, CronJob, DaemonSet และ StatefulSet](/kubernetes/jobs-and-stateful/) เพราะ Pod ที่ล้มเหลวกลางทางจะถูกรันใหม่ทั้งตัว งานที่แทรกซ้ำแล้วข้อมูลซ้ำจะทำให้ผลเพี้ยน
+
+</Step>
+
+<Step>
+
+## ล็อกสิทธิ์: Loader กับฐานข้อมูล
+
+Loader ถูกตั้งให้ทำได้น้อยที่สุด เราตรวจจากออบเจ็กต์ Job ที่ถูกสร้างจริง (รัน)
+
+- รันเป็น Uid 70 (`runAsUser: 70`, `runAsNonRoot: true`) ไม่ใช่ Root
+- `allowPrivilegeEscalation: false`, `readOnlyRootFilesystem: true` และ `capabilities: drop: [ALL]`
+- ไม่มี `env` เลย รหัสผ่านมาจากไฟล์ที่ Mount จาก Secret แบบอ่านอย่างเดียวที่ `/secrets/password` แล้วส่งให้ `psql` ผ่านตัวแปรชั่วคราวของคำสั่ง (เพื่อไม่ให้รหัสผ่านอยู่ในตัวแปรสภาพแวดล้อมของ Pod ที่เปิดดูได้จาก API)
+
+อีกชั้นคือเครือข่าย NetworkPolicy ให้เข้าพอร์ต 5432 ของฐานข้อมูลได้เฉพาะ Pod ที่ติด `role=loader` เราสร้าง Pod `stranger` ที่ไม่มี Label นั้นแล้วลอง `pg_isready -h db` ได้ `no response` (รัน) แต่ Loader ผ่านเข้าไปโหลดข้อมูลได้ตามปกติ
+
+</Step>
+
+<Step>
+
+## ทำให้พังสามแบบ
+
+เลือกสถานการณ์ใน Lab ข้างบนเพื่อดูว่ากล่องไหนเปลี่ยนเป็นสีส้ม แล้วดูแต่ละแบบที่เราทำในแบบฝึก
+
+**แบบแรก ชื่อ Key ของ Secret พิมพ์ผิด** เราสร้าง Loader ใหม่ที่อ้างถึง Key ชื่อ `pasword` ใน Volume ของ Secret Pod ไม่เคยผ่านเข้าไปถึง Init Container เลย เพราะ Kubelet Mount Volume ไม่ได้ Event ของ Pod ระบุว่า `FailedMount ... references non-existent secret key: pasword` (รัน) Job ไม่จบและไม่มีข้อมูลเข้าตารางจากมัน ต่างจากกรณีที่ Key ผิดในตัวแปรสภาพแวดล้อมซึ่งเห็นในบท [ConfigMap และ Secret](/kubernetes/config-secrets/) ที่ขึ้น `CreateContainerConfigError` ที่นี่เราใช้ Volume จึงเห็นเป็น `FailedMount` อ่านที่ Events ของ Pod
+
+**แบบที่สอง ลบ Pod ของฐานข้อมูล** เราลบ `db-0` StatefulSet สร้าง `db-0` ใหม่ (ชื่อเดิม `uid` ใหม่) และ Mount Claim เดิมกลับ ใช้เวลาประมาณ 3 วินาทีเท่านั้น และตารางยังมี 1000 แถว (รัน) เพราะข้อมูลอยู่ใน PVC ไม่ใช่ใน Pod ตามที่เห็นในบท [Volume, PVC และ StorageClass](/kubernetes/storage/)
+
+**แบบที่สาม Loader ใช้ Label ผิด** เราสร้าง Loader ที่ติด `role=etl` แทน `role=loader` NetworkPolicy กั้นมันไว้ Init Container จึงวนรอไปเรื่อย ๆ บันทึกของมันพิมพ์ `db:5432 - no response` และ `waiting for db` ซ้ำ ๆ Pod ค้างที่ `Init:0/1` และ Job ไม่เคยจบ ไม่มีการล้มเหลวหรือ Restart ให้เห็น มีแต่การรอ (รัน) พอเราลบ Job นั้นแล้วสร้างใหม่ด้วย `role=loader` ก็จบสำเร็จ และตารางยังมี 1000 แถว (รัน) อาการ "ค้างรอโดยไม่มีข้อผิดพลาด" แบบนี้ต้องดู Log ของ Init Container และคิดถึง NetworkPolicy
+
+<Callout type="warn" title="นี่ยังไม่ใช่รูปแบบสำหรับ Production">
+ฐานข้อมูลถูกตรึงไว้ที่ Worker ตัวเดียวเพราะ Volume ของ Minikube เป็นโฟลเดอร์บน Node (บท [Volume, PVC และ StorageClass](/kubernetes/storage/)) และมีฐานข้อมูลตัวเดียว ไม่มีการสำรองข้อมูล ไม่ได้เข้ารหัส Secret ใน `etcd` และ Postgres รันเป็น Root ตอนเริ่มจึงอยู่ใน Namespace ที่ตั้ง Pod Security ระดับ `baseline` เท่านั้น ไม่ใช่ `restricted`
+</Callout>
+
+ถ้าอยากเห็น Kubernetes ในบริบทของ Spark ซึ่งเป็นโปรแกรมที่ขอ Pod เองผ่าน API ให้อ่านหน้า [Kubernetes Cluster Manager](/spark/architecture/kubernetes/) ของเส้นทาง Spark และบท [Orchestration และ GitOps](/devops/gitops/) ของเส้นทาง DevOps ที่เราเขียน Controller แบบเดียวกันด้วยมือก่อนจะมี Kubernetes ให้ใช้
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Loader Job ถูกสร้างขึ้นและค้างอยู่ที่ Init:0/1 ไม่มีข้อความผิดพลาดและไม่มี Restart ในบันทึกของ Init Container เห็นข้อความรอฐานข้อมูลซ้ำไปเรื่อย ๆ และฐานข้อมูลเองสุขภาพดี Pod ของ Loader ไม่มี Label ที่ NetworkPolicy ของฐานข้อมูลอนุญาต สรุปสาเหตุและวิธีแก้ที่ถูกต้องคืออะไร"
+  options={[
+    'Init Container ผิดพลาด ต้องเพิ่ม backoffLimit',
+    'NetworkPolicy กั้น Loader ไว้ จึงเข้าฐานข้อมูลไม่ได้ ต้องให้ Pod ติด Label ที่ Policy อนุญาต',
+    'ฐานข้อมูลยังไม่พร้อม ต้องรอให้ PVC ถูกผูก',
+    'Secret ถูกลบ ต้องสร้างใหม่'
+  ]}
+  answer={1}
+  why="อาการวนรอโดยไม่มีข้อผิดพลาดและฐานข้อมูลสุขภาพดีชี้ไปที่เครือข่าย ในแบบฝึก Loader ที่ติด Role=Etl ถูก NetworkPolicy กั้น พอเปลี่ยนเป็น Role=Loader จึงผ่าน ส่วน Secret ที่ผิดจะให้อาการต่างออกไปคือ FailedMount"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| ฐานข้อมูล StatefulSet พร้อมและ PVC ถูกผูก | รัน: `exercises/15_capstone_pipeline.py` |
+| Loader Job รอด้วย Init Container, โหลดตารางและ 1000 แถว และบันทึกแสดงผลตามที่แสดง | รัน: `exercises/15_capstone_pipeline.py` |
+| Job รอบสองจาก CronJob แทรก 0 แถวและตารางยัง 1000 แถว | รัน: `exercises/15_capstone_pipeline.py` |
+| Loader รันเป็น Uid 70, ไม่มี Privilege Escalation, ระบบไฟล์ Read-only, drop ALL capabilities และไม่มี `env` | รัน: `exercises/15_capstone_pipeline.py` |
+| Pod ที่ไม่มี `role=loader` เข้าฐานข้อมูลไม่ได้ (no Response) | รัน: `exercises/15_capstone_pipeline.py` |
+| Key ของ Secret ผิดใน Volume ได้ FailedMount และ Job ไม่จบ | รัน: `exercises/15_capstone_pipeline.py` |
+| ลบ `db-0` แล้วกลับมาภายในประมาณ 3 วินาทีพร้อมข้อมูลครบ 1000 แถว | รัน: `exercises/15_capstone_pipeline.py` |
+| Loader ที่ใช้ `role=etl` ค้างที่ Init:0/1 พร้อมข้อความรอ และเมื่อใช้ `role=loader` ก็จบ | รัน: `exercises/15_capstone_pipeline.py` |
+| งานที่ Retry ได้ต้อง Idempotent | ผู้เขียน (หลักการทั่วไป ในแบบฝึกพิสูจน์เฉพาะ SQL ของ Loader นี้) |
+| Postgres รันเป็น Root ตอนเริ่มจึงใช้ได้แค่ระดับ Baseline | ผู้เขียน (ความเข้าใจเกี่ยวกับ Image ของ Postgres ไม่ได้ตรวจว่าระดับ Restricted ปฏิเสธจริง) |
+| รหัสผ่านอยู่ในตัวแปรชั่วคราวของคำสั่งไม่ใช่ `env` ของ Pod | ผู้เขียน (ตรวจจากข้อกำหนดของ Job ที่ไม่มี Env ไม่ได้ตรวจว่า Process ภายในไม่รั่วที่อื่น) |
+
+</Step>

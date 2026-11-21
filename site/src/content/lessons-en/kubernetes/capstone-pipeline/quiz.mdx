@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Three questions to check that you know what work that can be retried must do, can read the FailedMount symptom, and know where the data is when the database Pod is deleted.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A loader Job has a backoffLimit, and its Pod may fail half way and be run again from the start. Which statement says what the SQL of the loader should do?"
+  options={[
+    'Insert the data every time without checking, because a retry never happens',
+    'Be designed to be safe to run again, for example insert without duplicating when the row is already there, so that any number of runs gives the same result',
+    'Delete the whole table first every time',
+    'Turn retries off'
+  ]}
+  answer={1}
+  why="A Pod that fails is run again from the start. If the work inserts twice and duplicates the data, the result is distorted. In the exercise ON CONFLICT DO NOTHING was used, so the second round from the CronJob inserted 0 rows and the table still had 1000."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A loader Pod is stuck before its init container starts, and the Pod events say MountVolume.SetUp failed: references non-existent secret key. Where should we fix it?"
+  options={[
+    'Give the Pod more memory',
+    'Fix the key name in the reference to the Secret in the volume so that it matches a key that really exists',
+    'Delete the NetworkPolicy',
+    'Change the image of the database'
+  ]}
+  answer={1}
+  why="The kubelet cannot mount the Secret volume because the key named does not exist, so the Pod never gets past the mount step to the init container. Fix the key name. In the exercise it was pasword instead of password."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The database Pod (db-0) of a StatefulSet is deleted. What happens to the data in the table when the new Pod comes up?"
+  options={[
+    'It is all gone, because the data lives in the Pod',
+    'It is all still there, because the data is in the PVC that the StatefulSet ties to the name db-0, and the new Pod mounts the old claim again',
+    'It is copied from another Pod',
+    'It must always be restored from a backup'
+  ]}
+  answer={1}
+  why="A StatefulSet ties the claim to the Pod name and not to the Pod itself. In the exercise db-0 came back in 3 seconds and the table still had 1000 rows (in this cluster the data is on the pinned worker, so the Pod must be placed there again, as before)."
+/>
+
+</Step>

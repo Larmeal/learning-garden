@@ -1,0 +1,141 @@
+---
+title: Pod
+summary: Container สองตัวใน Pod เดียวกันใช้ IP และ Localhost ร่วมกัน แต่มีระบบไฟล์ของตัวเอง เราดูว่า Volume, Init Container และ Probe เปลี่ยนเรื่องนี้อย่างไร และ Kubelet ทำอย่างไรเมื่อ Container ใช้ Memory เกิน
+facts:
+  - "รันจริงใน exercises/02_pods.py บน minikube (Kubernetes v1.31.0): Container สองตัวใน Pod เดียวกันได้ IP กับ hostname เดียวกัน เรียกกันทาง localhost ได้ แต่ไม่เห็นไฟล์และ Process ของกัน, emptyDir ที่ Mount ทั้งสองตัว, shareProcessNamespace, Init Container, Liveness กับ Readiness Probe, ค่า limit Memory ที่ทำให้ Container ถูกฆ่าด้วยรหัส 137, QoS Class และ restartPolicy"
+  - "หน้าที่ของ Pod ในฐานะกลุ่มของ Linux Namespace มาจากหนังสือ Core Kubernetes หัวข้อ 2.2 หน้า 19 และ Kubernetes Up and Running หัวข้อ Pods in Kubernetes หน้า 46 ไม่ได้รันซ้ำ ส่วนเรื่อง Probe กับ Resource หน้า 54 ถึง 58 ผู้เขียนอ่านจากหนังสือ แล้วรันเองในแบบฝึก"
+order: 2
+phase: A
+level: 1
+stage: sprout
+format: steps
+requires: [why-kubernetes]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import PodLab from '../../../../components/labs/kubernetes/PodLab';
+
+<Step>
+
+## Pod ไม่ใช่ Container ตัวเดียว
+
+ใน[บทที่แล้ว](/kubernetes/why-kubernetes/)เรานับ Pod เหมือนเป็นโปรแกรมหนึ่งตัว แต่จริง ๆ แล้ว Pod คือกลุ่มของ Container ตั้งแต่หนึ่งตัวขึ้นไปที่ถูกวางไว้ด้วยกันบน Node เดียวกัน และแบ่งบางอย่างให้กัน (หนังสือ: Kubernetes Up and Running หัวข้อ Pods in Kubernetes หน้า 46) ลองสร้าง Pod ที่มี Container สองตัวคือ `web` ที่เปิดเว็บเซิร์ฟเวอร์บนพอร์ต 8080 กับ `sidecar` ที่นอนเฉย ๆ
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata: {name: pair}
+spec:
+  containers:
+  - name: web
+    image: busybox:1.37
+    command: ["sh", "-c", "mkdir -p /www; echo hello-from-web > /www/index.html; exec httpd -f -p 8080 -h /www"]
+  - name: sidecar
+    image: busybox:1.37
+    command: ["sh", "-c", "sleep 3600"]
+```
+
+เมื่อรันจริงแล้วถามจากข้างใน Container ทั้งสองตัวว่า IP และ Hostname คืออะไร (รัน)
+
+| | web | sidecar | Pod |
+|---|---|---|---|
+| IP | 10.244.1.2 | 10.244.1.2 | 10.244.1.2 |
+| hostname | pair | pair | |
+
+ทั้งสองตัวเห็น IP ตัวเดียวกัน ซึ่งเป็น IP ของ Pod ทั้งตัว Container แต่ละตัวไม่ได้มี IP ของตัวเอง เพราะ Container ทุกตัวใน Pod ใช้ Network Namespace ร่วมกัน ซึ่งทำให้ Sidecar เรียก `http://localhost:8080/` แล้วได้คำตอบ `hello-from-web` จาก Container Web ได้เลย ราวกับว่าโปรแกรมทั้งสองรันอยู่บนคอมพิวเตอร์เครื่องเดียวกัน ซึ่งก็คือความจริงในทางเครือข่าย (รัน) ใน [Docker](/docker/namespaces-and-cgroups/) เราเห็นแล้วว่า Network Namespace เป็นของที่ Kernel ให้มาเป็นห้อง ๆ Pod ก็แค่เอาห้องห้องเดียวมาให้หลาย Container ใช้ด้วยกัน
+
+</Step>
+
+<Step>
+
+## อะไรใช้ร่วม อะไรไม่ใช้ร่วม
+
+ที่ใช้ร่วมกันมีแค่เครือข่าย ส่วนอย่างอื่นแยกกัน เรามาลองพิสูจน์กันดู ให้ Web เขียนไฟล์ `/tmp/web-only` แล้วให้ Sidecar ลองอ่าน ผลที่ได้คือ `No such file or directory` เพราะแต่ละ Container มีระบบไฟล์ของ Image ตัวเอง และถ้าให้ Sidecar ลองดู Process จะเห็นแค่ `sleep 3600` ของตัวเองเป็น PID 1 ไม่เห็น `httpd` ของ Web (รัน)
+
+ถ้าอยากให้สองตัวแบ่งไฟล์กัน ต้องบอก Kubernetes ให้แบ่งอย่างชัดเจน ด้วย Volume ชนิด `emptyDir` ซึ่งคือโฟลเดอร์ว่างที่ถูกสร้างพร้อม Pod แล้ว Mount เข้า Container ได้หลายตัว ในแบบฝึก Container `writer` เขียน `/drop/note` และ Container `reader` อ่านผ่านอีก Path หนึ่งคือ `/seen/note` ก็เจอ ข้อความเดียวกัน (รัน) ส่วนเรื่อง Process ถ้าตั้ง `shareProcessNamespace: true` ใน Pod ทุก Container จะเห็น Process ของกันและกัน และ PID 1 กลายเป็น `/pause` ซึ่งเป็นโปรแกรมเล็ก ๆ ที่ Kubernetes ใส่ไว้ใน Pod เพื่อถือ Namespace ไว้ (รัน) บท [Node ภายใน](/kubernetes/node-inside/) จะพาไปดู `/pause` บนคอมพิวเตอร์จริง
+
+เลือกดูทีละเรื่องใน Lab ข้างล่าง แถบที่พาดผ่านสอง Container คือของที่ใช้ร่วมกัน และแถบที่แยกเป็นสองแถบคือของที่ต่างคนต่างมี
+
+<PodLab client:visible />
+
+ถามตัวเองว่าอะไรควรอยู่ใน Pod เดียวกัน คำตอบแบบง่ายคือ Container ที่ต้องคุยกันผ่าน Localhost หรือใช้ไฟล์ร่วมกัน และต้องถูกสร้างหรือลบพร้อมกัน เช่น โปรแกรมหลักกับตัวส่ง Log (หนังสือ: Kubernetes Up and Running หัวข้อ Thinking with Pods หน้า 46) แต่ถ้าเป็นเว็บกับฐานข้อมูลที่ปรับจำนวนไม่เท่ากัน ควรแยกเป็นคนละ Pod
+
+</Step>
+
+<Step>
+
+## ตัวช่วยเตรียมงาน และการตรวจว่ายังไหว: Init Container กับ Probe
+
+Init Container คือ Container ที่ต้องรันจนจบก่อน Container หลักถึงจะเริ่ม ในแบบฝึก Init Container ชื่อ `prepare` หลับสามวินาทีแล้วเขียนไฟล์ลง Volume จากนั้น Container หลักค่อยเริ่มและอ่านไฟล์นั้นได้ (เวลาที่ Init จบอยู่ก่อนเวลาที่ Container หลักเริ่ม) (รัน) ทำให้ใช้เตรียมข้อมูลหรือรอ Service อื่นให้พร้อมก่อนได้ เราจะใช้ท่านี้อีกครั้งใน [Capstone](/kubernetes/capstone-pipeline/) ตอนรอให้ฐานข้อมูลพร้อม
+
+Probe คือการที่ Kubelet ลองถามโปรแกรมของเราเป็นระยะว่ายังไหวอยู่หรือเปล่า มีสองชนิดที่คนมักสับสนกัน (หนังสือ: Kubernetes Up and Running หัวข้อ Health Checks หน้า 54) เราลองทำให้ทั้งสองตัวล้มทีละตัวในแบบฝึก
+
+**Readiness Probe** ถามว่าพร้อมรับงานหรือยัง เมื่อเราลบไฟล์ที่ Probe ตรวจ Pod เปลี่ยนเป็น Not Ready แต่ `restartCount` ยังเป็น 0 และสถานะยังเป็น Running คือถูกถอดออกจากรายการที่รับงาน แต่ไม่ถูกเริ่มใหม่ (รัน)
+
+**Liveness Probe** ถามว่ายังมีชีวิตอยู่ไหม พอล้ม Kubelet ฆ่า Container แล้วเริ่มใหม่ Event ของ Pod บอกว่า `Container app failed liveness probe, will be restarted` (รัน)
+
+ข้อแตกต่างสำคัญคือ Readiness ล้ม Pod ไม่ถูกแตะแต่ไม่ได้งาน ส่วน Liveness ล้ม Container ถูกเริ่มใหม่ ผลของ Readiness ต่อ Service เราจะเห็นในบท [Service](/kubernetes/services/)
+
+</Step>
+
+<Step>
+
+## Request, Limit และ Memory ที่เกิน
+
+Pod ระบุได้ว่าต้องการทรัพยากรเท่าไร Request คือจำนวนที่ Scheduler ใช้ตัดสินว่า Node ไหนวางได้ ส่วน Limit คือเพดานที่ Kernel บังคับ (หนังสือ: Kubernetes Up and Running หัวข้อ Resource Requests หน้า 56 และ Capping Resource Usage with Limits หน้า 58) เราลองสั่งให้ Container ตัวหนึ่งจอง Memory 120 MB ทั้งที่ตั้ง Limit ไว้ 32Mi
+
+ผลคือ Container ถูกฆ่า `reason=OOMKilled` และ `exitCode=137` (รัน) 137 คือ 128 บวก 9 ซึ่งเป็นรหัสของ Process ที่ถูกฆ่าด้วยสัญญาณ SIGKILL สาเหตุที่เป็น Kernel ฆ่า เพราะ Limit ของ Memory กลายเป็นค่า `memory.max` ของ Cgroup ที่ [บท Namespace และ Cgroup](/docker/namespaces-and-cgroups/) ของ Docker เล่าไว้ เราจะเห็นไฟล์จริงในบท [Node ภายใน](/kubernetes/node-inside/)
+
+ค่าที่ตั้งยังกำหนดชั้นของ Pod ที่เรียกว่า QoS Class ซึ่งมีผลตอนที่ Node ขาดแคลน Memory ว่าใครโดนไล่ก่อน (รัน)
+
+| ตั้งอะไรไว้ | QoS Class |
+|---|---|
+| ไม่ตั้ง Request หรือ Limit เลย | BestEffort |
+| ตั้งแค่ Request | Burstable |
+| Request เท่ากับ Limit ทั้ง CPU และ Memory | Guaranteed |
+
+<Callout type="note" title="Pod ที่ไม่มีเจ้าของไม่กลับมา">
+Pod ธรรมดาที่เราสร้างตรง ๆ แล้วลบทิ้งจะหายไปเลย ไม่มีใครสร้างใหม่ให้ (รัน) นั่นคือเหตุผลที่เรามี Deployment ที่เห็นใน[บทที่แล้ว](/kubernetes/why-kubernetes/) และมี `restartPolicy` ที่กำหนดว่า Kubelet จะเริ่ม Container ใหม่เมื่อมันจบหรือเปล่า ถ้าตั้ง `Never` Pod ที่ออกด้วยรหัส 1 จะค้างเป็น Failed ถ้าตั้ง `OnFailure` มันจะถูกเริ่มใหม่ และถ้า Container ออกด้วยรหัส 0 กับ `Never` Pod จะจบเป็น Succeeded (รัน)
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Pod หนึ่งมี Container สองตัว ตัวแรกเปิดเว็บเซิร์ฟเวอร์ที่พอร์ต 8080 และตัวที่สองต้องการเรียกเว็บเซิร์ฟเวอร์นั้น ข้อไหนบอกวิธีเรียกที่ถูกต้อง"
+  options={[
+    'ต้องหา IP ของ Container ตัวแรกก่อน เพราะแต่ละตัวมี IP ของตัวเอง',
+    'เรียก Localhost พอร์ต 8080 ได้เลย เพราะทั้งสองตัวใช้ Network Namespace เดียวกัน',
+    'ทำไม่ได้ ต้องแยกเป็นสอง Pod ก่อนจึงจะเรียกกันได้',
+    'ต้องเปิด shareProcessNamespace ก่อน'
+  ]}
+  answer={1}
+  why="Container ทุกตัวใน Pod ใช้ IP ตัวเดียวกันและ Network Namespace เดียวกัน จึงเรียกกันผ่าน Localhost ได้ในค่าเริ่มต้น shareProcessNamespace เกี่ยวกับการมองเห็น Process ของกัน ไม่เกี่ยวกับเครือข่าย"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Container สองตัวใน Pod เดียวกันมี IP และ Hostname เดียวกัน (IP ของ Pod) และเรียกกันผ่าน `localhost` ได้ | รัน: `exercises/02_pods.py` |
+| ไฟล์ใน `/tmp` ของ Container หนึ่งไม่ปรากฏใน Container อีกตัว และ Process เห็นเฉพาะของตัวเองโดยค่าเริ่มต้น | รัน: `exercises/02_pods.py` |
+| `emptyDir` ที่ Mount เข้าสอง Container ทำให้เห็นไฟล์เดียวกัน และ `shareProcessNamespace` ทำให้เห็น Process ของกันและมี `/pause` เป็น PID 1 | รัน: `exercises/02_pods.py` |
+| Init Container จบก่อน Container หลักเริ่ม และไฟล์ที่มันเขียนถูกอ่านได้ | รัน: `exercises/02_pods.py` |
+| Readiness ล้มทำให้ Pod Not Ready โดยไม่ Restart, Liveness ล้มทำให้ Container ถูกเริ่มใหม่ | รัน: `exercises/02_pods.py` |
+| Container ที่ใช้ Memory เกิน Limit ถูกฆ่าด้วย OOMKilled รหัส 137 | รัน: `exercises/02_pods.py` |
+| QoS Class เป็น BestEffort, Burstable, Guaranteed ตามที่ตั้ง Request และ Limit | รัน: `exercises/02_pods.py` |
+| `restartPolicy` Never ทำให้ Pod เป็น Failed หรือ Succeeded และ OnFailure เริ่มใหม่ และ Pod เปล่าที่ถูกลบไม่กลับมา | รัน: `exercises/02_pods.py` |
+| 137 คือ 128 บวก 9 (SIGKILL) | ผู้เขียน (ความรู้ทั่วไปของ Linux ไม่ได้รันตรวจ) |
+| Pod คือกลุ่มของ Container ที่ใช้ Namespace ร่วมกันบางส่วน และข้อควรคิดว่าอะไรควรอยู่ Pod เดียวกัน | หนังสือ: Core Kubernetes หัวข้อ 2.2 หน้า 19 และ Kubernetes Up and Running หัวข้อ Thinking with Pods หน้า 46 |
+| Liveness กับ Readiness Probe และ Request กับ Limit | หนังสือ: Kubernetes Up and Running หัวข้อ Health Checks หน้า 54 และ Resource Management หน้า 56 |
+
+</Step>

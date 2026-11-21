@@ -1,0 +1,93 @@
+---
+title: Storage
+summary: Claim ขอที่เก็บข้อมูลที่อยู่รอดจาก Pod แต่ข้อมูลจริงอยู่ที่ไหนสำคัญมาก เราดูว่า PVC ผูกกับ PV อย่างไร emptyDir ต่างจาก PVC อย่างไร ดิสก์แบบ hostPath ของ Minikube ผูกกับ Node เดียว และ PV แบบ Local ทำให้ Scheduler ตามข้อมูลไปได้อย่างไร
+facts:
+  - "รันจริงใน exercises/09_storage.py บน minikube (Kubernetes v1.31.0, StorageClass standard ที่ใช้ provisioner k8s.io/minikube-hostpath): PVC ถูกผูกกับ PV ที่สร้างให้, ไฟล์ใน PVC อยู่รอดหลัง Pod ถูกลบ, emptyDir ว่างทุกครั้ง, PV เป็นโฟลเดอร์ hostPath ที่ไม่มี nodeAffinity จึงเห็นโฟลเดอร์ว่างเมื่อ Pod ไปอยู่ Node อื่น, เมื่อลบ PVC โฟลเดอร์ยังค้างบน Worker, PV แบบ local พร้อม nodeAffinity กับ WaitForFirstConsumer ทำให้ Scheduler วาง Pod ที่ Node ที่มีดิสก์ และ PVC ที่อ้าง StorageClass ที่ไม่มีค้าง Pending"
+  - "แนวคิดของ PersistentVolume, StorageClass และ Dynamic Provisioning มาจากหนังสือ Kubernetes Up and Running หัวข้อ Dynamic Volume Provisioning หน้า 185 และ Core Kubernetes บทที่ 7 และ 8 หน้า 135 ถึง 170 ไม่ได้รันซ้ำ ไม่ได้ลอง CSI Driver จริง หรือดิสก์บน Cloud หรือการขยายขนาด Volume"
+order: 9
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [config-secrets]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import StorageLab from '../../../../components/labs/kubernetes/StorageLab';
+
+<Step>
+
+## ข้อมูลที่ต้องอยู่รอดจาก Pod
+
+ในบท [Pod](/kubernetes/pods/) เรารู้แล้วว่า `emptyDir` เกิดพร้อม Pod และหายพร้อม Pod ถ้าเราต้องการเก็บข้อมูลของฐานข้อมูลไว้ ต้องมีของที่มีอายุยืนกว่านั้น Kubernetes แยกเรื่องนี้เป็นสามออบเจ็กต์ PersistentVolume (PV) คือที่เก็บข้อมูลจริงหนึ่งก้อน PersistentVolumeClaim (PVC) คือคำขอของ Pod ว่าอยากได้ที่เก็บแบบไหนขนาดเท่าไร และ StorageClass คือสูตรที่บอกว่าเมื่อมีคนขอ ให้สร้าง PV ด้วยวิธีใด (หนังสือ: Core Kubernetes หัวข้อ 8.1 หน้า 153 ถึง 159) ทีมที่เขียนแอปเขียนแค่ Claim ส่วนใครจะเตรียมดิสก์จริงเป็นเรื่องของคนดูแลคลัสเตอร์ ซึ่งคล้ายกับการแยก Service ออกจาก Pod ที่เห็นในบทก่อน
+
+ในคลัสเตอร์ Minikube ที่เราใช้ มี StorageClass ชื่อ `standard` เป็นค่าเริ่มต้น ใช้ Provisioner ชื่อ `k8s.io/minikube-hostpath` และ `reclaimPolicy` เป็น `Delete` (รัน) เราสร้าง PVC ขอ 32Mi โดยไม่ระบุ StorageClass ผลคือมี PV ถูกสร้างขึ้นเองและผูกกับ Claim ทันที ทั้งที่ยังไม่มี Pod ตัวไหนใช้ (รัน) นี่คือ Dynamic Provisioning (หนังสือ: Kubernetes Up and Running หัวข้อ Dynamic Volume Provisioning หน้า 185)
+
+</Step>
+
+<Step>
+
+## ข้อมูลจริงอยู่ที่ไหน
+
+ลองดูว่า PV ที่ได้เป็นอะไร ในการรันจริงมันเป็นโฟลเดอร์แบบ `hostPath` ที่ `/tmp/hostpath-provisioner/<namespace>/data` และไม่มี `nodeAffinity` เลย (รัน) แปลว่ามันคือโฟลเดอร์ธรรมดาบน Node ตัวใดตัวหนึ่ง ไม่ใช่ดิสก์ที่ลอยอยู่ในเครือข่าย เรามาลองพิสูจน์กันว่านี่ส่งผลอย่างไร
+
+เราสร้าง Pod บน `garden-m02` เขียนไฟล์ `note` ลงใน Claim แล้วลบ Pod ทิ้ง สร้าง Pod ใหม่บน Node เดิมก็เจอไฟล์ `note` (รัน) ส่วน Pod ที่ใช้ `emptyDir` เขียนไฟล์แล้วถูกลบ Pod ตัวใหม่เจอโฟลเดอร์ว่าง (รัน) ตรงนี้เป็นตามที่คาด แต่พอเรากำหนดให้ Pod ตัวใหม่ไปรันบน `garden-m03` ซึ่งใช้ Claim เดียวกันเป๊ะ มันเห็นโฟลเดอร์ว่าง 0 ไฟล์ (รัน) เพราะ Claim ผูกอยู่กับ PV จริง แต่ PV นี้คือโฟลเดอร์บน `garden-m02` เมื่อ Pod ไปอยู่ Node อื่น Kubelet ของ Node นั้นก็สร้างโฟลเดอร์ใหม่ที่ว่างในชื่อเดียวกัน และ Scheduler ไม่มีทางรู้ เพราะ PV ไม่ได้บอก `nodeAffinity` ไว้
+
+ลองสลับไปมาใน Lab ข้างล่างเพื่อเห็นว่าข้อมูลอยู่กับ Node ไหน
+
+<StorageLab client:visible />
+
+อย่างนี้เหมาะกับการทดลองบนคอมพิวเตอร์เครื่องเดียวเท่านั้น คลัสเตอร์จริงใช้ดิสก์ที่ต่อผ่านเครือข่ายหรือ CSI Driver (Container Storage Interface) ที่ Pod ไปอยู่ Node ไหนก็ Mount ดิสก์เดียวกันได้ (หนังสือ: Core Kubernetes หัวข้อ 7.4 หน้า 144) ซึ่งเราไม่ได้ลองในแบบฝึก
+
+</Step>
+
+<Step>
+
+## เมื่อลบ Claim และเมื่อให้ Scheduler ตามข้อมูล
+
+ถ้าลบ PVC ที่ใช้ `reclaimPolicy: Delete` ตัวออบเจ็กต์ PV ถูกลบตามไป แต่ในแบบฝึก ไฟล์ `note` ในโฟลเดอร์บน Worker ยังอยู่ (รัน) เพราะ Provisioner ของ Minikube ทำงานบน Control Plane แล้วลบที่นั่นเท่านั้น เป็นพฤติกรรมเฉพาะของ Minikube และเป็นเหตุผลที่แบบฝึกของบทนี้ต้องล้างโฟลเดอร์เองทุกรอบ
+
+ถ้าอยากให้ Scheduler รู้ว่าข้อมูลอยู่ที่ไหน ต้องบอกใน PV เอง เราสร้าง PV แบบ `local` ที่ชี้โฟลเดอร์บน `garden-m03` พร้อม `nodeAffinity` ที่ระบุ Node นั้น และ StorageClass ที่ตั้ง `volumeBindingMode: WaitForFirstConsumer` ผลคือ Claim ค้างเป็น `Pending` จนมี Pod มาใช้ และพอมี Pod ที่ไม่ได้ตั้ง `nodeSelector` อะไรเลย Scheduler วางมันที่ `garden-m03` เองเพราะข้อมูลอยู่ที่นั่น Pod อ่านไฟล์ได้ (รัน) เมื่อลบ Pod และ Claim PV ที่ตั้ง `Retain` อยู่ในสถานะ `Released` และไฟล์ยังอยู่ (รัน)
+
+สุดท้าย ถ้า Claim อ้าง StorageClass ที่ไม่มีอยู่ ผลคือ Claim ค้าง `Pending` และ Event บอกว่า `storageclass.storage.k8s.io "does-not-exist" not found` (รัน)
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราใช้ PVC บนคลัสเตอร์ที่ StorageClass สร้าง PV แบบ hostPath ที่ไม่มี nodeAffinity Pod ที่ใช้ Claim นี้ถูกลบแล้วสร้างใหม่ และคราวนี้ Scheduler วางมันบน Node อื่น ข้อมูลที่เคยเขียนไว้เป็นอย่างไร"
+  options={[
+    'ยังอยู่ครบ เพราะ Claim เก็บข้อมูลไว้ในคลัสเตอร์ ไม่ผูกกับ Node',
+    'ไม่เห็น เพราะข้อมูลอยู่ในโฟลเดอร์บน Node เดิม Pod ใหม่เห็นโฟลเดอร์ว่างบน Node ใหม่',
+    'ถูกคัดลอกไป Node ใหม่ให้อัตโนมัติ',
+    'Pod ใหม่สร้างไม่ได้เพราะ Claim ถูกล็อก'
+  ]}
+  answer={1}
+  why="PV แบบ hostPath คือโฟลเดอร์บน Node ใดหนึ่ง และเพราะไม่มี nodeAffinity Scheduler จึงไม่รู้ว่าต้องวาง Pod ที่นั่น ในแบบฝึก Pod บน garden-m03 เห็น 0 ไฟล์ ทั้งที่ Claim เดิมยัง Bound อยู่ ทางแก้คือใช้ดิสก์เครือข่าย หรือ PV แบบ Local ที่มี nodeAffinity"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| StorageClass ค่าเริ่มต้นของ Minikube ใช้ Provisioner `k8s.io/minikube-hostpath` และ reclaimPolicy Delete และ PVC ถูกผูกกับ PV ที่ถูกสร้างให้ก่อนมี Pod | รัน: `exercises/09_storage.py` |
+| PV เป็นโฟลเดอร์ hostPath ที่ไม่มี nodeAffinity | รัน: `exercises/09_storage.py` |
+| ไฟล์ใน PVC อยู่รอดหลังลบ Pod (บน Node เดิม) ส่วน emptyDir ว่างเมื่อสร้างใหม่ | รัน: `exercises/09_storage.py` |
+| Pod ที่ใช้ Claim เดียวกันบน Node อื่นเห็น 0 ไฟล์ | รัน: `exercises/09_storage.py` |
+| หลังลบ PVC (Delete) ตัว PV หายแต่ไฟล์บน Worker ยังค้าง | รัน: `exercises/09_storage.py` |
+| PV แบบ Local กับ nodeAffinity และ WaitForFirstConsumer ทำให้ Scheduler วาง Pod ที่ Node ของข้อมูล และ Retain ทำให้ PV เป็น Released | รัน: `exercises/09_storage.py` |
+| PVC ที่อ้าง StorageClass ที่ไม่มีค้าง Pending พร้อม Event | รัน: `exercises/09_storage.py` |
+| ที่ Provisioner ของ Minikube ลบไฟล์ไม่ได้เพราะทำงานบน Control Plane | ผู้เขียน (อนุมานจากผลที่รัน ไม่ได้อ่านซอร์สของ Provisioner) |
+| ดิสก์เครือข่ายหรือ CSI Driver ให้ Pod ไปอยู่ Node ไหนก็ Mount ได้ | หนังสือ: Core Kubernetes หัวข้อ 7.4 หน้า 144 (ไม่ได้รัน) |
+| PersistentVolume, PVC, StorageClass และ Dynamic Provisioning | หนังสือ: Core Kubernetes หัวข้อ 8.1 หน้า 153 และ Kubernetes Up and Running หัวข้อ Dynamic Volume Provisioning หน้า 185 |
+
+</Step>

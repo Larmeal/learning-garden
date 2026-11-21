@@ -1,0 +1,96 @@
+---
+title: Ingress
+summary: Ingress คือชุดกฎที่บอกว่าคำขอจากข้างนอกที่มีชื่อโฮสต์และ Path แบบไหนไปที่ Service ตัวไหน ตัวที่ทำงานจริงคือ Controller ซึ่งเป็น Pod ธรรมดาที่รัน Nginx เราดูว่ากฎถูกเลือกอย่างไร และข้อควรระวังเรื่อง Path
+facts:
+  - "รันจริงใน exercises/07b_ingress.py บน minikube กับ ingress-nginx v1.11.2 (เปิดด้วย minikube addon): Controller เป็น Pod ธรรมดา, ก่อนมี Ingress ทุกคำขอได้ 404, กฎตาม Host และ Path (Prefix ยาวที่สุดชนะ), Host ที่ไม่มีกฎได้ 404 ของ Controller เอง, /apix ไม่ตรงกฎ /api, Controller ส่ง Path เต็มโดยไม่ตัด Prefix, กฎกลายเป็น server_name และ location ใน nginx.conf และ Service ที่ไม่มี Pod ให้ 503"
+  - "แนวคิดของ Ingress Spec แยกจาก Ingress Controller และเรื่อง Path Rewriting มาจากหนังสือ Kubernetes Up and Running บทที่ 8 หน้า 90 ถึง 98 ไม่ได้รันซ้ำ การเข้าถึงจากข้างนอกแบบอื่น (LoadBalancer ของ Cloud, TLS) ไม่ได้รัน"
+order: 71
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import IngressLab from '../../../../components/labs/kubernetes/IngressLab';
+
+<Step>
+
+## Ingress เป็นแค่ชุดกฎ
+
+บท [Service และ DNS](/kubernetes/services/) ให้ที่อยู่ที่คงที่ในคลัสเตอร์ ถ้าอยากเปิดหลายบริการให้ข้างนอกผ่านที่เดียว และแยกด้วยชื่อโฮสต์หรือ Path เช่น `shop.example.com` ไปที่ร้านค้า และ `/api` ไปที่ API เรามี Ingress ซึ่งเป็นออบเจ็กต์ที่เก็บกฎแบบนี้ไว้ แต่ตัวมันเองไม่ทำอะไร หนังสือแยกไว้ชัดเจนระหว่าง Ingress Spec ที่เป็นกฎ กับ Ingress Controller ที่เป็นโปรแกรมที่อ่านกฎแล้วทำตาม (หนังสือ: Kubernetes Up and Running หัวข้อ Ingress Spec Versus Ingress Controllers หน้า 90)
+
+ในการรันจริงเราเปิด Controller ที่ชื่อ `ingress-nginx` ด้วย Addon ของ Minikube ซึ่งหน้าตาก็คือ Pod ธรรมดาตัวหนึ่งที่รัน `nginx` และก่อนที่เราจะสร้าง Ingress อะไรเลย ทุกคำขอที่ส่งไปที่มันได้ `404` กลับมา (รัน) เพราะมันยังไม่มีกฎ
+
+</Step>
+
+<Step>
+
+## เลือกกฎด้วย Host และ Path
+
+เราสร้าง Service สามตัวคือ `shop`, `api` และ `blog` แล้วเขียน Ingress สามกฎ `shop.test` ที่ `/` ไปที่ Shop, `shop.test` ที่ `/api` ไปที่ Api และ `blog.test` ที่ `/` ไปที่ Blog (หนังสือ: Kubernetes Up and Running หัวข้อ Using Hostnames หน้า 94 และ Using Paths หน้า 95) กดเลือกคำขอใน Lab ดูว่ากฎข้อไหนสว่างขึ้นและคำขอไปจบที่ไหน
+
+<IngressLab client:visible />
+
+ผลของแต่ละคำขอที่ได้จากการรันจริงสรุปได้ตามนี้ (รัน)
+
+| Host | Path | รหัส | ตอบโดย |
+|---|---|---|---|
+| shop.test | / | 200 | shop |
+| shop.test | /api/x/ | 200 | api |
+| `shop.test` | `/apix` | 404 | Pod ของ Shop (ไม่มีไฟล์นี้) |
+| blog.test | / | 200 | blog |
+| blog.test | /api/x/ | 200 | blog |
+| other.test | / | 404 | หน้า 404 ของ Controller เอง |
+
+มีสามข้อที่ควรสังเกต อย่างแรก เมื่อคำขอตรงหลายกฎ กฎที่ Path ยาวกว่าชนะ จึง `shop.test/api/x/` ไปที่ Api อย่างที่สอง Path แบบ Prefix เทียบเป็นส่วน ๆ ของ Path ทีละส่วน กฎ `/api` ใช้กับ `/api` และ `/api/...` เท่านั้น `/apix` จึงไม่ตรง และตกไปที่กฎ `/` ของ Shop ซึ่งไม่มีไฟล์ชื่อนี้ จึงได้ 404 แบบที่ Pod ตอบ ซึ่งหน้าตาต่างจาก 404 ของ Controller (ตัวพิมพ์ใหญ่ทั้งหมด) อย่างที่สาม Controller ส่ง Path เต็ม `/api/x/` ไปให้ Pod เลย ไม่ได้ตัด `/api` ทิ้ง ถ้า Pod ของ Api ไม่มีเส้นทางนี้ก็จะตอบ 404 ถ้าอยากตัด Prefix ต้องตั้งค่าเพิ่มซึ่งเป็นเรื่องของ Controller แต่ละตัว (หนังสือ: Kubernetes Up and Running หัวข้อ Path Rewriting หน้า 98)
+
+</Step>
+
+<Step>
+
+## กฎของ Ingress กลายเป็นค่าตั้งของ Nginx
+
+Controller อ่านออบเจ็กต์ Ingress จาก API แล้วเขียนเป็นค่าตั้งของ Nginx ใน Pod ของมันเอง ในการรันจริงเราเปิดไฟล์ `/etc/nginx/nginx.conf` ใน Controller แล้วพบว่ามี `server_name blog.test` กับ `server_name shop.test` อย่างละหนึ่งบล็อก และมีการตั้งชื่อปลายทางของ Service ทั้งสามตัว (`klab-ingress-shop-80` และพวกเดียวกัน) (รัน) นั่นแสดงว่า Ingress ไม่มีเวทมนตร์ มันคือ Loop ของ Controller อีกตัวหนึ่งที่อ่านสิ่งที่เราต้องการแล้วทำให้โปรแกรมจริงตรงกับมัน เหมือนที่เห็นในบทแรก
+
+ถ้า Service ที่กฎชี้ไปไม่มี Pod ที่ Ready เลยล่ะ เราปรับ Blog ลงเหลือ 0 ตัว คำขอไป `blog.test` ได้ `503` ส่วน `shop.test` ไม่กระทบ (รัน) กฎถูกต้องอยู่ แต่ปลายทางหมด
+
+<Callout type="note" title="สิ่งที่แบบฝึกนี้ไม่ได้รัน">
+เราไม่ได้ลองเปิด Ingress ผ่าน LoadBalancer ของ Cloud และไม่ได้ลอง TLS ในแบบฝึก คำขอทุกตัวยิงจากใน Control Plane ไปที่ IP ของมันตรง ๆ พร้อมหัว `Host` ที่เราตั้งเอง จึงเป็นการทดสอบกฎ ไม่ใช่การทดสอบเส้นทางจากอินเทอร์เน็ต
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Ingress มีสองกฎสำหรับโฮสต์เดียวกัน กฎแรกใช้ Path ราก ส่งไปที่ Service ชื่อ Shop กฎที่สองใช้ Path ที่ขึ้นต้นด้วยคำว่า Api ส่งไปที่ Service ชื่อ Api คำขอที่ลึกลงไปใต้ Api (เช่น Api ตามด้วย Orders) จะไปที่ Service ไหน และ Pod ได้รับ Path อย่างไร"
+  options={[
+    'ไปที่ Shop เพราะกฎ Path รากตรงกับทุกอย่าง',
+    'ไปที่ Api เพราะกฎที่ Path ยาวกว่าชนะ และ Pod ได้ Path เต็ม ไม่ถูกตัด Prefix',
+    'ไปที่ Api และ Pod ได้ Path ที่ถูกตัด Prefix ออก เพราะ Ingress ตัดให้เสมอ',
+    'ล้มเหลว เพราะตรงสองกฎ'
+  ]}
+  answer={1}
+  why="เมื่อตรงหลายกฎ กฎที่ Path ยาวกว่าชนะ ในการรันจริง Controller ส่ง Path เต็มไปให้ Pod เสมอโดยไม่ตัด Prefix ถ้า Pod ไม่มีเส้นทางนั้นก็จะตอบ 404 เอง"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Controller เป็น Pod ธรรมดา และก่อนมี Ingress ทุกคำขอได้ 404 | รัน: `exercises/07b_ingress.py` |
+| คำขอทั้งหกแบบได้ผลตามตาราง (กฎตาม Host และ Path, Prefix ยาวชนะ, `/apix` ไม่ตรง `/api`, Host ที่ไม่มีกฎได้ 404 ของ Controller) | รัน: `exercises/07b_ingress.py` |
+| Controller ส่ง Path เต็มโดยไม่ตัด Prefix | รัน: `exercises/07b_ingress.py` |
+| กฎกลายเป็น `server_name` และการตั้งชื่อปลายทางของ Service ใน nginx.conf | รัน: `exercises/07b_ingress.py` |
+| Service ที่ไม่มี Pod ที่ Ready ให้ 503 | รัน: `exercises/07b_ingress.py` |
+| Ingress Spec แยกจาก Ingress Controller, Using Hostnames, Using Paths และ Path Rewriting | หนังสือ: Kubernetes Up and Running หัวข้อ Ingress Spec Versus Ingress Controllers หน้า 90, Using Hostnames หน้า 94, Using Paths หน้า 95, Path Rewriting หน้า 98 |
+| LoadBalancer ของ Cloud และ TLS | ไม่ได้รัน |
+
+</Step>

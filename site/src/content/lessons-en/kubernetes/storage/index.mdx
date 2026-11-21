@@ -1,0 +1,94 @@
+---
+title: Volumes, PVCs and StorageClasses
+summary: A claim asks for storage that outlives a Pod, but where the data really lives matters a great deal. We see how a PVC is bound to a PV, how emptyDir differs from a PVC, how the hostPath disk of minikube belongs to one node, and how a local PV lets the scheduler follow the data.
+facts:
+  - "Ran for real in exercises/09_storage.py on minikube (Kubernetes v1.31.0, the standard StorageClass using the provisioner k8s.io/minikube-hostpath): a PVC bound to a PV that was made for it, a file in a PVC surviving a deleted Pod, an emptyDir that is empty every time, a PV that is a hostPath folder with no nodeAffinity so a Pod on another node sees an empty folder, the folder left on the worker after the PVC was deleted, a local PV with nodeAffinity and WaitForFirstConsumer making the scheduler place the Pod on the node with the disk, and a PVC naming a StorageClass that does not exist left Pending."
+  - "The ideas of PersistentVolume, StorageClass and dynamic provisioning come from the books Kubernetes Up and Running, Dynamic Volume Provisioning, page 185, and Core Kubernetes chapters 7 and 8, pages 135 to 170, and were not run again. A real CSI driver, cloud disks and volume expansion were not tried."
+order: 9
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [config-secrets]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import StorageLab from '../../../../components/labs/kubernetes/StorageLab';
+
+<Step>
+
+## Data that must outlive a Pod
+
+In the lesson [Pod](/en/kubernetes/pods/) we saw that an `emptyDir` is born with the Pod and dies with it. If we want to keep the data of a database, we need something that lives longer. Kubernetes splits this into three objects. A PersistentVolume (PV) is one piece of real storage. A PersistentVolumeClaim (PVC) is a Pod's request for what kind of storage and how big. And a StorageClass is the recipe that says how to make a PV when somebody asks (book: Core Kubernetes, section 8.1 pages 153 to 159). The team that writes the app writes only a claim, and who prepares the real disk is a matter for whoever looks after the cluster, much like the way a Service was separated from Pods in an earlier lesson.
+
+In the minikube cluster we use there is a StorageClass called `standard` as the default, using the provisioner `k8s.io/minikube-hostpath`, with `reclaimPolicy` set to `Delete` (ran). We created a PVC asking for 32Mi without naming a StorageClass. A PV was created by itself and bound to the claim at once, before any Pod used it (ran). This is dynamic provisioning (book: Kubernetes Up and Running, Dynamic Volume Provisioning, page 185).
+
+</Step>
+
+<Step>
+
+## Where does the data really live
+
+Let us look at what the PV is. In the real run it was a `hostPath` folder at `/tmp/hostpath-provisioner/<namespace>/data` with no `nodeAffinity` at all (ran). That means it is an ordinary folder on one particular node, not a disk floating on the network. Let us prove what that means.
+
+We created a Pod on `garden-m02`, wrote a file `note` into the claim, and deleted the Pod. A new Pod on the same node found the file `note` (ran). A Pod that used an `emptyDir` wrote a file and was deleted, and the next Pod found an empty folder (ran). So far this is as expected. But when we made the new Pod run on `garden-m03` using exactly the same claim, it saw an empty folder with 0 files (ran). The claim is bound to a real PV, but that PV is a folder on `garden-m02`. When the Pod lands on another node, the kubelet of that node creates a new empty folder with the same name, and the scheduler cannot know, because the PV never said `nodeAffinity`.
+
+Switch around in the lab below to see which node the data belongs to.
+
+<StorageLab client:visible lang="en" />
+
+This is fine only for experiments on one computer. A real cluster uses network disks or a CSI driver (Container Storage Interface), where a Pod can mount the same disk whichever node it lands on (book: Core Kubernetes, section 7.4 page 144). We did not try that in the exercise.
+
+</Step>
+
+<Step>
+
+## When the claim is deleted, and when the scheduler follows the data
+
+If we delete a PVC whose `reclaimPolicy` is `Delete`, the PV object is deleted with it. But in the exercise the file `note` in the folder on the worker was still there (ran), because the minikube provisioner runs on the control plane and cleans up only there. This is behaviour specific to minikube, and the reason the exercise of this lesson must clear the folder itself every run.
+
+If we want the scheduler to know where the data is, the PV must say so. We made a `local` PV that points at a folder on `garden-m03`, with a `nodeAffinity` naming that node, and a StorageClass with `volumeBindingMode: WaitForFirstConsumer`. The claim stayed `Pending` until a Pod used it, and when a Pod with no `nodeSelector` at all came, the scheduler placed it on `garden-m03` by itself, because the data is there, and the Pod read the file (ran). When the Pod and the claim were deleted, the PV that was set to `Retain` went to the state `Released` and its file stayed (ran).
+
+Last, if a claim names a StorageClass that does not exist, the claim stays `Pending` and the event says `storageclass.storage.k8s.io "does-not-exist" not found` (ran).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We use a PVC on a cluster whose StorageClass makes hostPath PVs with no nodeAffinity. The Pod that used the claim is deleted and created again, and this time the scheduler places it on a different node. What happens to the data written earlier?"
+  options={[
+    'It is all still there, because the claim keeps the data in the cluster and is not tied to a node',
+    'It is not seen, because the data is in a folder on the old node, and the new Pod sees an empty folder on the new node',
+    'It is copied to the new node automatically',
+    'The new Pod cannot be created, because the claim is locked'
+  ]}
+  answer={1}
+  why="A hostPath PV is a folder on one node, and with no nodeAffinity the scheduler does not know to put the Pod there. In the exercise the Pod on garden-m03 saw 0 files although the old claim was still Bound. The fix is a network disk, or a local PV with a nodeAffinity."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| The default StorageClass of minikube uses the provisioner `k8s.io/minikube-hostpath` and reclaimPolicy Delete, and a PVC is bound to a PV made for it before any Pod | ran: `exercises/09_storage.py` |
+| The PV is a hostPath folder with no nodeAffinity | ran: `exercises/09_storage.py` |
+| A file in a PVC survives a deleted Pod (on the same node), while an emptyDir is empty when recreated | ran: `exercises/09_storage.py` |
+| A Pod using the same claim on another node sees 0 files | ran: `exercises/09_storage.py` |
+| After a PVC is deleted (Delete) the PV is gone but the file on the worker stays | ran: `exercises/09_storage.py` |
+| A local PV with nodeAffinity and WaitForFirstConsumer makes the scheduler place the Pod on the node with the data, and Retain leaves the PV Released | ran: `exercises/09_storage.py` |
+| A PVC naming a StorageClass that does not exist stays Pending with an event | ran: `exercises/09_storage.py` |
+| The minikube provisioner cannot delete the file because it runs on the control plane | author (inferred from the result, the provisioner source was not read) |
+| Network disks or CSI drivers let a Pod mount the disk from any node | book: Core Kubernetes, section 7.4 page 144 (not run) |
+| PersistentVolume, PVC, StorageClass and dynamic provisioning | book: Core Kubernetes, section 8.1 page 153 and Kubernetes Up and Running, Dynamic Volume Provisioning page 185 |
+
+</Step>

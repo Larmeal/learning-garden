@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Three questions to check that you can read a Pending message, tell a taint from a toleration, and know how drain and a PodDisruptionBudget work together.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We put a taint on one node, and then create a Pod with a toleration that matches that taint. Which statement is right?"
+  options={[
+    'The Pod must go to that node only, because a toleration attracts Pods',
+    'The Pod may land on that node, but it may land on other nodes as well. A toleration permits, it does not force',
+    'The Pod cannot land on that node, because a taint forbids every Pod',
+    'Pods already running on that node are evicted at once'
+  ]}
+  answer={1}
+  why="A taint says do not put a Pod here unless it tolerates this tag. A toleration only lets the Pod through the gate, and does not tell it to go there. To force it, add a nodeSelector or affinity. And NoSchedule does not evict Pods that are already there."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A Pod is stuck in Pending with the message 0/3 nodes are available: 2 Insufficient cpu, 1 node had untolerated taint. Which statement sums up the problem?"
+  options={[
+    'The Pod container cannot start because the image is wrong',
+    'No node can take the Pod. Two have too little CPU for the request and the third has a taint the Pod does not tolerate',
+    'The scheduler has not started yet',
+    'The Pod has been deleted but is still shown'
+  ]}
+  answer={1}
+  why="A FailedScheduling message says why every node was rejected. The problem is at the placement step and not the container step (there is not even a node to run on). Fix it by lowering the request, adding a node, or adding a toleration."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We drain a node while a Deployment has 6 Pods and a PodDisruptionBudget with minAvailable 6. What is the result?"
+  options={[
+    'drain succeeds at once and the Pods move to other nodes',
+    'drain cannot evict any Pod, because that would take Ready below 6, so it waits until it times out and fails, until the PDB is changed or removed',
+    'Kubernetes deletes the PodDisruptionBudget by itself',
+    'Every Pod is deleted at the same time'
+  ]}
+  answer={1}
+  why="A PDB is a promise of how many Pods must stay Ready, and drain respects it. If evicting a Pod would break the promise, it does not evict. In the exercise drain failed, and succeeded at once after the PDB was deleted."
+/>
+
+</Step>

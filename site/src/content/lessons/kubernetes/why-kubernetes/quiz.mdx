@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าแยก Desired State ออกจาก Actual State ได้ และรู้ว่าใครเป็นคนแก้เมื่อ Container, Pod หรือ Node พัง
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราเขียน Deployment ไว้ว่าต้องมี Pod 4 ตัว แล้วคอมพิวเตอร์เครื่องที่มี Pod 2 ตัวถูกปิดไปอย่างกะทันหัน ข้อไหนอธิบายสิ่งที่ Kubernetes ทำได้ถูกต้องที่สุด"
+  options={[
+    'รอให้เราสั่ง Apply ใหม่ เพราะ Deployment ไม่รู้ว่า Pod หายไป',
+    'เทียบตัวเลขที่ต้องการ (4) กับที่เจอ (2) แล้วสร้าง Pod ใหม่บน Node ที่เหลือหลังจากประกาศว่า Node นั้น NotReady',
+    'ย้าย Container เดิมที่ยังรันอยู่จาก Node ที่ดับไปรันบน Node อื่นทันที',
+    'หยุด Deployment ทั้งตัวจนกว่า Node ที่ดับจะกลับมา'
+  ]}
+  answer={1}
+  why="Kubernetes ไม่ได้ย้าย Container ที่กำลังรัน มันสร้าง Pod ใหม่ให้ครบตามตัวเลขที่ต้องการ แต่ต้องรอให้ Control Plane ประกาศว่า Node ไม่พร้อมก่อน (ประมาณ 40 วินาทีที่เงียบ) และ Pod บน Node นั้นยังถูกเก็บไว้ตามค่า tolerationSeconds ซึ่งปกติคือ 300 วินาที"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Container ตัวหนึ่งใน Pod ถูกฆ่าตาย ในขณะที่ Pod นั้นยังไม่ถูกลบ ใครเป็นคนเริ่ม Container ใหม่ และผลที่เห็นคืออะไร"
+  options={[
+    'ReplicaSet Controller สร้าง Pod ตัวใหม่ที่ชื่อต่างจากเดิม',
+    'Scheduler เลือก Node ใหม่ให้ Container',
+    'Kubelet ของ Node ที่ Pod อยู่เริ่ม Container ใหม่ใน Pod เดิม และจำนวน Restart เพิ่มขึ้น',
+    'ไม่มีใครทำอะไร จนกว่าเราจะลบ Pod'
+  ]}
+  answer={2}
+  why="Pod ยังอยู่ จึงไม่มีอะไรให้ ReplicaSet Controller ทำ เพราะจำนวน Pod ยังตรง ผู้ที่เห็นว่า Container ในเครื่องของตัวเองตายคือ Kubelet และมันเริ่มใหม่ตามนโยบาย Restart ของ Pod ผลที่เห็นคือชื่อ Pod และ Node เดิม แต่ restartCount เพิ่มขึ้น"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ข้อไหนเป็นหน้าที่ของ Scheduler"
+  options={[
+    'รัน Container ของ Pod บน Node',
+    'เก็บข้อมูลทั้งหมดของคลัสเตอร์',
+    'เห็น Pod ที่ยังไม่มี Node แล้วเขียนว่าควรไปอยู่ Node ไหน',
+    'เทียบจำนวน Pod ที่ต้องการกับที่มีอยู่แล้วสร้างเพิ่ม'
+  ]}
+  answer={2}
+  why="Scheduler ไม่รัน Pod และไม่สร้าง Pod มันแค่เขียนค่า Node ที่เลือกกลับเข้าไปใน Pod ที่ยังไม่มีที่อยู่ การรัน Container เป็นหน้าที่ของ Kubelet การเก็บข้อมูลเป็นของ Etcd และการเทียบจำนวนแล้วสร้างเพิ่มเป็นของ Controller"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราสั่งปรับจำนวน Pod จาก 3 เป็น 5 ด้วยคำสั่งเดียวที่เปลี่ยนตัวเลขใน Deployment ข้อไหนบอกวิธีคิดของ Kubernetes ได้ถูกต้อง"
+  options={[
+    'เราบอกว่า Pod ตัวใหม่สองตัวต้องเริ่มที่ Node ไหนบ้าง',
+    'เราเปลี่ยนสิ่งที่ต้องการ แล้ว Loop ที่เทียบตัวเลขจะสร้างส่วนที่ขาดให้เอง',
+    'Kubernetes ไม่รับคำสั่งปรับจำนวน ต้องลบ Deployment แล้วสร้างใหม่',
+    'เราต้องรอให้ Pod ทั้งสามตัวเดิมหยุดก่อน'
+  ]}
+  answer={1}
+  why="ในแบบฝึก การเปลี่ยนจำนวนเป็น 5 แล้วเป็น 2 ทำเพียงแก้ตัวเลขตัวเดียว ไม่ได้ระบุว่า Pod ตัวไหนเริ่มหรือหยุด Loop ที่เทียบสิ่งที่ต้องการกับสิ่งที่มีอยู่จะเติมหรือถอดให้เอง"
+/>
+
+</Step>

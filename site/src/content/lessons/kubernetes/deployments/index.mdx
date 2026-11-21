@@ -1,0 +1,108 @@
+---
+title: Deployment
+summary: Deployment ดูแล ReplicaSet ที่ดูแล Pod อีกที เราดูว่าการอัปเดตแบบ Rolling ย้าย Pod ทีละก้าวโดยไม่ทำให้ Ready ต่ำกว่าที่สัญญา Recreate มีช่วงที่ไม่มีอะไรรัน และ Image ที่ผิดทำให้การอัปเดตค้างโดยที่ Pod เก่ายังให้บริการ
+facts:
+  - "รันจริงใน exercises/04_deployments.py บน minikube (Kubernetes v1.31.0): Pod เป็นของ ReplicaSet และ ReplicaSet เป็นของ Deployment, Rolling Update ที่ maxSurge 1 และ maxUnavailable 1 ไม่เกิน 5 Pod และ Ready ไม่ต่ำกว่า 3, rollout undo ย้อนไปเทมเพลตเดิม, Recreate ลดเหลือ 0 Ready, และ Image ที่ไม่มีอยู่ทำให้ rollout ค้างที่ ProgressDeadlineExceeded โดยมี Pod เก่า Ready อยู่ 3 ตัว"
+  - "ภาพรวมของ ReplicaSet, Deployment Strategy และ Reconciliation Loop มาจากหนังสือ Kubernetes Up and Running บทที่ 9 หน้า 103 และบทที่ 10 หน้า 113 ไม่ได้รันซ้ำ ตัวเลขใน Lab เป็นภาพถ่ายตอนที่จำนวน ReplicaSet เปลี่ยน ไม่ใช่ทุกขั้นเล็ก ๆ"
+order: 4
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [labels-and-api]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import RolloutLab from '../../../../components/labs/kubernetes/RolloutLab';
+
+<Step>
+
+## Deployment ไม่ได้ดูแล Pod โดยตรง
+
+เราเห็น Deployment ในบทแรกแล้ว คราวนี้ลองถามว่าใครเป็นเจ้าของใคร ในการรันจริงเราสร้าง Deployment ที่มี Pod สี่ตัว แล้วอ่านค่า `ownerReferences` ของแต่ละชั้น ผลคือ Pod เป็นของ ReplicaSet ตัวหนึ่ง และ ReplicaSet ตัวนั้นเป็นของ Deployment ชื่อ `app` ส่วนชื่อก็บอกใบ้ไว้แล้ว ชื่อ Pod คือชื่อ ReplicaSet บวกท้ายแบบสุ่ม และชื่อ ReplicaSet คือชื่อ Deployment บวกรหัสแฮชของ Template (รัน)
+
+หนังสือเล่าว่า ReplicaSet คือชั้นที่รับผิดชอบให้จำนวน Pod ตรงกับที่ต้องการ โดยเทียบกันเป็น Reconciliation Loop (หนังสือ: Kubernetes Up and Running หัวข้อ Reconciliation Loops หน้า 104) ส่วน Deployment ทำหน้าที่ในชั้นที่สูงขึ้นไปอีกชั้น คือดูแลการเปลี่ยนจากเทมเพลตรุ่นหนึ่งไปอีกรุ่น (หนังสือ: Kubernetes Up and Running หัวข้อ Deployment Internals หน้า 114) ที่ต้องแยกสองชั้นก็เพราะ ReplicaSet จำได้แค่เทมเพลตเดียว ถ้าจะมีสองรุ่นอยู่พร้อมกันระหว่างอัปเดต ก็ต้องมี ReplicaSet สองตัว
+
+</Step>
+
+<Step>
+
+## Rolling Update: ย้ายทีละก้าว
+
+เมื่อเราแก้เทมเพลตของ Pod (เช่นเปลี่ยนข้อความที่โปรแกรมพิมพ์ หรือเปลี่ยน Image) Deployment จะสร้าง ReplicaSet ตัวใหม่ แล้วค่อย ๆ เพิ่ม Pod ในตัวใหม่และลด Pod ในตัวเก่า ด้วยกติกาสองตัวเลข `maxSurge` คือจำนวน Pod ที่เกินเป้าได้ และ `maxUnavailable` คือจำนวน Pod ที่ขาดจากเป้าได้ (หนังสือ: Kubernetes Up and Running หัวข้อ RollingUpdate Strategy หน้า 123) ในแบบฝึกเราตั้งทั้งสองเป็น 1 กับ Deployment ที่มี Pod 4 ตัว แล้วเฝ้าดูจำนวน Pod ของ ReplicaSet ทุกครึ่งวินาที (รัน)
+
+| เวลา | ReplicaSet เก่า | ReplicaSet ใหม่ |
+|---|---|---|
+| ก่อนเริ่ม | 4 ตัว Ready 4 | ยังไม่มี |
+| 0.1 วินาที | 3 ตัว Ready 3 | 2 ตัว Ready 0 |
+| 4.7 วินาที | 1 ตัว Ready 1 | 4 ตัว Ready 2 |
+| 8.0 วินาที | 0 | 4 ตัว Ready 4 |
+
+ณ เวลาใดเวลาหนึ่งมี Pod รวมกันสูงสุด 5 ตัว (4 บวก `maxSurge` 1) และ Ready ต่ำสุด 3 ตัว (4 ลบ `maxUnavailable` 1) ไม่เคยต่ำกว่านั้น (รัน) ขั้นสำคัญที่ควรสังเกตคือ Pod ใหม่ต้องผ่าน Readiness Probe ก่อนถึงถูกนับว่า Ready ซึ่งเป็นเหตุผลที่ Probe ในบท [Pod](/kubernetes/pods/) สำคัญกับการอัปเดต
+
+เราลองกดดูแต่ละวิธีใน Lab ข้างล่าง เริ่มจาก Rolling Update แล้วเปลี่ยนไปดู Recreate กับ Image ที่ผิด
+
+<RolloutLab client:visible />
+
+ReplicaSet เก่าไม่ถูกลบหลังอัปเดตเสร็จ มันถูกเก็บไว้ที่ 0 ตัวเพื่อให้ย้อนกลับได้ เมื่อสั่ง `kubectl rollout undo` Deployment ใช้เทมเพลตเก่ากลับมา โดยใช้ ReplicaSet ตัวเดิมซ้ำ และบันทึกเป็นรุ่นที่ 3 (รัน) ประวัติจึงไม่ย้อน มันเดินหน้าต่อโดยเอาของเก่ากลับมาใช้
+
+</Step>
+
+<Step>
+
+## Recreate: ยอมให้มีช่วงที่ไม่มีอะไรรัน
+
+`strategy: Recreate` หยุด Pod เก่าทุกตัวก่อน แล้วค่อยสร้าง Pod ใหม่ ในแบบฝึกเราเห็น Ready ต่ำสุดเป็น 0 (รัน) วิธีนี้ใช้เมื่อ Pod เก่ากับใหม่ห้ามรันพร้อมกัน เช่น ทั้งสองรุ่นต้องล็อกไฟล์เดียวกัน หรือโครงสร้างข้อมูลเข้ากันไม่ได้ โดยยอมรับว่ามีช่วงที่ไม่มีใครให้บริการ (หนังสือ: Kubernetes Up and Running หัวข้อ Recreate Strategy หน้า 123)
+
+</Step>
+
+<Step>
+
+## เมื่อ Image ผิด การอัปเดตหยุด แต่ผู้ใช้ไม่รู้สึก
+
+อันนี้คือเหตุผลหลักที่ Rolling Update ปลอดภัย เราลองเปลี่ยน Image เป็น `busybox:no-such-tag` ซึ่งไม่มีอยู่จริง ผลที่ได้ในการรันจริงคือ Pod ใหม่สองตัวค้างที่ `ImagePullBackOff` ส่วน Pod เก่า 3 ตัวยัง Ready อยู่ เพราะ Deployment จะไม่ลด Pod เก่าต่อถ้าจะทำให้ Ready ต่ำกว่าที่สัญญา (รัน) เมื่อเกินเวลา `progressDeadlineSeconds` (เราตั้ง 20 วินาที) Deployment รายงาน `ProgressDeadlineExceeded` และ `kubectl rollout status` ออกด้วยรหัสผิดปกติ ส่วนผู้ใช้ยังใช้งานได้ต่อเพราะ Pod เก่ายังรับคำขอ จากนั้น `kubectl rollout undo` ทำให้กลับมามี Pod ครบสี่ตัว (รัน)
+
+นี่เป็นจุดที่ข้อกำหนดสองตัวเลขช่วยเราไว้ ถ้าตั้ง `maxUnavailable` สูงเกินไป เช่นเท่ากับจำนวน Pod ทั้งหมด Rolling Update จะกลายเป็น Recreate โดยไม่ได้ตั้งใจ
+
+<Callout type="note" title="เทียบกับเส้นทาง DevOps">
+ใน [บท Release อย่างปลอดภัย](/devops/release/) ของเส้นทาง DevOps เราเทียบ Rolling กับ Canary และ Blue-green ด้วยตัวเลขจากการจำลอง ที่นี่เห็นแล้วว่า Rolling เป็นของที่ Kubernetes ทำให้เองผ่าน Deployment
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Deployment ที่มี Pod 4 ตัว ตั้ง maxSurge เป็น 1 และ maxUnavailable เป็น 1 กำลังอัปเดต ณ ช่วงใดช่วงหนึ่งจำนวน Pod รวมสูงสุด และจำนวน Pod ที่ Ready ต่ำสุดตามที่สัญญาไว้คือเท่าไร"
+  options={[
+    'รวมสูงสุด 4 และ Ready ต่ำสุด 4',
+    'รวมสูงสุด 5 และ Ready ต่ำสุด 3',
+    'รวมสูงสุด 8 และ Ready ต่ำสุด 0',
+    'รวมสูงสุด 5 และ Ready ต่ำสุด 4'
+  ]}
+  answer={1}
+  why="maxSurge 1 อนุญาตให้เกินเป้าได้หนึ่งตัว จึงรวมสูงสุด 5 ส่วน maxUnavailable 1 อนุญาตให้ขาดจากเป้าได้หนึ่งตัว Ready จึงต่ำสุด 3 ในการรันจริงเราเห็นทั้งสองค่านี้พอดี ส่วน Recreate เป็นกรณีที่ Ready ต่ำถึง 0"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Pod เป็นของ ReplicaSet และ ReplicaSet เป็นของ Deployment ชื่อสร้างจากชื่อชั้นบน | รัน: `exercises/04_deployments.py` |
+| Rolling Update ไม่เกิน 5 Pod และ Ready ไม่ต่ำกว่า 3 และใช้ช่วงที่อนุญาตเต็มจำนวน | รัน: `exercises/04_deployments.py` |
+| ReplicaSet เก่าถูกเก็บไว้ที่ 0 และ `rollout undo` ใช้ ReplicaSet เดิมเป็นรุ่นที่ 3 | รัน: `exercises/04_deployments.py` |
+| Recreate มีช่วงที่ Ready เป็น 0 | รัน: `exercises/04_deployments.py` |
+| Image ที่ผิดทำให้ Pod ใหม่ค้าง ImagePullBackOff, Pod เก่า Ready 3 ตัว, Rollout ค้างที่ ProgressDeadlineExceeded และ Undo แก้ได้ | รัน: `exercises/04_deployments.py` |
+| ถ้าตั้ง maxUnavailable เท่าจำนวน Pod ทั้งหมด Rolling Update จะกลายเป็น Recreate | ผู้เขียน (อนุมานจากความหมายของค่า ไม่ได้รัน) |
+| ReplicaSet คือ Reconciliation Loop ของจำนวน Pod และ Deployment ดูแลการเปลี่ยนรุ่นด้วยหลาย ReplicaSet | หนังสือ: Kubernetes Up and Running หัวข้อ Reconciliation Loops หน้า 104 และ Deployment Internals หน้า 114 |
+| กลยุทธ์ Recreate และ RollingUpdate กับ maxSurge, maxUnavailable | หนังสือ: Kubernetes Up and Running หัวข้อ Deployment Strategies หน้า 123 |
+
+</Step>

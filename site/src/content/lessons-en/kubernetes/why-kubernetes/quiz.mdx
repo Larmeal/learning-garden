@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you can tell desired state from actual state, and who fixes things when a container, a Pod or a node breaks.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We wrote a Deployment that needs 4 Pods, and then the computer that had 2 of them was switched off suddenly. Which statement describes best what Kubernetes does?"
+  options={[
+    'It waits for us to apply again, because the Deployment does not know a Pod went away',
+    'It compares the number wanted (4) with the number found (2) and creates new Pods on the nodes that are left, after declaring that node NotReady',
+    'It moves the containers that were running on the dead node to another node at once',
+    'It stops the whole Deployment until the dead node comes back'
+  ]}
+  answer={1}
+  why="Kubernetes does not move running containers. It creates new Pods to reach the number we want, but only after the control plane declares the node not ready (about 40 seconds of silence), and the Pods on that node are kept for the tolerationSeconds, which is normally 300 seconds."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A container in a Pod is killed while the Pod itself is not deleted. Who starts the container again, and what do we see?"
+  options={[
+    'The ReplicaSet controller creates a new Pod with a different name',
+    'The scheduler picks a new node for the container',
+    'The kubelet of the node the Pod is on starts the container again in the same Pod, and the restart count goes up',
+    'Nobody does anything until we delete the Pod'
+  ]}
+  answer={2}
+  why="The Pod is still there, so the ReplicaSet controller has nothing to do, because the number of Pods still matches. The one that sees a container die on its own computer is the kubelet, and it starts it again by the restart policy of the Pod. What we see is the same Pod name and node, but a higher restartCount."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Which one is the job of the scheduler?"
+  options={[
+    'Run the containers of a Pod on a node',
+    'Store all the data of the cluster',
+    'See a Pod that has no node yet and write which node it should go to',
+    'Compare the number of Pods wanted with the number that exist and create more'
+  ]}
+  answer={2}
+  why="The scheduler does not run Pods and does not create them. It only writes the node it chose back into a Pod that has no place yet. Running containers is the kubelet's job, storing data belongs to etcd, and comparing numbers and creating more is a controller's work."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We scale from 3 Pods to 5 with one command that changes a number in the Deployment. Which statement shows how Kubernetes thinks?"
+  options={[
+    'We say on which nodes the two new Pods must start',
+    'We change what we want, and the loop that compares numbers creates the missing part by itself',
+    'Kubernetes does not accept a scale command, we must delete the Deployment and create it again',
+    'We must wait for the three old Pods to stop first'
+  ]}
+  answer={1}
+  why="In the exercise, changing the count to 5 and then to 2 was only a change of one number. We never said which Pod starts or stops. The loop that compares what we want with what exists adds or removes Pods by itself."
+/>
+
+</Step>

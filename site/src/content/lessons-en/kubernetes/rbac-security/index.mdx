@@ -1,0 +1,121 @@
+---
+title: RBAC and security
+summary: Kubernetes starts with the network open and the API closed. We see what the ServiceAccount in every Pod may do, how a Role and a RoleBinding open rights bit by bit, how securityContext and Pod Security reduce what a container can do, and how a NetworkPolicy closes the network down to the paths that are allowed.
+facts:
+  - "Ran for real in exercises/13_rbac_security.py on minikube (Kubernetes v1.31.0, CNI kindnet, which really enforces NetworkPolicy): the ServiceAccount token in every Pod, the default ServiceAccount getting 403 when it calls the API from inside a Pod, a Role and RoleBinding giving the right to list pods in one namespace (kubectl auth can-i answering yes and no as shown), resourceNames limiting the right to one Secret, automountServiceAccountToken: false removing the token, runAsNonRoot refusing an image that runs as root, readOnlyRootFilesystem and capabilities drop ALL, Pod Security Admission at level restricted refusing a privileged Pod and an ordinary Pod, and NetworkPolicy closing and then opening paths one by one."
+  - "The books cited are Kubernetes Up and Running (chapter 14, pages 168 to 175) and Core Kubernetes (chapters 13 and 14, pages 240 to 279). They were printed before Pod Security Admission and so describe Pod Security Policies, which have been removed, so this lesson uses the results of a real run of Pod Security Admission instead. Not run: ClusterRole, groups in role bindings, OPA Gatekeeper, TLS between components, and encryption of Secrets."
+order: 13
+phase: E
+level: 4
+stage: sprout
+format: steps
+requires: [crd-operator]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import SecurityLab from '../../../../components/labs/kubernetes/SecurityLab';
+
+<Step>
+
+## Who may call the API
+
+Every Pod we create comes with three things mounted as files at `/var/run/secrets/kubernetes.io/serviceaccount`: `token`, `ca.crt` and `namespace` (ran). The token is the identity of the ServiceAccount the Pod uses, which is `default` if none is named. We took that token and called the API server from inside the Pod with `curl` at `/api/v1/namespaces/<ns>/pods`. The answer was `403 Forbidden`, with a message saying that `system:serviceaccount:<ns>:default` may not list pods (ran). So the API server knows who we are, but allows nothing yet. This kind of system is called RBAC (Role-Based Access Control) (book: Kubernetes Up and Running, Identity in Kubernetes, page 168).
+
+</Step>
+
+<Step>
+
+## Role and RoleBinding: open rights bit by bit
+
+RBAC separates two things. A Role says "what may be done to what" (verbs and kinds of object), and a RoleBinding says "who gets that right" (book: Kubernetes Up and Running, Understanding Roles and Role Bindings, page 169, and Core Kubernetes, section 14.2 page 261). We made a Role that allows `get` and `list` on `pods` and bound it to the ServiceAccount of the Pod. Before trying, we can ask with `kubectl auth can-i`, which is worth using before guessing (book: Kubernetes Up and Running, Testing Authorization with can-i, page 172). The results of the real run (ran):
+
+| Question | Answer |
+|---|---|
+| list pods in the same namespace | `yes` |
+| delete pods in the same namespace | `no` |
+| list secrets in the same namespace | `no` |
+| list pods in another namespace | `no` |
+
+And the same call from inside the Pod as before got `200` and the list of Pods, while the other namespace still got 403 (ran). So the right given is small and limited exactly as written. We can limit it even more finely with `resourceNames`. In the exercise we gave the right to `get` only the Secret called `s1`. The result was that `s1` could be read, `s2` could not, and listing could not (ran). And if a Pod does not need to talk to the API at all, we can close it at the source with `automountServiceAccountToken: false`, which leaves the Pod with no token for a thief to steal (ran) (book: Core Kubernetes, section 13.3 page 251).
+
+</Step>
+
+<Step>
+
+## securityContext: reduce what a container can do
+
+The second matter is limiting what a container can do on the node. Try three things (book: Core Kubernetes, section 13.3 page 245 on the security context, and section 13.2 page 243 on container users).
+
+- `runAsNonRoot: true` with an image that runs as root stops the container from starting. It stays in `CreateContainerConfigError` with the message `container has runAsNonRoot and image will run as root` (ran).
+- A Pod with `runAsUser: 10001`, `readOnlyRootFilesystem: true`, `allowPrivilegeEscalation: false` and `capabilities: drop: [ALL]` runs as uid 10001, cannot write to the root file system (`Read-only file system`), and has an empty set of special rights (capabilities), `0000000000000000`, while an ordinary Pod has `00000000a80425fb` and runs as root (uid 0) (ran).
+
+Setting these Pod by Pod is easy to forget, so Kubernetes has Pod Security Admission, which checks Pods when they are admitted, by a label on the namespace such as `pod-security.kubernetes.io/enforce=restricted`. In the exercise a Pod with `privileged: true` was refused with `violates PodSecurity "restricted:latest"`. An ordinary Pod was refused too, with a message listing everything missing, such as `allowPrivilegeEscalation != false`. A Pod with all five settings was admitted (ran). Pods already running were not touched, because the check happens only at admission (ran).
+
+<Callout type="note" title="The book describes the old thing">
+Core Kubernetes talks about Pod Security Policy, which Kubernetes has removed. What replaced it is Pod Security Admission, which we used in this exercise. The real results therefore come from our own run and not from the book.
+</Callout>
+
+</Step>
+
+<Step>
+
+## NetworkPolicy: close a network that is open
+
+Unlike the API, which starts closed, the network between Pods starts open in every direction. In the exercise we made four Pods: `srv`, `friend`, `stranger`, and `victim` in another namespace. Then we added rules one step at a time. Try the different steps in the lab below, including the RBAC and Pod Security parts.
+
+<SecurityLab client:visible lang="en" />
+
+The results for the NetworkPolicy in the real run (ran):
+
+| Rule | friend | stranger | a Pod from another namespace |
+|---|---|---|---|
+| no policy | reached | reached | reached |
+| a policy that selects srv but lists no ingress rule | blocked | blocked | blocked |
+| allow only `app=friend` | reached | blocked | blocked |
+
+Two points to notice. First, a policy that selects a Pod and lists no allow rule closes every way in for that Pod. Second, a `podSelector` with no `namespaceSelector` means Pods in the same namespace, so a Pod from another namespace does not get through even if its label matches. And a Pod that no policy selects stays open as before (in the exercise `stranger` could still call `victim`) (book: Core Kubernetes, section 14.4 page 269).
+
+A NetworkPolicy works only if the CNI of the cluster enforces it. In the exercise we checked that kindnet does (a deny rule really made the call hang). If the CNI does not support it, the object can still be created but has no effect.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We create a NetworkPolicy that selects the database Pod and lets in only Pods labelled role=loader from the same namespace. Can a web Pod in the same namespace without that label call the database, and can the database Pod call other Pods outwards?"
+  options={[
+    'The web Pod can call the database, because it is in the same namespace, and the database cannot call outwards',
+    'The web Pod cannot call the database, because it does not match the allow rule, while the outward direction of the database is not limited, because this policy sets only ingress',
+    'The web Pod can call on every port, and the database cannot call outwards',
+    'Both directions are closed'
+  ]}
+  answer={1}
+  why="A policy that selects the database Pod and lists only an ingress rule limits only the way in. Whoever does not match the allow rule cannot enter, while the way out is not limited, because egress was not specified. The exercise showed the same effect of an ingress rule."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| Every Pod has `token`, `ca.crt`, `namespace`, and the default ServiceAccount gets 403 when it calls the API | ran: `exercises/13_rbac_security.py` |
+| A Role and RoleBinding allow list pods in one namespace, with the `can-i` results and the real calls giving 200 and 403 as in the table | ran: `exercises/13_rbac_security.py` |
+| `resourceNames` limits to one Secret, and `automountServiceAccountToken: false` removes the token | ran: `exercises/13_rbac_security.py` |
+| `runAsNonRoot` refuses an image that runs as root, and a Pod with five settings runs as uid 10001, cannot write to the file system and has no capabilities | ran: `exercises/13_rbac_security.py` |
+| Pod Security Admission at restricted refuses a privileged Pod and an ordinary Pod, admits a Pod with all settings, and does not touch existing Pods | ran: `exercises/13_rbac_security.py` |
+| NetworkPolicy: everything open with no policy, all closed when selected with no rule, only friend open, another namespace closed, and Pods not selected stay open | ran: `exercises/13_rbac_security.py` |
+| kindnet really enforces NetworkPolicy | ran: `exercises/13_rbac_security.py` (seen from the blocking of Pods, not from kindnet's documentation) |
+| A policy that sets only ingress does not limit the outward direction of a Pod | author (understanding from the meaning of `policyTypes`, this exact case was not run) |
+| RBAC, Role, RoleBinding, `can-i` | book: Kubernetes Up and Running, Identity in Kubernetes page 168, Understanding Roles and Role Bindings page 169, Testing Authorization with can-i page 172 and Core Kubernetes, section 14.2 page 261 |
+| The security context, not mounting the token, and NetworkPolicy | book: Core Kubernetes, section 13.3 pages 245 and 251 and section 14.4 page 269 |
+| Pod Security Policy was removed and Pod Security Admission replaced it | author (general knowledge of recent Kubernetes, not checked against documentation in this lesson) |
+
+</Step>

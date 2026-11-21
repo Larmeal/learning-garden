@@ -1,0 +1,63 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 3 ข้อ เพื่อเช็กว่าอ่านผลของ Role กับ RoleBinding ได้ รู้ว่า Pod Security ตรวจตอนไหน และรู้ว่า NetworkPolicy ทำให้เครือข่ายที่เปิดอยู่เปลี่ยนไปอย่างไร
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ServiceAccount Default ใน Namespace หนึ่งถูกผูกกับ Role ที่อนุญาต Get และ List บน Pods ใน Namespace นั้นเท่านั้น ข้อไหนเป็นจริง"
+  options={[
+    'ทำได้ทั้ง List Pods และ Delete Pods ใน Namespace นั้น',
+    'List Pods ใน Namespace นั้นได้ แต่ Delete Pods, อ่าน Secret หรือ List Pods ใน Namespace อื่นไม่ได้',
+    'List Pods ได้ทุก Namespace',
+    'ทำอะไรไม่ได้เลย เพราะ Default ไม่มีสิทธิ์'
+  ]}
+  answer={1}
+  why="Role ให้เฉพาะสิ่งที่เขียนไว้ใน Namespace ที่ผูก ส่วนอื่นยังเป็น 403 ในแบบฝึก kubectl auth can-i ตอบ Yes เฉพาะ List Pods ใน Namespace เดียวกัน นอกนั้นตอบ no"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Namespace หนึ่งถูกติด Label ให้ Pod Security ระดับ Restricted หลังจากที่มี Pod ธรรมดารันอยู่แล้วในนั้น สิ่งที่เกิดกับ Pod เดิมและ Pod ใหม่คืออะไร"
+  options={[
+    'Pod เดิมถูกหยุดทั้งหมด และ Pod ใหม่ธรรมดารันได้',
+    'Pod เดิมไม่ถูกแตะ เพราะตรวจตอนรับเข้า ส่วน Pod ใหม่ที่ไม่ตั้งค่าครบจะถูกปฏิเสธ',
+    'ทั้ง Pod เดิมและใหม่ไม่เปลี่ยน',
+    'Kubernetes แก้การตั้งค่าของ Pod ให้ครบอัตโนมัติ'
+  ]}
+  answer={1}
+  why="Pod Security Admission ตรวจตอน Pod ถูกสร้างเท่านั้น Pod ที่รันอยู่ก่อนไม่ถูกแตะ ในแบบฝึก Pod ธรรมดาตัวใหม่ถูกปฏิเสธพร้อมรายการที่ขาด และ Pod ที่ตั้งห้าอย่างครบถูกรับเข้า"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราสร้าง NetworkPolicy ที่เลือก Pod หนึ่งแต่ไม่ระบุกฎ Ingress อนุญาตเลย ผลต่อ Pod นั้นคืออะไร"
+  options={[
+    'ไม่เปลี่ยนอะไร เพราะ Policy ที่ไม่มีกฎไม่มีผล',
+    'ไม่มี Pod ใดเข้าถึง Pod นั้นได้เลย เพราะเมื่อถูก Policy เลือกแล้ว ทางเข้าที่ไม่ได้อนุญาตจะถูกปิดทั้งหมด',
+    'ทุก Pod เข้าถึงได้ตามเดิม แต่ Policy จะแจ้งเตือน',
+    'Pod นั้นถูกลบ'
+  ]}
+  answer={1}
+  why="เมื่อ Pod ถูก NetworkPolicy เลือก ทางเข้าที่ไม่มีกฎอนุญาตจะถูกกั้น Policy ที่ไม่ระบุกฎจึงปิดทุกทาง ในแบบฝึกทั้ง Friend และ Stranger ถูกกั้น และต้องมี CNI ที่บังคับใช้ NetworkPolicy ด้วย"
+/>
+
+</Step>

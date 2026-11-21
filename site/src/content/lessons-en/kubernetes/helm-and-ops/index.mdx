@@ -1,0 +1,121 @@
+---
+title: Helm, autoscaling and finding why a Pod is broken
+summary: Helm packs a whole set of objects as a release with a history that can be rolled back. A HorizontalPodAutoscaler changes the number of Pods by CPU, fast up and slow down. And when a Pod is broken, the status we see tells which layer has the problem and which command to ask with.
+facts:
+  - "Ran for real in exercises/14_helm_hpa_debug.py on minikube (Kubernetes v1.31.0, Helm v3.13.3, metrics-server v0.7.2): a chart we wrote (helm lint, template, the order of values, defaults lower than a -f file lower than --set), helm install giving a release with a Secret per revision, upgrade and rollback that always add a new revision, an upgrade broken by a wrong image marked failed while the old Pods kept serving, uninstall removing the release Secrets, an HPA that read 200% against a target of 50% and went from 1 to 4 and back to 1 after the load stopped, and Pods broken in 3 ways (ImagePullBackOff, CrashLoopBackOff, Pending) plus a Service with a wrong selector and so no endpoints."
+  - "The scaling times of the HPA (78 seconds up and 120 seconds down) include the time metrics-server took before its first reading and a 20 second wait window that we set ourselves, not the normal one (normally the scale down window is 5 minutes). The ideas come from the books Learning Helm pages 18 to 37, Kubernetes Patterns, Elastic Scale, page 203, and Kubernetes Up and Running pages 40 and 110. Other parts of Helm (repositories, dependencies, hooks, complex charts) were not tried."
+order: 14
+phase: E
+level: 4
+stage: sprout
+format: steps
+requires: [rbac-security]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import HelmLab from '../../../../components/labs/kubernetes/HelmLab';
+import AutoscaleLab from '../../../../components/labs/kubernetes/AutoscaleLab';
+import DebugLab from '../../../../components/labs/kubernetes/DebugLab';
+
+<Step>
+
+## Helm: pack a whole set as one release
+
+In the earlier lessons we wrote YAML one file at a time, but a real app has a Deployment, a Service, a ConfigMap and more, together ten files, and needs different values in each place it runs. Helm is a tool that packs those files into a chart, with templates and default values (`values.yaml`), and turns it into a release that has a name and a history (book: Learning Helm, Resources, Installations, and Releases, page 18).
+
+We wrote a small chart called `webapp` with a Deployment template, a Service template and three default values, `replicas`, `message` and `image` (ran). `helm lint` passed, and `helm template` printed the YAML without creating anything in the cluster (ran). Values are filled in by priority. The defaults are lowest, next comes a file passed with `-f`, and `--set` is highest. In the real run replicas was 2 (default), 5 (`--set`), 7 (`-f prod.yaml`), and 9 when both `-f` and `--set` were used (ran) (book: Learning Helm, Configuration at Installation Time, page 30).
+
+</Step>
+
+<Step>
+
+## A release has a history, and can be rolled back
+
+Press through this lab one step at a time to see how the revisions of a release stack up.
+
+<HelmLab client:visible lang="en" />
+
+`helm install` creates a release at revision 1. We get a Deployment and a Service labelled `managed-by: Helm`, and Helm stores each revision as a Secret of type `helm.sh/release.v1` named `sh.helm.release.v1.demo.v1` (ran) (book: Learning Helm, How Helm Stores Release Information, page 37). `helm upgrade` gives revision 2 and revision 1 becomes `superseded`, while `helm rollback 1` does not wind the history back. It creates revision 3 with the content of revision 1, so history only moves forward (ran).
+
+What if an upgrade breaks? We tried an upgrade with an image that does not exist, with `--wait`. The command failed with `UPGRADE FAILED: context deadline exceeded` and the release was marked `failed` (revision 4), but the Pods of the revision before were still ready, 2 of them, because the rolling update seen in the lesson [Deployments](/en/kubernetes/deployments/) does not remove old Pods until the new ones are ready. Then `helm rollback 3` gave revision 5 with the status `deployed` (ran). Last, `helm uninstall` removed the Deployment, the Service and the Secrets of every revision (ran).
+
+</Step>
+
+<Step>
+
+## Autoscaling: up fast, down slowly
+
+Normally we set the number of Pods by hand, but a HorizontalPodAutoscaler (HPA) adjusts it to the load. It reads the average CPU of the Pods from metrics-server and computes the number wanted = round up (current number × use ÷ target), limited by a minimum and a maximum (book: Kubernetes Patterns, Elastic Scale, page 203, and Kubernetes Up and Running, Autoscaling a ReplicaSet, page 110).
+
+In the exercise we made one container loop using all the CPU it could, but with a limit of 200m while its request was 100m, and set an HPA with a target of 50% and replicas from 1 to 4. The reading was 200% of the request against a target of 50%, which gives exactly 4 wanted, and the HPA went from 1 to 4 (ran). When we stopped the load the value fell to almost 0, and the HPA went back to 1 after the wait window (stabilization) that we set to 20 seconds, taking 120 seconds in all (ran).
+
+<AutoscaleLab client:visible lang="en" />
+
+Two things to remember. First, most of the 78 seconds was waiting for metrics-server to take its first reading, and the real scale down window is 5 minutes by default, which we shortened to 20 seconds so as not to wait. Second, requests must make sense, because the HPA measures as a percent of the request. If no request is set, the HPA cannot compute.
+
+</Step>
+
+<Step>
+
+## A broken Pod: the status tells which layer has the problem
+
+The last topic is finding the cause when something is wrong. The status shown by `kubectl get pods` tells the layer of the problem, and then we ask the object with the command that fits that layer (book: Kubernetes Up and Running, Debugging Commands, page 40). In the real run we broke things in several ways. The results (ran):
+
+| Status seen | Caused by | Command that reveals the cause |
+|---|---|---|
+| `ImagePullBackOff` | the image name or tag is wrong | `kubectl describe pod` gives `Failed to pull image "busybox:no-such-tag"` |
+| `CrashLoopBackOff` | the program keeps ending with a bad exit code | `kubectl logs --previous` gives the output of the earlier run (`boom`) |
+| `Pending` with no container status | no node can take it | `kubectl describe pod`, in the Events, gives `Insufficient cpu` |
+| `CreateContainerConfigError` | the Secret or key referred to is missing | read the message in `state.waiting.message` |
+| `OOMKilled` | memory used went over the limit | `state.terminated` gives exit code 137 |
+| a Service with no endpoints | the selector does not match the labels | `kubectl get endpoints` is empty |
+
+Pick a symptom in the lab below to see the chain of question and answer for each.
+
+<DebugLab client:visible lang="en" />
+
+A simple rule: if the Pod has no node yet (`Pending`), the problem is with the scheduler. If the Pod has a node but the container does not come up (`ImagePullBackOff`, `CreateContainerConfigError`), the problem is with the image or the values it refers to. If the container comes up and dies (`CrashLoopBackOff`, `OOMKilled`), the problem is with the program or the resources. And if the Pod is Running but gets no work (Not Ready, or no endpoints), the problem is with a probe or a label.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A Pod has the status CrashLoopBackOff and its restart count keeps rising. What should we do first to find the cause?"
+  options={[
+    'Delete the node the Pod is on',
+    'Read the log of the run that just died, with the previous option of the logs command',
+    'Raise the number of replicas',
+    'Change the Service to NodePort'
+  ]}
+  answer={1}
+  why="CrashLoopBackOff means the container starts and dies again and again. The output of the earlier run is in the log of the container that has already died, which a normal logs command cannot read. We need the previous option. In the exercise we got the text boom that the program printed before it exited with code 1."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Statement | Source |
+|---|---|
+| `helm lint` passes, `helm template` creates nothing in the cluster, and values go in the order defaults, then `-f`, then `--set` (2, 5, 7, 9) | ran: `exercises/14_helm_hpa_debug.py` |
+| `helm install` gives a release with the label managed-by Helm and a Secret per revision | ran: `exercises/14_helm_hpa_debug.py` |
+| upgrade gives revision 2, rollback gives revision 3 (the content of revision 1), and history does not go backwards | ran: `exercises/14_helm_hpa_debug.py` |
+| An upgrade with a wrong image fails and the release is failed while the old Pods stay ready, and a rollback repairs it | ran: `exercises/14_helm_hpa_debug.py` |
+| `helm uninstall` removes the Deployment, the Service and the Secrets of every revision | ran: `exercises/14_helm_hpa_debug.py` |
+| The HPA read 200% against a target of 50%, went from 1 to 4, and back to 1 after the load stopped | ran: `exercises/14_helm_hpa_debug.py` |
+| The symptoms ImagePullBackOff, CrashLoopBackOff, Pending and a Service with no endpoints, with the commands that reveal the cause | ran: `exercises/14_helm_hpa_debug.py` |
+| The symptoms CreateContainerConfigError and OOMKilled | ran: `exercises/08_config_secrets.py` and `exercises/02_pods.py` |
+| The scale down window of an HPA is normally 5 minutes | author (a Kubernetes default, not measured, the exercise sets 20 seconds) |
+| The grouping of problems by Pod status in the last paragraph | author (a conclusion from the runs, not a complete list) |
+| Charts, releases, values at install time and how releases are stored | book: Learning Helm, Resources, Installations, and Releases page 18, Configuration at Installation Time page 30 and How Helm Stores Release Information page 37 |
+| The HPA and the checking commands | book: Kubernetes Patterns, Elastic Scale page 203, and Kubernetes Up and Running, Autoscaling a ReplicaSet page 110 and Debugging Commands page 40 |
+
+</Step>
