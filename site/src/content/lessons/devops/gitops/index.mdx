@@ -1,0 +1,113 @@
+---
+title: GitOps
+summary: Orchestration คือวงที่เทียบสิ่งที่อยากได้กับสิ่งที่มีแล้วแก้เฉพาะที่ต่าง GitOps เอาวงนั้นไปผูกกับ Git เราเขียน Controller ตัวเล็กที่คุม Docker จริง แล้วดูว่าทำไมการ Release คือ Commit และการ Rollback คือ Git Revert
+facts:
+  - "รันจริงใน exercises/07_gitops_reconcile.py กับ Docker Engine 29 และ Git 2.56.1: gitops.py อ่าน desired.json จาก Bare Repository แล้วสร้าง ลบ หรือแทนที่ Container ให้ตรง สามคอนเทนเนอร์ครั้งแรก, ครั้งที่สองไม่ต้องทำอะไร, Container ที่ถูกลบด้วยมือถูกสร้างคืน, Container ที่เปิดเองถูกลบ, Commit ที่เปลี่ยน web เป็น v2 แทนที่ web-1 และ web-2 กับสร้าง web-3 และ git revert พา Cluster กลับเหมือนเดิมพอดี"
+  - "ไม่ได้รัน Kubernetes, Argo CD, Flux หรือ Helm ตัวควบคุมในแบบฝึกเป็นตัวแบบของวงที่เครื่องมือเหล่านั้นทำ เขียนเอง Kubernetes ยังไม่มีใน Subject ของสวนนี้ตอนที่เขียนบทนี้ ส่วนนิยามของ Orchestration อ่านจาก Fundamentals of DevOps and Software Delivery บทที่ 3 หน้า 82 ถึง 83 และหลักการของ GitOps จาก GitOps Cookbook หัวข้อ 1.1 หน้า 1 ถึง 2"
+order: 7
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [iac]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ReconcileLab from '../../../../components/labs/devops/ReconcileLab';
+
+<Step>
+
+## Orchestration คือการเทียบแล้วแก้ซ้ำ ๆ
+
+หนังสือ Fundamentals of DevOps and Software Delivery เปรียบ Orchestration กับวาทยกรของวงออร์เคสตรา ที่คอยสั่งให้สมาชิกแต่ละคนเริ่มหรือหยุดเล่น เล่นให้ดังหรือเบา ในโลกซอฟต์แวร์ เครื่องมือ Orchestration ทำหน้าที่นั้นกับแอปทั้งชุด สั่งให้เริ่มหรือหยุด เพิ่มหรือลดทรัพยากร และเพิ่มหรือลดจำนวน Replica ของแต่ละตัว คำว่า Orchestration มักถูกผูกกับ Kubernetes แต่ปัญหาที่มันแก้มีมาตั้งแต่โปรแกรมเมอร์คนแรกรันแอปให้คนอื่นใช้ (หนังสือ: Fundamentals of DevOps and Software Delivery บทที่ 3 หน้า 82)
+
+หนังสือไล่ปัญหาหลักที่ทุกคนที่รันแอปจริงต้องแก้ ได้แก่ Deployment, Scheduling, Rollback, Auto Scaling, Auto Healing, Load Balancing, Configuration, Secrets, การสื่อสารระหว่างบริการ และการจัดการดิสก์ (หนังสือ: เล่มเดิม หน้า 82 ถึง 83) สองข้อที่ต่อกับบทก่อน ๆ คือ Rollback ที่เป็นเรื่องของ[บทที่ 5](/devops/release/) และ Configuration กับ Secrets ที่เป็นเรื่องของ[บทที่ 3](/devops/config-secrets/)
+
+ในบทนี้เราสนใจข้อเดียวที่อยู่ตรงใจกลาง คือ Auto Healing ซึ่งทำงานเป็นวง **ขั้นแรก** ดูว่าสภาพจริงเป็นอย่างไร **ขั้นต่อมา** เทียบกับสภาพที่ต้องการ และ **ขั้นสุดท้าย** ลงมือแก้เฉพาะส่วนที่ต่าง แล้ววนกลับไปดูใหม่ วงนี้เรียกว่า Reconciliation Loop และเป็นหัวใจของ Kubernetes Controller ที่อยู่ข้างใต้ทุกอย่างที่เราเห็นบน Cluster (ในเส้นทาง [Kubernetes](/kubernetes/why-kubernetes/) เราหยุด Controller ของจริงแล้วดูว่าอะไรจะหยุดตาม ที่[บท Control Plane](/kubernetes/control-plane/))
+
+</Step>
+
+<Step>
+
+## Git เป็นที่เก็บสิ่งที่ต้องการ
+
+GitOps คือการเอาวงนั้นไปผูกกับ Git หนังสือ GitOps Cookbook นิยามว่าเป็นวิธีการที่ใช้ Git Repository เป็นแหล่งความจริงเดียว (single source of truth) ในการส่งมอบโครงสร้างพื้นฐานที่เป็นโค้ด โดยมีสามเสาหลัก คือ Git เป็นแหล่งความจริงเดียว ปฏิบัติกับทุกอย่างเป็นโค้ด และทุกการดำเนินงานผ่านขั้นตอนของ Git (หนังสือ: GitOps Cookbook หัวข้อ 1.1 หน้า 1 ถึง 2)
+
+หลักการที่ชุมชน OpenGitOps ตั้งไว้มีสี่ข้อ สิ่งที่ต้องการต้องเขียนแบบ Declarative (บอกว่าอยากได้อะไร ไม่ใช่บอกว่าทำอย่างไร) เก็บแบบมีเวอร์ชันและแก้ย้อนหลังไม่ได้ มี Agent ที่ดึงสิ่งที่ต้องการมาเองโดยอัตโนมัติ และ Agent นั้นสังเกตสภาพจริงและพยายามทำให้ตรงกับที่ต้องการอยู่ตลอด (Continuously Reconciled) (หนังสือ: เล่มเดิม หน้า 2)
+
+เรามาลองทำตัวที่เล็กที่สุดที่ทำสี่ข้อนั้นได้กัน ในแบบฝึกเรามี Repository ปลายทางที่เก็บไฟล์ `desired.json` ซึ่งบอกว่า Web ต้องมีสองตัวที่เวอร์ชัน 1 และ Worker หนึ่งตัว จากนั้นเขียนโปรแกรมสั้น ๆ (`gitops.py`) ที่ทำสามอย่างซ้ำ ๆ อ่านไฟล์นั้นจาก Branch `main` ของ Repository ดู Container ของ Docker ที่ติดป้ายของกลุ่มนี้ แล้วสร้าง ลบ หรือแทนที่ให้ตรง (รัน) ที่เลือก Docker แทน Kubernetes เพราะ Kubernetes ยังไม่มีในสวนนี้ตอนที่เขียนบทนี้ และโปรแกรมของเราคือ**ตัวแบบ**ของวงที่ Argo CD หรือ Flux ทำ ไม่ใช่เครื่องมือเหล่านั้น
+
+</Step>
+
+<Step>
+
+## กดดูว่า Controller ทำอะไรในห้าสถานการณ์
+
+เลือกเหตุการณ์ใน Lab แล้วดูสามแถว แถวบนคือสิ่งที่ Git ต้องการ แถวกลางคือสิ่งที่ Docker มีตอนนี้ โดยช่องที่ต่างถูกระบายสีและเขียนว่า "ขาด" "เกิน" หรือ "ผิดรุ่น" แล้วต่อด้วยรายการสิ่งที่ Controller ลงมือทำ และแถวล่างสุดคือผลหลังทำงาน
+
+<ReconcileLab client:visible />
+
+ผลของแต่ละสถานการณ์ในแบบฝึกตรงกับภาพ (รัน) รอบแรก Cluster ว่าง Controller สร้างสามตัว รอบที่สองไม่มีอะไรต้องทำ ซึ่งเป็นสัญญาณว่าระบบ Converge แล้ว จากนั้นเรา `docker rm` web-2 ทิ้งด้วยมือ รอบถัดไป Controller เห็นว่าขาดและสร้าง web-2 กลับ แล้วเราเปิด Container ชื่อ debug-1 ที่ไม่มีใครขอ รอบถัดไป Controller ลบมันทิ้ง
+
+ผลคือ การแก้ของจริงด้วยมือตรง ๆ อยู่ได้ไม่นาน ไม่ว่าจะลบหรือเพิ่ม ทีมที่ใช้ GitOps จึงได้ข้อดีเรื่องความปลอดภัยที่หนังสือพูดถึง คือเห็นและแก้ Drift ได้ก่อนมันไปถึง Production (หนังสือ: GitOps Cookbook หัวข้อ 1.2 หน้า 2) แต่ก็ได้ข้อเสียที่ต้องรู้ด้วย คือในช่วงฉุกเฉินที่อยากแก้ด้วยมือ ต้องแก้ใน Git เท่านั้น ไม่เช่นนั้นการแก้นั้นจะถูกทับ
+
+</Step>
+
+<Step>
+
+## Release คือ Commit และ Rollback คือ Git Revert
+
+สถานการณ์สุดท้ายสองข้อน่าสนใจที่สุด เรา Commit ไฟล์ใหม่ที่เปลี่ยน Web เป็นเวอร์ชัน 2 และเพิ่มเป็นสามตัว แล้ว Push ผลคือ Controller แทนที่ web-1 กับ web-2 และสร้าง web-3 โดย Worker ไม่ถูกแตะเลย (รัน) การ Release จึงเป็นแค่การเปลี่ยนไฟล์หนึ่งไฟล์ใน Git โดยไม่ต้องรันสคริปต์ Deploy ใด ๆ
+
+```text
+replace  web-1
+replace  web-2
+create   web-3
+```
+
+พอจะย้อนกลับ เรารัน `git revert` ที่ Commit นั้นแล้ว Push ผลคือ Controller แทนที่ web-1 และ web-2 กลับเป็นเวอร์ชัน 1 และลบ web-3 ทิ้ง สภาพของ Cluster ตรงกับตอนก่อน Release ทุกอย่าง (รัน) และประวัติใน Git อ่านเป็นเรื่องราวได้ตามนี้ (รัน)
+
+```text
+Revert "release web v2, three replicas"
+release web v2, three replicas
+web v1 x2, worker v1 x1
+```
+
+นี่คือประโยชน์ที่หนังสือบอกว่าทุกการเปลี่ยนแปลงถูกบันทึกและตรวจสอบย้อนหลังได้ใน Git (หนังสือ: เล่มเดิม หน้า 2) สองเรื่องที่ควรคิดต่อ คือเรื่องแรก Commit ที่ใช้ Release ควรผ่านการ Review เหมือนโค้ด (ตามที่เห็นใน[บทที่ 1](/devops/version-control/)) และเรื่องที่สอง Repository ที่เก็บ `desired.json` เป็นคนละที่กับ Repository ของโค้ดแอป ซึ่งเป็นวิธีที่แบบฝึกใน[บทที่ 13](/devops/capstone/) ใช้ เพื่อให้ Pipeline ของแอปและการตัดสินใจ Deploy แยกกัน
+
+<Callout type="note" title="ตัวแบบนี้เล็กกว่าของจริงมาก">
+ตัวควบคุมของเราเทียบแค่ชื่อ เวอร์ชัน Image และ Environment และไม่มี Health Check, การเรียงลำดับ, Rolling แบบทีละตัวพร้อมรอให้พร้อม หรือการจัดการความลับ Kubernetes Controller และ Argo CD ทำสิ่งเหล่านี้และอีกมาก ผู้เขียนยังไม่ได้ลองเครื่องมือจริง ที่ยืนยันได้คือโครงสร้างของวง: อ่านสิ่งที่ต้องการจาก Git, เทียบกับสภาพจริง, ทำเฉพาะส่วนต่าง
+</Callout>
+
+<Question
+  client:visible
+  q="คืนวันศุกร์ วิศวกรเข้าไป docker stop web-1 ด้วยมือเพื่อดีบัก ขณะที่ Controller ในแบบจำลอง GitOps ของเรากำลังรันอยู่ จะเกิดอะไรขึ้น"
+  options={[
+    'web-1 หยุดอยู่อย่างนั้นจนกว่าวิศวกรจะสั่งเริ่มใหม่ เพราะ Controller ไม่ยุ่งกับสิ่งที่คนทำด้วยมือ',
+    'Controller เห็นว่าสภาพจริงต่างจาก Git (web-1 ไม่ได้อยู่ในสถานะ Running) และแทนที่ด้วยตัวใหม่ในรอบถัดไป',
+    'Controller ลบ web-1 ทิ้ง แล้วไม่สร้างใหม่ เพราะ Git ยังไม่มี Commit ใหม่',
+  ]}
+  answer={1}
+  why="ในแบบจำลองเราเทียบทั้งชื่อ รุ่น (Spec) และสถานะ แบบฝึกสั่ง docker stop web-1 ด้วยมือแล้ว Controller แทนที่มันในรอบถัดไป เพราะตัวที่ไม่ได้อยู่ในสถานะ Running ถือว่าไม่ตรงกับที่ Git ต้องการ การแก้ด้วยมือจึงอยู่ได้ไม่นานเลย ซึ่งตรงกับสถานการณ์ลบ web-2 และเปิด debug-1 ในแบบฝึก ทีมจริงที่ต้องดีบักจึงต้องมีวิธีหยุด Controller ชั่วคราวหรือแก้ผ่าน Git"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| รอบแรกสร้างสามตัว รอบสองไม่ทำอะไร Container ที่ลบด้วยมือถูกสร้างคืน และ Container ที่เปิดเองถูกลบ | รัน: `exercises/07_gitops_reconcile.py` (Docker Engine 29) |
+| Commit ที่เปลี่ยน Web เป็น v2 แทนที่ web-1, web-2 และสร้าง web-3 โดย Worker ไม่ถูกแตะ | รัน: `exercises/07_gitops_reconcile.py` |
+| Git Revert พา Cluster กลับเหมือนก่อน Release และประวัติ Git มีสามบรรทัดตามเรื่อง | รัน: `exercises/07_gitops_reconcile.py` |
+| Orchestration เปรียบกับวาทยกร และปัญหาหลักของการรันแอปจริง | หนังสือ: Fundamentals of DevOps and Software Delivery บทที่ 3 หน้า 82 ถึง 83 |
+| นิยามของ GitOps และสามเสาหลัก | หนังสือ: GitOps Cookbook หัวข้อ 1.1 หน้า 1 ถึง 2 |
+| หลักการสี่ข้อของ OpenGitOps และประโยชน์เรื่อง Drift | หนังสือ: เล่มเดิม หัวข้อ 1.1 และ 1.2 หน้า 2 |
+| Kubernetes, Argo CD, Flux, Helm ไม่ได้รัน | ผู้เขียน |
+
+</Step>

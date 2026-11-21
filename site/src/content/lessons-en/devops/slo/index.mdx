@@ -1,0 +1,92 @@
+---
+title: SLIs, SLOs and the error budget
+summary: We set a reliability target as a number (an SLO), see that the error budget is a budget the team may spend, and see which alert rule wakes people only for a real incident, using a synthetic month with one bad deploy.
+facts:
+  - "Run in exercises/09_slo_error_budget.py: 30 days of synthetic data (about 5.16 million requests, fixed seed) with a bad deploy on day 12 that fails 20% for 40 minutes. Checked: the arithmetic of an SLO of 99.9% (43.2 minutes of full outage per 30 days, about 10 minutes a week), the month's SLI of 99.95%, 50% of the budget used, the single incident eating 31%, a burn rate of 14.4 for one hour using 2%, and two alert rules on the same data (the rule of 5% per minute pages 25 times, 24 of them at night; the burn rate rule pages once, 4 minutes after the deploy)."
+  - "The traffic is synthetic, not a real service. The burn rate of 14.4 and the windows of 1 hour and 5 minutes are practice known from SRE work, which the author did not read in any book of E:/books. The exercise checks only their arithmetic. SLOs and error budgets are read from Fundamentals of DevOps and Software Delivery, chapter 10, pages 462 to 463 and page 484. Alertmanager was not tried."
+order: 9
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [observability]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import BudgetLab from '../../../../components/labs/devops/BudgetLab';
+
+<Step>
+
+## Reliability we can say as a number
+
+In [lesson 8](/en/devops/observability/) we had metrics that say how many requests failed. The next question is how many failures count as bad. If we do not agree first, we cannot answer, and the team will argue every time the system has a problem.
+
+The book Fundamentals of DevOps and Software Delivery starts with measuring availability, whether users can reach and use the product, which is often told as a number of nines such as 99.9%, three nines. Many organisations set a goal for the level of reliability, called an SLO (service level objective), and some put it into customer contracts as an SLA with penalties for missing it (book: Fundamentals of DevOps and Software Delivery, chapter 10, page 462). The book also says an SLO of 100% is not realistic or useful, because every added nine is exponentially harder and more expensive (book: same, page 463).
+
+Three words must be kept apart. An SLI (service level indicator) is the number we really measure, such as the share of requests that succeed. An SLO is the target for the SLI, such as 99.9% over 30 days. An SLA is the contract with the customer, tied to penalties. The exercise picks an SLO of 99.9%, which means 1 request in 1,000 may fail, or, as time, a full outage of 43.2 minutes in 30 days, about 10 minutes a week, matching the book (ran).
+
+</Step>
+
+<Step>
+
+## The error budget is a budget we can spend
+
+When we set an SLO below 100% we get something extra: permission to fail a little. The book calls it the error budget, one minus the availability we aim for. If the target is 99.9% the budget is 0.1%. As long as we stay inside it, the team deploys as often as it can, and the outages that happen are not seen as failures to avoid but as an expected part of development. If we exceed the budget, we slow down new features and everyone invests in making the software more resilient (book: same, chapter 10, page 484). The budget resolves the old tension between Dev, who want to ship fast, and Ops, who want fewer deploys, which we saw as early as [lesson 0](/en/devops/overview/).
+
+In the exercise we have 30 days of synthetic data (about 5.16 million requests). The budget of this month is 0.1% of all requests, about 5,161 requests that may fail. In fact the month had 2,600 failures, an SLI of 99.95%, above the SLO, and about 50% of the budget was used (ran). The interesting thing is that about half of that came from **one incident**, the bad deploy at 14:00 on day 12, which made 20% of the requests fail for 40 minutes. That incident failed more requests than all the background noise of the month together, and it ate 31% of the budget. Without it the month would have used less than a fifth (ran).
+
+</Step>
+
+<Step>
+
+## Two alert rules on the same month
+
+Next is the most practical question: when should the system wake somebody? The simplest rule is "if more than 5% of the requests of one minute fail, alert". The other is "alert when the budget burns too fast", which needs the burn rate first. The burn rate is the failure rate divided by the rate the SLO allows. A burn rate of 1 means the budget runs out exactly at the end of 30 days. A burn rate of 14.4 for one hour eats 2% of the whole month (14.4 times one hour, divided by 720 hours), and the exercise checked that arithmetic (ran).
+
+Choose a rule in the lab and press play. Each bell is one time the system woke somebody (orange means it woke somebody at night).
+
+<BudgetLab client:visible lang="en" />
+
+The results on the same data (ran): the rule "5% in a minute" pages 25 times in the month, 24 of them at night. The reason is that at night there are about eight requests a minute, so one failure is already over 12%. A team woken that often starts to ignore the bell. The burn rate rule, which must exceed 14.4 over both the last hour and the last five minutes, pages once, at 14:04 on day 12, four minutes after the bad deploy, while the damage was still happening.
+
+The numbers that follow: when the bell rang only 3% of the budget had been used, against 31% when the incident ended, and a rollback at the page would have saved more than half of what the incident ate (ran).
+
+<Callout type="note" title="The 14.4 and the two windows">
+The value 14.4 and looking at two windows at once (one hour and five minutes) are practice from SRE work that the author knows. The books of E:/books used in this path do not explain the burn rate, so the author does not cite a book page, and the exercise checks only the arithmetic and the behaviour of the rules on synthetic data. It does not say that the value suits every service. The real Alertmanager of Prometheus was not tried.
+</Callout>
+
+<Question
+  client:visible
+  lang="en"
+  q="A team has an SLO of 99.9% per 30 days. Two weeks in, one very big incident has used 90% of the budget. What should the team do, going by the idea of the error budget?"
+  options={[
+    'Carry on as usual, because the SLO has not been broken in this period yet',
+    'Slow down the risky new deploys and put effort into resilience, because little budget is left with two weeks to go',
+    'Set the SLO to 99% at once so that there is budget left',
+  ]}
+  answer={1}
+  why="The book proposes that when the budget is exceeded or nearly so, we slow down new feature development and invest in resilience, and as long as we are inside it we can deploy freely (book: Fundamentals of DevOps and Software Delivery, chapter 10, page 484). Carrying on regardless, or lowering the SLO after an incident, makes the number meaningless."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Claim | Source |
+|---|---|
+| An SLO of 99.9% allows 43.2 minutes of full outage in 30 days and about 10 minutes a week | ran: `exercises/09_slo_error_budget.py` (checked against the book, pages 463 and 484) |
+| The synthetic month's SLI is 99.95%, 50% of the budget used, one incident eats 31%, without it less than a fifth | ran: `exercises/09_slo_error_budget.py` (synthetic data) |
+| A burn rate of 14.4 for one hour eats 2% of the budget, and a burn rate of 6 for six hours eats 5% | ran: `exercises/09_slo_error_budget.py` (arithmetic) |
+| The 5% per minute rule pages 25 times (24 at night), the burn rate rule pages once, 4 minutes after the deploy | ran: `exercises/09_slo_error_budget.py` (synthetic data) |
+| Availability, the number of nines, SLO and SLA | book: Fundamentals of DevOps and Software Delivery, chapter 10, page 462 |
+| An SLO of 100% is unrealistic because every nine is exponentially harder | book: same, chapter 10, page 463 |
+| The error budget is one minus the availability target, and how it eases the tension between Dev and Ops | book: same, chapter 10, page 484 |
+| The value 14.4 and the windows of one hour and five minutes | author (SRE practice, not read from a book of this path) |
+| Alertmanager was not run | author |
+
+</Step>

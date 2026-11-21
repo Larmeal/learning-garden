@@ -1,0 +1,152 @@
+---
+title: Continuous Integration
+summary: เราเขียน CI Server ตัวเล็กที่สุดที่ทำงานได้จริง คือ Hook ของ Git ที่รัน Lint, Test และ Build ทุกครั้งที่มีคน Push แล้วดูว่า Pipeline หยุดที่ไหน และ Artifact ที่ได้มาจาก Commit ไหน
+facts:
+  - "รันจริงใน exercises/02_ci_pipeline.py กับ Git 2.56.1: Hook post-receive ของ Bare Repository เรียก ci_runner.py ซึ่งอ่าน pipeline.toml จาก Commit ที่ Push มา รัน Lint, Test, Build ตามลำดับ และหยุดที่ด่านแรกที่ล้ม ตรวจว่า Commit สีเขียวได้ Artifact ชื่อตาม Commit, Commit ที่ Test ล้มไม่มี Artifact, Commit ที่เพิ่ม Stage ใหม่ถูกตัดสินด้วย Stage นั้นเลย และ Build Commit เดิมซ้ำได้ไฟล์ที่ตรงกันทุกไบต์"
+  - "GitHub Actions ไม่ได้รัน (ต้องใช้ GitHub) ส่วนไฟล์ Workflow และคำอธิบายของ on, jobs, runs-on, steps อ่านจาก Learning GitHub Actions บทที่ 4 หน้า 41 ถึง 42 ส่วนเรื่อง Gate กับ Transformation อ่านจาก Grokking Continuous Delivery บทที่ 2 หน้า 20 ถึง 22"
+order: 2
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [version-control]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import PipelineLab from '../../../../components/labs/devops/PipelineLab';
+
+<Step>
+
+## ใครสักคนต้องคอยรัน Test ให้ทุก Commit
+
+ใน[บทที่ 1](/devops/version-control/) เราเห็นแล้วว่า Test ที่รันบนผลที่รวมกันแล้วเป็นสิ่งที่จับปัญหาได้ แต่ถ้าให้ Developer ทุกคนจำเอาเองว่าต้องรันก่อน Push ก็ย่อมมีวันที่ลืม และต่อให้ทุกคนจำได้ คอมพิวเตอร์ของแต่ละคนก็ไม่เหมือนกัน (ติดตั้ง Library คนละรุ่น ใช้ระบบปฏิบัติการคนละตัว) ผลที่ผ่านบนคอมพิวเตอร์เครื่องหนึ่งจึงยังไม่ใช่คำตอบของทีม
+
+หนังสือ Grokking Continuous Delivery เล่าเรื่องนี้ด้วยตัวละครชื่อ Topher ที่ต้องคอยรัน Pipeline ด้วยมือทุกครั้งที่มีคน Push จนทั้งวันหมดไปกับการรัน Pipeline ทางออกที่เขาใช้คือให้ระบบ Version Control ส่งสัญญาณมาเองทุกครั้งที่มีการเปลี่ยนแปลง ซึ่งเรียกว่า Webhook (หนังสือ: Grokking Continuous Delivery บทที่ 2 หน้า 27 ถึง 29)
+
+Git มีกลไกอย่างเดียวกันอยู่ในตัว เรียกว่า Hook เราลองทำ CI Server ที่เล็กที่สุดดูกัน โดยให้ Repository กลางที่ทุกคน Push ไปหา มี Hook ชื่อ `post-receive` ที่ Git เรียกให้เองทุกครั้งที่รับ Commit และให้ Hook นั้นเรียกโปรแกรมตัวเล็ก ๆ (`ci_runner.py` ในแบบฝึก) ไปรัน Pipeline ให้ (รัน)
+
+```bash
+git push origin main
+```
+
+```text
+remote: [ci] 319ff69: 3 stages from pipeline.toml
+remote: [ci]   lint           passed
+remote: [ci]   test           passed
+remote: [ci]   build          passed
+remote: [ci] 319ff69 passed
+```
+
+ข้อความที่ขึ้นต้นด้วย `remote:` คือสิ่งที่ Hook พิมพ์ออกมาให้คนที่ Push ได้อ่านทันที Commit ที่ Push ไปมี `pipeline.toml` หนึ่งไฟล์ที่บอกว่า Pipeline มีกี่ขั้น ตัว Runner ดึงไฟล์ของ Commit นั้นมาวางในโฟลเดอร์ใหม่ที่สะอาด แล้วรันทีละขั้น
+
+</Step>
+
+<Step>
+
+## Gate กับ Transformation
+
+ในผลข้างบนมีสามขั้น แต่สามขั้นนี้ไม่ได้ทำงานแบบเดียวกัน Grokking Continuous Delivery แบ่งงานใน Pipeline เป็นสองชนิด ชนิดแรกคือ Gate หมายถึงงานตรวจสอบคุณภาพที่โค้ดต้องผ่าน ถ้าไม่ผ่านโค้ดก็ไม่ควรไปต่อ ชนิดที่สองคือ Transformation หมายถึงงานที่เปลี่ยนโค้ดจากรูปหนึ่งเป็นอีกรูปหนึ่ง หรือเปลี่ยนสถานะของโลกภายนอกด้วยโค้ดนั้น (หนังสือ: Grokking Continuous Delivery บทที่ 2 หน้า 21 ถึง 22)
+
+| ขั้นของเรา | ชนิด | ทำอะไร |
+|---|---|---|
+| Lint | Gate | ตรวจโค้ดโดยไม่รัน หาข้อผิดพลาดที่พบบ่อยและ Syntax ที่ผิด |
+| Test | Gate | รันโค้ดแล้วเทียบกับสิ่งที่คาดไว้ |
+| Build | Transformation | เปลี่ยนโค้ดเป็นรูปที่เอาไปใช้ได้ (ในแบบฝึกคือไฟล์ Zip) |
+
+หนังสือบอกว่า Gate ส่วนใหญ่ก็คือส่วน CI ของ Pipeline และเมื่อคนพูดว่า "CI ล้ม" มักหมายถึง Gate ล้ม (หนังสือ: เล่มเดิม หน้า 21) ส่วนการ Build, Publish และ Deploy เป็น Transformation ซึ่งเป็นช่วงของบทถัด ๆ ไป ผู้เขียนหนังสือยอมรับว่าบางคนนับการ Build เข้าไปอยู่ใน CI ด้วย ตรงนี้ในบทนี้เราจะใช้คำว่า CI ในความหมายของการตรวจสอบ และเรียกทั้งเส้นว่า Pipeline
+
+</Step>
+
+<Step>
+
+## กดดูว่า Pipeline หยุดที่ไหน
+
+ลองดูสามกรณีที่ Push ขึ้นไปจริงในแบบฝึก กรณีแรกผ่านทุกด่าน กรณีที่สองแก้คำทักทายจาก `hello` เป็น `hi` โดยลืมแก้ Test และกรณีสุดท้ายมี Syntax ผิด ให้ดูสองอย่าง อย่างแรกคือด่านหลังด่านที่ล้มเป็นอย่างไร และอย่างที่สองคือชั้นเก็บ Artifact ทางขวาว่าง หรือมีของ
+
+<PipelineLab client:visible />
+
+กรณีที่ Syntax ผิด Lint ล้มก่อน แล้ว Test กับ Build ถูกข้ามไปเลย เราเรียกพฤติกรรมนี้ว่า Fail Fast คือล้มเร็วและถูกที่สุด เพราะ Test ไม่มีวันรันสำเร็จบนไฟล์ที่ Syntax ผิด การเสียเวลารันจึงเปล่าประโยชน์ ส่วนในกรณี Test ล้ม Commit นั้นจึงไม่มี Artifact เลย (รัน) ไม่มีไฟล์ Zip ของ Commit นั้นอยู่บนชั้น ดังนั้นไม่มีทางที่ใครจะหยิบมันไป Deploy โดยบังเอิญ
+
+</Step>
+
+<Step>
+
+## Pipeline เป็นโค้ดที่อยู่ใน Commit
+
+สังเกตว่า Runner อ่าน `pipeline.toml` จาก Commit ที่ Push มา ไม่ได้อ่านจากไฟล์ที่ตั้งค่าไว้ที่ Server ซึ่งแปลว่านิยามของ Pipeline เป็นส่วนหนึ่งของโค้ด Review ได้ มีประวัติ และเปลี่ยนไปพร้อมกับโค้ด เรียกแนวคิดนี้ว่า Pipeline as Code
+
+```toml
+[[stage]]
+name = "lint"
+run = "python -m py_compile app.py"
+
+[[stage]]
+name = "test"
+run = "python -m unittest discover -q"
+
+[[stage]]
+name = "build"
+run = "python build.py"
+```
+
+ในแบบฝึก Commit หนึ่งเพิ่ม Stage ใหม่ชื่อ `secret-scan` ที่ตรวจว่าในโค้ดมีข้อความที่หน้าตาเหมือน Key ของ AWS หรือไม่ และใน Commit เดียวกันนั้นมี Key ปลอมอยู่ด้วย (ตั้งใจให้พลาด) ผลที่ได้ (รัน)
+
+```text
+remote: [ci] 043529d: 4 stages from pipeline.toml
+remote: [ci]   lint           passed
+remote: [ci]   test           passed
+remote: [ci]   secret-scan    failed
+remote: [ci]   -> key found
+remote: [ci]   build          skipped
+remote: [ci] 043529d failed
+```
+
+จะเห็นว่าด่านใหม่ถูกใช้ตัดสิน Commit ที่เพิ่มมันเองทันที ไม่ต้องรอให้ใครไปตั้งค่า Server เพิ่ม Commit ถัดไปที่ลบ Key ออกแล้วผ่านครบสี่ด่านและได้ Artifact ที่สอง
+
+<Callout type="try" title="เทียบกับ GitHub Actions">
+ของจริงที่ทีมส่วนใหญ่ใช้คือไฟล์ YAML ใน `.github/workflows/` ซึ่งหนังสือ Learning GitHub Actions ยกตัวอย่างเริ่มต้นไว้ ส่วน `on` บอกว่าเริ่มเมื่อไร (เช่น Push หรือ Pull Request ที่ `main`) ส่วน `jobs` คืองานที่อยู่ใน Workflow ส่วน `runs-on` บอกว่ารันบนระบบอะไร และ `steps` คือลำดับคำสั่ง ซึ่งอาจเป็น Action สำเร็จรูปอย่าง `actions/checkout@v3` หรือคำสั่ง Shell ด้วย `run` (หนังสือ: Learning GitHub Actions บทที่ 4 หน้า 41 ถึง 42) เมื่อเทียบกับของเรา `on` เทียบได้กับ Hook `post-receive`, `steps` เทียบได้กับ `[[stage]]` และ `runs-on` เทียบได้กับคอมพิวเตอร์ที่ Runner รันอยู่ แต่ไม่ได้รัน GitHub Actions จริงในบทนี้นะ ตรงนี้เป็นความเข้าใจจากการอ่านหนังสือ
+</Callout>
+
+</Step>
+
+<Step>
+
+## Artifact ต้องย้อนกลับไปหา Commit ได้
+
+ขั้นสุดท้ายของ Pipeline ในแบบฝึกคือ Build ซึ่งสร้างไฟล์ `app-<commit>.zip` ชื่อมี Commit ติดอยู่เสมอ ทำให้เห็นทันทีว่าไฟล์ที่กำลังจะเอาไป Deploy มาจากโค้ดอันไหน และไม่มีใครเอาไฟล์ที่ Build จากเครื่องตัวเองไปแทนได้ เมื่อแบบฝึก Build Commit เดิมสองครั้ง ได้ไฟล์ที่ตรงกันทุกไบต์ (SHA-256 ขึ้นต้น `cf58ca5f9dd1eeff` ทั้งสองครั้ง) เพราะเราตั้งเวลาในไฟล์ Zip เป็นค่าคงที่ (รัน) ถ้าไม่ตั้ง เวลาจะเปลี่ยนตามนาฬิกาและทุกครั้งที่ Build จะได้ไฟล์ที่ไม่เหมือนกัน
+
+ข้อสังเกตที่ควรเก็บไว้คือ [บทที่ 4](/devops/artifacts/) จะเห็นว่า Image ของ Docker ไม่ได้เป็นอย่างนี้โดยปริยาย Build ซ้ำแล้ว Image ได้ ID ใหม่ทุกครั้ง ซึ่งเป็นเหตุผลของกฎ "Build ครั้งเดียว แล้วเอา Artifact เดิมไปใช้ทุก Environment"
+
+<Question
+  client:visible
+  q="Developer Push Commit ที่มี Syntax ผิดไปหนึ่งบรรทัด Pipeline มีสามด่านคือ Lint, Test และ Build ผลที่ถูกต้องคือข้อไหน"
+  options={[
+    'Lint ล้ม แล้ว Test กับ Build ยังรันต่อเพื่อให้ได้รายงานครบ',
+    'Lint ล้ม Test กับ Build ถูกข้าม และไม่มี Artifact ของ Commit นี้',
+    'Lint ล้ม แต่ Build ยังรันต่อเพราะเป็น Transformation ไม่ใช่ Gate',
+  ]}
+  answer={1}
+  why="ในแบบฝึก Lint ล้มก่อน แล้วสองด่านที่เหลือเป็น Skipped และไม่มีไฟล์ Zip ของ Commit นั้น Fail Fast ประหยัดเวลาเพราะ Test ไม่มีทางรันได้บนไฟล์ที่ Syntax ผิด ส่วน Build ที่เป็น Transformation ก็ไม่ควรสร้างของจากโค้ดที่ไม่ผ่าน Gate ตัวเลือกแรกเสียเวลาและให้สัญญาณที่สับสน ตัวเลือกสุดท้ายทำให้ Commit ที่ไม่ผ่านกลายเป็น Artifact ได้"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Hook Post-receive รัน Runner ซึ่งอ่าน pipeline.toml, รัน Lint, Test, Build และหยุดที่ด่านแรกที่ล้ม | รัน: `exercises/02_ci_pipeline.py` |
+| Commit สีเขียวได้ Artifact ชื่อตาม Commit, Commit ที่ Test ล้มไม่มี Artifact | รัน: `exercises/02_ci_pipeline.py` |
+| Commit ที่เพิ่ม Stage ถูกตัดสินด้วย Stage ใหม่ทันที และ Stage Secret-scan ล้มเมื่อเจอ Key | รัน: `exercises/02_ci_pipeline.py` |
+| Build Commit เดิมสองครั้งได้ไฟล์เดียวกันทุกไบต์ (เมื่อตั้งเวลาในไฟล์ Zip) | รัน: `exercises/02_ci_pipeline.py` |
+| Webhook แทนการรัน Pipeline ด้วยมือ | หนังสือ: Grokking Continuous Delivery บทที่ 2 หน้า 27 ถึง 29 |
+| Gate กับ Transformation, Lint และ Test เป็น Gate | หนังสือ: Grokking Continuous Delivery บทที่ 2 หน้า 21 ถึง 22 |
+| ไฟล์ Workflow ของ GitHub Actions: on, Jobs, Runs-on, Steps | หนังสือ: Learning GitHub Actions บทที่ 4 หน้า 41 ถึง 42 (ไม่ได้รัน) |
+| Runner ในแบบฝึกเป็นตัวเล็กที่เขียนเอง ไม่ใช่เครื่องมือจริงอย่าง Jenkins หรือ GitHub Actions | ผู้เขียน |
+
+</Step>

@@ -1,0 +1,62 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าแยกได้ว่า Metrics, Logs และ Trace ตอบคำถามอะไร และอ่าน Histogram สะสมได้
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="ตัวนับ http_requests_total บอกว่ามีคำขอ Status 500 อยู่ 5 ตัว ข้อไหนบอกสิ่งที่ Metrics ตัวนี้ตอบไม่ได้"
+  options={['มีคำขอที่พังกี่ตัว', 'คำขอไหนที่พัง (ใครส่งมา เวลาไหน) เพราะ Metrics เก็บแค่ผลรวม', 'มีคำขอทั้งหมดกี่ตัว']}
+  answer={1}
+  why="Metrics ตอบ 'กี่ตัว' ได้ดี ส่วน 'ตัวไหน' ต้องใช้ Logs ในแบบฝึก Log ของ Gateway ระบุคำขอที่พังได้ห้าบรรทัดพอดี ตรงกับตัวนับ"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Histogram แบบสะสมมี le=0.1 เท่ากับ 45 และ le=0.25 เท่ากับ 60 อ่านได้ว่าอย่างไร"
+  options={['มีคำขอ 45 ตัวที่ตอบภายใน 0.1 วินาที และ 15 ตัวที่ตอบช้ากว่านั้น แต่ไม่เกิน 0.25 วินาที', 'มีคำขอ 45 ตัวที่ตอบในช่วง 0.1 ถึง 0.25 วินาที', 'มีคำขอทั้งหมด 105 ตัว']}
+  answer={0}
+  why="Bucket เป็นแบบสะสม (Cumulative) le คือน้อยกว่าหรือเท่ากับ ตัวเลขใน le=0.25 รวมตัวที่อยู่ใน le=0.1 ไว้แล้ว ดังนั้นจำนวนในช่วงระหว่างสองขอบหาจากการลบ (60 ลบ 45 เท่ากับ 15) และ +Inf เท่ากับจำนวนทั้งหมดเสมอ"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เวลาตอบเฉลี่ย 39 ms ดูดี แต่เปอร์เซ็นไทล์ที่ 95 อยู่ใน Bucket 0.25 สะท้อนอะไร"
+  options={['ค่าเฉลี่ยผิดคำนวณ', 'หนึ่งในสี่ของคำขอช้ามาก ค่าเฉลี่ยจึงซ่อนความช้านั้นไว้', 'Prometheus อ่าน Bucket ผิด']}
+  answer={1}
+  why="15 จาก 60 คำขอใช้เวลา 150 ms เมื่อเฉลี่ยกับ 45 ตัวที่เร็วมาก ค่าเฉลี่ยจึงดูต่ำ ผู้ใช้ที่ได้คำขอช้ารู้สึกกับค่า 150 ms ไม่ใช่ 39 ms จึงควรดู Histogram หรือเปอร์เซ็นไทล์"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Trace id ที่ส่งต่อจาก Gateway ไป Inventory ช่วยตอบคำถามอะไรที่ Log ของแต่ละ Service แยกกันตอบไม่ได้"
+  options={['ใช้ Memory เท่าไร', 'บรรทัด Log ของสอง Service อันไหนเป็นคำขอเดียวกัน และ Service ไหนใช้เวลาหรือเกิด Error ก่อน', 'ผู้ใช้คนไหนส่งคำขอมา']}
+  answer={1}
+  why="ด้วย Trace id เดียวกัน เราเห็นว่า Span ของ Inventory มี Parent เป็น Span ของ Gateway และ Inventory ใช้เวลา 150.4 ms จาก 152 ms ทั้งหมด หรือในกรณีพัง Inventory ตอบ 500 เองก่อน ทำให้รู้ต้นเหตุ"
+/>
+
+</Step>

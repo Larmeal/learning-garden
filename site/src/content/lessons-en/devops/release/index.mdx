@@ -1,0 +1,133 @@
+---
+title: Releasing safely
+summary: The new version has a bug that a smoke test cannot see. We release five ways, all at once, blue-green, rolling, canary and a feature flag, and count how many requests each way breaks and what each needs to go back.
+facts:
+  - "Run in exercises/05_release_strategies.py: two real HTTP servers stand for version 1 and version 2 (which has a bug on the requests that use a feature, one in four), 400 requests, released at request 100, judged at 200 and rolled back if the new version's errors exceed 10%. The damage was 32 failed requests for all at once, 32 for blue-green, 18 for rolling, 3 for canary and 3 for a feature flag. After the rollback no request failed in any strategy."
+  - "The window of 100 requests that the judge looks at, the 10% threshold and the canary and flag taking 10% of requests are assumptions of the exercise, not values of a real system. Nginx, Argo Rollouts, Istio and a real flag service were not tried. The definitions of the strategies are read from Fundamentals of DevOps and Software Delivery, chapter 5, pages 200 to 206."
+order: 5
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [artifacts]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ReleaseLab from '../../../../components/labs/devops/ReleaseLab';
+
+<Step>
+
+## A bug that the smoke test cannot see
+
+We have an artifact that passed the pipeline and a digest that tells us which bytes it is ([lesson 4](/en/devops/artifacts/)). The last question is how to put it in production so that, if something is wrong, as few users as possible meet it.
+
+In the exercise we run two real HTTP servers. The first is version 1, which always answers normally. The second is version 2, which has a bug: a request that uses a feature gets a 500 (in the exercise 112 of the 400 requests did, about one in four), while ordinary requests still get a 200 (ran).
+
+```text
+a plain request to version 2 works (this is all a smoke test sends)    ok
+a request that uses the feature fails on version 2                    ok
+the same request works on version 1                                   ok
+```
+
+A smoke test is one or two easy requests sent after a deploy to see that the system still answers, and a health check is the load balancer asking a machine whether it is alive. Both pass on version 2 because it answers ordinary requests. A bug like this shows only with real requests from users, which means our checks can tell us only after a user already met the problem. So the question becomes how many users should meet it.
+
+</Step>
+
+<Step>
+
+## Five ways to release
+
+The book Fundamentals of DevOps and Software Delivery divides the strategies into two groups. The core group is what we deploy with: downtime deployment, which stops the system to update; rolling deployment, which gradually adds the new version and removes the old when it passes health checks; and blue-green, which brings the new version (green) up completely first and then switches the traffic from the old (blue) to the new in an instant. The add-on group is used together with a core strategy to make it safer: a canary, which puts the new version on just one machine first and compares it with the old; and a feature toggle, which wraps the new feature behind a switch that is off at deploy time (book: Fundamentals of DevOps and Software Delivery, chapter 5, pages 200 to 205).
+
+The book warns that blue-green gives users the best experience for stateless apps but needs twice the servers, which not every company can afford (book: same, pages 203 to 204). In the exercise we imitate the five ways with simple rules about which request goes to which version (the author did not try real tools such as Nginx, Argo Rollouts or Istio).
+
+| Strategy | How requests reach the new version in the exercise |
+|---|---|
+| All at once | Every request from request 100 |
+| Blue-green | Every request from request 100 (the pointer is switched, the old one is still up) |
+| Rolling | One of four machines replaced every 25 requests, requests go round robin |
+| Canary | 10% of the requests, chosen at random |
+| Feature flag | The new version is everywhere already, the flag is on for 10% of the requests |
+
+The judge in the exercise looks at request 200 and asks whether more than 10% of the requests that reached the new version failed. If so, it rolls back.
+
+</Step>
+
+<Step>
+
+## Press play and see who gets hurt
+
+Choose a strategy and press play. In the two rows each mark is one request. The top row says which version answered, the bottom row says whether it worked. Look at the width of the orange band in the bottom row, and compare three strategies: all at once, rolling and canary.
+
+<ReleaseLab client:visible lang="en" />
+
+The results in the exercise are (ran):
+
+| Strategy | Requests that reached the new version | Requests that failed |
+|---|---|---|
+| All at once | 100 | 32 |
+| Blue-green | 100 | 32 |
+| Rolling | 64 | 18 |
+| Canary 10% | 11 | 3 |
+| Feature flag 10% | 11 | 3 |
+
+The damage is the product of two things: what share of the requests reached the new version, and how long until the rollback. All at once and blue-green do exactly the same damage (32 requests, from the 100 that went to the new version), because users see the same thing during those 100 requests. What blue-green gains is that it can go back very fast, not that fewer users are hit.
+
+Two more observations. **The first**: the canary sent only 11 requests to the new version and saw an error rate of 27%, which the judge saw was over the threshold, but a sample this small makes the number jump around. If the canary had received only two requests the result would be meaningless. A real system needs enough requests before it trusts the number. **The second**: the rolling update, which we think is safe because it changes one machine at a time, never stopped by itself, because each new machine passes its health check (the exercise checked that a plain request to version 2 gets a 200). A person, or a metric measured on real users, has to give the order to stop.
+
+</Step>
+
+<Step>
+
+## What does it take to go back
+
+The last table compares what each strategy needs at rollback (what the exercise confirms is that no request failed after the rollback in any strategy; the speed column is the author's summary of the mechanism, nobody timed it).
+
+| Strategy | Rollback is | What must be in place |
+|---|---|---|
+| All at once | Deploy version 1 again | The old artifact ([lesson 4](/en/devops/artifacts/) keeps it) |
+| Blue-green | Switch the pointer back | The old version's servers still up (double the cost) |
+| Rolling | Roll the replaced machines back one by one | Time and the old artifact |
+| Canary | Set the share of the new version to 0% | A traffic splitter whose share can be changed |
+| Feature flag | Turn the flag off | A flag service that changes at once, no deploy |
+
+Ranked by damage and by speed of going back, the feature flag is good on both in this example, but it has a price that the numbers above do not show. The code of both paths must live in one binary, and a flag nobody cleans up becomes dead code. The book also covers feature toggles in [chapter 5](/en/devops/release/), as a technique for both merging large code into `main` and for deploying (book: same, page 205).
+
+<Callout type="note" title="These numbers come from the assumptions of the exercise">
+The share of the bug (one request in four), the window the judge looks at (100 requests) and the 10% threshold were chosen by the exercise. A real system with much more traffic might decide sooner, and a team with no automatic judge will take much longer. What the exercise confirms is the structure of the reasoning: the damage is the share of traffic that reaches the new version times the time, not an exact number for any one strategy.
+</Callout>
+
+<Question
+  client:visible
+  lang="en"
+  q="A team always uses blue-green. The new version has a bug that makes 30% of requests fail, and the team sees it and switches back within one minute. Which statement describes the outcome best?"
+  options={[
+    'Users are not affected at all, because blue-green tests the new version before the switch',
+    'Every user who arrived in that minute met the bug (because everything is switched at once), but going back was very fast because the old version was still up',
+    'Only 10% of users are affected, like a canary, because blue-green also splits the traffic',
+  ]}
+  answer={1}
+  why="In the exercise blue-green and all at once did the same damage (32 requests), because after the switch all traffic goes to the new version. Blue-green is good because it goes back fast (switching the pointer), since the old version is still running. Testing before the switch does not help when the bug shows only on some real requests, just as the smoke test passed in the exercise."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Claim | Source |
+|---|---|
+| The smoke test and the health check pass on version 2 although it has a bug | ran: `exercises/05_release_strategies.py` |
+| Failed requests: 32, 32, 18, 3, 3, and none fail after the rollback | ran: `exercises/05_release_strategies.py` |
+| Blue-green and all at once do the same damage | ran: `exercises/05_release_strategies.py` |
+| The canary got 11 requests on the new version, and rolling did not stop by itself because the health check passed | ran: `exercises/05_release_strategies.py` |
+| The definitions of rolling, blue-green, canary and feature toggle | book: Fundamentals of DevOps and Software Delivery, chapter 5, pages 200 to 205 |
+| Blue-green gives the best user experience but needs twice the servers | book: same, chapter 5, pages 203 to 204 |
+| The speed of going back for each strategy (seconds, minutes) | author (from the mechanism, not timed) |
+| Real Nginx, Argo Rollouts, Istio and a flag service | not run |
+
+</Step>

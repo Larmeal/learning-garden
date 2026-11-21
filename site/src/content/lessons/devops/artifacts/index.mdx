@@ -1,0 +1,122 @@
+---
+title: Artifact และ Registry
+summary: Build Image สองครั้งจากไฟล์เดิมแล้วได้ Image คนละตัว เราเลยต้อง Build ครั้งเดียว Push ขึ้น Registry แล้วเลื่อนระดับด้วยการย้ายป้าย ไม่ใช่ Build ใหม่ และดูว่าทำไม Digest ถึงเป็นตัวตนจริงของ Image
+facts:
+  - "รันจริงใน exercises/04_artifact_registry.py กับ Docker Engine 29 และ Registry ในเครื่อง (image registry:3): Build ไฟล์เดิมสองครั้งโดยไม่ใช้ Cache ได้ Image ID ต่างกัน, Push ได้ Digest ที่ตรงกับที่ Registry รายงาน, ป้าย staging กับ prod ชี้ Digest เดียวกัน, ย้ายป้าย prod ไปที่ Build ใหม่แล้ว Digest เก่ายังตอบได้, และ Container สองตัวที่รันจาก Digest เดียวกันพิมพ์ผลต่างกันตามตัวแปร Environment"
+  - "หลักการ Build ครั้งเดียวอ่านจาก The DevOps Handbook บทที่ 9 และเรื่อง Registry อ่านจาก Fundamentals of DevOps and Software Delivery บทที่ 3 หน้า 123 ไม่ได้รัน Registry ของจริงอย่าง Docker Hub, ECR หรือ GHCR และไม่ได้ทดสอบ Image Signing"
+order: 4
+phase: C
+level: 2
+stage: sprout
+format: steps
+requires: [config-secrets]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ArtifactLab from '../../../../components/labs/devops/ArtifactLab';
+
+<Step>
+
+## Build ซ้ำแล้วไม่ได้ของเดิม
+
+ใน[บทที่ 2](/devops/ci/) เราเห็นว่า Pipeline สร้าง Artifact หนึ่งชิ้นต่อหนึ่ง Commit และใน[บทที่ 3](/devops/config-secrets/) เราเห็นว่าไฟล์ชิ้นเดียวกันควรรันได้ทุก Environment ในโลกของ Container ชิ้นที่ว่านั้นคือ Image (ถ้ายังไม่คุ้นกับ Image ให้อ่านก่อนที่ [บทที่ 2 ของ Docker](/docker/images-and-layers/)) ลองดูว่า Image ทำตัวอย่างไรเมื่อเรา Build ซ้ำ
+
+ในแบบฝึกเราเขียน Dockerfile สั้น ๆ ที่คัดลอก `app.py` เข้าไปใน Image ของ `python:3.13-slim` แล้ว Build สองครั้งจากไฟล์เดิม ครั้งหนึ่งใช้ Cache และอีกครั้งสั่ง `--no-cache` (รัน)
+
+```text
+$ docker image inspect  (สอง Build จากไฟล์เดียวกัน)
+sha256:2e3098d7b1b9...
+sha256:f5f945970487...
+```
+
+ID ของ Image ไม่เหมือนกัน ทั้งที่ไฟล์เหมือนกันทุกไบต์ เมื่อไล่ดู Layer จะเห็นว่า Layer ของ Image ฐานใช้ร่วมกัน และที่ต่างคือสิ่งที่การ Build สร้างขึ้น (ซึ่งรวมเวลาที่สร้างไว้ใน Config ของ Image และเวลาของไฟล์ใน Layer ที่คัดลอกเข้าไป)
+
+ถ้าเรา Build ใหม่ทุกครั้งที่ย้ายจาก Staging ไป Prod เราจะได้ Image คนละตัว ซึ่งเป็นปัญหาตรงกับที่ The DevOps Handbook เตือนไว้ว่า เมื่อโค้ดเข้า Version Control แล้ว เราควรแพ็กโค้ดเพียงครั้งเดียว เพื่อให้ใช้แพ็กเกจเดียวกันในทุกขั้นของ Pipeline การทำอย่างนั้นลดความต่างที่หาสาเหตุยาก เช่นคอมไพเลอร์ รุ่นของ Library หรือ Config ที่ไม่ตรงกัน (หนังสือ: The DevOps Handbook [บทที่ 9](/devops/slo/))
+
+</Step>
+
+<Step>
+
+## Registry คือชั้นวางของ Artifact
+
+แล้ว Image ที่ Build เสร็จแล้วควรไปอยู่ที่ไหน หนังสือ Fundamentals of DevOps and Software Delivery เจอปัญหานี้ตอนเอา Image ไปรันบน Cluster ที่อยู่บน Cloud โดยบอกว่า Image ที่เราสร้างอยู่แค่ในคอมพิวเตอร์ของเรา Cluster ข้างนอกดึงไปไม่ได้ จึงต้อง Push Image ขึ้น Container Registry ก่อน เช่น Docker Hub, Amazon ECR หรือ GitHub Container Registry (หนังสือ: Fundamentals of DevOps and Software Delivery บทที่ 3 หน้า 123)
+
+ในแบบฝึกเรารัน Registry ของเราเองในเครื่อง (Image `registry:3`) แล้ว Push ขึ้นไป ผลที่ได้บอก Digest ของ Image (รัน)
+
+```text
+$ docker push localhost:52332/shop:3f9c1a7
+3f9c1a7: digest: sha256:b7ad1b160069cefc02f690b8e6b1b6530da63ddfe44736a3fc8891b46ffd18b2 size: 1572
+```
+
+พอร์ตกับ Digest เปลี่ยนไปทุกครั้งที่รัน แต่รูปแบบเดิมเสมอ คือ `sha256:` ตามด้วยเลขฐานสิบหก 64 หลัก และ Registry ตอบ Digest เดียวกันนี้ให้เมื่อเราถามเอง ตรงกับที่ `docker push` พิมพ์ ในชื่อ `localhost:52332/shop:3f9c1a7` ส่วนหลังเครื่องหมาย `:` คือ Tag ที่เราตั้งเป็นชื่อ Commit ให้ย้อนกลับไปหา Commit ที่สร้าง Image นี้ได้ และเรียกสิ่งที่เหมือนรอยนิ้วมือของเนื้อ Image ว่า Digest
+
+</Step>
+
+<Step>
+
+## กล่องหนึ่งใบ ป้ายหลายใบ
+
+ลองมองว่า Image คือกล่องหนึ่งใบบนชั้น Digest คือรอยนิ้วมือที่ประทับบนกล่อง ส่วน Tag คือป้ายสติกเกอร์ที่แปะไว้ ป้ายแปะบนกล่องใบไหนก็ได้ ย้ายไปกล่องอื่นได้ และกล่องหนึ่งใบมีหลายป้ายได้ กดดูใน Lab แล้วสังเกตว่าตอนที่ป้ายย้าย กล่องกับรอยนิ้วมือไม่ได้ขยับเลย
+
+<ArtifactLab client:visible />
+
+สิ่งที่แบบฝึกตรวจไว้ตรงกับภาพ ป้าย `staging` และ `prod` ที่แปะบน Image เดียวกัน Registry ตอบ Digest เดียวกันทั้งสองชื่อ (รัน) เรียกว่าเลื่อนระดับ (Promote) โดยไม่ Build ใหม่ ซึ่งตรงข้ามกับตอนเริ่มบทที่เราเห็นว่า Build ใหม่ได้ Image ใหม่ จากนั้น Build เวอร์ชันถัดไปแล้วย้ายป้าย `prod` ไปที่ Image ใหม่ ชื่อ `prod` เปลี่ยนความหมายทันที แต่ Registry ยังตอบ Digest เก่าได้ และรายการป้ายที่ Registry บอกมีครบสี่ป้าย (รัน)
+
+```text
+GET /v2/shop/tags/list
+['3f9c1a7', 'prod', 'staging', 'v2']
+```
+
+เหตุผลที่คนมักแนะนำให้ Deploy ด้วย Digest เมื่ออยากรู้แน่ว่าไบต์ไหนรันอยู่ ก็คือ Tag ย้ายได้ แต่ Digest ไม่ย้าย (ดูเรื่องเดียวกันในมุมของ Docker ที่หัวข้อ [Tag เป็นแค่ชื่อ ตัวตนของ Image คือ ID](/docker/images-and-layers/#tag-เป็นแค่ชื่อ-ตัวตนของ-image-คือ-id))
+
+</Step>
+
+<Step>
+
+## Image เดียว สอง Environment
+
+เพื่อพิสูจน์ว่า Image เดียวกันใช้ได้ทั้งสองที่จริง แบบฝึกลบ Image ในเครื่องทิ้งทั้งหมดแล้ว Pull กลับมาด้วย Digest (`shop@sha256:...`) จากนั้นรันสอง Container ด้วยตัวแปร `APP_ENV` คนละค่า ได้ผลว่าทั้งสองตัวมี Image ID เดียวกัน และพิมพ์ผลต่างกัน (รัน)
+
+```text
+hello from version 1 in staging
+hello from version 1 in prod
+```
+
+เมื่อประกอบกับ[บทที่ 3](/devops/config-secrets/) ภาพที่ได้ก็คือ Artifact หนึ่งชิ้นจาก Commit หนึ่งอัน เก็บไว้บนชั้นด้วย Digest เดียว แล้วเอาไปรันได้ทุก Environment ด้วย Config ต่างกัน ส่วนที่ไม่ได้ทำในบทนี้คือการเซ็นลายเซ็นให้ Image เพื่อพิสูจน์ที่มา ซึ่งอยู่ในเรื่อง Supply Chain ของ[บทที่ 11](/devops/devsecops/)
+
+<Callout type="note" title="Registry ในเครื่องไม่ใช่ของจริง">
+แบบฝึกใช้ Registry ที่รันเป็น Container ในเครื่อง ไม่มีบัญชี ไม่มีสิทธิ์ และไม่มี HTTPS (Docker ยอมให้ใช้ HTTP กับ `localhost`) Registry จริงอย่าง Docker Hub, ECR หรือ GHCR ที่ต้องล็อกอิน ไม่ได้ลอง
+</Callout>
+
+<Question
+  client:visible
+  q="ทีมต้องการเลื่อนเวอร์ชันที่ผ่านการทดสอบใน Staging ไปที่ Prod วิธีไหนทำให้แน่ใจที่สุดว่า Prod รันไบต์เดียวกับที่ทดสอบ"
+  options={[
+    'Build จาก Commit เดิมอีกครั้งสำหรับ Prod เพราะ Commit เดียวกันก็ได้ผลเหมือนกัน',
+    'แปะป้าย Prod บน Image (Digest) ตัวเดียวกับ Staging แล้ว Deploy ตาม Digest ไม่ Build ใหม่',
+    'ย้ายป้าย Staging ไปที่ Image ใหม่ก่อน เพื่อให้ชื่อตรงกัน',
+  ]}
+  answer={1}
+  why="แบบฝึกวัดว่า Build ไฟล์เดิมซ้ำโดยไม่ใช้ Cache ได้ Image ID ต่างกัน ดังนั้น Build ใหม่จึงไม่ใช่ไบต์เดียวกันกับที่ทดสอบ ส่วนป้ายสองใบบน Digest เดียวกันรับประกันว่าไบต์เดียวกัน ตัวเลือกสุดท้ายไม่เกี่ยว เพราะการย้ายป้ายไม่เปลี่ยนว่า Image ไหนถูกทดสอบ"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Build ไฟล์เดิมสองครั้งโดยไม่ใช้ Cache ได้ Image ID ต่างกัน และ Layer ของ Image ฐานใช้ร่วมกัน | รัน: `exercises/04_artifact_registry.py` (Docker Engine 29) |
+| Push แล้ว Registry ตอบ Digest ตรงกับที่ Docker Push พิมพ์ | รัน: `exercises/04_artifact_registry.py` |
+| ป้าย Staging และ Prod ชี้ Digest เดียวกัน, ย้ายป้าย Prod แล้ว Digest เก่ายังตอบได้, ป้ายทั้งสี่ใน Registry | รัน: `exercises/04_artifact_registry.py` |
+| Container สองตัวจาก Digest เดียวกัน มี Image ID เดียวกันและพิมพ์ผลต่างตาม APP_ENV | รัน: `exercises/04_artifact_registry.py` |
+| แพ็กโค้ดครั้งเดียวแล้วใช้แพ็กเกจเดียวกันทุกขั้นของ Pipeline | หนังสือ: The DevOps Handbook [บทที่ 9](/devops/slo/) (PDF ไม่มีเลขหน้าพิมพ์) |
+| Image ที่อยู่แค่ในคอมพิวเตอร์เราต้อง Push ขึ้น Container Registry ก่อน | หนังสือ: Fundamentals of DevOps and Software Delivery บทที่ 3 หน้า 123 |
+| คำอธิบายเรื่องกล่อง รอยนิ้วมือ และสติกเกอร์ | ผู้เขียน |
+
+</Step>

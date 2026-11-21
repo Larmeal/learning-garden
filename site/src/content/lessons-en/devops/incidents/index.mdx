@@ -1,0 +1,123 @@
+---
+title: Incidents and postmortems
+summary: We follow one bad deploy from the tag in Git to the bell, the recovery and a post-incident report written from data with no names in it, and compare three ways of working, where the same bug eats the month's budget up to four times differently.
+facts:
+  - "Run in exercises/10_incident_postmortem.py: the deploy and the rollback are dated tags in a real Git repository (v1.1 at 14:00 and v1.1.1 at 14:19), the burn rate rule of exercise 09 pages 4 minutes after the deploy, time to detect 4 minutes and time to recover 21 minutes, and three ways of working on the same bug (no alert uses 34% of the month's budget, alert and a rollback by hand 16%, alert and a one-command rollback 9%). A postmortem is generated from the list of events, and it was checked that it has every section and no person's name."
+  - "The times people take (5 minutes to look after the bell, 10 to decide, 35 for a customer to write in, 3 for a one-command rollback) are assumptions of the exercise, not measured on a real team. On-call duty, a postmortem meeting and incident tools were not tried. Blameless post-mortems are read from The DevOps Handbook chapter 19."
+order: 10
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [slo]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import IncidentLab from '../../../../components/labs/devops/IncidentLab';
+
+<Step>
+
+## One incident leaves traces in three places
+
+In [lesson 9](/en/devops/slo/) we saw the burn rate rule page once, four minutes after the bad deploy. This lesson follows the same incident on, from the deploy to the post-incident report, gathering its traces from three places that we already have.
+
+**The first place** is Git. A deploy and a rollback are dated tags. In the exercise we build a repository with the tags `v1.0` (three days earlier), `v1.1` at 14:00 on day 12, and `v1.1.1` at 14:19, which is a commit that does `git revert` on the commit of v1.1. Reading them back with `git for-each-ref --sort=creatordate` gives what we set (ran).
+
+```text
+v1.0   2026-01-09T14:00:00Z
+v1.1   2026-01-12T14:00:00Z
+v1.1.1 2026-01-12T14:19:00Z
+```
+
+**The second place** is the measurements: the burn rate rule from [lesson 9](/en/devops/slo/), which paged at minute 4 after the deploy. **The third place** is what people do, which no tool records by itself. In the exercise we assume that the person on call takes 5 minutes from the bell to pick it up and open the dashboard, and another 10 minutes to decide and start the rollback. These two numbers were set by the author, not measured on a real team. Putting all of it in order gives a list of events (ran).
+
+| Time | Event | Comes from |
+|---|---|---|
+| 14:00 | Version 1.1 is deployed | tag v1.1 |
+| 14:04 | The burn rate rule pages | measurements |
+| 14:09 | The person on call picks it up | assumption (5 minutes) |
+| 14:19 | Tag v1.1.1 and the pipeline deploys | tag v1.1.1 (assumption of 10 minutes) |
+| 14:21 | The error rate is back to normal | measurements |
+
+</Step>
+
+<Step>
+
+## Three numbers to measure an incident
+
+The table gives three times. Time to detect is the time from the deploy to the bell, 4 minutes. Time to acknowledge is from the bell to somebody picking up, 5 minutes. Time to mitigate (or recover) is from the deploy until the error rate is normal, 21 minutes (ran).
+
+Let's compare three ways of working on the same bug. Choose one in the lab and watch the orange band, which is the time the requests still fail, and the bar below it, which says how much of the month's budget the incident eats.
+
+<IncidentLab client:visible lang="en" />
+
+The results of the three ways in the exercise (ran). The first has no alert rule, so we wait for a customer to write in at minute 35 and then roll back for another 10 minutes. It is back to normal at minute 45 and eats 34% of the month's budget. The second has the bell and a rollback by hand, back to normal at minute 21, eating 16%. The third has the bell and a one-command rollback (which is the `git revert` through the pipeline that we saw in [lesson 7](/en/devops/gitops/)), taking 3 minutes after pick-up, back to normal at minute 12, eating 9%. The same bug, but the damage differs by nearly a factor of four. The numbers point to two things that make the difference: how soon we know about the problem, and how short the way back is.
+
+</Step>
+
+<Step>
+
+## A postmortem that does not hunt for the guilty
+
+When the incident is over the team should sit and look at it. The DevOps Handbook calls this a blameless post-mortem, a way to build a just culture. The reason the book gives is that if we punish the engineer who made the mistake, nobody wants to tell the details we need to understand how the failure happened, which guarantees it will happen again. But if the engineer is not punished, they are willing, even keen, to help the whole company avoid the same mistake. That is what creates the learning of the organisation (book: The DevOps Handbook chapter 19).
+
+In the exercise we generate the report from the list of events above with code. It has the sections Summary, Impact, Timeline, What went well, What went wrong and Action items, and we check that no person's name is in it (ran).
+
+```markdown
+# Postmortem: failed requests after release 1.1
+
+## Summary
+Release 1.1 (`add coupon search`) made about 20 percent of requests fail
+from 14:00 until the rollback was live at 14:21.
+
+## Impact
+16% of the 30 day error budget of an SLO of 99.9 percent.
+
+## Timeline (UTC)
+- 14:00 deploy: version 1.1 is released (tag v1.1)
+- 14:04 page: the burn rate alert fires
+...
+## Action items
+- Add a test for requests with a coupon (owner: the team that owns search).
+- Release search changes to 10 percent of the traffic first (lesson 5).
+```
+
+Notice two things. **First**, the number in Impact comes from the real data of the incident (16%), not from a feeling. **Second**, there is no name anywhere (the exercise checks that the commit author does not appear in the report). The action items are owned by a team, not a culprit, and point back at the gaps in the system: no test covers requests that use a coupon, and the release went to everything at once, which is what [lesson 5](/en/devops/release/) proposes to fix (a canary or a flag).
+
+<Callout type="note" title="What was not tried">
+The exercise builds a postmortem from data, but did not try a real meeting, on-call duty, swapping shifts, or an incident tool such as PagerDuty. The author did not check that the sections match any particular template. The DevOps Handbook does not give a section-by-section template to compare with.
+</Callout>
+
+<Question
+  client:visible
+  lang="en"
+  q="A postmortem says 'the cause is that Alice rushed the deploy without checking'. Compared with what The DevOps Handbook recommends, what is the main drawback of this sentence?"
+  options={[
+    'No drawback, because it states the cause directly',
+    'It makes people unwilling to tell details next time, and it overlooks the gaps in the system (no test and no canary) that let the same mistake happen again to anybody',
+    'It makes the report too long',
+  ]}
+  answer={1}
+  why="The book says punishing the person who erred means nobody tells the details we need, and guarantees the failure will happen again. Looking for gaps in the system (the action items of the exercise are to add a test and to release in parts) lets the whole team learn (book: The DevOps Handbook chapter 19)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Claim | Source |
+|---|---|
+| The tags v1.0, v1.1 (14:00) and v1.1.1 (14:19) in Git, read back with for-each-ref | ran: `exercises/10_incident_postmortem.py` (Git 2.56.1) |
+| The burn rate pages at minute 4, time to detect 4 minutes and time to recover 21 minutes | ran: `exercises/10_incident_postmortem.py` (synthetic data of exercise 09) |
+| 34% of the month's budget used (no alert), 16% (rollback by hand) and 9% (one-command rollback) | ran: `exercises/10_incident_postmortem.py` |
+| The 5, 10, 35 and 3 minutes that people take | author (assumptions of the exercise, not measured on a real team) |
+| The postmortem built from the list of events has every section and no person's name | ran: `exercises/10_incident_postmortem.py` |
+| Blameless post-mortems, and why not to punish the person who erred | book: The DevOps Handbook chapter 19 (the PDF has no printed page numbers) |
+| On-call duty, a postmortem meeting and incident tools were not tried | author |
+
+</Step>

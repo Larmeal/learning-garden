@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Four questions to check that you know why Terraform compares three sides and can read the plan line.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="You run terraform apply again without changing the code. What happened in the exercise, and what is this property called?"
+  options={['It made a second set of files, called replication', 'Nothing changed (0 added, 0 changed, 0 destroyed), called idempotent', 'It failed because the files exist, called a conflict']}
+  answer={1}
+  why="Terraform compares the code with the state and the real thing. When all three agree the plan is No changes, which makes applying again safe. A script that says 'create a machine' differs: running it again gives a new machine every time."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="After changing app_version from 1.0.0 to 1.1.0 the plan says 1 to add, 1 to destroy. Why not 1 to change?"
+  options={['Because Terraform does not know how to edit a file', 'Because the local provider treats a change of the content as requiring the resource to be replaced (must be replaced), which is how this kind of resource behaves. Other resources may be an in-place update', 'Because the state is empty']}
+  answer={1}
+  why="The plan line says plainly local_file.config must be replaced, because the content of this kind of resource cannot be changed in place. motd.txt is not touched at all, which shows that Terraform changes only what differs."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="What is the file terraform.tfstate for, if Terraform has the code and can look at the real thing?"
+  options={['To store the cloud passwords', 'To remember which resources it created and manages, otherwise it could not tell which things in the real world are its own', 'Only to make Terraform run faster']}
+  answer={1}
+  why="The state is the notebook of what was created. After the first apply the exercise has local_file.config and local_file.motd with an ID each, and after destroy the state is empty because nothing is left that Terraform looks after."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Somebody edited config.json by hand to version 9.9.9 after apply. What does the next plan in the exercise show?"
+  options={['No changes, because the file still exists', '1 to add (create again), because the provider reads the file on refresh, sees other content and treats the resource as gone from the state', '1 to destroy, deleting the file']}
+  answer={1}
+  why="The real result is local_file.config will be created and Plan: 1 to add, 0 to change, 0 to destroy. This behaviour belongs to the local provider and local_file. Resources on a real cloud may show drift as an in-place change. The author did not try them."
+/>
+
+</Step>

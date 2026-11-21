@@ -1,0 +1,113 @@
+---
+title: Capstone, from a commit to a rollback
+summary: "We join everything from the twelve lessons into one line on this computer: a push that runs CI, an image in a registry, a commit in a config repository, a controller and containers, up to a canary that catches a bug the tests cannot see and a git revert as the rollback."
+facts:
+  - "Run in exercises/13_capstone_pipeline.py with Git 2.56.1 and Docker Engine 29: the app repository has a hook that calls ci_runner.py (lint, test, image) and pushes the image to a registry on this computer (registry:3). The config repository holds desired.json, which gitops.py turns into containers, through three versions (v1 normal; v2 has a bug with the coupon code WELCOME5 that no test covers, so it passes all of CI; v3 fixes it with a test). A canary of one replica in three got 20 requests and 5 failed (25%), then a git revert of the config brought the cluster back. The test of v3 fails when run against the code of v2 (KeyError), so it would have blocked v2. At the end the registry holds three images, the config history reads as a story, and the containers use the image of the last commit."
+  - "GitHub Actions, Kubernetes, Argo CD, a real cloud, HTTPS and registry authentication were not run, and the security gates of lesson 11 are not in this pipeline. The judge of the canary is code in the exercise, not an automatic tool. The percentage of 25% and the threshold of 10% belong to the exercise."
+order: 13
+phase: E
+level: 4
+stage: sprout
+format: steps
+requires: [metrics]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import CapstoneLab from '../../../../components/labs/devops/CapstoneLab';
+
+<Step>
+
+## Six stations, one line
+
+This last lesson has nothing new to learn. There are six things that each lesson drew one at a time, and this lesson joins them, on one computer, with things that really run.
+
+| Station | From lesson | What it is in the exercise |
+|---|---|---|
+| App repository | [lesson 1](/en/devops/version-control/) | A bare Git repository that takes pushes |
+| CI | [lesson 2](/en/devops/ci/) | A `post-receive` hook that calls `ci_runner.py`, which reads `pipeline.toml` and runs lint, test, image |
+| Registry | [lesson 4](/en/devops/artifacts/) | A container `registry:3` on this computer |
+| Config repository | [lesson 7](/en/devops/gitops/) | Another bare repository that holds the file `desired.json` |
+| Controller | [lesson 7](/en/devops/gitops/) | `gitops.py`, which keeps comparing `desired.json` with Docker |
+| Cluster | [lesson 4](/en/devops/artifacts/) | Docker containers that open a port so that requests can be sent |
+
+Two things are done differently on purpose. **The first** is a config repository separate from the app repository. The person who decides to deploy may not be the person who wrote the code, and the histories of the two should be readable apart. **The second** is that the app has three versions, and the second has a bug that the tests do not cover, to show that when the pipeline does not catch it, the next gate is the canary, and when the canary catches it, the way back is `git revert`.
+
+</Step>
+
+<Step>
+
+## Walk through the eight steps of the story
+
+The app in the exercise is a small web server that answers a price. Version 1 ignores coupons (it always answers 100). Version 2 adds coupons, with the code `SAVE10` working, while the code `WELCOME5` that a user sends but which is not defined raises a `KeyError` and answers 500. Version 3 adds `WELCOME5` together with a test. In the lab, see what each station holds at the end of each step.
+
+<CapstoneLab client:visible lang="en" />
+
+What the exercise checked matches the picture at every step (ran). **First**, the commit of version 1 passes all three gates lint, test and image, and the registry holds one image with the commit as the tag. When a commit in the config repository points at that image, the controller creates web-1 and web-2, which answer a request with a coupon with the price 100, as version 1 does.
+
+**Next**, version 2 passes all three gates of CI because no test uses the code `WELCOME5`. The result is that a second image goes into the registry (we saw in [lesson 5](/en/devops/release/) that a bug the smoke test and tests cannot see gets through). So we release it as a canary, a commit in the config repository that gives two web v1 and one canary v2. The 60 requests are sent round robin over the three. The canary gets 20 and 5 fail (25%), while v1 fails none. The 25% exceeds the 10% threshold of the judge.
+
+**The end of the story**: we `git revert` the canary commit and push. The controller removes canary-1 and touches nothing else, and every request succeeds again. Then version 3 fixes the bug and adds a test. That new test fails when run against the code of version 2 (a `KeyError`), which means that had the test existed from the start, CI would have blocked v2 before it ever reached the canary. When v3 is released the controller replaces web-1 and web-2, and the request that used to break v2 answers `price=95` (ran).
+
+</Step>
+
+<Step>
+
+## The traces that are left
+
+When the story ends, we ask the system three questions, and the stations can answer all of them from what they kept (ran).
+
+| Question | Where to look |
+|---|---|
+| What is running now | The containers the controller manages use the image of the last commit (`docker ps`) |
+| Which commit of the app made that image | The tag of the image is the name of the commit, and the registry has three images (one per commit that passed CI) |
+| Who changed what in production, and when | `git log` of the config repository |
+
+The history of the config repository reads as a story (ran).
+
+```text
+release 7ebd8ce to production
+Revert "canary c247234: one replica of three"
+canary c247234: one replica of three
+release fa85218 to production
+```
+
+This is what [lesson 0](/en/devops/overview/) set out for the loop of DevOps to reach. Every move of code from a developer's computer to the users, and the way back when there is a problem, is a commit or a tag somewhere, which means it can be audited, reviewed, and if needed undone with one command.
+
+<Callout type="note" title="What this pipeline does not have, and what was not tried">
+The pipeline of this lesson does not yet have the security gates of [lesson 11](/en/devops/devsecops/), which can be added as a stage of `pipeline.toml`, just as `secret-scan` was added in [lesson 2](/en/devops/ci/). The judge of the canary is code in the exercise that counts the errors of the canary, not a real measuring system ([lesson 8](/en/devops/observability/) and [lesson 9](/en/devops/slo/)). GitHub Actions, Kubernetes, Argo CD, a registry that needs a login and a real cloud were not tried. The author did not test whether, if the pipeline fails halfway after the image is built, that image would be cleaned up.
+</Callout>
+
+<Question
+  client:visible
+  lang="en"
+  q="In this lesson's story v2 passed all three gates of CI and the problem was found at the canary. Which answer says what to do so that a problem like this does not reach production again?"
+  options={[
+    'Make CI run three times, to be sure that it passes',
+    'Add a test that covers the kind of request that broke it (the coupon code WELCOME5), because the new test of v3 fails against the code of v2, so it would have blocked v2 at CI',
+    'Drop the canary, since it is not needed when there is CI',
+  ]}
+  answer={1}
+  why="In the exercise the test that covers WELCOME5 fails when run against the code of v2 (a KeyError) and passes against v3, so the gap is a missing test. Running again gives the same result, and the canary is still needed because tests can never cover everything (we saw a bug that got through all of version 2)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Claim | Source |
+|---|---|
+| Pushing v1 passes lint, test, image and the registry has one image tagged with the commit | ran: `exercises/13_capstone_pipeline.py` |
+| The controller creates web-1 and web-2 following the commit in the config repository, and users see version 1 | ran: `exercises/13_capstone_pipeline.py` |
+| v2 passes all three gates because no test uses WELCOME5 | ran: `exercises/13_capstone_pipeline.py` |
+| The canary got 20 requests, 5 failed (25%), and v1 failed none | ran: `exercises/13_capstone_pipeline.py` |
+| git revert of the config makes the controller remove canary-1 and every request succeeds again | ran: `exercises/13_capstone_pipeline.py` |
+| The test of v3 fails against the code of v2 (KeyError) and passes against v3, and releasing v3 replaces two web containers and gives price=95 | ran: `exercises/13_capstone_pipeline.py` |
+| Three images in the registry, four lines of config history that read as a story, and containers on the image of the last commit | ran: `exercises/13_capstone_pipeline.py` |
+| GitHub Actions, Kubernetes, Argo CD, a real cloud and the security gates of [lesson 11](/en/devops/devsecops/) are not in this pipeline | author |
+
+</Step>

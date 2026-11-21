@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Four questions to check that you know why config is pulled out of the code, why a program should stop when a value is missing, and where each kind of secret can be read.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="Why do teams like one built file that runs in every environment, with the differences passed in environment variables, instead of building again for each environment?"
+  options={['Because building again is slower', 'Because what was tested in staging is the very file that runs in prod, and only the config values differ', 'Because environment variables are safer than files']}
+  answer={1}
+  why="If we build again for every environment, the file that passed the tests is not the file that runs. In the exercise one app.py with the sha256 starting 3f00593d55ea ran in all three and printed different results because the values passed in differed. As for safety, environment variables are not safer: look at what docker inspect shows."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Why does the exercise stop the program with exit code 2 and the name of the variable when DATABASE_URL is missing, instead of using a default and carrying on?"
+  options={['Because defaults are hard to write', 'Because carrying on silently could connect to the wrong database without anyone knowing. Stopping makes the problem show at startup, not when data is damaged', 'Because Python forces a stop when a variable is missing']}
+  answer={1}
+  why="Failing early is the same idea as fail fast in the pipeline of [lesson 2](/en/devops/ci/). A config problem that is let through often does not crash the program at once, it makes it do the wrong thing in the wrong place, which is much harder to find."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The parity check in the exercise found that staging lacks LOG_LEVEL. What is the problem?"
+  options={['All three environments must have exactly the same LOG_LEVEL value', 'All three environments must define the same set of keys (the values may differ). If the keys differ, the behaviour of staging no longer represents prod', 'LOG_LEVEL is not needed in staging']}
+  answer={1}
+  why="Parity does not mean equal values (dev uses sqlite and prod uses postgres). It means the same keys. If staging falls back to a default LOG_LEVEL while prod sets warning, what we test differs from the real thing and nobody sees it."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="How does a password mounted into a container as a file differ from one passed with -e, as the exercise measured?"
+  options={['The mounted file does not show in docker inspect while the one passed with -e does, but the program inside can read both', 'Neither shows in docker inspect', 'The one passed with -e shows in docker history of the image and the file does not']}
+  answer={0}
+  why="The exercise measured that -e shows in docker inspect of the container but not in docker history of the image (it is not baked into the image), while the mounted file shows in neither history nor inspect. In both cases the program inside can read it, so this is about keeping it unreadable for people outside, not about hiding it from the program."
+/>
+
+</Step>

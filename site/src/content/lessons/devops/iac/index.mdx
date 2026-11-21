@@ -1,0 +1,131 @@
+---
+title: Infrastructure as Code
+summary: เราเขียนสิ่งที่อยากได้เป็นโค้ด ให้ Terraform เทียบกับสิ่งที่มีอยู่จริงแล้วลงมือเฉพาะส่วนที่ต่าง และดูว่าไฟล์ State มีไว้ทำไม ทำไมการแก้ด้วยมือถึงโผล่ในแผน และทำไม Apply ซ้ำถึงไม่เปลี่ยนอะไร
+facts:
+  - "รันจริงใน exercises/06_infrastructure_as_code.py กับ Terraform 1.16.6 และ Provider hashicorp/local 2.5 (ดาวน์โหลดจาก Registry): ทรัพยากรคือไฟล์สองไฟล์บนดิสก์ ตรวจแผน Plan: 2 to add ครั้งแรก, apply สำเร็จและ State ลิสต์สองทรัพยากร, Plan รอบสองบอก No changes, เปลี่ยนค่า Variable ได้ 1 to add 1 to destroy (ไฟล์ config ถูกแทนที่ ส่วน motd ไม่ถูกแตะ), แก้ไฟล์ด้วยมือกับลบไฟล์ด้วยมือถูกวางแผนสร้างใหม่ และ destroy ทำให้ State ว่าง"
+  - "เหตุผลที่ควรใช้ IaC อ่านจาก Fundamentals of DevOps and Software Delivery บทที่ 2 หน้า 39 ถึง 40 และกลุ่มของ Provisioning Tool จากหน้า 61 ไม่ได้รัน Terraform กับ Cloud จริง (AWS, GCP, Azure) และไม่ได้ลอง Ansible, Packer, OpenTofu หรือ Remote State"
+order: 6
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [release]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import IacLab from '../../../../components/labs/devops/IacLab';
+
+<Step>
+
+## ทำไมต้องเขียนโครงสร้างพื้นฐานเป็นโค้ด
+
+จนถึงตอนนี้เราไม่ได้พูดถึงว่า Server, Network, ฐานข้อมูลที่ Artifact ของเรารันอยู่ ถูกสร้างขึ้นมาอย่างไร ถ้าคนคลิกสร้างในหน้าเว็บของ Cloud ทุกครั้ง เราจะมีปัญหาเดิมกับที่เจอใน[บทที่ 0](/devops/overview/) คือคิวรอคนว่างและขั้นตอนที่ทำด้วยมือซ้ำ ๆ
+
+หนังสือ Fundamentals of DevOps and Software Delivery ให้เหตุผลที่ควรเขียนโครงสร้างพื้นฐานเป็นโค้ด (Infrastructure as Code หรือ IaC) ไว้หลายข้อ **ข้อแรก** คือความเร็วและความปลอดภัย เพราะคอมพิวเตอร์ทำขั้นตอน Deploy ได้เร็วกว่าและผิดพลาดน้อยกว่าคน **ข้อที่สอง** คือเป็นเอกสาร เพราะสภาพของระบบอยู่ในไฟล์ที่ทุกคนอ่านได้ ไม่ได้อยู่ในหัวของใครคนใดคนหนึ่ง และ **ข้อที่สาม** คือเก็บไว้ใน Version Control ได้ ทำให้ดูประวัติ ย้อนกลับ และ Review ได้เหมือนโค้ดทั่วไป ที่เหลือคือ Validation, Self-service และ Reuse (หนังสือ: Fundamentals of DevOps and Software Delivery บทที่ 2 หน้า 39 ถึง 40)
+
+เครื่องมือกลุ่มที่เราจะลองคือ Provisioning Tool อย่าง Terraform ที่อ่านโค้ดซึ่งบอกว่าอยากได้ทรัพยากรอะไร แล้วสร้างให้ (หนังสือ: เล่มเดิม หน้า 61) ในบทนี้เรารัน Terraform ของจริงในคอมพิวเตอร์เครื่องนี้ แต่ทรัพยากรที่สร้างเป็นไฟล์บนดิสก์สองไฟล์ผ่าน Provider ชื่อ `local` เพราะนั่นคือสิ่งที่รันได้โดยไม่ต้องมีบัญชี Cloud วงจรที่เห็นเป็นอย่างเดียวกันกับตอนสร้างเครื่องหรือฐานข้อมูลจริง
+
+</Step>
+
+<Step>
+
+## โค้ด แผน และการ Apply
+
+ไฟล์ `main.tf` ของแบบฝึกบอกว่าอยากได้ไฟล์สองไฟล์ ตัวแรกชื่อ `config.json` ซึ่งเนื้อหามาจากตัวแปร `app_version` ตัวที่สองชื่อ `motd.txt`
+
+```hcl
+variable "app_version" {
+  type    = string
+  default = "1.0.0"
+}
+
+resource "local_file" "config" {
+  filename = "${path.module}/out/config.json"
+  content  = jsonencode({ version = var.app_version, replicas = 2 })
+}
+
+resource "local_file" "motd" {
+  filename = "${path.module}/out/motd.txt"
+  content  = "welcome to the shop"
+}
+```
+
+เราสั่ง `terraform plan` ก่อน ซึ่งไม่แก้อะไรเลย แค่บอกว่าจะทำอะไร แล้วค่อย `terraform apply` ลงมือทำจริง (รัน)
+
+```text
+Plan: 2 to add, 0 to change, 0 to destroy.
+Apply complete! Resources: 2 added, 0 changed, 0 destroyed.
+```
+
+ก่อน Apply โฟลเดอร์ `out/` ยังไม่มี และหลัง Apply มีไฟล์สองไฟล์ตามโค้ด พร้อมกับไฟล์ `terraform.tfstate` ที่จดไว้ว่า Terraform สร้างอะไรไปบ้าง คำสั่ง `terraform state list` ตอบว่า `local_file.config` กับ `local_file.motd` ถ้าเรารัน `plan` อีกรอบ จะได้ `No changes. Your infrastructure matches the configuration.` และ `apply` ซ้ำก็ได้ 0 Added, 0 Changed, 0 Destroyed ซึ่งเรียกว่า Idempotent คือสั่งกี่รอบก็ได้ผลเท่ากับสั่งครั้งเดียว ต่างจากสคริปต์ที่เขียนว่า "สร้างเซิร์ฟเวอร์หนึ่งตัว" ซึ่งรันซ้ำแล้วได้ตัวที่สองทันที
+
+</Step>
+
+<Step>
+
+## ทำไมต้องมีไฟล์ State
+
+ถ้า Terraform เทียบแค่ "โค้ด" กับ "ของจริง" มันก็น่าจะพอ แต่ในโลกจริงของจริงมีเป็นหมื่นชิ้นที่ไม่ใช่ของเรา เช่นเครื่องของทีมอื่นในบัญชีเดียวกัน Terraform ต้องรู้ว่า "ชิ้นไหนเป็นของฉัน" ไฟล์ State คือสมุดที่จดว่าเคยสร้างอะไรไว้ แล้ว Terraform เทียบสามฝั่งเสมอ คือโค้ด State และของจริงที่อ่านมาใหม่ตอน Refresh
+
+เลือกเหตุการณ์ใน Lab ด้านล่างทีละอัน ดูว่าคอลัมน์ไหนต่างจากคอลัมน์อื่น และบรรทัดแผนเปลี่ยนไปอย่างไร
+
+<IacLab client:visible />
+
+เหตุการณ์ "แก้โค้ด" (เปลี่ยน `app_version` เป็น `1.1.0`) ทำให้แผนเป็น `Plan: 1 to add, 0 to change, 1 to destroy.` โดยมีบรรทัด `local_file.config must be replaced` ส่วน `motd.txt` ไม่ถูกกล่าวถึงเลย เพราะไม่ต่างจากที่จดไว้ ซึ่งตรงกับสิ่งที่ผู้อ่านน่าจะอยากให้เป็น แก้เฉพาะที่ต่าง ไม่ใช่สร้างใหม่หมด (รัน)
+
+</Step>
+
+<Step>
+
+## เมื่อมีคนแก้ของจริงด้วยมือ
+
+สถานการณ์ที่ IaC ต้องรับมือบ่อยที่สุดคือมีคนเข้าไปแก้ของจริงโดยไม่ผ่านโค้ด ซึ่งเกิดบ่อยกว่าการเปลี่ยนโค้ดเสียอีก ในแบบฝึกเราเปิดไฟล์ `config.json` แล้วแก้เป็น `version 9.9.9` กับ `replicas 50` ด้วยมือ จากนั้นสั่ง Plan ผลที่ได้น่าสนใจ (รัน)
+
+```text
+  # local_file.config will be created
+Plan: 1 to add, 0 to change, 0 to destroy.
+```
+
+แผนไม่ได้บอกว่า "ไฟล์เปลี่ยนไป" แต่บอกว่า "จะสร้าง" เพราะ Provider ชื่อ `local` ตอน Refresh เปิดอ่านไฟล์ เห็นว่าเนื้อหาไม่ตรงกับที่จดไว้ จึงถือว่าทรัพยากรนั้นหายไปจาก State แล้วแผนก็เป็นสร้างใหม่ให้ตรงโค้ด เมื่อ Apply เนื้อหากลับเป็น `{"version":"1.1.0","replicas":2}` เหมือนเดิม คือแก้ด้วยมือถูกทับกลับ ส่วนถ้ามีคนลบ `motd.txt` ทิ้ง แผนก็เป็น `1 to add` เพื่อสร้างใหม่ (รัน)
+
+ตรงนี้อยากให้ระวังข้อสรุปไม่ให้ไกลเกินไปนะ วิธีที่ Terraform ตรวจพบการแก้ด้วยมือและทำแผนออกมาต่างกันตาม Provider และชนิดของทรัพยากร สิ่งที่รันยืนยันคือพฤติกรรมของ `local_file` ใน Provider รุ่นที่ใช้ ไม่ได้ลอง EC2 หรือฐานข้อมูลบน Cloud จริง ซึ่งอาจแสดง Drift เป็น "will be updated in-place" แทน แนวคิดที่เอาไปใช้ได้คือให้โค้ดเป็นแหล่งความจริงและรัน Plan เป็นประจำเพื่อเห็นว่าโลกจริงเดินออกนอกโค้ดไปไหน
+
+เมื่อจบ เราสั่ง `terraform destroy` และไฟล์ทั้งสองถูกลบ กับ State กลับว่าง (รัน)
+
+<Callout type="note" title="อย่างอื่นใน IaC ที่ไม่ได้ลอง">
+หนังสือจัดกลุ่มเครื่องมือเป็น Ad Hoc Script, Configuration Management (เช่น Ansible), Server Templating (เช่น Packer) และ Provisioning (เช่น Terraform, OpenTofu) และบอกว่าทีมจริงมักใช้หลายอย่างร่วมกัน (หนังสือ: เล่มเดิม [บทที่ 2](/devops/ci/)) ผู้เขียนลองเฉพาะ Terraform กับ Provider `local` ไม่ได้ลอง Ansible, Packer, OpenTofu, Remote State หรือการจัดการ State ของทีมที่ทำงานพร้อมกัน
+</Callout>
+
+<Question
+  client:visible
+  q="ทีมสั่ง Terraform Plan แล้วพบว่าแผนบอกให้สร้างไฟล์ config.json ใหม่ ทั้งที่ไม่มีใครแก้โค้ดเลย ในแบบฝึก สาเหตุที่เป็นไปได้ที่สุดคืออะไร"
+  options={[
+    'Terraform มีบั๊ก เพราะโค้ดไม่เปลี่ยนก็ไม่ควรมีแผน',
+    'มีคนแก้หรือลบไฟล์จริงด้วยมือ ทำให้ของจริงไม่ตรงกับ State และแผนคือทำให้ตรงกับโค้ดอีกครั้ง',
+    'ไฟล์ State เสียหาย ต้องลบแล้วเริ่มใหม่',
+  ]}
+  answer={1}
+  why="ในแบบฝึก แก้เนื้อหา config.json ด้วยมือหรือลบ motd.txt ทิ้ง ทำให้ Plan กลับมามี 1 to Add ทั้งที่โค้ดไม่ได้เปลี่ยน เพราะ Terraform เทียบสามฝั่ง และของจริงที่อ่านมาใหม่ไม่ตรงกับ State การลบ State ทิ้งเป็นวิธีที่แย่ที่สุด เพราะ Terraform จะลืมว่าสร้างอะไรไว้"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| แผนครั้งแรกคือ 2 to Add, Apply สร้างไฟล์ตามโค้ด และ State ลิสต์สองทรัพยากร | รัน: `exercises/06_infrastructure_as_code.py` (Terraform 1.16.6) |
+| Plan รอบสองคือ No Changes และ Apply ซ้ำไม่เปลี่ยนอะไร | รัน: `exercises/06_infrastructure_as_code.py` |
+| เปลี่ยนค่า Variable ได้ 1 to Add 1 to Destroy และมี must be replaced ส่วน Motd ไม่ถูกแตะ | รัน: `exercises/06_infrastructure_as_code.py` |
+| แก้ไฟล์ด้วยมือและลบไฟล์ด้วยมือ ถูกวางแผนสร้างใหม่ และ Apply ทับกลับ | รัน: `exercises/06_infrastructure_as_code.py` (เฉพาะ Provider Local) |
+| Destroy ทำให้ไฟล์ถูกลบและ State ว่าง | รัน: `exercises/06_infrastructure_as_code.py` |
+| เหตุผลที่ควรใช้ IaC (ความเร็ว เอกสาร Version Control ฯลฯ) | หนังสือ: Fundamentals of DevOps and Software Delivery บทที่ 2 หน้า 39 ถึง 40 |
+| กลุ่มของเครื่องมือ IaC และ Provisioning Tool | หนังสือ: เล่มเดิม บทที่ 2 หน้า 61 |
+| Drift ของทรัพยากรบน Cloud จริงอาจแสดงเป็น Update ไม่ใช่ Create | ผู้เขียน (ไม่ได้รัน) |
+
+</Step>

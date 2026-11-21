@@ -1,0 +1,62 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจว่าทำไม Terraform ต้องเทียบสามฝั่ง และอ่านบรรทัดแผนออก
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="รัน Terraform Apply ซ้ำโดยไม่ได้แก้โค้ดเลย ผลในแบบฝึกคืออะไร และคุณสมบัตินี้เรียกว่าอะไร"
+  options={['สร้างไฟล์ซ้ำอีกชุด เรียกว่า Replication', 'ไม่เปลี่ยนอะไร (0 Added, 0 Changed, 0 Destroyed) เรียกว่า Idempotent', 'ล้มเหลวเพราะไฟล์มีอยู่แล้ว เรียกว่า Conflict']}
+  answer={1}
+  why="Terraform เทียบโค้ดกับ State และของจริง เมื่อทั้งสามตรงกัน แผนคือ No Changes ซึ่งทำให้ Apply ซ้ำปลอดภัย ต่างจากสคริปต์ที่เขียนว่า 'สร้างเครื่อง' แล้วรันซ้ำได้เครื่องใหม่ทุกครั้ง"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เปลี่ยนค่า app_version จาก 1.0.0 เป็น 1.1.0 แล้วแผนบอกว่า 1 to Add, 1 to Destroy ทำไมไม่ใช่ 1 to Change"
+  options={['เพราะ Terraform ไม่รู้วิธีแก้ไฟล์', 'เพราะ Provider Local มองว่าเปลี่ยนเนื้อหาไฟล์ต้องแทนที่ทรัพยากร (must be replaced) ซึ่งเป็นพฤติกรรมของทรัพยากรชนิดนี้ ส่วนทรัพยากรอื่นอาจเป็น Update แทน', 'เพราะ State ว่างเปล่า']}
+  answer={1}
+  why="แผนบรรทัดนั้นบอกชัดว่า local_file.config must be replaced เพราะเนื้อหา (Content) ของทรัพยากรชนิดนี้เปลี่ยนแบบแก้ที่เดิมไม่ได้ ส่วน motd.txt ไม่ถูกแตะเลย ซึ่งแสดงว่า Terraform แก้เฉพาะส่วนที่ต่าง"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ไฟล์ terraform.tfstate มีไว้ทำไม ถ้า Terraform มีโค้ดและเข้าไปดูของจริงได้อยู่แล้ว"
+  options={['เพื่อเก็บรหัสผ่านของ Cloud', 'เพื่อจำว่าทรัพยากรไหนที่มันเป็นผู้สร้างและดูแล ไม่อย่างนั้นแยกไม่ออกว่าอะไรในโลกจริงเป็นของมัน', 'เพื่อให้ Terraform รันเร็วขึ้นเท่านั้น']}
+  answer={1}
+  why="State คือสมุดที่จดว่าเคยสร้างอะไร ใน Apply ครั้งแรกแบบฝึกจด local_file.config กับ local_file.motd พร้อม ID ของแต่ละอัน และหลัง Destroy State ก็ว่าง เพราะไม่เหลืออะไรที่ Terraform ดูแล"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="มีคนแก้ config.json ด้วยมือเป็น Version 9.9.9 หลัง Apply แล้ว Plan ครั้งถัดไปในแบบฝึกแสดงอะไร"
+  options={['No Changes เพราะไฟล์ยังมีอยู่', '1 to Add สร้างใหม่ เพราะ Provider อ่านไฟล์ตอน Refresh เห็นเนื้อหาไม่ตรงและถือว่าทรัพยากรหายจาก State', '1 to Destroy ลบไฟล์ทิ้ง']}
+  answer={1}
+  why="ผลจริงคือ local_file.config will be created และ Plan 1 to Add, 0 to Change, 0 to Destroy พฤติกรรมนี้เป็นของ Provider Local กับ local_file ทรัพยากรบน Cloud อาจแสดง Drift เป็นการแก้ในที่เดิม ผู้เขียนไม่ได้ลอง"
+/>
+
+</Step>

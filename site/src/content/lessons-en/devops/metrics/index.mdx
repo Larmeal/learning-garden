@@ -1,0 +1,106 @@
+---
+title: Measuring with DORA, and platform engineering
+summary: We read the four DORA metrics from the Git history of two teams over eight weeks, see what each one counts, check that the calculation is right, and then look at why growing companies build an internal platform for other teams to use.
+facts:
+  - "Run in exercises/12_dora_metrics.py with Git 2.56.1: two real Git repositories were built (team Batch releases every two weeks, team Flow about twice a day) over 8 weeks, and the metrics were read back from the commits and tags: frequency 3 and 80 deploys, median lead time 200 hours and 10 hours, change failure rate 33% (1 of 3) and 10% (8 of 80), and mean time to restore 305 minutes and 10 minutes."
+  - "The data are made up: which releases fail (every 3rd of Batch, every 10th of Flow) and the restore times are choices of the exercise. So it checks only that the calculation is right and does not prove that small batches fail less. That claim belongs to the book, which cites the DORA report, and the author did not check it against the original. Platform engineering is read from Fundamentals of DevOps and Software Delivery, chapter 11, page 501. Backstage and any IDP tool were not run."
+order: 12
+phase: E
+level: 4
+stage: sprout
+format: steps
+requires: [devsecops]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import DoraLab from '../../../../components/labs/devops/DoraLab';
+
+<Step>
+
+## Four numbers a team can count from the history it already has
+
+In [lesson 0](/en/devops/overview/) we saw the DORA table saying that elite teams differ from low performers by a factor of a hundred. The question now is where our own team stands. The book Fundamentals of DevOps and Software Delivery advises that if we have resources to track only a handful of team metrics, we should start with the four DORA metrics: deployment frequency, lead time, change failure rate and recovery time, because if a team improves them it can considerably speed up its software development (book: Fundamentals of DevOps and Software Delivery, chapter 10, page 466).
+
+The good news is that we do not have to buy a tool to start counting. The data we need is already in Git, if we record deploys as tags, as we have since [lesson 10](/en/devops/incidents/). In the exercise we build two real Git repositories with dated commits and tags, eight weeks long. The first team is named Batch and releases every two weeks. The second is named Flow and releases about twice a day (on working days only). Both teams make the same commits, six a day, and each tag says in its message whether that deploy failed and, if so, when it was restored.
+
+The reader in the exercise does what a real tool does (ran).
+
+| Metric | Read from |
+|---|---|
+| Deployment frequency | Count the tags and divide by the number of weeks |
+| Lead time | The date of the tag minus the date of each commit that the tag took out (`git log previous-tag..this-tag`), then the median |
+| Change failure rate | The tags whose message starts with `failed`, divided by all tags |
+| Time to restore | The time noted in the message of the tag minus the time of that tag, then the mean |
+
+</Step>
+
+<Step>
+
+## Compare two teams on the same data
+
+Choose a metric in the lab and look at the two strips. Each dot is one deploy. An orange dot with a cross is a deploy that failed, and the box under each strip says the number for the metric you chose.
+
+<DoraLab client:visible lang="en" />
+
+What the exercise reads back (ran):
+
+| | Team Batch | Team Flow |
+|---|---|---|
+| Deployment frequency | 3 deploys (0.4 a week) | 80 deploys (10 a week) |
+| Lead time (median) | 200 hours (about 8 days) | 10 hours |
+| Change failure rate | 33% (1 of 3) | 10% (8 of 80) |
+| Mean time to restore | 305 minutes | 10 minutes |
+
+The numbers of team Batch match what we saw in the lab of [lesson 0](/en/devops/overview/): a rare release makes a change wait long, and each release carries many commits (60 per release against 3 for Flow). But be careful: these numbers come from values we chose. In the exercise the release that fails is the third of Batch and every tenth of Flow, and the restore times were set to about 300 minutes and 20 minutes.
+
+Keep two things apart. The first, which the exercise confirms, is that **the calculation is right**: for example team Batch deploys three times in eight weeks, and the lead time of Flow is under a day (a median of 10 hours, because a commit made in the evening waits for the next morning's release). The second, **whether small-batch teams really fail less**, the exercise does not prove, because we set the failure rates ourselves. That claim belongs to the book, which cites a report that elite teams deploy 182 times more often, have a lead time 127 times shorter and a failure rate 8 times lower (book: same, preface, page xv). The author did not check it against the original report.
+
+<Callout type="note" title="A metric used the wrong way becomes a distorted target">
+The four metrics should be used to see the trend of a team itself, not to rank teams or tie to bonuses, because once a number becomes a target people find ways to make the number look good without making delivery better, for example by splitting a deploy into meaningless pieces to raise the frequency. This is the opinion of the author, not from any book.
+</Callout>
+
+</Step>
+
+<Step>
+
+## When a team grows, the answer is often an internal platform
+
+The twelve lessons so far have asked for a lot: a pipeline, a registry, IaC, a controller, observability, SLOs, security gates. If every app team had to set up all of that itself it would waste too much time. The book Fundamentals of DevOps and Software Delivery notes that virtually every company it worked with ends up building an internal developer platform (IDP), a set of workflows, tools and interfaces customised to that company, usually layered on top of existing tools, so that developers rarely touch the cloud or Kubernetes directly and use this layer instead (book: same, chapter 11, page 501).
+
+The book also says platform engineering is the name for the discipline of building IDPs, which some pitch as the successor to DevOps, but the reality is that companies have been building IDPs for decades, even before the term DevOps appeared. What is new is reusable open source and commercial IDP tools, such as Backstage, Humanitec and OpsLevel (book: same, page 501). The dream of an IDP is to give developers one central place to create and manage an app and everything it needs, which is nearly everything this path has covered, such as hosting, IaC, orchestration and version, build and test (book: same, pages 501 to 502).
+
+The author did not try any IDP tool the book names. All this lesson can say is that the pipeline we join in [lesson 13](/en/devops/capstone/) is the core of a small IDP that really works, and what is left to think about is who looks after it.
+
+<Question
+  client:visible
+  lang="en"
+  q="A team sees its deployment frequency rise tenfold in three months, but its change failure rate also rises from 5% to 30%. Which reading of the numbers is the most accurate?"
+  options={[
+    'The team has certainly improved, because it deploys ten times as often',
+    'The four metrics must be read together. Frequency rising while the failure rate jumps means what is released faster is not yet safe (for example no tests or canary), which must be fixed and not counted as a success',
+    'The failure rate does not matter, only the frequency does',
+  ]}
+  answer={1}
+  why="The book pairs the four: speed (frequency, lead time) and stability (failure rate, time to restore). A team that speeds up alone meets this. In the exercise Flow deploys more often and fails less, but that is because we set the data, not a rule that guarantees it."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Claim | Source |
+|---|---|
+| Frequency 3 and 80, median lead time 200 and 10 hours, failure rate 33% and 10%, time to restore 305 and 10 minutes, read from commits and tags | ran: `exercises/12_dora_metrics.py` (made up data, it checks only that the calculation is right) |
+| With only a few metrics, start with the four DORA ones | book: Fundamentals of DevOps and Software Delivery, chapter 10, page 466 |
+| The DORA table of 2024 (182 times, 127 times, 8 times) | book: same, preface, page xv (cites a report, not checked against the original) |
+| Most companies build an IDP, platform engineering, and tools such as Backstage | book: same, chapter 11, page 501 |
+| An IDP should give nearly everything this path covered (hosting, IaC, orchestration and so on) | book: same, chapter 11, pages 501 to 502 |
+| Metrics tied to rewards get distorted | author (opinion) |
+| Backstage and any IDP were not run | author |
+
+</Step>

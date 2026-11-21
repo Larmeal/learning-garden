@@ -1,0 +1,156 @@
+---
+title: What DevOps is
+summary: We follow one change that has to be handed from team to team, see that almost all of its time is spent in queues, and then look at what DevOps tries to make shorter and how many stretches its loop has.
+facts:
+  - "The hours of the two ways of working (handing over step by step, and through a pipeline) and the waits of a release every day up to every four weeks come from exercises/00_value_stream.py. It is a calculation on example numbers that the author set, not a measurement of a real team. The model only checks that the arithmetic is right."
+  - "The history of DevOps, the cycle of ever rarer releases and the goal of DevOps are read from Fundamentals of DevOps and Software Delivery (preface, pages xvi to xvii). The Three Ways are read from The DevOps Handbook chapter 1. Not run."
+order: 0
+phase: A
+level: 1
+stage: sprout
+format: steps
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import WaitLab from '../../../../components/labs/devops/WaitLab';
+
+<Step>
+
+## Mr. A finished the code on Monday
+
+Say Mr. A is a developer who fixed the payment page on Monday morning. The change is tiny and writing it took less than a day, yet customers only got it the week after, and nobody was lazy.
+
+Let's see where the time went. The table below is one change travelling through several teams the old way, where the developer writes the code and hands it on step by step (the numbers are examples set by the author, computed in `exercises/00_value_stream.py`).
+
+| Step | Somebody is working (hours) | Waiting in a queue (hours) |
+|---|---|---|
+| Write the code | 8 | 0 |
+| Code review | 1 | 16 |
+| Hand to the test team, test by hand | 6 | 40 |
+| Ask Ops for a deploy window | 1 | 90 |
+| Ops deploys by hand | 2 | 24 |
+| Look at it in production | 1 | 8 |
+| **Total** | **19** | **178** |
+
+The number to stop at is the last row. Only 19 hours of the 197 had a person working on this change. The other 178 sat in a queue until somebody was free, which makes about 8 days, with someone working on it for 10% of the time.
+
+Ask yourself the question here: if we want a change to reach users sooner, which part should we speed up? Making the developer type faster hardly helps, because typing is 8 hours of 197.
+
+</Step>
+
+<Step>
+
+## Draw the time as bars
+
+Compare the two ways of working in the picture below. The top bar is the step by step road from the table. The bottom bar is the same change built, tested and deployed by an automated pipeline ([lesson 2](/en/devops/ci/) shows what a pipeline looks like). Both bars use one scale. Solid colour is an hour with somebody working, hatching is an hour in a queue.
+
+The lower half of the picture is what hides inside the 90 hours of the row "ask Ops for a deploy window". When releases leave on a schedule, a finished change waits for the next one. Choose how often a release leaves, and look at the dashed line from each dot to the orange line of its release.
+
+<WaitLab client:visible lang="en" />
+
+Notice that with a release every day a finished change waits about 11 hours on average. Switch to every four weeks and all twenty changes ride one release together, each waiting 349 hours on average, about two and a half weeks.
+
+</Step>
+
+<Step>
+
+## Why releases get rarer and rarer
+
+The book Fundamentals of DevOps and Software Delivery tells where this comes from. Most companies used to have a Dev team that wrote the software and an Ops team that ran the machines and the live system, and the two had opposing goals. Ops was measured on security and stability, Dev on shipping features fast (book: Fundamentals of DevOps and Software Delivery, preface, page xvi).
+
+Dev wrote code and "tossed it over the wall", Ops deployed it by hand, and things broke. Ops, tired of waking up at 3 a.m., released less often. Each release then became bigger and more complicated, so it broke more often, so releases became rarer still, and so on until the company ground to a halt (book: same, page xvi).
+
+Put that cycle next to the lab and it is the same picture. A rarer release puts more changes into each release, and that is what makes every release riskier. [Lesson 1](/en/devops/version-control/) and [lesson 5](/en/devops/release/) come back to this batch size.
+
+</Step>
+
+<Step>
+
+## What DevOps answers
+
+The same book says DevOps started to be discussed openly around 2007 to 2008, together with three shifts over the next ten years. The first was the move to the cloud, so that both Dev and Ops reach live systems through the same software. The second was automation instead of manual work. The third was Dev and Ops working together in one team with shared goals and tooling (book: same, page xvii).
+
+The author defines it briefly: the goal of DevOps is to make software delivery vastly more efficient. DevOps is not the name of a team, a job title or one technology, even though people use the word for all three (book: same, page xvii).
+
+The gap is huge. The DORA table of 2024 in the book says elite teams deploy 182 times more often than low performers, have a lead time 127 times shorter and recover 2,293 times faster (book: same, page xv). We will go through these metrics in [lesson 12](/en/devops/metrics/).
+
+<Callout type="note" title="The author did not measure this">
+The figures 182 and 127 come from a report that the book cites. The author of this lesson did not check them against the original report and did not measure a real team. The hours in the table and in the lab are examples set to show the proportions.
+</Callout>
+
+</Step>
+
+<Step>
+
+## The loop we will follow
+
+If we write the road that code travels as a sequence we get eight stretches, and the data from the last one runs back to the first, which is why the line makes a loop.
+
+```text
+ Plan ─► Code ─► Build ─► Test ─► Release ─► Deploy ─► Operate ─► Monitor
+   ▲                                                                │
+   └──────────────── Feedback (alert, incident, metric) ◄───────────┘
+```
+
+The tools we touch in passing at each stretch, and the lesson that explains it, are these.
+
+| Stretch of the loop | Lesson | Tools touched |
+|---|---|---|
+| Code | [lesson 1](/en/devops/version-control/) | Git |
+| Build and Test | [lesson 2](/en/devops/ci/) and [lesson 3](/en/devops/config-secrets/) | A pipeline (a small one that we write in the labs), GitHub Actions as an example of the real thing |
+| Release | [lesson 4](/en/devops/artifacts/) and [lesson 5](/en/devops/release/) | Docker, a registry |
+| Deploy | [lesson 6](/en/devops/iac/) and [lesson 7](/en/devops/gitops/) | Terraform, GitOps |
+| Operate and Monitor | [lesson 8](/en/devops/observability/) to [lesson 10](/en/devops/incidents/) | Prometheus |
+| Improve the whole loop | [lesson 11](/en/devops/devsecops/) to [lesson 13](/en/devops/capstone/) | Trivy, the DORA metrics |
+
+This path explains tools only enough to see where each one sits on the loop. For the details of Docker and Git go to their own subjects, for example [lesson 1 of Docker](/en/docker/containers/) on what a container is. Kubernetes does not exist in this garden yet as this lesson is written, so [lesson 7](/en/devops/gitops/) uses small Docker containers instead.
+
+</Step>
+
+<Step>
+
+## Three principles under the loop
+
+The DevOps Handbook sums up the principles under this loop as the Three Ways (book: The DevOps Handbook, [chapter 1](/en/devops/version-control/)), and we can use them as a map of this path.
+
+| Way | Idea | Where in this path |
+|---|---|---|
+| The First Way (Flow) | Make work flow from Dev to the user fast and smoothly: make work visible, reduce batch sizes, build quality in from the start | [Lessons 1](/en/devops/version-control/) to 7 |
+| The Second Way (Feedback) | Let information flow back from production to the people who wrote the code, fast enough to fix things before the damage is big | [Lessons 8](/en/devops/observability/) to [10](/en/devops/incidents/) |
+| The Third Way (Continual Learning) | Keep learning from failure and keep experimenting | [Lessons 10](/en/devops/incidents/) to 13 |
+
+Against the loop above, the First Way is the top line going right, the Second Way is the lower line coming back, and the Third Way is what the team does with the information that returned, after every round.
+
+<Question
+  client:visible
+  lang="en"
+  q="In Mr. A's example there are two blocks of time we could cut: 19 hours with somebody working and 178 hours in a queue. If the team may fix only one thing, where should it start?"
+  options={[
+    'Make developers write code faster, because it is the only block the team fully controls',
+    'Cut the queues between the steps, for example let a pipeline test and deploy instead of waiting for a person',
+    'Add people to the test team so that manual testing runs twice as fast',
+  ]}
+  answer={1}
+  why="Queues are 178 of the 197 hours. Even halving the time to write the code saves only 4 hours. More testers shorten the hours of testing, but the 90 hours in Ops' queue stay. Letting a pipeline do the work removes manual work and queues together. In the exercise the waiting drops by more than 95% (from 178 to 2.2 hours)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Claim | Source |
+|---|---|
+| One change has 19 hours of work and 178 hours of waiting; a pipeline cuts the waiting by more than 95% | ran: `exercises/00_value_stream.py` (example numbers set by the author) |
+| The rarer the release, the longer a finished change waits (11 to 349 hours) | ran: `exercises/00_value_stream.py` |
+| Dev and Ops had opposing goals, and the cycle of ever rarer releases | book: Fundamentals of DevOps and Software Delivery, preface, page xvi |
+| The three shifts (cloud, automation, cross-functional teams) and the goal of DevOps | book: same, preface, page xvii |
+| The DORA table of 2024 (182 times, 127 times, 2,293 times) | book: same, preface, page xv (cites a report, not checked against the original) |
+| The Three Ways as the principles under the loop | book: The DevOps Handbook, [chapter 1](/en/devops/version-control/) (the PDF has no printed page numbers, so only the chapter is cited) |
+| The eight stretches and how they map to the lessons of this path | author |
+
+</Step>

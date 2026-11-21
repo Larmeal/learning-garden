@@ -1,0 +1,146 @@
+---
+title: Version control as the base of everything
+summary: Alice renames a function and Bob writes code that calls the old name. Git merges the two branches without a conflict, yet the tests break. We then do the same in small batches and see how much sooner the problem shows.
+facts:
+  - "Run in exercises/01_small_batches.py with Git 2.56.1 (Windows): two long branches of five commits each merge with no conflict yet the tests fail, git bisect takes 3 runs and lands on the merge commit. The other way, pushing one commit at a time and running the tests before each push, finds the problem while two commits are not pushed yet."
+  - "The parts on trunk-based development and on merge conflicts that depend on how long a branch lives are read from Fundamentals of DevOps and Software Delivery, chapter 5, pages 177 to 179. Not run. Pull requests and branch protection are not run either, because they belong to a hosting website (see the Git subject)."
+order: 1
+phase: B
+level: 1
+stage: sprout
+format: steps
+requires: [overview]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import BatchLab from '../../../../components/labs/devops/BatchLab';
+
+<Step>
+
+## A space station put together at the very end
+
+The book Fundamentals of DevOps and Software Delivery opens this topic with the International Space Station. Say we are in charge of building a station of dozens of parts, each made by a team from a different country. Option one: design every part first, let each team build its part in complete isolation until it is finished, and only then launch everything and join it up. Option two: let each team test its part against the others regularly, and launch the parts one at a time (book: Fundamentals of DevOps and Software Delivery, chapter 5, page 177).
+
+Option one sounds silly, but the book says it is exactly how many companies build software. Developers work on feature branches for weeks or months and merge them all when a release comes up. This is called late integration, and it usually ends in weeks of fighting with merge conflicts (book: same, page 177).
+
+Let's find out how it hurts. In this lesson's exercise we build a small project with a file `shop.py` and a function `price(item)`, and let two people work on branches of five commits each. Alice renames `price` to `unit_price` in her second commit. Bob writes a new file `invoice.py` that calls `price`, which is still the old name on his branch. The tests of each branch pass when it stands alone (ran).
+
+</Step>
+
+<Step>
+
+## Git says it merged, but the tests break
+
+When Bob's branch is merged into `main`, which already has Alice's work, Git answers politely (ran).
+
+```bash
+git merge bob
+```
+
+```text
+Merge made by the 'ort' strategy.
+ invoice.py      | 11 +++++++++++
+ test_invoice.py |  7 +++++++
+ 2 files changed, 18 insertions(+)
+ create mode 100644 invoice.py
+ create mode 100644 test_invoice.py
+```
+
+The first line says Git merged with the `ort` strategy, the normal one, and the word CONFLICT does not appear. The reason is that Alice changed `shop.py` and Bob added a new file, two different files, so Git cannot know that Bob's new file calls a name that Alice just removed. Run the tests and we see this.
+
+```bash
+python -m unittest discover -q
+```
+
+```text
+ImportError: cannot import name 'price' from 'shop'
+```
+
+Ask yourself which commit broke it. Alice's commits pass their tests and so do Bob's. Let `git bisect` help. It is a binary search for the first commit where the tests start failing (its details are in [lesson 10 of Git](/en/git/finding-commits/#let-a-script-answer-for-us)).
+
+```bash
+git bisect start HEAD <first commit>
+git bisect run sh -c "python -m unittest discover -q"
+```
+
+```text
+Bisecting: 2 revisions left to test after this (roughly 2 steps)
+Bisecting: 0 revisions left to test after this (roughly 1 step)
+8439bfd8a0c762af2cb9869b1da5a43f7fa5675a is the first 'bad' commit
+Merge: e5340ec 66f431d
+    Merge branch 'bob'
+```
+
+Bisect runs the tests three times and points at the merge commit itself. So no feature commit is at fault. The fault appeared when two correct pieces of work met, and we have to suspect 11 commits: the ten commits of the two people plus the merge commit (ran).
+
+</Step>
+
+<Step>
+
+## Compare it with integrating a little at a time
+
+Now tell the same story again, but with both people pushing to `main` often and running the tests before every push. Step through the lab and compare the two rows. The top row is the story we just saw, the bottom row is the new way. At every step look at whether a circle is green or red, and how many circles are shaded "in doubt".
+
+<BatchLab client:visible lang="en" />
+
+Look at the last step. On the bottom row Bob sees red tests while he has only two commits not pushed yet. He knows at once that the problem is the name `price` that Alice just pushed, because hers is the only commit that came in since last time, and he fixes it with one more commit (ran). Everything that happened is the same. The only difference is how long we let changes pile up before joining them.
+
+</Step>
+
+<Step>
+
+## Trunk-based development
+
+The way of working on the bottom row is called trunk-based development. The book explains that everyone works on the same branch, normally named `main`, using short-lived branches that last from a few hours to a few days, and opens pull requests to merge back into `main` regularly (book: same, page 178). It gives LinkedIn as an example: it moved off feature branches, which was essential for growing from about 100 developers to over 1,000, and Google uses the method with tens of thousands of developers (book: same, page 178).
+
+The first question people ask is: working on one branch like this, won't there be merge conflicts all the time? The book answers that painful merge conflicts come precisely from branches that live long. If branches are short, the odds that files overlap are low. Its example is a repository of 10,000 files. After one day each developer has changed about 10 files, so the chance that those 20 files overlap is small. If they had worked apart for three months and changed 500 files each, the chance is much higher (book: same, pages 178 to 179). Even better, a small conflict from a one day old branch is easy to solve because the code is still fresh in our heads.
+
+Our example teaches something deeper. Even with no conflict at all the tests can break, because two correct pieces of work in different files can be incompatible. That is why trunk-based development needs automatic tests run on every integration, which is the topic of [lesson 2](/en/devops/ci/).
+
+<Callout type="note" title="Real pull requests were not tried">
+This lesson ran with a real Git on one computer. The remote is a folder, not a hosting website, so the pull request page, reviews and branch protection were not tried. [Lesson 7 of Git](/en/git/team-workflow/) covers them.
+</Callout>
+
+</Step>
+
+<Step>
+
+## What to do in real work
+
+In the exercise Bob did three things before every push, which most teams agree on as a habit. **First**, he fetched the latest work and put his own on top with `git pull --rebase origin main`, which keeps the history a straight line (Rebase is in [lesson 5 of Git](/en/git/rebase/)). **Second**, he ran the whole test suite on the combined result, not on his original code, because the failure is a result of the combination. **Last**, he ran `git push`. If the tests failed he fixed it locally first and added a small commit.
+
+Commits that go through this are small and easy to check, but everything depends on the discipline of the people. We have a tool that does it for them: a server that runs the tests for every push, which is the topic of [the next lesson](/en/devops/ci/).
+
+<Question
+  client:visible
+  lang="en"
+  q="A team works on feature branches, three a week, and merges them into main every Friday. One Friday Git merges without a single conflict line, yet the tests of main fail. Which explanation is the most accurate?"
+  options={[
+    'Git has a defect, because if two pieces of work are incompatible it should report a conflict',
+    'Git only checks whether two pieces of work changed the same lines. It does not know that code added in one place calls something that another place just changed, so we need tests on the merged result',
+    'Somebody must have edited the same file and Git forgot to warn us',
+  ]}
+  answer={1}
+  why="A Git conflict is about text: the same lines changed in two ways. Renaming a function that other files call is about meaning, and only a test run on the combined result sees it. In the exercise git merge answered Merge made by the 'ort' strategy although the tests failed, and bisect pointed at the merge commit itself."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Claim | Source |
+|---|---|
+| Two long branches merge with no conflict but the tests fail (ImportError) | ran: `exercises/01_small_batches.py` |
+| git bisect takes 3 runs and points at the merge commit, 11 commits in doubt | ran: `exercises/01_small_batches.py` |
+| Pushing one commit at a time finds the problem while two commits are not pushed, and one more commit fixes it | ran: `exercises/01_small_batches.py` |
+| The space station picture and late integration | book: Fundamentals of DevOps and Software Delivery, chapter 5, page 177 |
+| Trunk-based development, short-lived branches, the LinkedIn and Google examples | book: same, chapter 5, page 178 |
+| Conflicts hurt because branches live long | book: same, chapter 5, pages 178 to 179 |
+| The order pull --rebase, run the tests, then push | author (a team habit, not a rule of Git) |
+
+</Step>

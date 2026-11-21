@@ -1,0 +1,123 @@
+---
+title: Artifacts, images and registries
+summary: Build an image twice from the same files and you get two different images. So we build once, push to a registry and promote by moving a tag, not by building again, and we see why the digest is the real identity of an image.
+facts:
+  - "Run in exercises/04_artifact_registry.py with Docker Engine 29 and a registry on this computer (image registry:3): building the same files twice without cache gives different image IDs, a push gives a digest that matches what the registry reports, the tags staging and prod point at one digest, moving the tag prod to a new build leaves the old digest answering, and two containers run from one digest print different results depending on an environment variable."
+  - "The build once principle is read from The DevOps Handbook chapter 9, and the registry from Fundamentals of DevOps and Software Delivery, chapter 3, page 123. Not run: real registries such as Docker Hub, ECR or GHCR, and image signing."
+order: 4
+phase: C
+level: 2
+stage: sprout
+format: steps
+requires: [config-secrets]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ArtifactLab from '../../../../components/labs/devops/ArtifactLab';
+
+<Step>
+
+## Building again does not give the same thing
+
+In [lesson 2](/en/devops/ci/) we saw the pipeline make one artifact per commit, and in [lesson 3](/en/devops/config-secrets/) we saw that one file should run in every environment. In the world of containers that file is an image (if images are new to you, read [lesson 2 of Docker](/en/docker/images-and-layers/) first). Let's see how an image behaves when we build again.
+
+In the exercise we write a short Dockerfile that copies `app.py` into an image based on `python:3.13-slim`, and build twice from the same file, once with the cache and once with `--no-cache` (ran).
+
+```text
+$ docker image inspect  (two builds of the same files)
+sha256:2e3098d7b1b9...
+sha256:f5f945970487...
+```
+
+The image IDs differ although the file is identical byte for byte. Looking at the layers, the layers of the base image are shared, and what differs is what the build created (which includes the creation time kept in the image config and the times of the files in the copied layer).
+
+So if we build again every time we move from staging to prod, we get a different image each time. This is exactly what The DevOps Handbook warns about: once the code is in version control we should package it only once, so that the same package is used at every stage of the pipeline. That reduces differences that are hard to diagnose, such as different compilers, library versions or configurations (book: The DevOps Handbook, [chapter 9](/en/devops/slo/)).
+
+</Step>
+
+<Step>
+
+## A registry is the shelf for artifacts
+
+Where should a finished image go? Fundamentals of DevOps and Software Delivery runs into this when it takes an image to a cluster in the cloud. It says the image we made lives only on our own computer, and an outside cluster cannot fetch it, so we must push the image to a container registry first, such as Docker Hub, Amazon ECR or GitHub Container Registry (book: Fundamentals of DevOps and Software Delivery, chapter 3, page 123).
+
+In the exercise we run a registry of our own on this computer (the image `registry:3`) and push to it. The result shows the digest of the image (ran).
+
+```text
+$ docker push localhost:52332/shop:3f9c1a7
+3f9c1a7: digest: sha256:b7ad1b160069cefc02f690b8e6b1b6530da63ddfe44736a3fc8891b46ffd18b2 size: 1572
+```
+
+The port and the digest change on every run, but the form is always `sha256:` followed by 64 hex characters, and the registry gives back this same digest when we ask it ourselves, matching what `docker push` printed. In the name `localhost:52332/shop:3f9c1a7` the part after the last `:` is a tag. We set it to the name of the commit, so we can always go back to the commit that made this image. The thing that is like a fingerprint of the content of the image is called the digest.
+
+</Step>
+
+<Step>
+
+## One box, several stickers
+
+Picture an image as one box on a shelf. The digest is a fingerprint stamped on the box, and a tag is a sticker put on it. A sticker can go on any box and move to another, and one box can have several stickers. Click through the lab and notice that when a sticker moves, the box and its fingerprint do not move at all.
+
+<ArtifactLab client:visible lang="en" />
+
+What the exercise checked matches the picture. The tags `staging` and `prod` stuck on the same image give the same digest for both names (ran). This is called promoting without building again, the opposite of what we saw at the start of the lesson, where building again gave a new image. Then we build the next version and move the tag `prod` to the new image. The name `prod` changes its meaning at once, yet the registry still answers for the old digest, and the registry lists all four tags (ran).
+
+```text
+GET /v2/shop/tags/list
+['3f9c1a7', 'prod', 'staging', 'v2']
+```
+
+That is why people advise deploying by digest when we want to know for sure which bytes are running: a tag can move, a digest cannot (the same idea seen from Docker is in the section [A tag is only a name, the id is the identity](/en/docker/images-and-layers/#a-tag-is-only-a-name-the-id-is-the-identity)).
+
+</Step>
+
+<Step>
+
+## One image, two environments
+
+To prove that the same image really works in both places, the exercise deleted every local image and pulled again by digest (`shop@sha256:...`). Then it ran two containers with different values of `APP_ENV`. Both have the same image ID, and they print different lines (ran).
+
+```text
+hello from version 1 in staging
+hello from version 1 in prod
+```
+
+Put together with [lesson 3](/en/devops/config-secrets/), the picture is this: one artifact from one commit, kept on the shelf under one digest, and run in every environment with different config. What this lesson did not do is sign the image to prove where it came from, which belongs to the supply chain in [lesson 11](/en/devops/devsecops/).
+
+<Callout type="note" title="The registry here is not a real one">
+The exercise uses a registry that runs as a container on this computer: no account, no permissions and no HTTPS (Docker allows HTTP for `localhost`). Real registries such as Docker Hub, ECR or GHCR, which need a login, were not tried.
+</Callout>
+
+<Question
+  client:visible
+  lang="en"
+  q="A team wants to move a version that passed testing in staging to prod. Which way makes sure prod runs the same bytes that were tested?"
+  options={[
+    'Build again from the same commit for prod, because the same commit gives the same result',
+    'Put the prod tag on the same image (digest) as staging and deploy by digest, without building again',
+    'Move the staging tag to the new image first, so that the names match',
+  ]}
+  answer={1}
+  why="The exercise measured that building the same file again without cache gives a different image ID, so a new build is not the same bytes that were tested. Two stickers on one digest guarantee the same bytes. The last option is beside the point, because moving a tag does not change which image was tested."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Claim | Source |
+|---|---|
+| Building the same files twice without cache gives different image IDs, and the layers of the base image are shared | ran: `exercises/04_artifact_registry.py` (Docker Engine 29) |
+| After a push the registry answers a digest equal to what docker push printed | ran: `exercises/04_artifact_registry.py` |
+| The tags staging and prod point at one digest, after moving prod the old digest still answers, the four tags in the registry | ran: `exercises/04_artifact_registry.py` |
+| Two containers from one digest have one image ID and print different results by APP_ENV | ran: `exercises/04_artifact_registry.py` |
+| Package the code once and use the same package at every stage of the pipeline | book: The DevOps Handbook, [chapter 9](/en/devops/slo/) (the PDF has no printed page numbers) |
+| An image that lives only on our computer must be pushed to a container registry first | book: Fundamentals of DevOps and Software Delivery, chapter 3, page 123 |
+| The picture of boxes, fingerprints and stickers | author |
+
+</Step>

@@ -1,0 +1,116 @@
+---
+title: Environments, config and secrets
+summary: One program must run in dev, staging and prod without changing the code, so we pull the config out. Then we see who can read a secret when it is kept in different places in Docker.
+facts:
+  - "Run in exercises/03_config_secrets.py: one app.py with one sha256 prints different results in dev, staging and prod depending on environment variables, the program stops at once when a required variable is missing (exit code 2), a parity check finds an environment that lost a key, and with Docker Engine 29 it was checked that a secret written with ENV can be read from docker history, one passed with -e from docker inspect, and one mounted as a file only from inside."
+  - "The dev, staging, prod environments are read from Fundamentals of DevOps and Software Delivery, chapter 6, pages 228 to 229, and the rules of secrets management from chapter 8, pages 348 to 350. Not run. Vault, KMS and real secret management tools were not tried."
+order: 3
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [ci]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import EnvLab from '../../../../components/labs/devops/EnvLab';
+
+<Step>
+
+## The same file, three places, different results
+
+In [lesson 2](/en/devops/ci/) our pipeline makes one artifact per commit. Now if a team has several environments, the next question is whether we have to build again every time we change environment. The book Fundamentals of DevOps and Software Delivery says most companies have at least three: production, which users reach; staging, which is nearly the same as production but scaled down to save money; and development, which the team uses to test while developing. They are often shortened to dev, stage, prod (book: Fundamentals of DevOps and Software Delivery, chapter 6, pages 228 to 229).
+
+If we build again for each, the file tested in staging is not the file that runs in prod, so we can never know whether what we tested works on the real thing. The way out is to build once and let what differs come from outside. In the exercise we write a short program that reads its values from environment variables, and run the same file three times with different sets of values (ran).
+
+```text
+$ APP_ENV=dev DATABASE_URL=sqlite:///dev.db LOG_LEVEL=debug python app.py
+env=dev db=sqlite:///dev.db log=debug
+
+$ APP_ENV=staging DATABASE_URL=postgres://staging-db/shop LOG_LEVEL=info python app.py
+env=staging db=postgres://staging-db/shop log=info
+
+$ APP_ENV=prod DATABASE_URL=postgres://prod-db/shop LOG_LEVEL=warning python app.py
+env=prod db=postgres://prod-db/shop log=warning
+```
+
+The three lines differ, but the `app.py` that ran is the same file, byte for byte (sha256 starting `3f00593d55ea`). What we pull out of the code like this is called config, and keeping it in environment variables is a widely used approach (related to the 12-factor principles that The DevOps Handbook mentions as a pattern of modern web architecture; the author of this lesson did not read those principles in detail).
+
+</Step>
+
+<Step>
+
+## If a value is missing, stop at once
+
+Pulling config out creates a new risk: an environment may forget a value. If the program carries on silently with a default, we may connect to the wrong database without knowing. So the exercise makes the program check at startup that the required variables are there, and stop immediately if not (ran).
+
+```text
+$ APP_ENV=prod python app.py
+missing configuration: DATABASE_URL
+```
+
+The exit code is 2 and the message names the missing variable. Teams also check parity: every environment must define the same set of variables (only the values differ). In the exercise the function found that dev, staging and prod have the same keys, and when we made staging lose `LOG_LEVEL`, the check said at once that staging lacked `LOG_LEVEL` (ran).
+
+</Step>
+
+<Step>
+
+## How is a secret different from other config
+
+The `DATABASE_URL` above may contain a password, which is a secret, and secrets need more care than other config. The book sets the first rule of secrets management as "do not store secrets as plaintext", and repeats it as the second rule in capital letters. The reason is that if we put a secret in version control, copies go to the computers of everyone on the team, those that run the version control, those that run CI, those used for deployment and those used for backups, and a vulnerability in the software of any one of them can leak the secret (book: same, chapter 8, pages 348 to 349).
+
+The book divides secrets into three groups: personal secrets (such as website passwords), infrastructure secrets (such as database passwords, API keys, TLS certificates) and customer secrets, each kept with a different kind of tool (book: same, page 349). The secret our program needs is the middle group, and one important advice is that the best way is not to store it at all, when that is possible (book: same, page 350).
+
+If we must store it, the next question is where in the system we build. Click through the picture below. The top part lets you choose an environment and see what the program prints. In the bottom part choose where to put the secret, and see which of three groups of people can read it.
+
+<EnvLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## Let's prove with Docker who can see what
+
+The exercise keeps the same password in three ways and tries to read it from three angles (ran). The first writes it in a Dockerfile with `ENV DB_PASSWORD=...`. Then `docker history` on the image, which shows every line used to build it, shows the password at once. So anybody who pulls the image can read the password without running it, and a container made from this image also has it in `docker inspect` (more on image layers in [lesson 2 of Docker](/en/docker/images-and-layers/)).
+
+The second passes it at run time with `docker run -e DB_PASSWORD=...`. This time the image is clean and `docker history` does not have the password, but `docker inspect` of the container shows it as an environment variable of the container. Anyone allowed to use Docker on that computer can read it.
+
+The third keeps it in a file mounted at `/run/secrets/db_password`, read-only. Now `docker inspect` shows only that a file is mounted at that path, not its content, and `docker history` has nothing either. The program inside the container can still `cat` the file as usual.
+
+Be careful not to conclude too much here. Mounting a file only keeps the secret out of the image and out of `docker inspect`. Anyone who can run commands inside the container (for example `docker exec`) can still read the file, and the file on the host has its own permissions. The author did not try real secret tools such as Vault or Kubernetes Secrets, which the book recommends when we must store secrets.
+
+<Question
+  client:visible
+  lang="en"
+  q="A team must give a database password to a container on a machine where several developers may use Docker, and wants the password not to be in the image pushed to the registry. Going by what the exercise measured, which way is safer than the others?"
+  options={[
+    'Write ENV DB_PASSWORD in the Dockerfile, because it is the most convenient and the image is not public',
+    'Pass it with docker run -e, because the image has no password and docker inspect does not show it',
+    'Mount it into the container as a file, because it is not in the image and not in docker inspect, and the program inside can still read it',
+  ]}
+  answer={2}
+  why="The exercise measured that ENV in a Dockerfile shows in docker history of the image, -e shows in docker inspect of the container (although not in the history), and a mounted file shows in neither. The second option is wrong in saying docker inspect does not show it: it does show a value passed with -e. The limit is that mounting is not perfectly safe: anyone who can run commands inside the container can still read the file."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Claim | Source |
+|---|---|
+| The same app.py (sha256 starting 3f00593d55ea) prints different results in dev, staging, prod | ran: `exercises/03_config_secrets.py` |
+| A missing required variable stops the program with exit code 2 and names the variable | ran: `exercises/03_config_secrets.py` |
+| A parity check finds an environment that lost a key | ran: `exercises/03_config_secrets.py` |
+| ENV in a Dockerfile is readable from docker history, -e from docker inspect, a mounted file only from inside | ran: `exercises/03_config_secrets.py` (Docker Engine 29) |
+| The dev, staging, prod environments | book: Fundamentals of DevOps and Software Delivery, chapter 6, pages 228 to 229 |
+| The rule "do not store secrets as plaintext" and its reason | book: same, chapter 8, pages 348 to 349 |
+| Three groups of secrets, and the advice to avoid storing them when possible | book: same, chapter 8, pages 349 to 350 |
+| The 12-factor principles are mentioned as a pattern of modern web architecture | book: The DevOps Handbook, [chapter 7](/en/devops/gitops/) (not read in detail) |
+| Vault and Kubernetes Secrets were not tried | author |
+
+</Step>

@@ -1,0 +1,62 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าแยก Gate กับ Transformation ได้ เข้าใจ Fail Fast และเห็นว่าทำไม Pipeline ควรอยู่ในโค้ด
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="ขั้นไหนต่อไปนี้เป็น Gate ตามที่ Grokking Continuous Delivery แบ่งไว้"
+  options={['Build ซึ่งเปลี่ยนโค้ดเป็นไฟล์ zip', 'Test ซึ่งรันโค้ดแล้วเทียบกับที่คาดไว้ และถ้าไม่ผ่านโค้ดไม่ควรไปต่อ', 'Deploy ซึ่งเปลี่ยนสถานะของระบบที่รันอยู่']}
+  answer={1}
+  why="Gate คืองานตรวจสอบที่โค้ดต้องผ่าน ถ้าไม่ผ่านต้องไม่ไปต่อ Lint กับ Test เป็น Gate ส่วน Build, Publish และ Deploy เป็น Transformation ที่เปลี่ยนโค้ดเป็นรูปอื่นหรือเปลี่ยนสถานะของระบบ (หนังสือ: Grokking Continuous Delivery บทที่ 2 หน้า 21 ถึง 22)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ในแบบฝึก Commit ที่เปลี่ยนคำทักทายแล้วลืมแก้ Test ทำให้ Pipeline เป็นอย่างไร"
+  options={['Lint ผ่าน Test ล้ม Build ถูกข้าม และไม่มี Artifact ของ Commit นั้น', 'ทุกด่านผ่าน เพราะ Lint ตรวจแค่ Syntax ซึ่งถูกต้อง', 'Test ล้ม แต่ Build ยังสร้าง Artifact ไว้ให้ ถ้าจะใช้ค่อยตัดสินใจเอง']}
+  answer={0}
+  why="แบบฝึกบันทึกผลว่า Lint ผ่าน, Test ล้ม, Build ถูกข้าม และไม่มีไฟล์ Zip ของ Commit นั้น Lint ตรวจแค่รูปแบบจึงไม่เห็นว่าคำทักทายเปลี่ยน ส่วน Test เทียบกับค่าที่คาดไว้จึงจับได้ การไม่สร้าง Artifact ให้ Commit ที่ไม่ผ่านทำให้ไม่มีทางที่ใครจะเอามันไป Deploy โดยบังเอิญ"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ทีมย้าย Pipeline ไปไว้เป็นไฟล์ตั้งค่าบน Server ของ CI ที่มีแค่ Admin แก้ได้ แทนการเก็บเป็นไฟล์ในโค้ด สิ่งที่เสียไปคืออะไร"
+  options={['ไม่เสียอะไร เพราะผลลัพธ์เหมือนกัน', 'นิยามของ Pipeline ไม่เปลี่ยนไปพร้อมโค้ด Review ไม่ได้ ไม่มีประวัติ และ Developer ที่เพิ่ม Stage ใหม่ต้องรอคนอื่น', 'Pipeline จะรันช้าลง']}
+  answer={1}
+  why="เมื่อ pipeline.toml อยู่ใน Commit ทุกการเปลี่ยนแปลงของ Pipeline เป็นส่วนหนึ่งของ Commit ที่ถูกตัดสิน เช่นแบบฝึกที่ Commit เพิ่ม Secret-scan แล้วถูกตัดสินด้วย Stage นั้นทันที การเก็บไว้ที่ Server ทำให้เสียทั้ง Review, ประวัติ และความเร็วในการเปลี่ยน"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="แบบฝึก Build Commit เดิมสองครั้งได้ไฟล์ Zip ที่ตรงกันทุกไบต์ เพราะอะไร"
+  options={['เพราะ Git ทำให้ผลลัพธ์ของทุกคำสั่งเหมือนกันอยู่แล้ว', 'เพราะเนื้อหาไฟล์เท่ากัน และเราตั้งเวลาในไฟล์ Zip เป็นค่าคงที่ ถ้าไม่ตั้ง เวลาปัจจุบันจะติดเข้าไปในไฟล์ทำให้ทุกครั้งต่างกัน', 'เพราะ Zip ไม่เก็บอะไรนอกจากเนื้อหาของไฟล์']}
+  answer={1}
+  why="ไฟล์ Zip เก็บเวลาแก้ไขของแต่ละไฟล์ไว้ด้วย ถ้าเก็บเวลาปัจจุบัน Build สองครั้งจะต่างกันที่ไบต์ของเวลา แบบฝึกตั้งเวลาเป็นค่าคงที่ จึงได้ SHA-256 เหมือนกัน นี่คือ Build ที่ทำซ้ำได้ ซึ่งสำคัญเมื่ออยากรู้ว่า Artifact มาจาก Commit ไหน"
+/>
+
+</Step>

@@ -1,0 +1,132 @@
+---
+title: Infrastructure as code
+summary: We write what we want as code, let Terraform compare it with what exists and act only on the difference, and see why a state file exists, why a hand edit shows up in the plan, and why a second apply changes nothing.
+facts:
+  - "Run in exercises/06_infrastructure_as_code.py with Terraform 1.16.6 and the provider hashicorp/local 2.5 (downloaded from the registry): the resources are two files on disk. Checked: the first plan says Plan: 2 to add, apply succeeds and the state lists two resources, the second plan says No changes, changing a variable gives 1 to add 1 to destroy (the config file is replaced, the motd is not touched), a hand edit and a hand deletion are planned as a create, and destroy leaves the state empty."
+  - "The reasons to use IaC are read from Fundamentals of DevOps and Software Delivery, chapter 2, pages 39 to 40, and the family of provisioning tools from page 61. Terraform against a real cloud (AWS, GCP, Azure) was not run, and Ansible, Packer, OpenTofu and remote state were not tried."
+order: 6
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [release]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import IacLab from '../../../../components/labs/devops/IacLab';
+
+<Step>
+
+## Why write infrastructure as code
+
+So far we have not said how the servers, networks and databases that our artifact runs on were created. If a person clicks them into existence in a cloud web page every time, we have the same problems as in [lesson 0](/en/devops/overview/): queues waiting for somebody to be free, and steps repeated by hand.
+
+The book Fundamentals of DevOps and Software Delivery gives several reasons to define infrastructure as code (IaC). **The first** is speed and safety, because a computer carries out the deployment steps faster and with fewer mistakes than a person. **The second** is documentation, because the state of the system lives in files anyone can read, not in one person's head. **The third** is version control, so we get history, revert and review as with any code. The rest are validation, self-service and reuse (book: Fundamentals of DevOps and Software Delivery, chapter 2, pages 39 to 40).
+
+The family of tools we try is the provisioning tool, such as Terraform, which reads code saying which resources we want and creates them (book: same, page 61). In this lesson we run the real Terraform on this computer, but the resources are two files on disk made through a provider called `local`, because that runs without a cloud account. The loop we see is the same one as for a real server or database.
+
+</Step>
+
+<Step>
+
+## Code, plan and apply
+
+The `main.tf` of the exercise says we want two files. The first is `config.json`, whose content comes from the variable `app_version`. The second is `motd.txt`.
+
+```hcl
+variable "app_version" {
+  type    = string
+  default = "1.0.0"
+}
+
+resource "local_file" "config" {
+  filename = "${path.module}/out/config.json"
+  content  = jsonencode({ version = var.app_version, replicas = 2 })
+}
+
+resource "local_file" "motd" {
+  filename = "${path.module}/out/motd.txt"
+  content  = "welcome to the shop"
+}
+```
+
+We run `terraform plan` first, which changes nothing and only says what it would do, and then `terraform apply`, which really does it (ran).
+
+```text
+Plan: 2 to add, 0 to change, 0 to destroy.
+Apply complete! Resources: 2 added, 0 changed, 0 destroyed.
+```
+
+Before apply the folder `out/` does not exist, and after apply it holds two files as in the code, with a file `terraform.tfstate` that notes what Terraform made. `terraform state list` answers `local_file.config` and `local_file.motd`. If we run `plan` again it says `No changes. Your infrastructure matches the configuration.`, and a second `apply` gives 0 added, 0 changed, 0 destroyed. This is called idempotent: running it many times gives the same result as running it once. A script that says "create a machine" is different, because running it again gives a second machine.
+
+</Step>
+
+<Step>
+
+## Why there is a state file
+
+If Terraform compared only the code with the real thing, that might seem enough. But the real world holds thousands of things that are not ours, such as machines of other teams in the same account. Terraform has to know which ones are mine. The state file is the notebook of what it created, and Terraform always compares three sides: the code, the state, and the real thing read afresh during a refresh.
+
+Choose the situations in the lab below one at a time. See which column differs from the others and how the plan line changes.
+
+<IacLab client:visible lang="en" />
+
+The situation "edit the code" (change `app_version` to `1.1.0`) makes the plan `Plan: 1 to add, 0 to change, 1 to destroy.` with a line `local_file.config must be replaced`. `motd.txt` is not mentioned at all, because it does not differ from what is noted. That is what a reader would want: change only what differs, do not rebuild everything (ran).
+
+</Step>
+
+<Step>
+
+## When somebody changes the real thing by hand
+
+The situation IaC has to deal with most often is not a change of code but somebody going in and changing the real thing without going through the code. In the exercise we opened `config.json` and changed it by hand to `version 9.9.9` and `replicas 50`, then asked for a plan. The result is interesting (ran).
+
+```text
+  # local_file.config will be created
+Plan: 1 to add, 0 to change, 0 to destroy.
+```
+
+The plan does not say "the file changed". It says "will be created", because the provider `local` opens the file during the refresh, sees that the content does not match what was noted, and treats the resource as gone from the state, so the plan is to create it again to match the code. After apply the content is `{"version":"1.1.0","replicas":2}` again, so the hand edit was overwritten. If somebody deletes `motd.txt`, the plan is `1 to add` to create it again (ran).
+
+Do not stretch the conclusion too far here. How Terraform detects a hand edit and writes the plan differs by provider and by the kind of resource. What the run confirms is the behaviour of `local_file` in the provider version used. We did not try an EC2 machine or a cloud database, which may show drift as "will be updated in-place" instead. The idea that carries over is to let the code be the source of truth and run plan regularly to see where the real world wandered off.
+
+At the end we ran `terraform destroy`, the two files were deleted and the state went back to empty (ran).
+
+<Callout type="note" title="What else exists in IaC that we did not try">
+The book groups the tools into ad hoc scripts, configuration management (for example Ansible), server templating (for example Packer) and provisioning (for example Terraform, OpenTofu), and says real teams often use several together (book: same, [chapter 2](/en/devops/ci/)). The author tried only Terraform with the `local` provider, not Ansible, Packer, OpenTofu, remote state or managing state for a team that works at the same time.
+</Callout>
+
+<Question
+  client:visible
+  lang="en"
+  q="A team runs terraform plan and the plan says to create config.json again, although nobody changed the code. In the exercise, what is the most likely cause?"
+  options={[
+    'Terraform has a bug, because with no code change there should be no plan',
+    'Somebody edited or deleted the real file by hand, so the real thing no longer matches the state, and the plan is to make it match the code again',
+    'The state file is damaged and must be deleted and started over',
+  ]}
+  answer={1}
+  why="In the exercise a hand edit of config.json or deleting motd.txt brought back a plan of 1 to add although the code had not changed, because Terraform compares three sides and the real thing read afresh did not match the state. Deleting the state is the worst thing to do, because Terraform then forgets what it created."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Claim | Source |
+|---|---|
+| The first plan is 2 to add, apply creates the files as in the code, and the state lists two resources | ran: `exercises/06_infrastructure_as_code.py` (Terraform 1.16.6) |
+| The second plan is No changes and a repeated apply changes nothing | ran: `exercises/06_infrastructure_as_code.py` |
+| Changing a variable gives 1 to add 1 to destroy with must be replaced, and motd is not touched | ran: `exercises/06_infrastructure_as_code.py` |
+| A hand edit and a hand deletion are planned as a create, and apply puts them back | ran: `exercises/06_infrastructure_as_code.py` (only the local provider) |
+| destroy deletes the files and empties the state | ran: `exercises/06_infrastructure_as_code.py` |
+| The reasons to use IaC (speed, documentation, version control and so on) | book: Fundamentals of DevOps and Software Delivery, chapter 2, pages 39 to 40 |
+| The families of IaC tools and provisioning tools | book: same, chapter 2, page 61 |
+| Drift on a real cloud resource may show as an update, not a create | author (not run) |
+
+</Step>

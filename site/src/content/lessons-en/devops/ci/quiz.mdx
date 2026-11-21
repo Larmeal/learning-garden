@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Four questions to check that you can tell a gate from a transformation, understand fail fast, and see why a pipeline should live in the code.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="Which of these stages is a gate, as Grokking Continuous Delivery divides them?"
+  options={['Build, which turns the code into a zip file', 'Test, which runs the code and compares with what was expected, and if it fails the code must not go on', 'Deploy, which changes the state of the running system']}
+  answer={1}
+  why="A gate is a check that the code must pass, and if it fails the code must not continue. Lint and test are gates. Build, publish and deploy are transformations that turn the code into another form or change the state of a system (book: Grokking Continuous Delivery, chapter 2, pages 21 to 22)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="In the exercise a commit changed the greeting but forgot to update the test. What did the pipeline do?"
+  options={['Lint passed, test failed, build was skipped, and the commit has no artifact', 'Everything passed, because lint only checks syntax, which is correct', 'Test failed but build still made an artifact to be used if somebody decides to']}
+  answer={0}
+  why="The exercise recorded lint passed, test failed, build skipped, and no zip file for that commit. Lint checks only the form so it does not see that the greeting changed, while the test compares with the expected value so it catches it. Making no artifact for a commit that failed means nobody can deploy it by accident."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A team moves its pipeline into a settings file on the CI server that only admins can edit, instead of keeping it as a file in the code. What do they lose?"
+  options={['Nothing, because the result is the same', 'The definition of the pipeline no longer changes with the code, cannot be reviewed, has no history, and a developer who adds a stage has to wait for somebody else', 'The pipeline will run slower']}
+  answer={1}
+  why="When pipeline.toml is inside a commit, every change to the pipeline is part of the commit being judged, as in the exercise where a commit that added secret-scan was judged by that stage at once. Keeping it on the server loses review, history and speed of change."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Building the same commit twice gave zip files identical byte for byte in the exercise. Why?"
+  options={['Because Git makes the output of every command the same already', 'Because the file contents are equal and we fixed the times inside the zip. Without that, the current time gets into the file and every build differs', 'Because zip stores nothing except the contents of the files']}
+  answer={1}
+  why="A zip file stores the modification time of each file. If it stores the current time, two builds differ in the bytes of the time. The exercise fixes the time, so the SHA-256 is the same. This is a reproducible build, which matters when we want to know which commit an artifact came from."
+/>
+
+</Step>

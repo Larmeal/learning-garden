@@ -1,0 +1,115 @@
+---
+title: Config และ Secrets
+summary: โปรแกรมเดียวกันต้องรันใน Dev, Staging และ Prod ได้โดยไม่แก้โค้ด เราเลยแยก Config ออกมา แล้วดูว่าความลับที่เก็บคนละที่ใน Docker จะมีใครอ่านมันได้บ้าง
+facts:
+  - "รันจริงใน exercises/03_config_secrets.py: ไฟล์ app.py ไฟล์เดียวที่ sha256 เท่ากันพิมพ์ผลต่างกันใน dev, staging และ prod ตามตัวแปร Environment, โปรแกรมหยุดทันทีเมื่อขาดตัวแปรที่จำเป็น (exit code 2), ตัวตรวจ Parity จับ Environment ที่ขาด Key ได้ และกับ Docker Engine 29 ตรวจว่าความลับที่เขียนด้วย ENV อ่านได้จาก docker history, ที่ส่งด้วย -e อ่านได้จาก docker inspect ส่วนที่ Mount เป็นไฟล์อ่านได้เฉพาะจากข้างใน"
+  - "เรื่อง Environment แบบ dev, staging, prod อ่านจาก Fundamentals of DevOps and Software Delivery บทที่ 6 หน้า 228 ถึง 229 และกฎของ Secrets Management อ่านจากบทที่ 8 หน้า 348 ถึง 350 ไม่ได้รัน ส่วน Vault, KMS และเครื่องมือจัดการ Secret ของจริงไม่ได้ลอง"
+order: 3
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [ci]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import EnvLab from '../../../../components/labs/devops/EnvLab';
+
+<Step>
+
+## ไฟล์เดียวกัน สามที่ ผลต่างกัน
+
+ใน[บทที่ 2](/devops/ci/) Pipeline ของเราสร้าง Artifact ออกมาหนึ่งชิ้นต่อหนึ่ง Commit ทีนี้ถ้าทีมมีหลาย Environment คำถามที่ตามมาคือ เราต้อง Build ใหม่ทุกครั้งที่เปลี่ยน Environment หรือเปล่า หนังสือ Fundamentals of DevOps and Software Delivery เล่าว่าบริษัทส่วนใหญ่มี Environment อย่างน้อยสามแบบ คือ Production ที่ผู้ใช้เข้าถึง Staging ที่เกือบเหมือน Production แต่ย่อส่วนลงเพื่อประหยัดเงิน และ Development ที่ทีมใช้ทดสอบระหว่างพัฒนา ซึ่งมักเรียกสั้น ๆ ว่า Dev, Stage, Prod (หนังสือ: Fundamentals of DevOps and Software Delivery บทที่ 6 หน้า 228 ถึง 229)
+
+ถ้า Build ใหม่ทุกที่ ไฟล์ที่ทดสอบใน Staging ก็ไม่ใช่ไฟล์เดียวกับที่รันใน Prod จึงไม่รู้ได้เลยว่าที่ทดสอบไปใช้ได้กับของจริงหรือไม่ ทางออกคือ Build ครั้งเดียว แล้วให้สิ่งที่ต่างกันมาจากข้างนอก ในแบบฝึกเราเขียนโปรแกรมสั้น ๆ ที่อ่านค่าจากตัวแปร Environment แล้วรันไฟล์เดิมสามครั้งด้วยค่าชุดต่างกัน (รัน)
+
+```text
+$ APP_ENV=dev DATABASE_URL=sqlite:///dev.db LOG_LEVEL=debug python app.py
+env=dev db=sqlite:///dev.db log=debug
+
+$ APP_ENV=staging DATABASE_URL=postgres://staging-db/shop LOG_LEVEL=info python app.py
+env=staging db=postgres://staging-db/shop log=info
+
+$ APP_ENV=prod DATABASE_URL=postgres://prod-db/shop LOG_LEVEL=warning python app.py
+env=prod db=postgres://prod-db/shop log=warning
+```
+
+ผลต่างกันทั้งสามบรรทัด แต่ไฟล์ `app.py` ที่รันเป็นไฟล์เดียวกันทุกไบต์ (sha256 ขึ้นต้น `3f00593d55ea`) สิ่งที่แยกออกมาข้างนอกโค้ดแบบนี้เรียกว่า Config และการเก็บมันไว้ในตัวแปร Environment เป็นแนวทางที่ใช้กันแพร่หลาย (เกี่ยวกับหลักการ 12-Factor ซึ่ง The DevOps Handbook กล่าวถึงเป็นแนวทางของสถาปัตยกรรมเว็บสมัยใหม่ ผู้เขียนบทนี้ไม่ได้ลงไปอ่านหลักการนั้นละเอียด)
+
+</Step>
+
+<Step>
+
+## ถ้าค่าหายไป ให้โปรแกรมหยุดทันที
+
+การแยก Config ออกมาทำให้เกิดความเสี่ยงใหม่ คือ Environment หนึ่งอาจลืมใส่ค่าบางตัว ถ้าโปรแกรมเดินต่อด้วยค่าเริ่มต้นเงียบ ๆ เราอาจเชื่อมกับฐานข้อมูลผิดตัวโดยไม่รู้ตัว แบบฝึกจึงให้โปรแกรมตรวจตอนเริ่มต้นว่าตัวแปรที่จำเป็นมาครบหรือไม่ และหยุดทันทีถ้าไม่ครบ (รัน)
+
+```text
+$ APP_ENV=prod python app.py
+missing configuration: DATABASE_URL
+```
+
+Exit Code เป็น 2 และข้อความบอกชื่อตัวแปรที่ขาด นอกจากนี้ ทีมมักตรวจ Parity คือ Environment ทุกตัวต้องนิยามตัวแปรชุดเดียวกัน (ต่างกันเฉพาะค่า) ในแบบฝึกฟังก์ชันตรวจพบว่า Dev, Staging และ Prod มี Key ครบเท่ากัน และเมื่อเราทำให้ Staging ขาด `LOG_LEVEL` ตัวตรวจก็บอกได้ทันทีว่า Staging ขาด `LOG_LEVEL` (รัน)
+
+</Step>
+
+<Step>
+
+## ความลับ ต่างจากค่า Config ทั่วไปอย่างไร
+
+`DATABASE_URL` ที่เราใส่ไปข้างบนอาจมีรหัสผ่านปนอยู่ ซึ่งเป็นความลับ และความลับต้องระวังต่างจากค่า Config อื่น ๆ หนังสือ Fundamentals of DevOps and Software Delivery ตั้งกฎข้อแรกของการจัดการความลับไว้ว่า "อย่าเก็บความลับเป็น Plaintext" และย้ำเป็นกฎข้อที่สองด้วยตัวใหญ่ทั้งหมด เหตุผลคือถ้าเอาความลับไว้ใน Version Control สำเนาของมันจะไปอยู่ในคอมพิวเตอร์ของทุกคนในทีม คอมพิวเตอร์ที่ใช้ Version Control เอง ที่รัน CI ที่ใช้ Deploy และที่ใช้เก็บข้อมูลสำรอง ช่องโหว่ของซอฟต์แวร์ในคอมพิวเตอร์สักเครื่องก็ทำให้ความลับรั่วได้ (หนังสือ: เล่มเดิม บทที่ 8 หน้า 348 ถึง 349)
+
+หนังสือแบ่งความลับเป็นสามกลุ่ม ความลับส่วนตัว (เช่นรหัสผ่านเว็บ) ความลับของโครงสร้างพื้นฐาน (เช่นรหัสผ่านฐานข้อมูล, API Key, ใบรับรอง TLS) และความลับของลูกค้า ซึ่งแต่ละกลุ่มใช้เครื่องมือเก็บคนละแบบ (หนังสือ: เล่มเดิม หน้า 349) ความลับที่โปรแกรมของเราต้องใช้คือกลุ่มกลาง และมีข้อแนะนำสำคัญข้อหนึ่งว่า วิธีที่ดีที่สุดคือไม่ต้องเก็บมันตั้งแต่แรก ถ้าใช้ได้ (หนังสือ: เล่มเดิม หน้า 350)
+
+ถ้าจำเป็นต้องเก็บ คำถามต่อมาคือเก็บตรงไหนของระบบที่เราสร้าง กดเลือกในภาพด้านล่าง ภาพบนให้เลือก Environment แล้วดูโปรแกรมพิมพ์อะไรออกมา ส่วนภาพล่างให้เลือกว่าจะวางความลับไว้ที่ไหน แล้วดูว่าคนสามกลุ่มกลุ่มไหนอ่านมันได้
+
+<EnvLab client:visible />
+
+</Step>
+
+<Step>
+
+## ลองพิสูจน์ด้วย Docker ว่าใครเห็นอะไร
+
+แบบฝึกเก็บรหัสผ่านตัวเดียวกันไว้สามแบบ แล้วลองอ่านจากสามมุม (รัน) แบบแรกเขียนไว้ใน Dockerfile ด้วย `ENV DB_PASSWORD=...` จากนั้นสั่ง `docker history` ที่ Image ซึ่งแสดงคำสั่งทุกบรรทัดที่ใช้สร้าง Image เราเห็นรหัสผ่านอยู่ในผลทันที แปลว่าใครก็ตามที่ Pull Image นี้ไปอ่านรหัสผ่านได้โดยไม่ต้องรัน และ Container ที่สร้างจาก Image นี้ก็มีรหัสผ่านอยู่ใน `docker inspect` ด้วย (ดู Layer ของ Image เพิ่มที่ [บทที่ 2 ของ Docker](/docker/images-and-layers/))
+
+แบบที่สองส่งตอนรันด้วย `docker run -e DB_PASSWORD=...` ครั้งนี้ Image สะอาด ไม่มีรหัสผ่านอยู่ใน `docker history` แต่ `docker inspect` ของ Container แสดงรหัสผ่านให้เห็นเป็น Environment ของ Container คนที่มีสิทธิ์ใช้ Docker บนคอมพิวเตอร์เครื่องนั้นอ่านได้
+
+แบบที่สามเก็บเป็นไฟล์แล้ว Mount เข้าไปที่ `/run/secrets/db_password` ในโหมดอ่านอย่างเดียว ผลคือ `docker inspect` แสดงแค่ว่ามีการ Mount ไฟล์ที่ Path ไหน ไม่แสดงเนื้อหา และ `docker history` ก็ไม่มี แต่โปรแกรมข้างใน Container ที่ `cat` ไฟล์นั้นยังอ่านได้ตามปกติ
+
+ตรงนี้อยากให้ระวังข้อสรุปเกินจริงสักนิดนะ การ Mount ไฟล์ทำให้ความลับไม่ติดอยู่ใน Image และไม่ขึ้นใน `docker inspect` เท่านั้น ใครก็ตามที่เข้าไปรันคำสั่งข้างใน Container ได้ (เช่น `docker exec`) ยังอ่านไฟล์นั้นได้ และไฟล์บนเครื่อง Host ก็ยังต้องมีสิทธิ์ของมันเอง ผู้เขียนไม่ได้ลองเครื่องมือจัดการความลับจริงอย่าง Vault หรือ Secret ของ Kubernetes ซึ่งหนังสือแนะนำให้ใช้เมื่อต้องเก็บ
+
+<Question
+  client:visible
+  q="ทีมต้องส่งรหัสผ่านฐานข้อมูลให้ Container ที่รันบนคอมพิวเตอร์ที่ Developer หลายคนมีสิทธิ์ใช้ Docker และต้องการให้รหัสผ่านไม่ไปอยู่ใน Image ที่ Push ขึ้น Registry วิธีไหนปลอดภัยกว่าวิธีอื่น โดยดูจากที่แบบฝึกวัด"
+  options={[
+    'เขียน ENV DB_PASSWORD ใน Dockerfile เพราะสะดวกที่สุด และ Image ไม่ได้เปิดสาธารณะ',
+    'ส่งด้วย Docker Run -e เพราะ Image ไม่มีรหัสผ่านแล้ว และ Docker Inspect ก็ไม่แสดง',
+    'Mount เป็นไฟล์เข้า Container เพราะไม่อยู่ใน Image และไม่ขึ้นใน Docker Inspect ส่วนโปรแกรมข้างในยังอ่านได้',
+  ]}
+  answer={2}
+  why="แบบฝึกวัดไว้ว่า ENV ใน Dockerfile ปรากฏใน Docker History ของ Image, -e ปรากฏใน Docker Inspect ของ Container (แม้ไม่ปรากฏใน History) ส่วนไฟล์ที่ Mount ไม่ปรากฏทั้งสองที่ ตัวเลือกที่สองจึงผิดตรงที่บอกว่า Docker Inspect ไม่แสดง ในความจริง Docker Inspect แสดงค่าที่ส่งด้วย -e ข้อจำกัดคือการ Mount ไม่ได้ทำให้ปลอดภัยเด็ดขาด ใครรันคำสั่งข้างใน Container ได้ยังอ่านไฟล์ได้"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| app.py ไฟล์เดียวกัน (sha256 ขึ้นต้น 3f00593d55ea) พิมพ์ผลต่างกันใน Dev, Staging, Prod | รัน: `exercises/03_config_secrets.py` |
+| ขาดตัวแปรที่จำเป็นแล้วโปรแกรมหยุดด้วย Exit Code 2 และบอกชื่อตัวแปร | รัน: `exercises/03_config_secrets.py` |
+| ตัวตรวจ Parity จับ Environment ที่ขาด Key ได้ | รัน: `exercises/03_config_secrets.py` |
+| ENV ใน Dockerfile อ่านได้จาก Docker History, -e อ่านได้จาก Docker Inspect, ไฟล์ที่ Mount อ่านได้เฉพาะจากข้างใน | รัน: `exercises/03_config_secrets.py` (Docker Engine 29) |
+| Environment แบบ Dev, Staging, Prod | หนังสือ: Fundamentals of DevOps and Software Delivery บทที่ 6 หน้า 228 ถึง 229 |
+| กฎ "อย่าเก็บความลับเป็น Plaintext" และเหตุผล | หนังสือ: เล่มเดิม บทที่ 8 หน้า 348 ถึง 349 |
+| ความลับสามกลุ่ม และข้อแนะนำให้หลีกเลี่ยงการเก็บถ้าทำได้ | หนังสือ: เล่มเดิม บทที่ 8 หน้า 349 ถึง 350 |
+| หลักการ 12-Factor ถูกกล่าวถึงเป็นแนวทางของสถาปัตยกรรมเว็บสมัยใหม่ | หนังสือ: The DevOps Handbook [บทที่ 7](/devops/gitops/) (ไม่ได้อ่านละเอียด) |
+| Vault และ Secret ของ Kubernetes ไม่ได้ลอง | ผู้เขียน |
+
+</Step>

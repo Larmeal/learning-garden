@@ -1,0 +1,120 @@
+---
+title: Observability
+summary: เราส่งคำขอ 60 ตัวผ่านสอง Service แล้วดูพวกมันผ่าน Metrics, Logs และ Trace ว่าแต่ละอย่างตอบอะไรได้ ตอบอะไรไม่ได้ และดู Prometheus ตัวจริงมาเก็บตัวเลขเดียวกัน
+facts:
+  - "รันจริงใน exercises/08_observability.py: Service สองตัว (gateway เรียก inventory) ที่เขียน Log เป็น JSON, มีหน้า /metrics รูปแบบข้อความของ Prometheus และส่ง trace id ต่อกัน ส่งคำขอ 60 ตัว (เร็ว 40, ช้า 15, พัง 5) ตรวจตัวนับ 55 กับ 5, Histogram สะสม, ค่าเฉลี่ย 39 ms ที่ซ่อนว่าหนึ่งในสี่ช้า, Log ที่ระบุคำขอที่พัง และ trace id เดียวที่โผล่ในสอง Service พร้อมความสัมพันธ์แม่ลูก และรัน Prometheus จริง (prom/prometheus v3.5.0 ใน Docker) ซึ่ง Scrape ได้ตัวเลขตรงกัน"
+  - "ไม่ได้รัน OpenTelemetry, Grafana, Loki, Jaeger หรือระบบรวม Log จริง ส่วนเรื่อง Logs และ Metrics อ่านจาก Fundamentals of DevOps and Software Delivery บทที่ 10 หน้า 450 และ 461 และเรื่อง Counter กับ Histogram จาก Prometheus Up and Running บทที่ 3 หน้า 43 ถึง 55"
+order: 8
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [gitops]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ThreeViewsLab from '../../../../components/labs/devops/ThreeViewsLab';
+
+<Step>
+
+## ระบบที่ Deploy ไปแล้ว เรามองเห็นมันอย่างไร
+
+มาถึงตอนนี้ Commit ของเราผ่าน Pipeline กลายเป็น Image ถูกปล่อยด้วยวิธีที่ย้อนกลับได้ และมี Controller คอยดูแลให้ตรงกับ Git แต่ทั้งหมดนั้นไม่ได้บอกเราเลยว่าผู้ใช้จริงได้รับอะไรอยู่ [บทที่ 5](/devops/release/) ให้เห็นแล้วว่าบั๊กอาจโผล่เฉพาะคำขอจริงบางแบบ เราจึงต้องมองเห็นสิ่งที่เกิดขึ้นข้างใน
+
+หนังสือ Fundamentals of DevOps and Software Delivery แบ่งสิ่งที่เรามองจากข้างนอกได้เป็นชนิดต่าง ๆ โดยเริ่มจาก Logs คือบันทึกว่าเกิดอะไรขึ้นในซอฟต์แวร์ ไม่ว่าจะเป็นเหตุการณ์สำคัญ ข้อผิดพลาด หรือข้อมูลสำหรับ Debug ใช้ได้ทั้ง Debug วิเคราะห์ และเป็นหลักฐานตรวจสอบย้อนหลัง (หนังสือ: Fundamentals of DevOps and Software Delivery บทที่ 10 หน้า 450) ส่วน Metrics คือการวัดเชิงปริมาณของสิ่งสำคัญในซอฟต์แวร์ ใช้ตรวจจับปัญหา เช่นค่า Latency ที่พุ่งขึ้นกะทันหันมักเป็นสัญญาณเตือนแรก (หนังสือ: เล่มเดิม หน้า 461)
+
+ในแบบฝึกเราสร้างระบบเล็ก ๆ ที่มีสอง Service คือ Gateway ที่รับคำขอแล้วเรียก Inventory ต่อ ทั้งสองเขียน Log เป็นบรรทัด JSON หนึ่งบรรทัดต่อคำขอ นับจำนวนคำขอและเวลาตอบเป็น Metrics ที่เปิดอ่านได้ที่ `/metrics` และส่ง `trace id` ต่อกันตอน Gateway เรียก Inventory จากนั้นส่งคำขอ 60 ตัว เป็นคำขอปกติ 40 ตัว ตัวที่ช้า 15 ตัว (Inventory หน่วงไว้ 150 ms) และตัวที่ล้มเหลว 5 ตัว เรียงแบบสุ่มด้วย Seed คงที่ (รัน)
+
+</Step>
+
+<Step>
+
+## Metrics: บอกว่ามีกี่ตัว แต่ไม่บอกว่าตัวไหน
+
+หน้า `/metrics` ของ Gateway พิมพ์ข้อความอย่างนี้ ซึ่งเป็นรูปแบบข้อความที่ Prometheus อ่านได้ (รัน)
+
+```text
+# TYPE http_requests_total counter
+http_requests_total{service="gateway",path="/order",status="200"} 55
+http_requests_total{service="gateway",path="/order",status="500"} 5
+# TYPE http_request_duration_seconds histogram
+http_request_duration_seconds_bucket{service="gateway",path="/order",le="0.025"} 45
+...
+```
+
+บรรทัดแรกคือ Counter คือตัวเลขที่นับขึ้นอย่างเดียว บอกว่ามีคำขอที่ตอบ 200 อยู่ 55 ตัว และ 500 อยู่ 5 ตัว ส่วนเวลาตอบเก็บเป็น Histogram ที่มี Bucket ซ้อนกันแบบสะสม (Cumulative) ตัวเลขใน `le="0.1"` คือจำนวนคำขอที่ตอบใน 0.1 วินาทีหรือน้อยกว่า และ Bucket สุดท้าย `+Inf` เท่ากับจำนวนทั้งหมดเสมอ (หนังสือ: Prometheus Up and Running บทที่ 3 หน้า 43 ถึง 55) ในแบบฝึก Bucket ที่ 0.025, 0.05 และ 0.1 ได้ 45 ทั้งสามตัว ส่วน 0.25 กับ `+Inf` ได้ 60 แปลว่าคำขอเร็วทั้ง 45 ตัวตอบทันใน 25 ms และอีก 15 ตัวตอบหลัง 100 ms
+
+ทีนี้มีกับดักข้อหนึ่ง เวลาตอบเฉลี่ย (ผลรวมหารจำนวน) ของคำขอทั้งหมดคือราว 39 ms ซึ่งดูดีมาก ทั้งที่หนึ่งในสี่ของคำขอรอ 150 ms ถ้าอ่านเฉพาะค่าเฉลี่ยเราจะไม่เห็นความช้านั้น ส่วนเปอร์เซ็นไทล์ที่ 95 จาก Histogram อยู่ใน Bucket 0.25 ทันที (รัน) Histogram จึงบอกความช้าของส่วนท้ายได้ดีกว่าค่าเฉลี่ย
+
+แต่ Metrics ตอบอีกอย่างไม่ได้ มันรู้ว่ามีคำขอที่พัง 5 ตัว แต่ไม่รู้ว่าเป็นตัวไหน เพราะมันเก็บแค่ผลรวม
+
+</Step>
+
+<Step>
+
+## Logs และ Trace ช่วยกันหาตัวที่พัง
+
+เลือกมุมมองใน Lab ทีละอัน และเลือกคำขอที่จะตาม ดูว่าอะไรเปลี่ยนไปเมื่อสลับมุมมอง
+
+<ThreeViewsLab client:visible />
+
+มุมมอง Logs ตอบคำถามว่า "ตัวไหน" แต่ละ Service เขียนบรรทัด JSON ของตัวเอง มี `trace_id`, `span_id`, `status` และ `ms` ในแบบฝึก Log ของ Gateway ระบุคำขอที่ล้มเหลวได้พอดีห้าบรรทัด ซึ่งตรงกับตัวนับ 5 ใน Metrics (รัน)
+
+มุมมอง Trace ตอบคำถามที่สามคือ "ล้มหรือช้าที่ Service ไหน" `trace id` ที่ Gateway สร้างถูกส่งต่อให้ Inventory ในหัวข้อ HTTP และ Inventory ระบุว่า Span แม่คือของ Gateway (รัน) ผลคือเราตามคำขอพังหนึ่งตัวข้ามสอง Service ได้ จะเห็นว่า Inventory ตอบ 500 เองก่อน (ใช้เวลา 0.0 ms) แล้ว Gateway รับต่อและตอบ 500 กลับไป จึงรู้ว่าต้นเหตุอยู่ที่ Inventory ไม่ใช่ Gateway เช่นเดียวกัน คำขอที่ช้าเสียเวลา 150.4 ms ใน Inventory จาก 152 ms ทั้งหมดของ Gateway (รัน) ตรงกับที่ Metrics บอกไว้ว่ามีคำขอช้า แต่ไม่ได้บอกว่าช้าที่ไหน
+
+ทั้งสามอย่างจึงใช้ต่อกันเป็นลำดับ **ขั้นแรก** Metrics บอกว่ามีปัญหา (ตัวเลข 500 ขึ้น) **ขั้นต่อมา** Logs บอกว่าคำขอไหนบ้าง และ **ขั้นสุดท้าย** Trace บอกว่าปัญหาอยู่ที่ Service ไหน ผู้เขียนไม่ได้ลองเครื่องมือจริงอย่าง OpenTelemetry, Jaeger หรือ Loki ซึ่งทำสามอย่างนี้ในระบบใหญ่ แบบฝึกส่ง `trace id` เองด้วยหัวข้อ HTTP
+
+</Step>
+
+<Step>
+
+## Prometheus ตัวจริงเก็บตัวเลขเดียวกัน
+
+หน้า `/metrics` ที่เขียนเองเป็นแค่ข้อความ Prometheus ตัวจริงคือโปรแกรมที่เข้ามาอ่านหน้านี้ซ้ำ ๆ เรียกว่า Scrape และเก็บค่าตามเวลา ในแบบฝึกเรารัน Prometheus (Image `prom/prometheus:v3.5.0` ใน Docker) ให้ Scrape ทั้งสอง Service ทุกวินาที แล้วถามด้วยภาษา Query ของมัน ผลที่ได้ตรงกับที่เรานับเอง (รัน)
+
+```text
+sum(http_requests_total{service="gateway",status="500"})   →  5
+sum(http_requests_total{service="gateway"})                →  60
+count(up == 1)                                             →  2
+histogram_quantile(0.95, ...)                              →  มากกว่า 0.1 วินาที
+```
+
+ตัวเลขห้าที่ Prometheus บอกคือจำนวนเดียวกับที่ Log ระบุชื่อคำขอไว้ห้าตัว ซึ่งเป็นการตรวจว่าสองมุมมองนี้ไม่ขัดกัน และผล `count(up == 1)` ที่เท่ากับสองบอกว่ามัน Scrape ได้ทั้งสอง Service
+
+<Callout type="note" title="ของที่ไม่ได้ลอง">
+ไม่ได้รัน Grafana สำหรับทำ Dashboard, Alertmanager (เป็นเรื่องของ[บทที่ 9](/devops/slo/)), ระบบรวม Log อย่าง Loki หรือ Elasticsearch และ OpenTelemetry Collector ผู้เขียนสร้าง Metrics, Log และ Trace id ด้วยโค้ดสั้น ๆ เองเพื่อให้เห็นรูปแบบ ในระบบจริงมักใช้ไลบรารีอย่าง `prometheus_client` ที่ Prometheus Up and Running สอนไว้ (หนังสือ: Prometheus Up and Running [บทที่ 3](/devops/config-secrets/))
+</Callout>
+
+<Question
+  client:visible
+  q="แดชบอร์ดแสดงว่าเวลาตอบเฉลี่ยของ Gateway อยู่ที่ 39 ms ซึ่งดูปกติ แต่ลูกค้าบ่นว่าช้า ข้อไหนอธิบายได้ถูกที่สุดจากสิ่งที่แบบฝึกแสดง"
+  options={[
+    'ลูกค้าคิดไปเอง เพราะค่าเฉลี่ยเป็นตัวชี้วัดที่เชื่อถือได้ที่สุด',
+    'ค่าเฉลี่ยซ่อนความช้าของส่วนท้ายได้ ควรดู Histogram หรือเปอร์เซ็นไทล์ ซึ่งในแบบฝึกชี้ว่าหนึ่งในสี่ของคำขอใช้เวลาเกิน 100 ms',
+    'ต้องเพิ่มจำนวน Service เพื่อให้ค่าเฉลี่ยลดลง',
+  ]}
+  answer={1}
+  why="ในแบบฝึก 15 จาก 60 คำขอถูกหน่วงไว้ 150 ms ค่าเฉลี่ยจึงดูดีที่ 39 ms แต่ Histogram แสดงว่า Bucket 0.1 ได้ 45 ส่วน 0.25 ได้ 60 และเปอร์เซ็นไทล์ที่ 95 อยู่ใน Bucket 0.25 ตัวเลขเดียวที่เป็นค่าเฉลี่ยจึงไม่พอสำหรับวัดประสบการณ์ของผู้ใช้"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| ตัวนับ 55 กับ 5, Histogram สะสม (45, 45, 45, 60, 60), ค่าเฉลี่ย 39 ms และเปอร์เซ็นไทล์ที่ 95 อยู่ใน Bucket 0.25 | รัน: `exercises/08_observability.py` |
+| Log ระบุคำขอที่พัง 5 ตัว และ Trace id เดียวโผล่ในสอง Service พร้อมความสัมพันธ์แม่ลูก | รัน: `exercises/08_observability.py` |
+| Prometheus จริง (v3.5.0) Scrape ได้ 5 ตัวที่ Status 500, 60 ตัวทั้งหมด และ 2 เป้าหมาย | รัน: `exercises/08_observability.py` (Docker Engine 29) |
+| Logs ใช้ Debug วิเคราะห์ และตรวจสอบย้อนหลัง | หนังสือ: Fundamentals of DevOps and Software Delivery บทที่ 10 หน้า 450 |
+| Metrics ใช้ตรวจจับปัญหา เช่น Latency ที่พุ่ง | หนังสือ: เล่มเดิม บทที่ 10 หน้า 461 |
+| Counter และ Histogram แบบสะสม (le และ +Inf) | หนังสือ: Prometheus Up and Running บทที่ 3 หน้า 43 ถึง 55 |
+| ลำดับ Metrics แล้ว Logs แล้ว Trace เป็นขั้นตอนการหาสาเหตุ | ผู้เขียน |
+| OpenTelemetry, Grafana, Loki, Jaeger ไม่ได้รัน | ผู้เขียน |
+
+</Step>

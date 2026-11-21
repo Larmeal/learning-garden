@@ -1,0 +1,153 @@
+---
+title: Continuous integration
+summary: We build the smallest CI server that really works, a Git hook that runs lint, test and build on every push, and see where the pipeline stops and which commit an artifact comes from.
+facts:
+  - "Run in exercises/02_ci_pipeline.py with Git 2.56.1: the post-receive hook of a bare repository calls ci_runner.py, which reads pipeline.toml from the pushed commit, runs lint, test and build in order, and stops at the first failing stage. Checked: a green commit gets an artifact named after the commit, a commit with a failing test gets none, a commit that adds a stage is judged by that stage at once, and building the same commit twice gives a file that is identical byte for byte."
+  - "GitHub Actions was not run (it needs GitHub). The workflow file and the explanation of on, jobs, runs-on and steps are read from Learning GitHub Actions, chapter 4, pages 41 to 42, and gates and transformations from Grokking Continuous Delivery, chapter 2, pages 20 to 22."
+order: 2
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [version-control]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import PipelineLab from '../../../../components/labs/devops/PipelineLab';
+
+<Step>
+
+## Somebody has to run the tests for every commit
+
+In [lesson 1](/en/devops/version-control/) we saw that a test run on the combined result is what catches the problem. But if every developer has to remember to run it before pushing, there will be a day somebody forgets. And even if everybody remembers, each computer is different (other library versions, another operating system), so a pass on one computer is not yet the answer of the team.
+
+The book Grokking Continuous Delivery tells this with a character named Topher who has to run the pipeline by hand every time somebody pushes, until his whole day goes on running it. His way out is to let the version control system send a signal whenever something changes, which is called a webhook (book: Grokking Continuous Delivery, chapter 2, pages 27 to 29).
+
+Git has the same mechanism built in, called a hook. Let's build the smallest CI server we can. The central repository that everyone pushes to has a hook named `post-receive` that Git calls by itself every time it receives a commit, and that hook calls a small program (`ci_runner.py` in the exercise) to run the pipeline (ran).
+
+```bash
+git push origin main
+```
+
+```text
+remote: [ci] 319ff69: 3 stages from pipeline.toml
+remote: [ci]   lint           passed
+remote: [ci]   test           passed
+remote: [ci]   build          passed
+remote: [ci] 319ff69 passed
+```
+
+The lines that start with `remote:` are what the hook printed for the person who pushed. The pushed commit holds one file, `pipeline.toml`, that says how many stages the pipeline has. The runner puts the files of that commit into a new clean folder and runs the stages one by one.
+
+</Step>
+
+<Step>
+
+## Gates and transformations
+
+There are three stages above, but they do not all do the same kind of work. Grokking Continuous Delivery divides pipeline tasks in two. A gate is a quality check the code must pass, and if it fails the code should not go on. A transformation changes the code from one form into another, or changes some part of the world using that code (book: Grokking Continuous Delivery, chapter 2, pages 21 to 22).
+
+| Our stage | Kind | What it does |
+|---|---|---|
+| Lint | Gate | Looks at the code without running it for common mistakes and wrong syntax |
+| Test | Gate | Runs the code and compares with what was expected |
+| Build | Transformation | Turns the code into a form that can be used (a zip file in the exercise) |
+
+The book says the gates are mostly the CI part of a pipeline, and when people say "CI failed" they usually mean a gate failed (book: same, page 21). Build, publish and deploy are transformations, and they come in the lessons after this one. The author admits some people count building as part of CI too. In this lesson we use CI for the checking, and call the whole line the pipeline.
+
+</Step>
+
+<Step>
+
+## Press play and watch where the pipeline stops
+
+Look at the three cases that were really pushed in the exercise. In the first everything passes. In the second the greeting was changed from `hello` to `hi` and the test was not updated. In the last there is a syntax error. Watch two things. One is what happens to the stages after the one that fails. The other is whether the artifact shelf on the right is empty or holds something.
+
+<PipelineLab client:visible lang="en" />
+
+With the syntax error, lint fails first and test and build are skipped altogether. We call this fail fast: it fails early and cheaply, because a test can never succeed on a file with wrong syntax, so running it would only waste time. In the failing test case, the commit gets no artifact at all (ran). There is no zip file for that commit on the shelf, so nobody can pick it up and deploy it by accident.
+
+</Step>
+
+<Step>
+
+## The pipeline is code, and it lives inside the commit
+
+Notice that the runner reads `pipeline.toml` from the commit that was pushed, not from a file configured on the server. That means the definition of the pipeline is part of the code. It can be reviewed, it has a history, and it changes together with the code. The idea is called pipeline as code.
+
+```toml
+[[stage]]
+name = "lint"
+run = "python -m py_compile app.py"
+
+[[stage]]
+name = "test"
+run = "python -m unittest discover -q"
+
+[[stage]]
+name = "build"
+run = "python build.py"
+```
+
+In the exercise one commit added a new stage named `secret-scan` that checks whether the code contains text that looks like an AWS key, and the same commit contained a fake key (on purpose, as a mistake). The result (ran):
+
+```text
+remote: [ci] 043529d: 4 stages from pipeline.toml
+remote: [ci]   lint           passed
+remote: [ci]   test           passed
+remote: [ci]   secret-scan    failed
+remote: [ci]   -> key found
+remote: [ci]   build          skipped
+remote: [ci] 043529d failed
+```
+
+The new gate judged the very commit that added it, with nobody configuring the server. The next commit removed the key and passed all four stages, which gave a second artifact.
+
+<Callout type="try" title="Compared with GitHub Actions">
+The real thing most teams use is a YAML file in `.github/workflows/`, and the book Learning GitHub Actions gives a starter example. The `on` section says when to start (for example a push or pull request to `main`), `jobs` holds the work of the workflow, `runs-on` says which system it runs on, and `steps` is the sequence of commands, which can be a ready-made action such as `actions/checkout@v3` or a shell command with `run` (book: Learning GitHub Actions, chapter 4, pages 41 to 42). Compared with ours, `on` matches the `post-receive` hook, `steps` match `[[stage]]`, and `runs-on` matches the computer the runner works on. GitHub Actions itself was not run in this lesson, so this is understanding from the book.
+</Callout>
+
+</Step>
+
+<Step>
+
+## An artifact must lead back to a commit
+
+The last stage of the exercise pipeline is build, which makes a file `app-<commit>.zip`. The commit is always in the name, so we see at once which code the file we are about to deploy came from, and nobody can swap in a file built on their own computer. When the exercise built the same commit twice, the two files were identical byte for byte (the SHA-256 started with `cf58ca5f9dd1eeff` both times), because we set the times inside the zip file to a fixed value (ran). Without that, the time would follow the clock and every build would give a different file.
+
+Keep this in mind. In [lesson 4](/en/devops/artifacts/) we will see that a Docker image is not like this by default: building again gives a new ID every time. That is the reason for the rule "build once, then use the same artifact in every environment".
+
+<Question
+  client:visible
+  lang="en"
+  q="A developer pushes a commit with one syntax error. The pipeline has three stages: lint, test and build. Which result is correct?"
+  options={[
+    'Lint fails, then test and build still run so that we get a complete report',
+    'Lint fails, test and build are skipped, and this commit has no artifact',
+    'Lint fails, but build still runs because it is a transformation and not a gate',
+  ]}
+  answer={1}
+  why="In the exercise lint fails first, the other two stages are skipped, and there is no zip file for that commit. Fail fast saves time because a test cannot run on a file with a syntax error, and build, being a transformation, should not make something from code that did not pass the gates. The first option wastes time and gives confusing signals. The last lets a commit that failed become an artifact."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Claim | Source |
+|---|---|
+| The post-receive hook runs a runner that reads pipeline.toml, runs lint, test and build and stops at the first failure | ran: `exercises/02_ci_pipeline.py` |
+| A green commit gets an artifact named after the commit, a commit with a failing test gets none | ran: `exercises/02_ci_pipeline.py` |
+| A commit that adds a stage is judged by the new stage at once, and secret-scan fails on a key | ran: `exercises/02_ci_pipeline.py` |
+| Building the same commit twice gives a file identical byte for byte (with fixed times in the zip) | ran: `exercises/02_ci_pipeline.py` |
+| A webhook instead of running the pipeline by hand | book: Grokking Continuous Delivery, chapter 2, pages 27 to 29 |
+| Gates and transformations, lint and test are gates | book: Grokking Continuous Delivery, chapter 2, pages 21 to 22 |
+| The GitHub Actions workflow file: on, jobs, runs-on, steps | book: Learning GitHub Actions, chapter 4, pages 41 to 42 (not run) |
+| The runner of the exercise is a small one written for it, not a real tool such as Jenkins or GitHub Actions | author |
+
+</Step>

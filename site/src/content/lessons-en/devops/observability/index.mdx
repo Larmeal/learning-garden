@@ -1,0 +1,121 @@
+---
+title: Observability
+summary: We send 60 requests through two services and look at them through metrics, logs and a trace, to see what each can and cannot answer, and we let a real Prometheus collect the same numbers.
+facts:
+  - "Run in exercises/08_observability.py: two services (a gateway that calls an inventory) write JSON logs, have a /metrics page in the Prometheus text format and pass a trace id on. 60 requests were sent (40 fast, 15 slow, 5 failed). Checked: the counters 55 and 5, the cumulative histogram, a mean of 39 ms that hides that a quarter are slow, logs that name the failed requests, one trace id that appears in both services with a parent and child, and a real Prometheus (prom/prometheus v3.5.0 in Docker) that scrapes the same numbers."
+  - "OpenTelemetry, Grafana, Loki, Jaeger and real log aggregation were not run. Logs and metrics are read from Fundamentals of DevOps and Software Delivery, chapter 10, pages 450 and 461, and counters and histograms from Prometheus Up and Running, chapter 3, pages 43 to 55."
+order: 8
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [gitops]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ThreeViewsLab from '../../../../components/labs/devops/ThreeViewsLab';
+
+<Step>
+
+## How do we see a system that is already deployed
+
+By now our commit has passed a pipeline, become an image, been released in a way we can undo, and a controller keeps it in line with Git. None of that tells us what the real users are getting. [Lesson 5](/en/devops/release/) showed that a bug may appear only on certain real requests, so we have to be able to see inside.
+
+The book Fundamentals of DevOps and Software Delivery divides what we can look at into kinds, starting with logs: records of what happens in the software, such as important events, errors and information for debugging, used to debug, to analyse and as an audit trail (book: Fundamentals of DevOps and Software Delivery, chapter 10, page 450). Metrics are quantitative measurements of important aspects of the software, used to detect problems. For example a sudden spike in latency is usually an early warning (book: same, page 461).
+
+In the exercise we build a small system with two services: a gateway that takes a request and then calls an inventory. Both write one JSON log line per request, count requests and time them in metrics that can be opened at `/metrics`, and pass a `trace id` on when the gateway calls the inventory. Then we send 60 requests: 40 normal ones, 15 slow ones (the inventory delays them by 150 ms) and 5 that fail, in a shuffled order with a fixed seed (ran).
+
+</Step>
+
+<Step>
+
+## Metrics: how many, but not which
+
+The `/metrics` page of the gateway prints text like this, which is a text format that Prometheus can read (ran).
+
+```text
+# TYPE http_requests_total counter
+http_requests_total{service="gateway",path="/order",status="200"} 55
+http_requests_total{service="gateway",path="/order",status="500"} 5
+# TYPE http_request_duration_seconds histogram
+http_request_duration_seconds_bucket{service="gateway",path="/order",le="0.025"} 45
+...
+```
+
+The first lines are a counter, a number that only goes up. It says that 55 requests got a 200 and 5 got a 500. The response time is kept as a histogram with buckets that are cumulative: the number in `le="0.1"` is the count of requests that answered within 0.1 seconds or less, and the last bucket `+Inf` always equals the total (book: Prometheus Up and Running, chapter 3, pages 43 to 55). In the exercise the buckets 0.025, 0.05 and 0.1 are all 45, and 0.25 and `+Inf` are 60. That means 45 fast requests answered within 25 ms and the other 15 after 100 ms.
+
+There is a trap here. The mean response time (the sum divided by the count) of all requests is about 39 ms, which looks fine, even though a quarter of the requests waited 150 ms. If we read only the mean we do not see that slowness. The 95th percentile from the histogram lands straight in the 0.25 bucket (ran). A histogram shows the slow tail better than a mean.
+
+But metrics cannot answer something else. They know that 5 requests failed, but not which ones, because they keep only totals.
+
+</Step>
+
+<Step>
+
+## Logs and a trace find the one that failed
+
+Choose the lenses in the lab one at a time, and choose the request to follow. See what changes when you switch the lens.
+
+<ThreeViewsLab client:visible lang="en" />
+
+The logs lens answers "which one". Each service writes its own JSON line, with `trace_id`, `span_id`, `status` and `ms`. In the exercise the gateway log names exactly five failed requests, matching the 5 of the metrics (ran).
+
+The trace lens answers the third question, "where did it fail or get slow". The `trace id` that the gateway makes is passed on to the inventory in an HTTP header, and the inventory says its parent span is the gateway's (ran). So we can follow one failed request across two services. We see that the inventory answered 500 first (taking 0.0 ms) and the gateway took it over and answered 500 back, so the cause is in the inventory, not the gateway. In the same way a slow request spent 150.4 ms in the inventory out of the 152 ms of the gateway (ran). This matches the metrics saying there are slow requests, but they did not say where.
+
+So the three are used one after another. **First**, metrics say that something is wrong (the 500 counter goes up). **Next**, logs say which requests. **Last**, a trace says in which service. The author did not try real tools such as OpenTelemetry, Jaeger or Loki, which do these three in big systems. The exercise passes the `trace id` itself in an HTTP header.
+
+</Step>
+
+<Step>
+
+## A real Prometheus collects the same numbers
+
+The `/metrics` page we wrote is only text. A real Prometheus is the program that comes and reads that page again and again, called scraping, and keeps the values over time. In the exercise we ran Prometheus (the image `prom/prometheus:v3.5.0` in Docker) to scrape both services every second, and then asked it with its query language. The answers match what we counted ourselves (ran).
+
+```text
+sum(http_requests_total{service="gateway",status="500"})   →  5
+sum(http_requests_total{service="gateway"})                →  60
+count(up == 1)                                             →  2
+histogram_quantile(0.95, ...)                              →  more than 0.1 seconds
+```
+
+The five that Prometheus reports is the same count as the five requests that the log names, which checks that the two lenses do not contradict each other, and the result `count(up == 1)` equal to two says it scraped both services.
+
+<Callout type="note" title="What was not tried">
+Grafana for dashboards, Alertmanager (the topic of [lesson 9](/en/devops/slo/)), log aggregation such as Loki or Elasticsearch, and the OpenTelemetry Collector were not run. The author made the metrics, the log and the trace id with short code to show the shape. A real system usually uses a library such as `prometheus_client`, which Prometheus Up and Running teaches (book: Prometheus Up and Running, [chapter 3](/en/devops/config-secrets/)).
+</Callout>
+
+<Question
+  client:visible
+  lang="en"
+  q="A dashboard shows the mean response time of the gateway at 39 ms, which looks normal, but customers complain that it is slow. Going by what the exercise shows, which explanation is the most accurate?"
+  options={[
+    'The customers imagine it, because the mean is the most reliable measure',
+    'A mean can hide a slow tail. We should look at the histogram or a percentile, which in the exercise shows that a quarter of the requests took more than 100 ms',
+    'We need more services so that the mean goes down',
+  ]}
+  answer={1}
+  why="In the exercise 15 of 60 requests were delayed by 150 ms, so the mean looks fine at 39 ms. But the histogram shows 45 in the 0.1 bucket and 60 in the 0.25 bucket, and the 95th percentile is in the 0.25 bucket. A single mean is not enough to measure what users feel."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Claim | Source |
+|---|---|
+| The counters 55 and 5, the cumulative histogram (45, 45, 45, 60, 60), the mean of 39 ms and the 95th percentile in the 0.25 bucket | ran: `exercises/08_observability.py` |
+| The log names 5 failed requests, and one trace id appears in both services with a parent and child | ran: `exercises/08_observability.py` |
+| A real Prometheus (v3.5.0) scrapes 5 requests with status 500, 60 in all and 2 targets | ran: `exercises/08_observability.py` (Docker Engine 29) |
+| Logs are used to debug, analyse and audit | book: Fundamentals of DevOps and Software Delivery, chapter 10, page 450 |
+| Metrics detect problems, such as a spike in latency | book: same, chapter 10, page 461 |
+| Counters and cumulative histograms (le and +Inf) | book: Prometheus Up and Running, chapter 3, pages 43 to 55 |
+| The order metrics, logs, then a trace as a way to find the cause | author |
+| OpenTelemetry, Grafana, Loki and Jaeger were not run | author |
+
+</Step>

@@ -1,0 +1,112 @@
+---
+title: Capstone
+summary: เราเอาทุกอย่างจากสิบสองบทมาต่อกันเป็นเส้นเดียวในคอมพิวเตอร์เครื่องนี้ ตั้งแต่ Push ที่รัน CI, Image ใน Registry, Commit ใน Repository ของ Config, Controller และ Container ไปจนถึง Canary ที่จับบั๊กที่ Test ไม่เห็น และ Git Revert เป็น Rollback
+facts:
+  - "รันจริงใน exercises/13_capstone_pipeline.py กับ Git 2.56.1 และ Docker Engine 29: Repository ของแอปมี Hook ที่เรียก ci_runner.py (lint, test, image) แล้ว Push Image ขึ้น Registry ในเครื่อง (registry:3), Repository ของ Config เก็บ desired.json ให้ gitops.py แปลงเป็น Container ผ่านสามเวอร์ชัน (v1 ปกติ, v2 มีบั๊กกับโค้ดคูปอง WELCOME5 ที่ไม่มี Test ซึ่งผ่าน CI ทั้งหมด, v3 แก้พร้อม Test) Canary หนึ่งในสาม Replica ได้คำขอ 20 ตัว ล้ม 5 ตัว (25%) แล้ว git revert ของ Config พา Cluster กลับ จากนั้น Test ของ v3 ล้มเมื่อรันกับโค้ด v2 (KeyError) ซึ่งแปลว่าจะกัน v2 ได้ ผลสุดท้าย Registry มีสามรูป ประวัติ Config อ่านเป็นเรื่อง และ Container ใช้ Image ของ Commit สุดท้าย"
+  - "ไม่ได้รัน GitHub Actions, Kubernetes, Argo CD, Cloud จริง, HTTPS, การตรวจสอบสิทธิ์ของ Registry และไม่มีด่านความปลอดภัยของบทที่ 11 อยู่ใน Pipeline นี้ ผู้ตัดสินของ Canary เป็นโค้ดในแบบฝึก ไม่ใช่เครื่องมืออัตโนมัติ ตัวเลขเปอร์เซ็นต์ 25% ผู้ตัดสินกับเกณฑ์ 10% เป็นของแบบฝึก"
+order: 13
+phase: E
+level: 4
+stage: sprout
+format: steps
+requires: [metrics]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import CapstoneLab from '../../../../components/labs/devops/CapstoneLab';
+
+<Step>
+
+## หกสถานี หนึ่งเส้น
+
+บทสุดท้ายนี้ไม่มีของใหม่ให้เรียน เรามีหกอย่างที่แต่ละบทวาดทีละชิ้นมาแล้ว และบทนี้คือการเอามันมาต่อกัน ในคอมพิวเตอร์เครื่องเดียว ด้วยของจริงที่รันได้
+
+| สถานี | มาจากบท | ในแบบฝึกคืออะไร |
+|---|---|---|
+| Repository ของแอป | [บทที่ 1](/devops/version-control/) | Bare Repository ของ Git ที่รับ Push |
+| CI | [บทที่ 2](/devops/ci/) | Hook `post-receive` ที่เรียก `ci_runner.py` อ่าน `pipeline.toml` แล้วรัน Lint, Test, Image |
+| Registry | [บทที่ 4](/devops/artifacts/) | Container `registry:3` ในเครื่อง |
+| Repository ของ Config | [บทที่ 7](/devops/gitops/) | Bare Repository อีกที่หนึ่ง ที่เก็บไฟล์ `desired.json` |
+| Controller | [บทที่ 7](/devops/gitops/) | `gitops.py` ที่คอยเทียบ `desired.json` กับ Docker |
+| Cluster | [บทที่ 4](/devops/artifacts/) | Container ใน Docker ที่เปิดพอร์ตให้ยิงคำขอได้ |
+
+สองสิ่งที่ตั้งใจให้ต่างจากบทก่อน ๆ **สิ่งแรก** คือใช้ Repository ของ Config แยกจาก Repository ของแอป เหตุผลคือคนที่ตัดสินใจ Deploy อาจไม่ใช่คนที่เขียนโค้ด และประวัติของสองอย่างนี้ควรอ่านแยกกันได้ และ **สิ่งที่สอง** คือแอปมีสามเวอร์ชัน โดยเวอร์ชันที่สองมีบั๊กที่ Test ไม่ครอบคลุม เพื่อให้เห็นว่าเมื่อ Pipeline ไม่จับ ด่านถัดไปคือ Canary และเมื่อ Canary จับได้ ทางกลับคือ `git revert`
+
+</Step>
+
+<Step>
+
+## กดเดินตามเรื่องทั้งแปดขั้น
+
+แอปในแบบฝึกเป็น Web Server เล็ก ๆ ที่ตอบราคา เวอร์ชัน 1 ไม่สนใจคูปอง (ตอบ 100 เสมอ) เวอร์ชัน 2 เพิ่มคูปองโดยมีรหัส `SAVE10` ที่ทำงานได้ ส่วนรหัส `WELCOME5` ที่ผู้ใช้ส่งมาแต่ไม่ได้นิยามไว้ทำให้เกิด `KeyError` และตอบ 500 และเวอร์ชัน 3 เพิ่ม `WELCOME5` พร้อม Test ใน Lab ให้กดดูว่าแต่ละสถานีถืออะไรเมื่อจบแต่ละขั้น
+
+<CapstoneLab client:visible />
+
+ผลที่แบบฝึกตรวจไว้ตรงกับภาพทุกขั้น (รัน) **ขั้นแรก** Commit ของเวอร์ชัน 1 ผ่าน Lint, Test และ Image ทั้งสามด่าน และ Registry มีรูปเดียวที่มี Commit เป็น Tag เมื่อ Commit ใน Repository ของ Config ชี้ไปที่รูปนั้น Controller ก็สร้าง web-1 กับ web-2 ซึ่งตอบคำขอที่มีคูปองด้วยราคา 100 ตามเวอร์ชัน 1
+
+**ขั้นต่อมา** เวอร์ชัน 2 ผ่านทั้งสามด่านของ CI เพราะไม่มี Test ใดใช้รหัส `WELCOME5` ผลที่ได้คือ Image ที่สองเข้า Registry (เราเห็นเรื่องนี้ใน[บทที่ 5](/devops/release/) ว่าบั๊กที่ Smoke Test กับ Test มองไม่เห็นผ่านได้) เราจึง Release มันเป็น Canary คือ Commit ใน Repository ของ Config ที่ให้ Web v1 สองตัวกับ Canary v2 หนึ่งตัว คำขอ 60 ตัวถูกส่งวนรอบสามตัว ตัว Canary ได้ 20 ตัวและล้ม 5 ตัว (25%) ส่วน v1 ไม่ล้มเลย ตัวเลข 25% เกินเกณฑ์ 10% ของผู้ตัดสิน
+
+**ขั้นสุดท้ายของเรื่อง** เรา `git revert` Commit ของ Canary แล้ว Push Controller ลบ canary-1 และไม่แตะอย่างอื่น ทุกคำขอสำเร็จอีกครั้ง จากนั้นเวอร์ชัน 3 แก้บั๊กพร้อมเพิ่ม Test ซึ่ง Test ใหม่นี้ล้มเมื่อรันกับโค้ดของเวอร์ชัน 2 (มี `KeyError`) หมายความว่าถ้ามี Test นี้ตั้งแต่ต้น CI จะกัน v2 ได้ ก่อนที่มันจะถึง Canary ด้วยซ้ำ เมื่อ Release v3 Controller แทนที่ web-1 กับ web-2 และคำขอที่เคยทำ v2 พังตอบ `price=95` (รัน)
+
+</Step>
+
+<Step>
+
+## ร่องรอยที่เหลือไว้
+
+เมื่อเรื่องจบ เราถามสามคำถามกับระบบ และตอบจากสิ่งที่แต่ละสถานีเก็บไว้ได้ทั้งหมด (รัน)
+
+| คำถาม | ดูที่ไหน |
+|---|---|
+| ตอนนี้อะไรรันอยู่ | Container ที่ Controller จัดการใช้ Image ของ Commit สุดท้ายทั้งสองตัว (`docker ps`) |
+| รูปนั้นมาจาก Commit ไหนของแอป | Tag ของรูปเป็นชื่อ Commit และ Registry มีสามรูป (หนึ่งรูปต่อหนึ่ง Commit ที่ผ่าน CI) |
+| ใครเปลี่ยนอะไรเมื่อไรที่ Production | `git log` ของ Repository ของ Config |
+
+และประวัติของ Repository ของ Config อ่านเป็นเรื่องได้ตามนี้ (รัน)
+
+```text
+release 7ebd8ce to production
+Revert "canary c247234: one replica of three"
+canary c247234: one replica of three
+release fa85218 to production
+```
+
+นี่คือสิ่งที่[บทที่ 0](/devops/overview/) ตั้งต้นไว้ว่าวงจรของ DevOps ต้องไปถึง ทุกการเคลื่อนไหวของโค้ดจากเครื่อง Developer ไปถึงผู้ใช้ และทางย้อนกลับเมื่อมีปัญหา เป็น Commit หรือ Tag อยู่ที่ไหนสักแห่ง ซึ่งแปลว่าตรวจย้อนหลังได้ Review ได้ และถ้าจำเป็นก็ย้อนกลับได้ด้วยคำสั่งเดียว
+
+<Callout type="note" title="สิ่งที่ Pipeline นี้ไม่มี และสิ่งที่ยังไม่ได้ลอง">
+Pipeline ของบทนี้ยังไม่มีด่านความปลอดภัยของ[บทที่ 11](/devops/devsecops/) ซึ่งใส่เพิ่มได้ในรูปแบบ Stage ของ `pipeline.toml` เหมือนที่ `secret-scan` ถูกเพิ่มใน[บทที่ 2](/devops/ci/) ผู้ตัดสินของ Canary เป็นโค้ดในแบบฝึกที่นับ Error ของ Canary ไม่ได้เป็นระบบวัดจริง ([บทที่ 8](/devops/observability/) และ [บทที่ 9](/devops/slo/)) และไม่ได้ลอง GitHub Actions, Kubernetes, Argo CD, Registry ที่ต้องล็อกอิน หรือ Cloud จริง ผู้เขียนยังไม่ได้ทดสอบว่าถ้า Pipeline ล้มกลางทางหลังจากสร้าง Image แล้ว Image นั้นจะถูกเก็บกวาดหรือไม่
+</Callout>
+
+<Question
+  client:visible
+  q="ในเรื่องของบทนี้ v2 ผ่านทั้งสามด่านของ CI แล้วเจอปัญหาตอน Canary ข้อไหนบอกสิ่งที่ควรทำเพื่อให้ปัญหาแบบนี้ไม่ผ่านมาถึง Production อีก"
+  options={[
+    'ตั้งให้ CI รันซ้ำสามรอบ เพื่อให้แน่ใจว่าผ่านจริง',
+    'เพิ่ม Test ที่ครอบคลุมคำขอแบบที่ทำให้พัง (รหัสคูปอง WELCOME5) เพราะ Test ใหม่ของ v3 ล้มเมื่อรันกับโค้ดของ v2 แปลว่าจะกัน v2 ได้ตั้งแต่ CI',
+    'ยกเลิก Canary เพราะไม่จำเป็นเมื่อมี CI',
+  ]}
+  answer={1}
+  why="ในแบบฝึก Test ที่ครอบคลุมรหัส WELCOME5 ล้มเมื่อรันกับโค้ดของ v2 (KeyError) และผ่านกับโค้ดของ v3 ดังนั้นช่องโหว่คือการขาด Test การรันซ้ำให้ผลเหมือนเดิม และ Canary ยังจำเป็น เพราะ Test ไม่มีทางครอบคลุมทุกอย่าง (เราเห็นบั๊กที่ผ่านไปได้ทั้งเวอร์ชัน 2)"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Push v1 ผ่าน Lint, Test, Image และ Registry มีหนึ่งรูปที่ Tag เป็น Commit | รัน: `exercises/13_capstone_pipeline.py` |
+| Controller สร้าง web-1, web-2 ตาม Commit ใน Repository ของ Config และผู้ใช้เห็นเวอร์ชัน 1 | รัน: `exercises/13_capstone_pipeline.py` |
+| v2 ผ่านทั้งสามด่าน เพราะไม่มี Test ใดใช้ WELCOME5 | รัน: `exercises/13_capstone_pipeline.py` |
+| Canary ได้ 20 คำขอ ล้ม 5 (25%) และ v1 ไม่ล้มเลย | รัน: `exercises/13_capstone_pipeline.py` |
+| Git Revert ของ Config ทำให้ Controller ลบ canary-1 และทุกคำขอสำเร็จอีกครั้ง | รัน: `exercises/13_capstone_pipeline.py` |
+| Test ของ v3 ล้มกับโค้ด v2 (KeyError) และผ่านกับ v3 และ Release v3 แทนที่ Web สองตัวได้ Price=95 | รัน: `exercises/13_capstone_pipeline.py` |
+| Registry สามรูป ประวัติ Config สี่บรรทัดอ่านเป็นเรื่อง และ Container ใช้ Image ของ Commit สุดท้าย | รัน: `exercises/13_capstone_pipeline.py` |
+| GitHub Actions, Kubernetes, Argo CD, Cloud จริง และด่านความปลอดภัยของ[บทที่ 11](/devops/devsecops/) ไม่ได้อยู่ใน Pipeline นี้ | ผู้เขียน |
+
+</Step>

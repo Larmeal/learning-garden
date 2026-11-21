@@ -1,0 +1,118 @@
+---
+title: DevSecOps
+summary: "We put three kinds of security gate into the pipeline: a secret scan over the Git history, matching an SBOM against advisories again when the advisories change, and an image scan with the real Trivy. Then we see what each gate catches and where on the line."
+facts:
+  - "Run in exercises/11_devsecops.py: a scan of the current files finds no key but a scan of the history does, and git log -S names two commits. A CycloneDX SBOM was made from a lock file of 5 packages and matched against a list of advisories (made up for the exercise) with 1 result on day 1 and 3 on day 30 without any new build. Trivy 0.67.2 ran in Docker with its real vulnerability database on nginx:1.21-alpine and found 101 results (11 critical) with the EOSL flag of the operating system, compared with nginx:1.28-alpine."
+  - "The advisories in the SBOM match are invented data, not real CVEs, and the number of vulnerabilities Trivy reports changes every day with its database, so the exercise checks only the structure of the result and the EOSL flag, not the counts. The supply chain and the SBOM are read from The DevOps Handbook chapter 22. Not run: signing an image, static code analysis (SAST), or scanning a running container."
+order: 11
+phase: E
+level: 4
+stage: sprout
+format: steps
+requires: [incidents]
+updated: 2026-11-19
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import GatesLab from '../../../../components/labs/devops/GatesLab';
+
+<Step>
+
+## Security is the job of every gate
+
+So far we have a pipeline that checks the code and makes an artifact whose origin we know. The question left is how safe what we deploy is. In the old world this was often the last step, where a security team checked before release, which meant a queue as we saw in [lesson 0](/en/devops/overview/), and the problems were found close to the release day.
+
+The DevOps Handbook tells that organisations that do well put security checks into the daily work and tools of developers, because that lowers risk, lowers the chance of vulnerabilities in the system, and teaches developers to write more secure code (book: The DevOps Handbook chapter 22). It also stresses that the software we write does not come entirely from our own code. We assemble it from open source parts, which has become the software supply chain that we rely on, and when we use a library we inherit both its abilities and its vulnerabilities (book: The DevOps Handbook chapter 22).
+
+In this lesson there are three gates to try. Each catches a different kind of thing, at a different point on the line. For the details of each kind of threat go to [lesson 11 of App Security](/en/app-security/supply-chain-secrets/), which explains dependencies and secrets. Here we care only about where those gates sit in a pipeline.
+
+</Step>
+
+<Step>
+
+## Gate one: a secret that was removed from the files is still there
+
+In [lesson 2](/en/devops/ci/) the stage `secret-scan` checked only the files in the pushed commit. But a secret that leaked once and was removed later has not gone anywhere. In the exercise we build a repository where one commit adds a fake AWS style key and the next removes it. The result (ran):
+
+```text
+scan of the files as they are now  →  nothing found
+scan of git log -p --all            →  finds AKIAIOSFODNN7EXAMPLE
+git log -S AKIAIOSFODNN7EXAMPLE     →  two commits (the one that added, the one that removed)
+git show HEAD~1:settings.py         →  the key is still in the object store
+```
+
+A scanner that reads only the current files says all is safe, while the key sits in the history, which everyone who clones the repository takes away. A gate that checks secrets must therefore read the whole history, and when it finds a key that once leaked, we must treat it as leaked and rotate the key, not just delete the file (the deeper reasons are in [lesson 11 of App Security](/en/app-security/supply-chain-secrets/#a-key-that-is-deleted-and-still-there)).
+
+</Step>
+
+<Step>
+
+## Gate two: an SBOM that can be matched again at any time
+
+The second gate comes from the observation that the risk of built code is not fixed. A vulnerability found after the build can make the same artifact riskier without anybody touching it. The way to deal with it is to keep the list of the components of the artifact, called an SBOM (software bill of materials). The DevOps Handbook cites a survey that high performers often keep a central record of all deployed artifacts, to produce an SBOM for each application and to scan all deployed artifacts centrally for security and licence compliance (book: The DevOps Handbook chapter 22).
+
+In the exercise we make an SBOM in the CycloneDX format from a lock file of five packages, and match it twice against a list of advisories that we made up (not real CVEs) (ran).
+
+```text
+day 1 :  [('EXAMPLE-0001', 'pyyaml', 'critical')]
+day 30:  [('EXAMPLE-0002', 'requests', 'high'),
+          ('EXAMPLE-0003', 'jinja2', 'medium'),
+          ('EXAMPLE-0001', 'pyyaml', 'critical')]
+```
+
+The bytes of the artifact did not change between the two days, but what we know about it did. On day 1 a gate set to fail from `high` stops the build (because pyyaml is critical), while a gate that fails only on `critical` lets a build with just a medium finding pass, and on day 30 the gate at `high` fails because of requests and pyyaml (ran). This is why we keep the SBOM: otherwise we would have to build again every time a new vulnerability appears, only to find out whether we are affected.
+
+</Step>
+
+<Step>
+
+## Gate three: scan the image with a real tool
+
+The last gate scans the whole image, including the operating system inside, not only the dependencies of the app. In the exercise we ran Trivy 0.67.2 in Docker with its real vulnerability database, and scanned `nginx:1.21-alpine`, an old image. The result (ran):
+
+```text
+nginx:1.21-alpine: 101 known vulnerabilities, 11 critical   (Alpine 3.15 out of support: EOSL)
+nginx:1.28-alpine: 287 known vulnerabilities, 6 critical
+```
+
+Ask yourself why the newer image has more vulnerabilities detected. The author did not check the cause, but noticed that Trivy flags the old image with `EOSL` (end of support life), which is more important than the numbers. One possible reason is that the maintainers of the operating system stop publishing vulnerabilities for a release that is out of support, so a small number does not mean safer (this is a guess, the author did not check it). What is certain is that a scan result is the answer of today. Scan the same tag tomorrow and the numbers may differ (so the exercise checks only that the result has the name of the package, the installed version and the severity, and that the old image is flagged EOSL).
+
+Choose a threat in the lab one at a time and see which gate stops it, which gates it has already passed, and which ones it never has to reach.
+
+<GatesLab client:visible lang="en" />
+
+<Callout type="note" title="What was not tried">
+Signing an image or an artifact to prove where it came from, static analysis of our own code (SAST), dynamic testing (DAST) or scanning a running container were not tried. Neither was managing the secrets that the pipeline itself uses, which is the topic of The DevOps Handbook chapter 23 (Protecting the Deployment Pipeline), and the author did not read it in detail.
+</Callout>
+
+<Question
+  client:visible
+  lang="en"
+  q="On day 1 the SBOM of an artifact passed the check, and there was no new build. On day 30 the team finds that the same artifact has a high vulnerability. What happened, and what should be done?"
+  options={[
+    'The artifact changed its bytes by itself, so we must find who edited the file',
+    'The bytes did not change, but a new vulnerability was published after that day. We should keep the SBOM, match it against the advisories again regularly, and update the matching dependencies',
+    'It counts as passed, so there is no need to check again, since it passed the first scan',
+  ]}
+  answer={1}
+  why="In the exercise the same SBOM (the same bytes) matched 1 vulnerability on day 1 and 3 on day 30 with no new build. A scan result is an answer as of the day of the scan. The last option is wrong because the risk of an artifact can change after the build."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Claim | Source |
+|---|---|
+| A scan of the current files finds no key, a scan of the history does, git log -S names two commits, and the key is still in the object store | ran: `exercises/11_devsecops.py` (Git 2.56.1) |
+| An SBOM from a lock file of 5 packages matches 1 result on day 1 and 3 on day 30, and gates at high and at critical give different results | ran: `exercises/11_devsecops.py` (advisories made up for the exercise) |
+| Trivy 0.67.2 on nginx:1.21-alpine finds 101 results (11 critical) and the EOSL flag | ran: `exercises/11_devsecops.py` (the numbers change with the database every day) |
+| The maintainers of an operating system may stop publishing vulnerabilities for a release out of support | author (a guess, not checked) |
+| Integrating security into daily work, the software supply chain and the SBOM | book: The DevOps Handbook chapter 22 (the PDF has no printed page numbers) |
+| Signing an image, SAST, DAST and scanning a running container | not run |
+
+</Step>
