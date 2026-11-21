@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check how advertised.listeners makes a client fail, where the bookmark of a group is, when offsets can be rewound, and how a quota works.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Our application runs in a container in the same network as the broker, with a bootstrap by an internal name, while the broker advertises only the external listener 127.0.0.1:29092 and has no internal listener. What is the result?"
+  options={[
+    'It works, because 127.0.0.1 always means the broker',
+    'It may not connect, because 127.0.0.1 inside the application\'s container means the application itself, not the broker. The broker must advertise a name that can be reached from where the client runs',
+    'Kafka changes the address by itself according to where the client is',
+    'It works for the producer only'
+  ]}
+  answer={1}
+  why="A client uses the name the broker advertises to connect after it has asked the bootstrap. That name must be reachable from the client's own position. In the exercises we set two listeners, so a client in the Docker network uses the container name and a client on the computer uses 127.0.0.1 (the lab of this lesson shows the cells that were not run and explains them by the same rule)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Where in Kafka is the committed offset (bookmark) of the group billing kept?"
+  options={[
+    'In a file on the computer of the consumer',
+    'In the internal topic __consumer_offsets, in the partition we get by hashing the group name and taking the remainder by 50',
+    'In ZooKeeper',
+    'In the memory of the producer'
+  ]}
+  answer={1}
+  why="A committed offset is a record in an internal topic of 50 partitions. The partition of a group is computed from the group name. In the exercise billing went to partition 9, and it was the only partition with data (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We want a group to read a topic again from the start after fixing the code, but a consumer of the group is still running. What should we do?"
+  options={[
+    'Run the reset offsets command with execute straight away, while the consumer is still reading',
+    'Stop the consumers of the group first (so the group is empty) and then run the reset, because Kafka refuses to rewind while the group has members',
+    'Delete the topic and create it again',
+    'Add partitions'
+  ]}
+  answer={1}
+  why="If we rewound while a consumer was running, that consumer would commit over the value we just set, so Kafka answers that assignments can only be reset if the group is inactive, as the exercise saw (ran). Always look at the result with a dry run first."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We set a quota of 200 KB per second on a client and test by sending 800 KB. It does not slow down at all. Which statement explains it?"
+  options={[
+    'Quotas do not work for producers',
+    'A quota allows a short burst, about ten seconds of the rate we set, so a small test is too small to be slowed. We have to send much more to see the effect',
+    'The broker does not read the quota value',
+    'The quota has to be set on the consumer first'
+  ]}
+  answer={1}
+  why="In the exercise 800 KB showed no effect, but 4 MB took 12.8 seconds against 0.2 seconds without a quota (ran). The burst was about 2 MB, as we observed."
+/>
+
+</Step>

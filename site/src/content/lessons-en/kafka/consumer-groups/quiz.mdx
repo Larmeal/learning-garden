@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you understand how partitions are split inside a group, the period after a consumer crashes, the moment of commit and repeats or loss, and auto.offset.reset.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A group has 2 consumers reading a topic of 6 partitions. The first one is killed without saying goodbye, and session.timeout.ms is 45 seconds. During those 45 seconds, what is the state of the partitions of the dead consumer?"
+  options={[
+    'The other consumer takes them over at once, because the broker knows the first one is gone',
+    'Nobody reads them. New records pile up in the log until the broker decides that the dead consumer has timed out',
+    'Their records are deleted',
+    'The producer stops sending to those partitions'
+  ]}
+  answer={1}
+  why="The broker can only tell that a consumer is dead from heartbeats that are missing, and it decides after session.timeout.ms has passed. The exercise killed a consumer and measured 6.1 seconds before the other got the partition, with the value set to 6 seconds (ran). While waiting, the records are not lost, they are just not being read yet."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A consumer processed 8 records but had committed only up to position 6 when the process crashed. Which records does the new consumer of the same group process again?"
+  options={[
+    'None, because Kafka remembers that it read up to 8',
+    'Records 6 and 7, because the new consumer starts from the committed position',
+    'Every record from 0, because the group starts over',
+    'Only record 8'
+  ]}
+  answer={1}
+  why="Kafka only knows the committed position and does not know how far the consumer processed. In the exercise task-6 and task-7 were processed twice (ran). This is where at-least-once delivery comes from."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Our code reads 6 records, commits at once, and then starts processing. If the process crashes before processing is finished, what is the result?"
+  options={[
+    'The records that were not processed are read again by the new consumer',
+    'The records that were committed but not yet processed are lost, because the new consumer continues from the bookmark',
+    'Kafka keeps the records and processes them again automatically',
+    'Nothing, because a commit has nothing to do with records'
+  ]}
+  answer={1}
+  why="The bookmark moved forward before the work was done, so the new consumer skips them. The exercise did exactly this and job-0 to job-5 were never processed (ran). Committing after processing risks a repeat but not a loss, which is why it is the more common choice."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We start a new group that has never read this topic with auto.offset.reset set to latest, although the topic holds 30 records. What does this group see?"
+  options={[
+    'All 30',
+    'None of the old ones, only the records sent after it starts reading',
+    'An error, because the group has no bookmark',
+    'Half of the records'
+  ]}
+  answer={1}
+  why="When a group has no bookmark, auto.offset.reset decides where it starts. latest starts at the end of the log, so it read 0 of the 30, and earliest read all 30 (ran). The mistake is quiet because no error appears."
+/>
+
+</Step>

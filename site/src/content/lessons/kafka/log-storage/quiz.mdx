@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าหา Offset ในไฟล์ Segment ได้ รู้ว่า Retention ทำให้ Offset เริ่มต้นของ Log เปลี่ยนอย่างไร และ Compaction กับ Tombstone ทำงานอย่างไร
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Partition มี Segment ชื่อไฟล์เริ่มที่ Offset 0, 13, 26, 39 และ 52 Consumer ขอ Offset 40 Broker เปิดไฟล์ไหน?"
+  options={[
+    'ไฟล์ 52 เพราะเป็นไฟล์ล่าสุด',
+    'ไฟล์ 26 เพราะใหญ่ที่สุดที่ไม่เกิน 40 ที่เป็นเลขคู่',
+    'ไฟล์ 39 เพราะเป็นชื่อที่ใหญ่ที่สุดที่ไม่เกิน 40',
+    'ทุกไฟล์ตามลำดับจนเจอ'
+  ]}
+  answer={2}
+  why="ชื่อไฟล์คือ Offset แรกของไฟล์ ดังนั้น Offset ที่ขอต้องอยู่ในไฟล์ที่ชื่อใหญ่ที่สุดที่ยังไม่เกิน Offset นั้น ซึ่งคือ 39 แล้วเปิด Index ของไฟล์นั้นกระโดดไปใกล้ที่สุดและอ่านต่อ แบบฝึกยืนยันกับ Offset 30 ว่าอยู่ในไฟล์ 26 (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Index ของไฟล์ Segment มีรายการน้อยกว่าจำนวน Batch ในไฟล์ เพราะอะไร และมีผลอย่างไรตอนหา Offset?"
+  options={[
+    'Index เสียหาย จึงต้องอ่านไฟล์ทั้งไฟล์',
+    'Index จดเป็นช่วง ๆ ตาม index.interval.bytes ทำให้เล็ก เมื่อหา Offset ใช้รายการที่ใกล้ที่สุดแล้วอ่านต่อไปอีกไม่กี่ Batch',
+    'Index จดเฉพาะ Record ที่มี Key',
+    'Index จดเฉพาะ Record ที่ Consumer อ่านแล้ว'
+  ]}
+  answer={1}
+  why="Index แบบเบาบางเก็บรายการเว้นช่วงตามจำนวนไบต์ ในแบบฝึก Segment 26 มีแค่สามรายการ (Offset 30, 34, 38) การหา Offset ใดจึงเริ่มจากรายการที่ใหญ่ที่สุดที่ไม่เกินมัน แล้วอ่านต่อไปสั้น ๆ (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ตอนแรก Log เริ่มที่ Offset 0 หลัง Retention ลบ Segment เก่าไปสี่ไฟล์ Group ใหม่ที่เริ่มอ่านจากต้น Log จะได้ Offset แรกเป็นอะไร และ Offset ท้ายสุดเปลี่ยนไหม?"
+  options={[
+    'Offset แรกเป็น 0 เหมือนเดิม และ Offset ท้ายสุดลดลง',
+    'Offset แรกเป็น Offset ของ Segment แรกที่เหลือ (เช่น 52) และ Offset ท้ายสุดไม่เปลี่ยน เพราะ Offset ไม่ถูกใช้ซ้ำ',
+    'Offset ถูกเรียงใหม่ให้เริ่มจาก 0 ทั้งหมด',
+    'Group ใหม่อ่านไม่ได้เลย'
+  ]}
+  answer={1}
+  why="การลบ Segment ทำให้ Log Start offset ขยับขึ้น แต่ไม่ทำให้ Offset ของ Record ที่เหลือเปลี่ยน แบบฝึกได้ Start 52 และ End 65 ซึ่งเท่าเดิมกับก่อนลบ (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Topic ที่ Compact แล้วมี Key k3 อยู่ 12 ค่า ตามด้วย Tombstone (Value เป็น Null) หลัง Cleaner ทำงานรอบแรกจะเห็นอะไรของ k3?"
+  options={[
+    'ค่าล่าสุดก่อน Tombstone',
+    'ค่าทั้ง 12 ตัว เพราะ Compaction ไม่ลบอะไรของ Key ที่มี Tombstone',
+    'เหลือแต่ Tombstone ค่าเก่าทั้งหมดหายไป และ Tombstone จะถูกลบทีหลังเมื่อพ้น delete.retention.ms',
+    'ไม่เหลืออะไรเลยทันที รวมทั้ง Tombstone'
+  ]}
+  answer={2}
+  why="Tombstone เป็นตัวบอกว่า Key นี้ถูกลบ Cleaner ทิ้งค่าเก่าทั้งหมดของ k3 แต่เก็บ Tombstone ไว้ให้ Consumer ที่ตามอยู่ได้เห็น จนพ้น delete.retention.ms ถึงเก็บกวาดมัน แบบฝึกเห็น Tombstone ที่ Offset 48 และหายไปอีกราว 13 วินาทีต่อมา (รัน)"
+/>
+
+</Step>

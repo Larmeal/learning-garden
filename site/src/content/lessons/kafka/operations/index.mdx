@@ -1,0 +1,123 @@
+---
+title: Operations
+summary: เรื่องที่พังบ่อยที่สุดตอนต่อ Client เข้า Kafka คือที่อยู่ที่ Broker ประกาศ เราเปิดดูว่าที่คั่นหนังสือของ Group ไปอยู่ Partition ไหนของ __consumer_offsets ดู Lag ย้อน Offset ของ Group เปลี่ยน Config ขณะ Broker รันอยู่ และดูว่า Quota ทำให้ Client ช้าลงเมื่อเกินโควต้า
+facts:
+  - "รันจริงใน exercises/11_operations.py กับ Kafka 4.4.0: ตั้ง advertised.listeners ผิดแล้วดูว่า Client ล้มตรงไหน, หาว่าที่คั่นหนังสือของ Group อยู่ Partition ไหนของ __consumer_offsets ด้วย kafka-dump-log, วัด Lag, ย้อน Offset ด้วย kafka-consumer-groups --reset-offsets, เปลี่ยน retention.ms ด้วย kafka-configs ขณะ Broker รัน และตั้ง Quota ด้านโปรดิวเซอร์แล้ววัดเวลาส่ง 4 MB"
+  - "ไม่ได้รัน TLS, SASL, ACL, การย้าย Replica (kafka-reassign-partitions), Tiered Storage และการเฝ้า Metrics ด้วย JMX ส่วนที่ว่า Client เชื่อมต่อด้วยชื่อที่ Broker ตอบมาอ่านจากหนังสือ Kafka: The Definitive Guide หน้า 116 และ 269 และเรื่อง Quota จากหน้า 73 ตัวเลขเวลาและจำนวน Batch ในบทนี้มาจากการรันรอบหนึ่ง รอบอื่นต่างกันเล็กน้อย (เช่น 594 กับ 595 Batch, 9.1 กับ 9.3 วินาที) แบบฝึกจึงตรวจแค่ขอบเขต"
+order: 11
+phase: E
+level: 3
+stage: sprout
+format: steps
+requires: [connect-streams]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ListenerLab from '../../../../components/labs/kafka/ListenerLab';
+
+<Step>
+
+## ต่อ Kafka ไม่ติด ทั้งที่ Broker ทำงานอยู่
+
+เรื่องที่คนใหม่กับ Kafka เจอบ่อยที่สุดคือเรียก Broker ครั้งแรกได้ แต่คำสั่งหลังจากนั้นล้มเหลว สาเหตุอยู่ที่วิธีเชื่อมต่อของ Client เราบอกมันแค่ที่อยู่เริ่มต้น (Bootstrap) แล้ว Client ถาม Broker ว่าใครอยู่ที่ไหนบ้าง หลังจากนั้นจึงต่อไปหา Broker ตามชื่อที่ Broker ตอบมา ซึ่งมาจากค่า `advertised.listeners` (หนังสือ: Kafka: The Definitive Guide หน้า 116 ที่เล่าว่า Client สร้างการเชื่อมต่อตามชื่อใน Bootstrap แล้วตามด้วยชื่อที่ Broker ระบุไว้ใน advertised.listeners) ดังนั้นที่อยู่ที่ Broker ประกาศต้องเป็นที่อยู่ที่ Client เข้าถึงได้จากที่ที่ Client รันอยู่
+
+เราทดลองตั้ง Broker ให้ประกาศชื่อที่ไม่มีอยู่จริง (`broker.invalid:29092`) บน Listener ที่ใช้จากคอมพิวเตอร์ของเรา ส่วน Listener ภายในยังประกาศ `klab-k1:9092` ตามปกติ
+
+```text
+ผ่าน Listener ภายใน: klab-k1:9092 (id: 1 ...)
+ผ่าน Listener ภายนอก: broker.invalid:29092 (id: 1 ...) -> ERROR: DisconnectException
+```
+
+ฝั่ง `confluent-kafka` บนคอมพิวเตอร์ของเราได้ `Local: Broker transport failure` ตอนขอรายการ Topic และตอนส่ง Record ก็หมดเวลา (`_MSG_TIMED_OUT`) โดยใน Log ของ Client เขียนว่า `Failed to resolve 'broker.invalid:29092'` (รัน) สังเกตว่าที่อยู่ Bootstrap `127.0.0.1:29092` เชื่อมได้ แต่ที่อยู่ที่ Broker ตอบกลับมาใช้ไม่ได้ ลองเลือกว่า Client อยู่ที่ไหนและ Broker ประกาศอะไรใน Lab ด้านล่าง ดูว่าเส้นที่สามไปถึงไหม
+
+<ListenerLab client:visible />
+
+<Callout type="note" title="ทางแก้ที่ใช้ในแบบฝึกของเรา">
+แบบฝึกทุกบทเปิด Listener สองอัน คือ `INTERNAL` ที่ประกาศชื่อคอนเทนเนอร์ (`klab-k1:9092`) สำหรับ Broker คุยกันและสำหรับ Client ในเครือข่าย Docker เดียวกัน กับ `EXTERNAL` ที่ประกาศ `127.0.0.1` กับพอร์ตที่เปิดออกมา สำหรับ Client บนคอมพิวเตอร์ของเรา หนังสือมีตัวอย่างที่ใช้หลาย Listener แยกตามกลุ่ม Client พร้อมโปรโตคอลความปลอดภัยของแต่ละอัน (หนังสือ: Kafka: The Definitive Guide หน้า 269) เราไม่ได้รันเรื่อง TLS หรือ SASL
+</Callout>
+
+</Step>
+
+<Step>
+
+## ที่คั่นหนังสือของ Group อยู่ที่ไหน
+
+ใน[บทที่ 1](/kafka/what-is-kafka/) เราบอกว่า Offset ที่ Commit ถูกเก็บใน Topic ชื่อ `__consumer_offsets` เรามาไล่ดูว่าอยู่ตรงไหน Topic นี้มี 50 Partition (รัน) Group ใดจะไปอยู่ Partition ไหนคำนวณจาก Hash ของชื่อ Group ด้วยสูตร `abs(hashCode(group id)) % 50` ซึ่งเป็น `hashCode` ของ String ใน Java เราลองกับ Group `billing` ได้ผล 9 และเมื่อดูขนาดไฟล์ของทั้ง 50 Partition มี Partition 9 อันเดียวที่มีข้อมูล (รัน)
+
+เปิดไฟล์ Log ของ Partition 9 ด้วย `kafka-dump-log.sh --offsets-decoder` เจอ Record ชนิดหนึ่งที่ Key คือ `{"group":"billing","topic":"orders","partition":0}` และ Value มี `offset` กับเวลา Commit สามตัวตามจำนวน Partition ของ Topic `orders` และ Record อีกชนิดหนึ่ง (ชนิดที่ 2) เก็บข้อมูลของ Group เอง เช่นสมาชิกกับวิธีแบ่งงาน (รัน) ที่คั่นหนังสือที่เราคุยมาตลอดจึงเป็นแค่ Record ใน Topic ธรรมดา และ Broker ที่เป็นเจ้าของ Partition นั้นทำหน้าที่ Coordinator ของ Group
+
+</Step>
+
+<Step>
+
+## Lag และการย้อน Offset
+
+Lag คือสิ่งแรกที่เราเฝ้า ในแบบฝึก Group `billing` อ่านครบแล้ว จากนั้นเราส่งเพิ่ม 60 Record `kafka-consumer-groups.sh --describe` แสดง Lag รวม 60 ตามที่คาด (รัน) Lag ที่เพิ่มเรื่อย ๆ โดยไม่ลดบอกว่า Consumer ตามไม่ทัน หรือไม่ทำงานเลย
+
+บางครั้งเราต้องการให้ Group อ่านใหม่ เช่นพบว่าโค้ดประมวลผลผิด แก้แล้วอยากทำซ้ำ ใช้ `--reset-offsets` ได้ ดูก่อนด้วย `--dry-run`
+
+```text
+GROUP    TOPIC   PARTITION  NEW-OFFSET
+billing  orders  0          0
+billing  orders  1          0
+billing  orders  2          0
+```
+
+คำสั่งนี้ยังไม่เปลี่ยนอะไร (Lag ยังเป็น 60) เมื่อรันจริงด้วย `--execute` Group ก็อ่านได้ครบทั้ง 90 Record อีกรอบ (รัน) แต่มีเงื่อนไขว่า Group ต้องไม่มี Consumer ทำงานอยู่ ถ้ามี คำสั่งบอกว่า `Assignments can only be reset if the group 'billing' is inactive, but the current state is Stable` (รัน) เพราะถ้าย้อนตอนมีคนอ่านอยู่ Consumer จะ Commit ทับค่าที่เราเพิ่งตั้ง
+
+</Step>
+
+<Step>
+
+## เปลี่ยน Config ขณะรันอยู่ และ Quota
+
+การตั้งค่าหลายตัวเปลี่ยนได้โดยไม่ต้องเริ่ม Broker ใหม่ ด้วยคำสั่ง `kafka-configs.sh --alter` เมื่อตั้ง `retention.ms=123456` ให้ Topic `orders` แล้วเรียก `--describe --all` เห็น `retention.ms=123456 ... synonyms={DYNAMIC_TOPIC_CONFIG:retention.ms=123456}` ซึ่งบอกว่าค่านี้มาจากการตั้งระดับ Topic แบบ Dynamic (รัน) และบรรทัด `synonyms` บอกด้วยว่าค่าไหนมาจากระดับไหน ช่วยให้ไล่ได้เวลาไม่แน่ใจว่าค่าที่ใช้อยู่มาจากไหน
+
+อีกเรื่องที่ผู้ดูแลมักใช้คือ Quota เพื่อไม่ให้ Client ตัวหนึ่งกินทรัพยากรทั้ง Cluster หนังสือเล่าว่า Broker หน่วง Client ที่ส่งหรืออ่านเกินโควต้า (หนังสือ: Kafka: The Definitive Guide หัวข้อ Quotas and Throttling หน้า 73) เราตั้ง `producer_byte_rate=200000` (200 KB ต่อวินาที) ให้ Client ที่ชื่อ `limited` แล้วส่งข้อมูล 4 MB เทียบกับ Client ที่ไม่มีโควต้า
+
+```text
+4 MB ไม่มีโควต้า:        0.2 วินาที
+4 MB โควต้า 200 KB/s:    12.8 วินาที
+```
+
+ข้อสังเกตคือตอนทดลองแรก ๆ เราส่งแค่ 800 KB และไม่เห็นผลอะไรเลย เพราะโควต้าอนุญาตให้ส่งเกินได้ชั่วครู่ (Burst) ประมาณค่าโควต้าคูณสิบวินาที ซึ่งในกรณีนี้คือราว 2 MB ข้อมูลที่เกินจากนั้นถึงถูกหน่วง (รัน) ตัวเลขนี้เป็นสิ่งที่เราสังเกตจากการรัน ไม่ได้อ่านจาก Source
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Client ที่รันบนคอมพิวเตอร์ของเราต่อ Bootstrap ที่ 127.0.0.1:29092 ได้ แต่ส่ง Record แล้วหมดเวลา และ Log ของ Client บอกว่า Failed to resolve ของชื่อหนึ่ง สาเหตุที่น่าจะเป็นที่สุดคืออะไร?"
+  options={[
+    'Broker ล่ม',
+    'Broker ประกาศชื่อใน advertised.listeners ที่ Client ไม่รู้จักหรือเข้าไม่ถึง Client ต่อ Bootstrap ได้ แต่ไปต่อไม่ได้เมื่อใช้ชื่อที่ Broker ตอบ',
+    'Topic ยังไม่ถูกสร้าง',
+    'Partition ไม่พอ'
+  ]}
+  answer={1}
+  why="Client ใช้ที่อยู่ Bootstrap เพื่อขอรายชื่อ Broker เท่านั้น การส่งและรับจริงใช้ชื่อที่ Broker ประกาศ ถ้าชื่อนั้นหาไม่เจอจากที่ Client รัน ก็ต่อไม่ได้ แบบฝึกจำลองกรณีนี้และได้ผลเดียวกัน (รัน) ทางแก้คือประกาศที่อยู่ที่ Client เข้าถึงได้ ซึ่งมักต้องมี Listener แยกสำหรับ Client ภายในกับภายนอก"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| ตั้ง `advertised.listeners` เป็นชื่อที่หาไม่เจอ: Listener ภายในตอบ `klab-k1:9092`, Listener ภายนอกตอบ `broker.invalid:29092`, `confluent-kafka` ได้ Transport Failure, ส่ง Record หมดเวลา และ Log บอก `Failed to resolve` | รัน: `exercises/11_operations.py` |
+| `__consumer_offsets` มี 50 Partition และที่คั่นหนังสือของ Group `billing` อยู่ Partition ที่ `abs(hashCode) % 50` (คือ 9) | รัน: `exercises/11_operations.py` |
+| Record ใน `__consumer_offsets` ชนิดที่ 1 เก็บ Offset ต่อ Partition และชนิดที่ 2 เก็บข้อมูล Group | รัน: `exercises/11_operations.py` |
+| Lag รวม 60 หลังส่งเพิ่ม 60 Record `--reset-offsets --dry-run` ไม่เปลี่ยนอะไร `--execute` ทำให้อ่านซ้ำ 90 Record และปฏิเสธเมื่อ Group มีสมาชิก | รัน: `exercises/11_operations.py` |
+| `kafka-configs --alter` เปลี่ยน `retention.ms` ได้ทันทีและแสดงเป็น `DYNAMIC_TOPIC_CONFIG` | รัน: `exercises/11_operations.py` |
+| Quota `producer_byte_rate=200000`: ส่ง 4 MB ใช้ 12.8 วินาที เทียบกับ 0.2 วินาทีเมื่อไม่มีโควต้า และ 800 KB ไม่ถูกหน่วง (Burst) | รัน: `exercises/11_operations.py` |
+| Client ต่อ Bootstrap แล้วใช้ชื่อที่ Broker ประกาศใน `advertised.listeners` และการตั้งหลาย Listener | หนังสือ: Kafka: The Definitive Guide หน้า 116 และ 269 |
+| Broker หน่วง Client ที่เกินโควต้า | หนังสือ: Kafka: The Definitive Guide หัวข้อ Quotas and Throttling หน้า 73 |
+| TLS, SASL, ACL, `kafka-reassign-partitions`, Tiered Storage, JMX Metrics, Quota ฝั่ง Consumer | ไม่ได้รัน |
+
+</Step>

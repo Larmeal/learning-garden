@@ -1,0 +1,101 @@
+---
+title: Capstone
+summary: เรารวมทุกอย่างที่เรียนมาเป็น Pipeline เดียว Producer ที่ส่งแบบ Idempotent ลง Topic 6 Partition 3 สำเนา กลุ่ม Consumer 3 ตัวที่เขียนลงตารางที่มี Primary Key แล้วค่อย Commit แล้วเราทำให้ Consumer ตัวหนึ่งล้ม กับฆ่า Broker ตัวหนึ่ง และตรวจว่า Order 600 ใบอยู่ในตารางครบ ไม่ซ้ำ ไม่ขาด
+facts:
+  - "รันจริงใน exercises/12_capstone_pipeline.py กับ Kafka 4.4.0 (Broker 3 ตัว Controller แยก 1 ตัว) และ confluent-kafka 2.16.2: Topic orders 6 Partition 3 สำเนา min.insync.replicas=2, Producer แบบ Idempotent acks=all ส่ง Order 600 ใบเป็นสามรอบ, Group ledger ของ Consumer 3 ตัวที่เขียนลงตาราง SQLite แล้ว Commit ทุก 40 Record, ทำให้ Consumer ตัวหนึ่งล้มโดยไม่ Commit และฆ่า Broker ที่เป็น Leader ของ Partition 0 ด้วย SIGKILL"
+  - "ตารางปลายทางเป็น SQLite ในโปรเซสเดียวกัน ไม่ใช่ฐานข้อมูลจริง ทุกส่วนรันบนคอมพิวเตอร์เครื่องเดียวกับ Docker จึงไม่ได้ลองเครือข่ายที่ช้าหรือขาดจริง ตัวเลขการส่งซ้ำ (610 ในรอบหนึ่ง 650 ในอีกรอบ) ขึ้นกับจังหวะ จึงแค่ยืนยันว่าตารางไม่นับซ้ำ ไม่ได้ยืนยันจำนวนที่ซ้ำ"
+order: 12
+phase: E
+level: 4
+stage: sprout
+format: steps
+requires: [operations]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import PipelineLab from '../../../../components/labs/kafka/PipelineLab';
+
+<Step>
+
+## โจทย์: ห้ามหาย ห้ามนับซ้ำ
+
+ร้านค้าออนไลน์ของเรามี Order เข้ามาเรื่อย ๆ และระบบบัญชีต้องบันทึก Order ทุกใบลงตารางหนึ่งครั้งพอดี เราเรียนมา 11 บทแล้ว คราวนี้ลองประกอบทุกอย่างเข้าด้วยกัน แล้วทำให้มันพังทีละอย่างดูว่ารอดไหม โครงสร้างมีดังนี้
+
+ฝั่งส่ง Producer เปิด Idempotence ตั้ง `acks=all` และใช้รหัสลูกค้าเป็น Key (ตั้ง Partitioner เป็น `murmur2_random` ให้ตรงกับ Java ตามที่เรียนใน[บทที่ 2](/kafka/topics-partitions/)) ส่ง Order 600 ใบจากลูกค้า 8 คน ฝั่ง Cluster Topic `orders` มี 6 Partition 3 สำเนา และ `min.insync.replicas=2` ตามที่เห็นใน[บทที่ 6](/kafka/replication/) ฝั่งรับ Group `ledger` มี Worker 3 ตัว แต่ละตัวอ่าน Order แล้วเขียนลงตารางที่ใช้ `order_id` เป็น Primary Key ด้วย `INSERT OR IGNORE` จากนั้นจึง Commit Offset ทุก 40 ตัว ซึ่งก็คือ Commit หลังประมวลผลตามที่แนะนำใน[บทที่ 4](/kafka/consumer-groups/)
+
+</Step>
+
+<Step>
+
+## เล่นทีละเหตุการณ์
+
+เหตุการณ์ในการรันมีสามอย่าง ส่งรอบแรก 200 ใบ แล้วให้ Worker `w2` ล้มกะทันหันทั้งที่ยังไม่ได้ Commit Order ที่อ่านและเขียนไปแล้ว 10 ใบ แล้วส่งรอบสองอีก 200 ใบ จากนั้นฆ่า Broker ที่เป็น Leader ของ Partition 0 ด้วย SIGKILL ระหว่างที่ส่งรอบสุดท้าย 200 ใบ พร้อมเปิด Worker ใหม่ชื่อ `w4` ทดแทน กดทีละขั้นใน Lab ด้านล่างเพื่อดูว่าใครอ่าน Partition ไหน และจำนวนแถวในตารางตอนนั้น
+
+<PipelineLab client:visible />
+
+</Step>
+
+<Step>
+
+## ผลลัพธ์ และอะไรช่วยไว้
+
+ตอนจบ ตารางมี Order 600 แถวพอดี ตั้งแต่ `o-0000` ถึง `o-0599` ครบ ไม่ขาดใบไหน (รัน) Producer ได้ Ack ครบทุกใบโดยไม่มีข้อผิดพลาดสักตัว ทั้งที่ Broker ตัวหนึ่งถูกฆ่ากลางทาง และ Lag ของ Group เป็น 0 ซึ่งแต่ละเรื่องมีกลไกที่ช่วยไว้ดังนี้
+
+**ไม่ขาด** เพราะ Producer ใช้ `acks=all` กับ `min.insync.replicas=2` ทุกใบที่ได้ Ack จึงอยู่อย่างน้อยสองสำเนา และเมื่อ Broker ตายก็ยังมีสำเนาอยู่ที่ตัวอื่น ส่วน Idempotence ทำให้การส่งซ้ำระหว่างรอ Leader ใหม่ไม่ทำให้ Order ซ้ำใน Log ([บท 6](/kafka/replication/) และ [บท 8](/kafka/delivery/))
+
+**ไม่นับซ้ำ** ถึงแม้ Worker ได้รับ Order รวมมากกว่า 600 ครั้ง (ในรอบหนึ่ง 610 ครั้ง ในอีกรอบ 650 ครั้ง) เพราะ `w2` อ่านและเขียนแล้วแต่ยังไม่ได้ Commit Offset ที่คั่นหนังสือเลยอยู่ที่เดิม Worker ตัวอื่นที่รับต่อจึงอ่านซ้ำ แต่ตารางที่มี Primary Key ปฏิเสธแถวซ้ำด้วย `INSERT OR IGNORE` แถวจึงเหลือ 600 (รัน) เราไม่ได้ตรวจว่าจำนวนที่ซ้ำเกินจาก 10 ใบของ `w2` มาจากอะไร ส่วนตัวเองคิดว่าน่าจะมาจาก Rebalance ที่เกิดตอน Broker ล้ม แต่ไม่ได้ตรวจ
+
+**ลำดับของลูกค้าแต่ละคนยังอยู่** เพราะ Order ของลูกค้าคนหนึ่งใช้ Key เดียวกันจึงลง Partition เดียวกัน และเมื่อเรียงแถวในตารางตาม (Partition, Offset) ลำดับเลขของ Order ของลูกค้าทุกคนเรียงจากน้อยไปมาก (รัน)
+
+</Step>
+
+<Step>
+
+## เรื่องที่รันแล้วเจอ และเรื่องที่ยังไม่ได้ทำ
+
+เรื่องแรกที่เห็นคือ ลูกค้า 8 คนกระจายลงแค่ 4 จาก 6 Partition จำนวน Record ต่อ Partition คือ `{0: 0, 1: 150, 2: 75, 3: 150, 4: 0, 5: 225}` (รัน) Partition 0 กับ 4 ว่างเลย และ Worker ที่ได้ Partition 5 ทำงานหนักกว่าคนอื่นเกือบเท่าตัว เพราะ Hash ของ Key ไม่รับประกันว่าจะกระจายเท่ากันตามที่เห็นใน[บทที่ 2](/kafka/topics-partitions/) ถ้า Key มีน้อยตัวเทียบกับ Partition ผลแบบนี้เป็นเรื่องปกติ
+
+ส่วนเรื่องที่เรายังไม่ได้ทำ Pipeline นี้ใช้ตาราง SQLite ในโปรเซสเดียวกันเป็นปลายทาง ทั้งที่งานจริงมักเป็นฐานข้อมูลที่อยู่นอกโปรเซสและอาจช้าหรือล้ม Worker, Broker และ Docker ทั้งหมดอยู่ในคอมพิวเตอร์เครื่องเดียวกัน เราจึงไม่ได้ลองเครือข่ายที่ขาดหรือช้าจริง ไม่ได้ลองเปิด TLS หรือ SASL ตามที่บอกไว้ใน[บทที่ 11](/kafka/operations/) และไม่ได้เขียนส่วนที่ดู Metrics หรือแจ้งเตือนเมื่อ Lag สูง ทั้งหมดนี้เป็นงานต่อของคนที่จะเอา Pipeline ไปใช้จริง
+
+<Callout type="note" title="ถ้าอยากต่อยอด">
+ถ้าสนใจฝั่ง Streaming ต่อ ในเส้นทางเรียน Spark มีบทเกี่ยวกับ [Structured Streaming](/spark/structured-streaming/) ที่ใช้ Kafka เป็นแหล่งข้อมูล และเส้นทาง [Iceberg](/iceberg/streaming/) ที่เล่าเรื่องการอ่านแบบ Incremental ก็ต่อกับ Topic ในแนวเดียวกันได้ เราไม่ได้ต่อ Kafka เข้ากับสองเส้นทางนั้นด้วยตัวเองในที่นี้
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Worker ตัวหนึ่งล้มหลังเขียน 10 Order ลงตารางแล้ว แต่ยังไม่ได้ Commit Offset Worker ตัวใหม่จะอ่านซ้ำ 10 Order นั้น ตารางที่ไม่มี Primary Key จะเป็นอย่างไร เทียบกับตารางที่มี?"
+  options={[
+    'ไม่ต่างกัน เพราะ Kafka กัน Record ซ้ำให้อยู่แล้ว',
+    'ตารางที่ไม่มี Primary Key จะมี 10 แถวซ้ำ ส่วนตารางที่มี Primary Key และใช้ INSERT OR IGNORE จะไม่นับซ้ำ',
+    'ตารางที่ไม่มี Primary Key ปฏิเสธการเขียนซ้ำเอง',
+    'ตารางที่มี Primary Key หยุดทำงานเมื่อเจอ Order ซ้ำ'
+  ]}
+  answer={1}
+  why="Kafka ให้การส่งแบบ At-least-once จึงอาจส่งซ้ำได้เมื่อ Consumer ล้มก่อน Commit การทำให้การเขียนปลายทางทนการซ้ำ เช่นใช้ Primary Key กับ INSERT OR IGNORE เป็นทางที่ใช้ในแบบฝึก ซึ่งได้ 600 แถวพอดีจากการส่งที่ซ้ำเกิน 600 ครั้ง (รัน) ส่วนตารางไม่มี Key จะรับแถวซ้ำเข้าไปตามที่เขียน"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Producer ได้ Ack ครบ 600 ใบ ทั้งที่ฆ่า Broker กลางทาง | รัน: `exercises/12_capstone_pipeline.py` |
+| ตารางมี 600 แถวพอดี (`o-0000` ถึง `o-0599`) และ Lag ของ Group เป็น 0 | รัน: `exercises/12_capstone_pipeline.py` |
+| Worker ได้รับมากกว่า 600 ครั้ง (610 ในรอบหนึ่ง 650 ในอีกรอบ) และอย่างน้อย Order ที่ Worker ที่ล้มยังไม่ได้ Commit (10 ใบ) ถูกอ่านซ้ำแต่ตารางไม่นับซ้ำ | รัน: `exercises/12_capstone_pipeline.py` |
+| ลำดับเลข Order ของลูกค้าแต่ละคนเรียงจากน้อยไปมากเมื่อเรียงตาม (Partition, Offset) | รัน: `exercises/12_capstone_pipeline.py` |
+| ลูกค้า 8 คนลงแค่ 4 จาก 6 Partition ที่จำนวน 150, 75, 150, 225 | รัน: `exercises/12_capstone_pipeline.py` |
+| ที่มาของส่วนประกอบ: Key กับ Partition, `acks` กับ Idempotence, Commit หลังประมวลผล, `min.insync.replicas` | รัน: แบบฝึกของ [บท 2](/kafka/topics-partitions/), [บท 3](/kafka/producers/), [บท 4](/kafka/consumer-groups/), [บท 6](/kafka/replication/) และ [บท 8](/kafka/delivery/) |
+| ส่วนที่จำนวนส่งซ้ำเกินจาก 10 ใบน่าจะมาจาก Rebalance ตอน Broker ล้ม | ผู้เขียน (ไม่ได้ตรวจ) |
+| ปลายทางที่เป็นฐานข้อมูลนอกโปรเซส, เครือข่ายที่ช้าหรือขาด, TLS และ SASL, การเฝ้า Lag | ไม่ได้รัน |
+
+</Step>

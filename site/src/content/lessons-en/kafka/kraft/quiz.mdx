@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you understand how the metadata of the cluster is a log, what creating a topic adds, what the epoch is for, and why a majority is needed.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We create a topic with 2 partitions in a cluster and then open the metadata log. Which new records do we see?"
+  options={[
+    'One record called CREATE_TOPIC that holds the whole topic',
+    'One record for the topic and one record for each of the 2 partitions',
+    'No new record, because the state is kept in the memory of the controller',
+    'Two new files but no record'
+  ]}
+  answer={1}
+  why="Every change of the cluster is a record appended to the log called __cluster_metadata. Creating a topic adds one TOPIC_RECORD and one PARTITION_RECORD per partition, which in the exercise is 1 plus 2 (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="What is the epoch of the leader of the quorum for?"
+  options={[
+    'It counts the topics in the cluster',
+    'It is the round number of the election. It tells who the current leader is and stops two nodes from both believing that they are the leader',
+    'It tells the version of Kafka',
+    'It counts the records that producers send'
+  ]}
+  answer={1}
+  why="Every new election raises the epoch. A node that sees a newer epoch knows that the old leader is out of date. The book says this is how a split brain is prevented (book: Kafka: The Definitive Guide, section The Controller, page 136). The exercise saw the epoch rise after the leader was killed (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A cluster of 3 nodes, each both broker and controller, has 2 of them killed. What happens to the command to create a topic?"
+  options={[
+    'It works as usual, because the broker that is left can take commands',
+    'It hangs until it times out, because fewer than half of the controllers are left, so there is no leader that can append to the log',
+    'It creates the topic but without replicas',
+    'Kafka chooses another controller from what is left'
+  ]}
+  answer={1}
+  why="Changing the metadata has to go through the leader of the quorum, and the leader needs a majority. With 1 of 3 left there is no leader. The exercise saw the create topic command hang and then time out (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="In the idea of KRaft, how do we get the present state of the cluster (which topic has which partitions and who leads)?"
+  options={[
+    'It is kept as a table that is overwritten',
+    'We replay the metadata log from the start (or from the latest snapshot) to the end, and the result is the present state',
+    'We ask every broker whenever we need it',
+    'We read it from ZooKeeper'
+  ]}
+  answer={1}
+  why="The metadata is a log like the data in a topic. The state is the result of replaying the records in order, and a snapshot saves us from replaying from the start every time. Kafka 4.4.0 does not use ZooKeeper (ran)."
+/>
+
+</Step>

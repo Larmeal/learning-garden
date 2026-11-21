@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจว่า Kafka เก็บแค่ไบต์ เลข Schema Id ทำอะไร และการเปลี่ยน Schema แบบไหนปลอดภัยกับ Reader รุ่นเก่าหรือใหม่
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Producer ส่งข้อความ Avro เข้า Topic โดยแต่ละข้อความมีเลข Schema Id สี่ไบต์ต่อหน้า ทำไมไม่ใส่ Schema ทั้งก้อนในทุกข้อความ?"
+  options={[
+    'Kafka ห้ามไม่ให้ข้อความมี Schema',
+    'Schema ทั้งก้อนมักทำให้ข้อความใหญ่ขึ้นเกินเท่าตัว การเก็บ Schema ไว้ที่ Registry แล้วใส่แค่รหัสอ้างอิงประหยัดกว่ามาก',
+    'Consumer อ่าน Schema ไม่ได้ถ้าอยู่ในข้อความ',
+    'Broker ต้องใช้ Schema Id เพื่อเรียง Record'
+  ]}
+  answer={1}
+  why="หนังสือบอกว่าการเก็บ Schema ทั้งก้อนในแต่ละ Record มักทำให้ Record ใหญ่ขึ้นเกินสองเท่า จึงเก็บรหัสอ้างอิงไว้ที่หัวแทน (หนังสือ: Kafka: The Definitive Guide หัวข้อ Using Avro Records with Kafka หน้า 65) ส่วน Broker ไม่ตรวจและไม่ใช้ Schema Id แบบฝึกยืนยันว่า Broker เก็บไบต์ที่ได้รับไปตามนั้น (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ทีมลบฟิลด์ Qty ที่ไม่มีค่า Default ออกจาก Schema ของ Order Reader ที่ยังใช้ Schema เก่าเจอข้อความใหม่ จะเกิดอะไร?"
+  options={[
+    'อ่านได้ปกติ เพราะ Avro เติมค่าให้เอง',
+    'อ่านไม่ได้ เพราะข้อความใหม่ไม่มี Qty และ Schema เก่าไม่มีค่า Default ให้ใช้แทน',
+    'อ่านได้แต่ Qty เป็น 0',
+    'Broker ปฏิเสธข้อความใหม่'
+  ]}
+  answer={1}
+  why="Reader ใช้ Schema ของตัวเองจัดรูปข้อมูล ฟิลด์ที่ขาดและไม่มี Default อ่านไม่ได้ ในตารางของแบบฝึก การลบฟิลด์ที่ไม่มี Default ทำให้ Reader ใหม่อ่านข้อความเก่าได้แต่ Reader เก่าอ่านข้อความใหม่ไม่ได้ (รัน) ถ้าฟิลด์เคยมี Default ทั้งสองทิศก็ได้"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ทีมเปลี่ยนชื่อฟิลด์ Qty เป็น Quantity โดยไม่ใส่ Alias ผลกับ Reader สองฝั่งเป็นอย่างไร?"
+  options={[
+    'ทั้งสองทิศพัง เพราะ Avro จับคู่ฟิลด์ด้วยชื่อ ชื่อใหม่เป็นฟิลด์ที่อีกฝั่งไม่มี',
+    'ไม่พังเลย เพราะ Avro จับคู่ด้วยลำดับ',
+    'Reader ใหม่อ่านข้อความเก่าได้ แต่ Reader เก่าอ่านข้อความใหม่ไม่ได้',
+    'Reader เก่าอ่านข้อความใหม่ได้ แต่ Reader ใหม่อ่านข้อความเก่าไม่ได้'
+  ]}
+  answer={0}
+  why="การเปลี่ยนชื่อเท่ากับลบฟิลด์หนึ่งแล้วเพิ่มอีกฟิลด์ที่ไม่มี Default จึงพังทั้งสองทิศ แบบฝึกได้ผลนั้น (รัน) ส่วนการเก็บชื่อเก่าเป็น Alias ช่วยให้ Reader ใหม่อ่านข้อความเก่าได้ แต่ Reader เก่ายังอ่านข้อความใหม่ไม่ได้"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราขยายฟิลด์ Qty จาก Int เป็น Long Reader ใหม่ (Long) กับ Reader เก่า (Int) อ่านข้อความของกันและกันได้อย่างไร?"
+  options={[
+    'อ่านได้ทั้งสองทิศ เพราะ Int กับ Long เป็นเลขเหมือนกัน',
+    'Reader ใหม่อ่านข้อความเก่า (Int) ได้เพราะยกระดับเป็น Long ได้ แต่ Reader เก่าอ่านข้อความใหม่ (Long) ไม่ได้',
+    'ไม่ได้ทั้งสองทิศ',
+    'Reader เก่าอ่านได้ แต่ Reader ใหม่อ่านไม่ได้'
+  ]}
+  answer={1}
+  why="Avro ยกระดับ Int เป็น Long ได้ แต่ไม่ลดระดับ Long เป็น Int ในแบบฝึกผลคือ Backward ได้ Forward ไม่ได้ (รัน) การขยายประเภทจึงต้องอัปเกรด Reader ก่อน Producer"
+/>
+
+</Step>

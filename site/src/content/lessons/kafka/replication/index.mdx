@@ -1,0 +1,132 @@
+---
+title: Replication
+summary: แต่ละ Partition มีสำเนาหลายที่ มี Leader หนึ่งตัวและ Follower ที่คอยดึงตาม เรามาดู ISR กับ High Watermark ฆ่า Broker ดูว่าเกิดอะไรกับ Record ที่ตอบรับไปแล้ว และดูว่า min.insync.replicas กับการเลือก Leader แบบ Unclean ทำให้ข้อมูลหายได้อย่างไร
+facts:
+  - "รันจริงใน exercises/06_replication.py กับ Kafka 4.4.0 เป็น Cluster ที่มี Broker 3 ตัวกับ Controller แยกอีก 1 ตัว: ดูสำเนา 3 ที่ของแต่ละ Partition, หยุด Follower แล้วเปิดใหม่, ฆ่า Leader ด้วย SIGKILL แล้ววัดเวลาที่ได้ Leader ใหม่, ลองเขียนด้วย min.insync.replicas=2 ตอนเหลือ Broker เดียว, และบังคับเลือก Leader แบบ Unclean หลัง Leader ที่ตอบรับ Record ไปแล้วตาย"
+  - "ความหมายของ ISR และ High Watermark อ่านจากหนังสือ Kafka: The Definitive Guide หน้า 139 ถึง 147 และ 163 ถึง 168 ค่า broker.session.timeout.ms เริ่มต้น 9 วินาทีอ่านจาก KRaftConfigs.java และ unclean.leader.election.interval.ms เริ่มต้น 5 นาทีอ่านจาก ReplicationConfigs.java ไม่ได้รัน Cluster ที่มีหลาย Rack หรือหลายเครื่องคอมพิวเตอร์จริง ตัวเลขเวลาและจำนวน Batch ในบทนี้มาจากการรันรอบหนึ่ง รอบอื่นต่างกันเล็กน้อย (เช่น 594 กับ 595 Batch, 9.1 กับ 9.3 วินาที) แบบฝึกจึงตรวจแค่ขอบเขต"
+order: 6
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [log-storage]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import IsrLab from '../../../../components/labs/kafka/IsrLab';
+
+<Step>
+
+## สำเนาสามที่ มี Leader หนึ่งตัว
+
+Broker ตัวเดียวพังไปก็ข้อมูลหายหมด Kafka แก้ด้วยการเก็บสำเนาของแต่ละ Partition ไว้หลายที่ ตามค่า Replication Factor ที่เราตั้งตอนสร้าง Topic ในสำเนาเหล่านั้น Kafka เลือกหนึ่งตัวเป็น Leader ซึ่ง Producer กับ Consumer คุยกับมันตัวเดียว ส่วนที่เหลือเป็น Follower ที่คอยส่งคำขอดึงข้อมูลจาก Leader มาเก็บ (หนังสือ: Kafka: The Definitive Guide หัวข้อ Replication หน้า 139)
+
+เรามาสร้างกลุ่ม Broker สามตัวกับ Topic ที่มีสาม Partition สามสำเนาแล้วดูว่าใครเป็นอะไร
+
+```text
+Partition: 0  Leader: 2  Replicas: 2,3,1  Isr: 2,3,1
+Partition: 1  Leader: 3  Replicas: 3,1,2  Isr: 3,1,2
+Partition: 2  Leader: 1  Replicas: 1,2,3  Isr: 1,2,3
+```
+
+Broker แต่ละตัวเป็น Leader ของหนึ่ง Partition เป็นการกระจายงานให้เท่ากัน ส่วนคอลัมน์ `Isr` หมายถึง In-Sync Replicas คือชุดของสำเนาที่ตามทัน Leader อยู่ หนังสือบอกว่า Replica ที่ไม่ได้ดึงข้อมูลนานเกิน `replica.lag.time.max.ms` ถือว่าไม่ทันและถูกตัดออกจาก ISR (หนังสือ: Kafka: The Definitive Guide หัวข้อ Replication หน้า 141) ตอนนี้ทั้งสามตัวอยู่ใน ISR ครบ และ Kafka 4.4 มีคอลัมน์ `Elr` เพิ่มมาด้วย ซึ่งเราจะกลับไปดูในหัวข้อหลัง ๆ
+
+เมื่อส่ง Order 30 ใบที่ตั้ง `acks=all` เข้าไป ขนาดไฟล์ `.log` ของแต่ละ Partition เท่ากันทั้งสามสำเนา เช่น Partition 0 ได้ 145 ไบต์ทั้งสามที่ และ Partition 2 ได้ 310 ไบต์ทั้งสามที่ (รัน) สำเนาจึงเป็นไฟล์ที่เหมือนกันจริง ๆ
+
+</Step>
+
+<Step>
+
+## High Watermark: อ่านได้แค่ที่ครบทุกสำเนา
+
+Leader ไม่ได้ให้ Consumer อ่านทุก Record ที่มันเขียนแล้วทันที มันให้อ่านเฉพาะ Record ที่ Replica ทุกตัวใน ISR มีครบแล้ว ตำแหน่งนั้นเรียกว่า High Watermark และ Leader ส่งค่านี้ไปให้ Follower ในทุกคำขอดึงข้อมูล (หนังสือ: Kafka: The Definitive Guide หัวข้อ Replication หน้า 140 และ Fetch Requests หน้า 145) เหตุผลคือถ้า Consumer อ่าน Record ที่มีอยู่ที่ Leader ตัวเดียวแล้ว Leader ล้ม Record นั้นก็หายไปทั้งที่มีคนอ่านไปแล้ว Broker เก็บค่านี้ลงไฟล์ชื่อ `replication-offset-checkpoint` ในโฟลเดอร์ข้อมูล ซึ่งเป็นไฟล์ที่ถูกเขียนเป็นระยะ เมื่อเราเปิดดูตอนนั้นยังเห็นค่า 0 ของทุก Partition อยู่ (รัน) จึงไม่ควรอ่านค่าจากไฟล์นี้เป็นค่าปัจจุบัน
+
+Lab ด้านล่างเป็น Partition เดียวที่มีสามสำเนา ลองกดเขียน Record ก่อนดึงข้อมูล สังเกตว่าช่องใน Log ของ Leader มีสีต่างจาก Record ที่ Commit แล้ว แล้วกดให้ Follower ดึงข้อมูลตาม จากนั้นลองหยุด Broker ทีละตัว
+
+<IsrLab client:visible />
+
+</Step>
+
+<Step>
+
+## Broker หยุดทำงาน
+
+มีสองแบบ แบบแรกคือหยุดอย่างเรียบร้อย ซึ่งเราหยุด Follower ตัวหนึ่งด้วย `docker stop` ISR ของทุก Partition ตัดตัวนั้นออกทันที (เหลือ `[2, 1]`) คำสั่ง `kafka-topics.sh --describe --under-replicated-partitions` แสดง Partition ที่เสียสำเนาไป พอเราเริ่ม Broker ใหม่ มันดึงข้อมูลที่ขาดตามทันและกลับเข้า ISR ครบทุก Partition ใน 5.5 วินาที (รัน)
+
+แบบที่สองคือล้มกะทันหัน เราฆ่า Leader ของ Partition 0 ด้วย `docker kill` (SIGKILL) ซึ่งไม่มีโอกาสบอกลา Controller รู้ตัวจาก Heartbeat ที่หายไป โดยตั้งให้รอ `broker.session.timeout.ms` ซึ่งเริ่มต้นที่ 9 วินาที (Source: `KRaftConfigs.java`) เราวัดได้ 9.1 วินาทีกว่าที่ Follower ตัวหนึ่งจะขึ้นเป็น Leader ใหม่ และ ISR เหลือสองตัว ส่วนผลที่สำคัญที่สุด Order 60 ใบที่เคยได้รับ `acks=all` อ่านได้ครบทุกใบจาก Leader ใหม่ (รัน) เพราะทุกใบเคยอยู่ครบทุกสำเนาก่อนที่ Producer จะได้รับคำตอบ
+
+</Step>
+
+<Step>
+
+## min.insync.replicas: ยอมให้เขียนเมื่อ ISR เหลือเท่าไร
+
+ถ้าเหลือ Leader ตัวเดียวใน ISR แล้ว `acks=all` ก็หมายถึงรอแค่ Leader ตัวเดียว ซึ่งปลอดภัยไม่ต่างจาก `acks=1` เพื่อกันกรณีนี้เราตั้ง `min.insync.replicas` เพื่อบอกว่าต้องมีสำเนาใน ISR อย่างน้อยกี่ตัวถึงจะรับเขียน (หนังสือ: Kafka: The Definitive Guide หัวข้อ Minimum In-Sync Replicas หน้า 167) เราทดลองสร้าง Topic ที่ตั้งค่านี้เป็น 2 แล้วหยุด Follower ทั้งสองตัว
+
+```text
+only broker 1 is alive, ISR = [1], min.insync.replicas=2
+write result: _MSG_TIMED_OUT
+```
+
+Producer เขียนไม่สำเร็จ แต่เห็นเป็น `_MSG_TIMED_OUT` ไม่ใช่ข้อผิดพลาดทันที เพราะ `NotEnoughReplicasException` เป็นข้อผิดพลาดชนิดที่ลองใหม่ได้ (Source: ตัวคลาสสืบทอดจาก `RetriableException`) Producer จึงลองใหม่เรื่อย ๆ จนหมดเวลา ส่วน Consumer ยังอ่าน Record 5 ตัวที่เขียนไปแล้วได้ตามปกติ (รัน) ตัวเลือกนี้จึงเลือกให้ "เขียนไม่ได้" ดีกว่า "เขียนได้แต่เสี่ยงหาย"
+
+</Step>
+
+<Step>
+
+## ถ้า Leader ตัวสุดท้ายที่มีข้อมูลตาย
+
+ลองทำสิ่งที่อันตรายที่สุด ตั้ง `min.insync.replicas=1` (ค่าเริ่มต้น) แล้วหยุด Follower ทั้งสองตัว ISR เหลือ Leader ตัวเดียว เราเขียน Order เพิ่ม 5 ใบ ซึ่ง Leader ตอบรับทั้ง 5 ใบด้วย `acks=all` (Offset 3 ถึง 7) เพราะรอแค่ตัวเองตัวเดียว หลังจากนั้นเราฆ่า Leader ด้วย SIGKILL และเปิด Follower ตัวหนึ่งขึ้นมา
+
+Follower ตัวนั้นเป็น Leader ไม่ได้ เพราะมันไม่อยู่ใน ISR และไม่มี 5 Record สุดท้าย Partition จึงไม่มี Leader (`leader None`) ทั้งอ่านและเขียนไม่ได้ ส่วนทางออกมีสองทาง ทางแรกคือรอให้ Broker ที่ตายกลับมา ซึ่งดีที่สุดเพราะมันมีข้อมูลครบ ทางที่สองคือบังคับเลือก Leader แบบ Unclean ซึ่งเรารันด้วย `kafka-leader-election.sh --election-type unclean` แล้ว Follower ตัวนั้นขึ้นเป็น Leader ทันที เราส่ง Order ใหม่อีก 2 ใบ แล้วเปิด Broker ตัวเก่ากลับมา ผลสุดท้ายใน Log คือ
+
+```text
+['safe-0', 'safe-1', 'safe-2', 'new-0', 'new-1']
+```
+
+Order 5 ใบที่ได้รับการตอบรับไปแล้วหายไปถาวร (รัน) Broker ตัวเก่าที่กลับมาตัด Log ของตัวเองให้ตรงกับ Leader ใหม่ ตั้งค่า `unclean.leader.election.enable=true` ก็ทำเรื่องเดียวกันนี้ได้อัตโนมัติ โดยตัว Controller ตรวจทุก 5 นาทีตามค่าเริ่มต้น (Source: `unclean.leader.election.interval.ms` ใน `ReplicationConfigs.java`) หนังสือจึงเตือนว่าการเปิด Unclean Election เป็นการแลกความถูกต้องกับความพร้อมใช้งาน (หนังสือ: Kafka: The Definitive Guide หัวข้อ Unclean Leader Election หน้า 166)
+
+<Callout type="note" title="คอลัมน์ Elr">
+เมื่อ Leader ตัวสุดท้ายตาย Kafka 4.x จำไว้ว่าใครเป็นตัวสุดท้ายที่ครบ (Eligible Leader Replicas) เพื่อให้ตอนที่มันกลับมา เป็น Leader ต่อได้ทันทีโดยไม่เสียข้อมูล ซึ่ง Lab ด้านบนจำลองไว้ด้วยการเริ่ม Broker ตัวนั้นใหม่ เราไม่ได้ลองตรง ๆ ว่ากลไก ELR ทำงานแบบเดียวกันกับ Lab ในทุกกรณี
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Topic ตั้ง Replication Factor เป็น 3 และ min.insync.replicas เป็น 1 Producer ใช้ Acks=All Follower สองตัวหยุด ทำให้ ISR เหลือ Leader ตัวเดียว Leader เขียน Order แล้วตอบรับ จากนั้น Leader ตายถาวร ข้อใดถูก?"
+  options={[
+    'Order ปลอดภัย เพราะ Acks=All หมายความว่าทุก Replica มีแล้วเสมอ',
+    'Order หายได้ เพราะ Acks=All รอแค่ Replica ที่อยู่ใน ISR ตอนนั้น ซึ่งมี Leader ตัวเดียว',
+    'Order ปลอดภัยเพราะ Kafka เก็บสำเนาไว้ที่ Controller',
+    'Producer จะได้ข้อผิดพลาดตอนเขียน จึงรู้ว่าไม่สำเร็จ'
+  ]}
+  answer={1}
+  why="Acks=All หมายถึงรอทุก Replica ใน ISR ไม่ใช่ทุก Replica ที่ตั้งไว้ พอ ISR เหลือตัวเดียวและ min.insync.replicas เป็น 1 การเขียนสำเร็จได้จากสำเนาเดียว แบบฝึกทำแบบนี้แล้ว Order 5 ใบที่ตอบรับไปแล้วหายหลังบังคับเลือก Leader แบบ Unclean (รัน) ถ้าตั้ง min.insync.replicas เป็น 2 การเขียนจะไม่สำเร็จแทนที่จะเสี่ยง"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Topic 3 Partition 3 สำเนา: Leader กระจายไปทั้ง 3 Broker และ ISR ครบ | รัน: `exercises/06_replication.py` |
+| ไฟล์ `.log` ของแต่ละสำเนามีขนาดเท่ากัน (145, 228, 310 ไบต์ตามแต่ละ Partition) | รัน: `exercises/06_replication.py` |
+| หยุด Follower อย่างเรียบร้อย: ออกจาก ISR ทันที เปิดใหม่แล้วกลับเข้า ISR ใน 5.5 วินาที | รัน: `exercises/06_replication.py` |
+| ฆ่า Leader ด้วย SIGKILL: ได้ Leader ใหม่ใน 9.1 วินาที ISR เหลือ 2 และ Order 60 ใบที่ตอบรับแล้วอ่านได้ครบ | รัน: `exercises/06_replication.py` |
+| `min.insync.replicas=2` เหลือ Broker เดียว: เขียนไม่สำเร็จ (หมดเวลา) แต่ยังอ่านได้ | รัน: `exercises/06_replication.py` |
+| `min.insync.replicas=1` ISR เหลือตัวเดียว ตอบรับ 5 ใบ แล้ว Leader ตาย: ไม่มี Leader บังคับ Unclean แล้ว 5 ใบหายถาวร | รัน: `exercises/06_replication.py` |
+| `broker.session.timeout.ms` เริ่มต้น 9000 และ `NotEnoughReplicasException` ลองใหม่ได้ | Source: `KRaftConfigs.java` บรรทัด 43 ถึง 44 และ `NotEnoughReplicasException.java` (Kafka 4.4.0) |
+| `unclean.leader.election.interval.ms` เริ่มต้น 5 นาที | Source: `ReplicationConfigs.java` บรรทัด 122 ถึง 124 (Kafka 4.4.0) |
+| Leader, Follower, ISR, High Watermark และผลของ Unclean Election กับ `min.insync.replicas` | หนังสือ: Kafka: The Definitive Guide หัวข้อ Replication หน้า 139 ถึง 141, Fetch Requests หน้า 145, Unclean Leader Election หน้า 166 และ Minimum In-Sync Replicas หน้า 167 |
+| Cluster ที่มีหลาย Rack, การย้าย Replica (`kafka-reassign-partitions`), Cluster ที่ Broker อยู่คนละคอมพิวเตอร์ | ไม่ได้รัน |
+
+</Step>

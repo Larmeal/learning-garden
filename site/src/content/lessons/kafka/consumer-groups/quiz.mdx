@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจการแบ่ง Partition ใน Group ช่วงที่ Consumer ล้ม จังหวะ Commit กับการซ้ำหรือหาย และ auto.offset.reset
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Group มี Consumer 2 ตัวอ่าน Topic 6 Partition ตัวที่หนึ่งถูก Kill โดยไม่ทันบอกลา และ session.timeout.ms คือ 45 วินาที ในช่วง 45 วินาทีนั้น Partition ของตัวที่ตายเป็นอย่างไร?"
+  options={[
+    'Consumer อีกตัวรับไปอ่านทันทีเพราะ Broker รู้ว่าตัวแรกหายไป',
+    'ไม่มีใครอ่าน Record ใหม่ของ Partition เหล่านั้นกองอยู่ใน Log จนกว่า Broker จะตัดสินว่าตัวที่ตายหมดเวลา',
+    'Record ของ Partition เหล่านั้นถูกลบ',
+    'Producer หยุดส่งไปที่ Partition เหล่านั้น'
+  ]}
+  answer={1}
+  why="Broker รู้ว่า Consumer ตายได้จาก Heartbeat ที่หายไปเท่านั้น และจะตัดสินหลังเกิน session.timeout.ms แบบฝึกฆ่า Consumer แล้ววัดว่าอีกตัวได้ Partition มาหลัง 6.1 วินาทีเมื่อตั้งค่านี้ไว้ 6 วินาที (รัน) ระหว่างรอ Record ไม่หาย เพียงแต่ยังไม่มีใครอ่าน"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Consumer ประมวลผล Record ไป 8 ตัวแต่ Commit ไว้แค่ที่ตำแหน่ง 6 แล้วโปรเซสล้ม Consumer ตัวใหม่ของ Group เดียวกันจะประมวลผลอะไรซ้ำ?"
+  options={[
+    'ไม่ซ้ำเลย เพราะ Kafka จำได้ว่าอ่านถึง 8',
+    'Record ที่ 6 และ 7 เพราะตัวใหม่เริ่มจากตำแหน่งที่ Commit ไว้',
+    'ทุก Record ตั้งแต่ 0 เพราะ Group เริ่มใหม่',
+    'เฉพาะ Record ที่ 8'
+  ]}
+  answer={1}
+  why="Kafka รู้แค่ตำแหน่งที่ Commit ไม่รู้ว่า Consumer ประมวลผลไปถึงไหน ในแบบฝึก task-6 กับ task-7 ถูกประมวลผลสองรอบ (รัน) นี่คือที่มาของการส่งแบบ At-least-once"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="โค้ดของเราอ่าน Record ได้ 6 ตัว Commit ทันที แล้วจึงเริ่มประมวลผล ถ้าโปรเซสล้มก่อนประมวลผลเสร็จ ผลคืออะไร?"
+  options={[
+    'Record ที่ยังไม่ประมวลผลถูกอ่านซ้ำโดยตัวใหม่',
+    'Record ที่ Commit ไปแล้วแต่ยังไม่ได้ประมวลผลจะหาย เพราะตัวใหม่เริ่มต่อจากที่คั่นหนังสือ',
+    'Kafka เก็บ Record ไว้ให้ประมวลผลอีกครั้งอัตโนมัติ',
+    'ไม่มีผลอะไร เพราะ Commit ไม่เกี่ยวกับ Record'
+  ]}
+  answer={1}
+  why="ที่คั่นหนังสือขยับไปข้างหน้าก่อนที่งานจะเสร็จ ตัวใหม่จึงข้ามไป แบบฝึกทำแบบนี้แล้ว job-0 ถึง job-5 ไม่ถูกประมวลผลเลย (รัน) การ Commit หลังประมวลผลเสี่ยงซ้ำแต่ไม่หาย จึงเป็นทางเลือกที่ใช้บ่อยกว่า"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราเปิด Group ใหม่ที่ไม่เคยอ่าน Topic นี้มาก่อนด้วย auto.offset.reset เป็น Latest ทั้งที่ Topic มี Record อยู่ 30 ตัว Group นี้จะเห็นอะไร?"
+  options={[
+    'ครบทั้ง 30 ตัว',
+    'ไม่เห็นตัวเก่าเลย เห็นเฉพาะ Record ที่ส่งมาหลังจากเริ่มอ่าน',
+    'ข้อผิดพลาด เพราะ Group ไม่มีที่คั่นหนังสือ',
+    'ครึ่งหนึ่งของ Record'
+  ]}
+  answer={1}
+  why="เมื่อ Group ไม่มีที่คั่นหนังสือ ค่า auto.offset.reset ตัดสินว่าจะเริ่มตรงไหน แบบ Latest เริ่มที่ท้าย Log จึงอ่านได้ 0 ตัวจาก 30 ส่วนแบบ Earliest ได้ครบ 30 (รัน) ความผิดพลาดนี้เงียบมากเพราะไม่มีข้อผิดพลาดอะไรปรากฏ"
+/>
+
+</Step>

@@ -1,0 +1,124 @@
+---
+title: Consumers and consumer groups
+summary: Several consumers of one group share the partitions, and the bookmark of a group is the offset it has committed. We see how work is split when consumers come and go, why a crashed consumer is only noticed after session.timeout.ms, and why committing at the wrong moment loses or repeats records.
+facts:
+  - "Run for real in exercises/04_consumer_groups.py against Kafka 4.4.0 and confluent-kafka 2.16.2: 1 to 4 consumers reading a topic of 3 partitions, a consumer that leaves the group, a consumer killed to measure how long the group takes to notice, 8 records processed but a commit after 6, both values of auto.offset.reset, and the new consumer group protocol."
+  - "The meaning of group, rebalance and commit was read from the book Kafka: The Definitive Guide, pages 77 to 94. The range split and the old and new protocols were checked from the output of the exercise. Static membership and cooperative rebalance were not run. The times and batch counts in this lesson come from one run, and other runs differ a little (for example 594 and 595 batches, 9.1 and 9.3 seconds), so the exercise checks bounds only."
+order: 4
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [producers]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ConsumerGroupLab from '../../../../components/labs/kafka/ConsumerGroupLab';
+import CommitLab from '../../../../components/labs/kafka/CommitLab';
+
+<Step>
+
+## How several consumers read together
+
+In [lesson 1](/en/kafka/what-is-kafka/) we saw that each group has a bookmark of its own. Now say a topic has three partitions and the work of the group `billing` is too heavy for one consumer. We start more consumers with the same `group.id`. Kafka shares the partitions among the consumers of one group so that each partition has only one reader inside the group. The book calls this sharing a consumer group, and the new split when somebody joins or leaves a rebalance (book: Kafka: The Definitive Guide, section Consumer Groups and Partition Rebalance, page 80).
+
+Let us start consumers into the group one at a time and see who gets which partition.
+
+```text
+1 member:  m1 [0, 1, 2]
+2 members: m1 [0, 1]   m2 [2]
+3 members: m1 [0]      m2 [1]      m3 [2]
+4 members: m1 [0]      m2 [1]      m3 [2]      m4 []
+```
+
+Every partition always has exactly one owner, and the fourth consumer gets no partition because there are only three (ran). The number of partitions is therefore the ceiling of parallelism of a group: to have 10 consumers working at once the topic needs at least 10 partitions. The split in this example is the range style, which sorts the members and hands out consecutive partitions.
+
+</Step>
+
+<Step>
+
+## Those who join, those who leave, and those who crash
+
+Play with this lab. Add consumers one at a time, then let the first one leave quietly and compare with letting it crash suddenly. Notice that in the second case there is a period when the partitions of the crashed consumer have nobody reading them.
+
+<ConsumerGroupLab client:visible lang="en" />
+
+A consumer that closes itself properly tells the broker that it has left, so the group can split the work again at once, which we saw in the exercise: when `m1` left, its partition went to `m4`, which was idle. A consumer that crashes without saying goodbye is a different matter. The broker only learns from heartbeats that stop, and it decides the consumer is dead after `session.timeout.ms` has passed. We tested it by running a consumer as a separate process and killing it with `kill` while `session.timeout.ms=6000`. The remaining consumer got its partition after 6.1 seconds (ran). During that time new records of that partition piled up in the log with nobody reading. That is why the value has to be chosen with care: too short and a consumer that is merely slow for a moment is declared dead, too long and we wait a long time when one really dies.
+
+<Callout type="note" title="The new protocol, where the broker does the split">
+Kafka 4.x has a new consumer group protocol, switched on with `group.protocol=consumer`, in which the broker computes the split instead of the consumers. When we started two consumers on a topic of 4 partitions this way, each got two partitions, and `kafka-consumer-groups.sh --describe --state` showed the state `Stable` with the assignor `uniform` (ran). We did not compare the speed of rebalancing between the two protocols.
+</Callout>
+
+</Step>
+
+<Step>
+
+## The bookmark, and what to watch out for
+
+After a consumer has read, Kafka remembers the position only if the consumer asks it to, which is called a commit. The committed position is the offset of the next record to read (book: Kafka: The Definitive Guide, section Commits and Offsets, page 94), and a new consumer of the same group starts reading at the latest commit.
+
+Let us see what the moment of the commit does with a real case. There are 10 jobs, `task-0` to `task-9`. A consumer read and processed 8 of them but committed only when it reached 6, and then crashed.
+
+```text
+GROUP   TOPIC  PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG
+worker  tasks  0          6               10              4
+```
+
+The bookmark is at 6 although 8 jobs were done. The new consumer starts from `task-6` and gets `task-6`, `task-7`, `task-8` and `task-9`, so the first two are processed twice (ran). This is at-least-once delivery: nothing is lost but something may repeat. The other way round, if we commit before processing and then crash, the jobs that were committed but not yet done are lost, which we also tried: commit 6 and crash at once, and `job-0` to `job-5` were never processed again (ran). Choose the commit style and the crash point in the lab to compare.
+
+<CommitLab client:visible lang="en" />
+
+No style is both lossless and free of repeats by itself. The usual way is to commit after processing (nothing is lost) and make the processing safe to repeat, for example by writing to a table with a primary key, which we use in the pipeline of [lesson 12](/en/kafka/capstone-pipeline/), or to use a transaction, which we see in [lesson 8](/en/kafka/delivery/).
+
+</Step>
+
+<Step>
+
+## Where a new group starts reading
+
+A group that has never had a bookmark has to choose where to start, and `auto.offset.reset` decides. With `earliest` it starts at the beginning of the log. With `latest` it starts at the end, waiting for records that come later. In the exercise the topic held 30 records. A new group with `earliest` read all 30, and a new group with `latest` read 0 (ran). If we set it wrongly when we open a new group on an old topic, we can miss all the existing data without any error.
+
+And when a group stops reading while the producer keeps sending, the lag keeps growing. In the exercise a group that had stopped had a lag of 5 after 5 more records were added (ran). Watching the lag of every group is the easiest way to know that a consumer is falling behind, and we come back to it when we look after the system in [lesson 11](/en/kafka/operations/).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A topic has 3 partitions, and a team starts 5 consumers in the same group to read faster. What is the result?"
+  options={[
+    'All 5 read at the same time, because Kafka hands out records one by one',
+    '3 consumers get one partition each and 2 sit idle, because each partition has only one reader in a group',
+    'Kafka adds partitions by itself until there are 5',
+    'The last 2 consumers are refused entry to the group'
+  ]}
+  answer={1}
+  why="One partition has a single reader inside a group, so when there are more consumers than partitions the extra ones are idle. The exercise saw it with 4 consumers on 3 partitions (ran). To read in more parallel we have to add partitions, which affects keys as we saw in an earlier lesson."
+/>
+
+</Step>
+
+<Step>
+
+## Sources of this lesson
+
+| Statement | Source |
+|---|---|
+| 1, 2, 3 and 4 consumers split 3 partitions as [0,1,2], [0,1]+[2], [0]+[1]+[2], and the fourth is idle; every partition has one owner | ran: `exercises/04_consumer_groups.py` |
+| When a consumer leaves, its partitions go to the consumers that are left, including an idle one | ran: `exercises/04_consumer_groups.py` |
+| A consumer killed without saying goodbye is noticed after 6.1 seconds with `session.timeout.ms=6000` | ran: `exercises/04_consumer_groups.py` |
+| 8 processed but commit at 6, then a crash: the bookmark is 6, lag 4, and `task-6` and `task-7` are processed twice | ran: `exercises/04_consumer_groups.py` |
+| Commit 6 and crash before processing: `job-0` to `job-5` are lost | ran: `exercises/08_delivery.py` |
+| A new group with `earliest` reads 30, with `latest` reads 0, and a stopped group has lag 5 after 5 more records | ran: `exercises/04_consumer_groups.py` |
+| `group.protocol=consumer`: 2 consumers split 4 partitions two each and the group is Stable | ran: `exercises/04_consumer_groups.py` |
+| A consumer group and a rebalance give each partition a single reader in the group | book: Kafka: The Definitive Guide, section Consumer Groups and Partition Rebalance, page 80 |
+| A commit saves the offset that a consumer has read to, and a new consumer starts from it | book: Kafka: The Definitive Guide, section Commits and Offsets, page 94 |
+| We should commit after processing and make the processing safe to repeat | author |
+| The speed of rebalance in the old and new protocols, static membership, cooperative rebalance | not run |
+
+</Step>

@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you understand that Kafka only stores bytes, what the schema id does, and which schema change is safe for an old or a new reader.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A producer sends Avro messages, each with a four-byte schema id at its head. Why not put the whole schema in every message?"
+  options={[
+    'Kafka forbids a message to have a schema',
+    'The whole schema usually makes a message more than twice as big. Keeping the schema in a registry and putting only a reference is much cheaper',
+    'A consumer cannot read a schema that is inside a message',
+    'The broker needs the schema id to sort records'
+  ]}
+  answer={1}
+  why="The book says that keeping the whole schema in each record usually makes a record more than twice as big, so a reference is kept at the head instead (book: Kafka: The Definitive Guide, section Using Avro Records with Kafka, page 65). The broker does not check or use the schema id. The exercise confirmed that the broker stored the bytes it received as they were (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A team removes the field qty, which has no default, from the Order schema. An old reader meets a new message. What happens?"
+  options={[
+    'It reads normally, because Avro fills the value in itself',
+    'It cannot read it, because the new message has no qty and the old schema has no default to use in its place',
+    'It reads it but qty is 0',
+    'The broker refuses the new message'
+  ]}
+  answer={1}
+  why="A reader shapes the data with its own schema. A field that is missing and has no default cannot be read. In the table of the exercise, removing a field without a default lets a new reader read old messages but an old reader cannot read new ones (ran). If the field had a default, both directions would work."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A team renames the field qty to quantity without an alias. What is the effect on the two readers?"
+  options={[
+    'Both directions break, because Avro matches fields by name and the new name is a field that the other side lacks',
+    'Nothing breaks, because Avro matches by position',
+    'The new reader reads old messages, but the old reader cannot read new ones',
+    'The old reader reads new messages, but the new reader cannot read old ones'
+  ]}
+  answer={0}
+  why="A rename is the same as removing a field and adding another field without a default, so both directions break. The exercise got that result (ran). Keeping the old name as an alias lets the new reader read old messages, but the old reader still cannot read the new ones."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We widen the field qty from int to long. How do the new reader (long) and the old reader (int) read each other's messages?"
+  options={[
+    'Both directions work, because int and long are both numbers',
+    'The new reader reads old messages (int) because an int can be promoted to long, but the old reader cannot read new messages (long)',
+    'Neither works',
+    'The old reader works but the new reader does not'
+  ]}
+  answer={1}
+  why="Avro promotes int to long but does not demote long to int. In the exercise backward worked and forward did not (ran). So widening a type means upgrading the readers before the producers."
+/>
+
+</Step>

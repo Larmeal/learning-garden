@@ -1,0 +1,123 @@
+---
+title: Consumer Group
+summary: Consumer หลายตัวใน Group เดียวกันแบ่ง Partition กันอ่าน ที่คั่นหนังสือของ Group คือ Offset ที่ Commit ไว้ เรามาดูการแบ่งงานเมื่อมีคนเข้าออก การรู้ว่า Consumer ล้มต้องรอ session.timeout.ms และทำไมคำสั่ง Commit ผิดจังหวะทำให้ Record หายหรือซ้ำ
+facts:
+  - "รันจริงใน exercises/04_consumer_groups.py กับ Kafka 4.4.0 และ confluent-kafka 2.16.2 ให้ Consumer 1 ถึง 4 ตัวอ่าน Topic 3 Partition ดูการแบ่งงาน ให้ Consumer ออกจาก Group ฆ่า Consumer ด้วย kill เพื่อวัดเวลาที่ Group รู้ตัว ประมวลผล 8 Record แต่ Commit แค่ 6 แล้วดูว่า Record ซ้ำ ลอง auto.offset.reset ทั้งสองแบบ และลอง Consumer Group Protocol ใหม่"
+  - "ความหมายของ Group, Rebalance และ Commit อ่านจากหนังสือ Kafka: The Definitive Guide หน้า 77 ถึง 94 ส่วนการแบ่งงานแบบ Range และ Protocol แบบเก่ากับใหม่ ตรวจจากผลของแบบฝึก ไม่ได้รันแบบ Static Membership หรือ Cooperative Rebalance ตัวเลขเวลาและจำนวน Batch ในบทนี้มาจากการรันรอบหนึ่ง รอบอื่นต่างกันเล็กน้อย (เช่น 594 กับ 595 Batch, 9.1 กับ 9.3 วินาที) แบบฝึกจึงตรวจแค่ขอบเขต"
+order: 4
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [producers]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ConsumerGroupLab from '../../../../components/labs/kafka/ConsumerGroupLab';
+import CommitLab from '../../../../components/labs/kafka/CommitLab';
+
+<Step>
+
+## Consumer หลายตัวช่วยกันอ่านได้อย่างไร
+
+ใน[บทที่ 1](/kafka/what-is-kafka/) เราเห็นว่าแต่ละ Group มีที่คั่นหนังสือของตัวเอง ทีนี้ถ้า Topic มีสาม Partition และงานของ Group `billing` หนักเกินกว่า Consumer ตัวเดียวจะอ่านทัน เราก็เปิด Consumer เพิ่มโดยให้ใช้ `group.id` เดียวกัน Kafka จะแบ่ง Partition ให้ Consumer ที่อยู่ใน Group เดียวกันอ่านคนละส่วน เพื่อให้แต่ละ Partition มีคนอ่านแค่คนเดียวใน Group หนังสือเรียกการแบ่งงานนี้ว่า Consumer Group และเรียกการแบ่งใหม่เมื่อมีคนเข้าออกว่า Rebalance (หนังสือ: Kafka: The Definitive Guide หัวข้อ Consumer Groups and Partition Rebalance หน้า 80)
+
+เราลองเปิด Consumer เข้า Group ทีละตัวแล้วดูว่าใครได้ Partition ไหน
+
+```text
+1 member:  m1 [0, 1, 2]
+2 members: m1 [0, 1]   m2 [2]
+3 members: m1 [0]      m2 [1]      m3 [2]
+4 members: m1 [0]      m2 [1]      m3 [2]      m4 []
+```
+
+ทุก Partition มีเจ้าของคนเดียวเสมอ และตัวที่สี่ไม่ได้ Partition เลยเพราะมีแค่สามอัน (รัน) ข้อนี้บอกเราว่าจำนวน Partition คือเพดานของความขนานของ Group ถ้าอยากให้มี Consumer ทำงานพร้อมกัน 10 ตัว Topic ต้องมีอย่างน้อย 10 Partition การแบ่งในตัวอย่างนี้เป็นแบบ Range ที่เรียงสมาชิกแล้วแจก Partition ต่อเนื่องกัน
+
+</Step>
+
+<Step>
+
+## คนเข้า คนออก และคนที่ล้ม
+
+เล่นกับ Lab นี้ดู กดเพิ่ม Consumer ทีละตัว แล้วลองให้ตัวแรกออกจาก Group เฉย ๆ เทียบกับให้ล้มกะทันหัน สังเกตว่ากรณีที่สองมีช่วงหนึ่งที่ Partition ของตัวที่ล้มไม่มีใครอ่าน
+
+<ConsumerGroupLab client:visible />
+
+Consumer ที่ปิดตัวเองดี ๆ จะบอก Broker ว่าออกแล้ว Group แบ่งงานใหม่ได้ทันที ซึ่งเราเห็นในแบบฝึก เมื่อ `m1` ออก Partition ของมันไปอยู่ที่ `m4` ซึ่งว่างอยู่ ส่วน Consumer ที่ล้มโดยไม่ทันบอกลาจะเป็นอีกเรื่อง Broker รู้ได้จาก Heartbeat ที่หยุดมา และจะตัดสินว่าเขาตายก็ต่อเมื่อเลย `session.timeout.ms` ไปแล้ว เราทดลองด้วยการรัน Consumer เป็นโปรเซสแยกแล้วฆ่ามันด้วย `kill` ตอนตั้ง `session.timeout.ms=6000` Consumer ที่เหลือได้ Partition ของมันมาหลังผ่านไป 6.1 วินาที (รัน) ช่วงนั้น Record ใหม่ของ Partition นั้นกองอยู่ใน Log ไม่มีใครอ่าน เป็นเหตุผลที่ค่านี้ต้องเลือกให้พอดี ถ้าตั้งสั้นไปจะตัดสินคนที่แค่ช้าชั่วคราวว่าตาย แต่ถ้าตั้งยาวไปจะรอนานเมื่อมีคนตายจริง
+
+<Callout type="note" title="Protocol ใหม่ที่ Broker เป็นคนแบ่ง">
+Kafka 4.x มี Consumer Group Protocol ใหม่ ตั้งด้วย `group.protocol=consumer` ที่ให้ Broker เป็นคนคำนวณการแบ่งงานแทน Consumer เมื่อเราเปิด Consumer สองตัวบน Topic 4 Partition แบบนี้ ได้ตัวละสอง Partition และคำสั่ง `kafka-consumer-groups.sh --describe --state` แสดงสถานะ `Stable` พร้อมวิธีแบ่งแบบ `uniform` (รัน) เราไม่ได้เทียบความเร็วของการ Rebalance ของสองแบบ
+</Callout>
+
+</Step>
+
+<Step>
+
+## ที่คั่นหนังสือ และเรื่องที่ต้องระวัง
+
+Consumer อ่านไปแล้ว Kafka จำตำแหน่งให้ได้ก็ต่อเมื่อ Consumer บอกให้จำ ซึ่งเรียกว่า Commit ตำแหน่งที่ Commit คือ Offset ของ Record ถัดไปที่จะอ่าน (หนังสือ: Kafka: The Definitive Guide หัวข้อ Commits and Offsets หน้า 94) และ Consumer ใหม่ของ Group เดิมจะเริ่มอ่านตรงที่ Commit ไว้ล่าสุด
+
+ลองดูผลของจังหวะ Commit กับเรื่องจริง งาน 10 ชิ้น `task-0` ถึง `task-9` Consumer อ่านและประมวลผลไปแล้ว 8 ชิ้น แต่ Commit ไว้แค่ตอนครบ 6 ชิ้นแล้วก็ล้ม
+
+```text
+GROUP   TOPIC  PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG
+worker  tasks  0          6               10              4
+```
+
+ที่คั่นหนังสืออยู่ที่ 6 แม้ว่างานทำไปแล้ว 8 ชิ้น Consumer ตัวใหม่จึงเริ่มจาก `task-6` และได้ `task-6`, `task-7`, `task-8`, `task-9` สองชิ้นแรกถูกประมวลผลซ้ำ (รัน) นี่คือการส่งแบบ At-least-once คือไม่หายแต่อาจซ้ำ ในทางกลับกัน ถ้า Commit ก่อนประมวลผลแล้วล้ม งานที่ Commit ไปแล้วแต่ยังไม่ได้ทำจะหาย ซึ่งเราก็ลองแล้วเหมือนกัน Commit ที่ 6 แล้วล้มทันที `job-0` ถึง `job-5` ไม่มีใครประมวลผลอีกเลย (รัน) กดเลือกแบบ Commit กับจุดที่ล้มใน Lab เพื่อเทียบ
+
+<CommitLab client:visible />
+
+ไม่มีแบบไหนที่ทั้งไม่หายและไม่ซ้ำได้เอง ทางที่ใช้กันคือเลือก Commit หลังประมวลผล (ไม่หาย) แล้วทำให้การประมวลผลทนการซ้ำได้ เช่นเขียนลงตารางที่มี Primary Key ซึ่งเราจะใช้ตอนทำ Pipeline ใน[บทที่ 12](/kafka/capstone-pipeline/) หรือใช้ Transaction ที่เราจะดูใน[บทที่ 8](/kafka/delivery/)
+
+</Step>
+
+<Step>
+
+## Group ใหม่เริ่มอ่านจากไหน
+
+Group ที่ไม่เคยมีที่คั่นหนังสือมาก่อนต้องเลือกว่าจะเริ่มตรงไหน ค่า `auto.offset.reset` เป็นตัวตัดสิน ถ้าเป็น `earliest` ก็เริ่มที่ต้น Log ถ้าเป็น `latest` ก็เริ่มที่ท้าย Log คือรอ Record ที่มาใหม่ ในแบบฝึก Topic มี Record อยู่ 30 ตัว Group ใหม่แบบ `earliest` อ่านได้ครบ 30 ตัว ส่วนแบบ `latest` อ่านได้ 0 ตัว (รัน) ถ้าเราตั้งผิดตอนเปิด Group ใหม่กับ Topic เก่า ก็อาจพลาดข้อมูลทั้งหมดที่มีอยู่โดยไม่มีข้อผิดพลาดอะไรเลย
+
+และเมื่อ Group หยุดอ่าน แต่ Producer ยังส่งต่อ Lag ก็เพิ่มขึ้นเรื่อย ๆ ในแบบฝึก Group ที่หยุดไปแล้วมี Lag 5 หลังเพิ่ม Record 5 ตัว (รัน) การเฝ้า Lag ของแต่ละ Group เป็นวิธีที่ง่ายที่สุดที่จะรู้ว่า Consumer ตามไม่ทัน ซึ่งเราจะกลับมาที่ตอนดูแลระบบใน[บทที่ 11](/kafka/operations/)
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Topic มี 3 Partition ทีมเปิด Consumer ใน Group เดียวกัน 5 ตัวเพื่อให้อ่านเร็วขึ้น ผลเป็นอย่างไร?"
+  options={[
+    'ทั้ง 5 ตัวอ่านพร้อมกัน เพราะ Kafka แบ่ง Record ให้ทีละตัว',
+    '3 ตัวได้ Partition ตัวละหนึ่ง อีก 2 ตัวว่างงาน เพราะแต่ละ Partition มีคนอ่านได้แค่คนเดียวใน Group',
+    'Kafka เพิ่ม Partition ให้เองจนครบ 5',
+    'Consumer 2 ตัวสุดท้ายถูกปฏิเสธไม่ให้เข้า Group'
+  ]}
+  answer={1}
+  why="หนึ่ง Partition มีผู้อ่านเดียวใน Group เดียวกัน เมื่อ Consumer มากกว่า Partition ส่วนที่เกินจึงว่าง แบบฝึกเห็นตอนมี 4 Consumer บน 3 Partition (รัน) ถ้าอยากให้อ่านขนานมากขึ้นต้องเพิ่ม Partition ซึ่งมีผลกับ Key ที่เราเห็นในบทที่ผ่านมา"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Consumer 1, 2, 3 และ 4 ตัวแบ่ง 3 Partition เป็น [0,1,2], [0,1]+[2], [0]+[1]+[2] และตัวที่สี่ว่าง ทุก Partition มีเจ้าของคนเดียว | รัน: `exercises/04_consumer_groups.py` |
+| เมื่อ Consumer ออก Partition ของมันไปอยู่ที่ Consumer ที่เหลือ รวมตัวที่ว่างอยู่ | รัน: `exercises/04_consumer_groups.py` |
+| Consumer ที่ถูกฆ่าโดยไม่บอกลาถูกรู้ตัวหลัง 6.1 วินาที เมื่อ `session.timeout.ms=6000` | รัน: `exercises/04_consumer_groups.py` |
+| ประมวลผล 8 ชิ้นแต่ Commit ที่ 6 แล้วล้ม: ที่คั่นหนังสือเป็น 6, Lag 4 และ `task-6`, `task-7` ถูกประมวลผลซ้ำ | รัน: `exercises/04_consumer_groups.py` |
+| Commit 6 แล้วล้มก่อนประมวลผล: `job-0` ถึง `job-5` หายไป | รัน: `exercises/08_delivery.py` |
+| Group ใหม่ `earliest` อ่าน 30 ตัว ส่วน `latest` อ่าน 0 ตัว และ Group ที่หยุดอ่านมี Lag 5 หลังเพิ่ม 5 Record | รัน: `exercises/04_consumer_groups.py` |
+| `group.protocol=consumer`: Consumer 2 ตัวแบ่ง 4 Partition ตัวละ 2 และ Group อยู่ในสถานะ Stable | รัน: `exercises/04_consumer_groups.py` |
+| Consumer Group และ Rebalance ทำให้ Partition แต่ละอันมีผู้อ่านเดียวใน Group | หนังสือ: Kafka: The Definitive Guide หัวข้อ Consumer Groups and Partition Rebalance หน้า 80 |
+| Commit คือการบันทึก Offset ที่ Consumer อ่านถึง และ Consumer ใหม่เริ่มจากตรงนั้น | หนังสือ: Kafka: The Definitive Guide หัวข้อ Commits and Offsets หน้า 94 |
+| ควรเลือก Commit หลังประมวลผลแล้วทำให้การประมวลผลทนการซ้ำ | ผู้เขียน |
+| ความเร็วของการ Rebalance แบบเก่ากับใหม่, Static Membership, Cooperative Rebalance | ไม่ได้รัน |
+
+</Step>

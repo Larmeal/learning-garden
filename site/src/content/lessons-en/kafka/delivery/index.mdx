@@ -1,0 +1,148 @@
+---
+title: Delivery guarantees and transactions
+summary: We make a record repeat for real by freezing a follower and see how idempotence removes the duplicate. Then we open the log of a transaction with its COMMIT and ABORT markers, see what read_committed skips, and run a consume-transform-produce loop that gives every result once even when the worker is abandoned halfway.
+facts:
+  - "Run for real in exercises/08_delivery.py against Kafka 4.4.0 (3 brokers plus 1 separate controller) and confluent-kafka 2.16.2: a follower frozen with docker pause so that the producer retries, enable.idempotence off against on, a transaction that commits, one that aborts and one left open, their log opened with kafka-dump-log, and a consume-transform-produce loop where one attempt is abandoned halfway."
+  - "The meaning of the idempotent producer and of transactions comes from the book Kafka: The Definitive Guide, section Idempotent Producer page 182 and Transactions pages 186 to 200. We did not run a case where results leave Kafka (for example into a database), which the book says Kafka transactions do not cover, and we did not measure how slow transactions are."
+order: 8
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [kraft]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import DuplicateLab from '../../../../components/labs/kafka/DuplicateLab';
+import TxnLab from '../../../../components/labs/kafka/TxnLab';
+
+<Step>
+
+## At most once, at least once, or exactly once
+
+When we say that a system "delivers data" there are three levels to choose from. The first is at-most-once: send at most one time, and if something goes wrong let the data be lost. The second is at-least-once: keep sending until it works, which loses nothing but may repeat. The last is exactly-once, where every item is processed exactly one time. In [lesson 4](/en/kafka/consumer-groups/) we saw the consumer side: committing before processing is at-most-once, and committing after processing is at-least-once. In this lesson we look at the producer side, and at how Kafka makes exactly-once possible.
+
+</Step>
+
+<Step>
+
+## Make a record repeat, and see idempotence fix it
+
+In [lesson 3](/en/kafka/producers/) we said that a producer sends again when it gets no answer. Now let us make it happen. We use a topic with three copies and `min.insync.replicas=2`, a producer with `acks=all` and `request.timeout.ms=3000`, and we freeze one follower with `docker pause`. The leader writes the order to its own log, but it has to wait for the follower, which does not answer, so it cannot reply to the producer. After 3 seconds the producer thinks it failed and sends again, and the leader writes again. After releasing the follower we read the log.
+
+```text
+enable.idempotence=false -> ['order-o-1', 'order-o-1', 'order-o-1']
+enable.idempotence=true  -> ['order-o-1']
+```
+
+One order became three copies because the producer sent twice more. With idempotence on there is one copy (ran), because every batch is stamped with a `producerId` and a sequence number. The leader sees that this stamp was already written, does not write it again, and answers with the offset it already has (book: Kafka: The Definitive Guide, section Idempotent Producer, page 182). Step through it in the lab below.
+
+<DuplicateLab client:visible lang="en" />
+
+Idempotence only guards against duplicates that come from retries of the same producer. If our program runs twice and sends the same order twice by itself, the stamps of the two runs differ and Kafka cannot know that it is a repeat. The book explains this limit (book: Kafka: The Definitive Guide, section Limitations of the Idempotent Producer, page 184).
+
+</Step>
+
+<Step>
+
+## A transaction: write several records, then say whether they count
+
+Sometimes we have to write several records as one block: either all of them count, or none. Kafka has transactions for this. A producer with a `transactional.id` calls `begin_transaction`, sends records, then calls `commit_transaction` or `abort_transaction` (book: Kafka: The Definitive Guide, section Transactions, page 186). We tried three blocks in turn: block a (a1, a2) that commits, block b (b1, b2) that aborts, and block c (c1) that was written but not yet closed. Two kinds of consumer see different things.
+
+```text
+read_committed   sees ['a1', 'a2']
+read_uncommitted sees ['a1', 'a2', 'b1', 'b2', 'c1']
+```
+
+The `isolation.level` of the consumer decides. `read_committed` gets only records of transactions that committed (or that were not in a transaction). `read_uncommitted` gets every record, including those of a transaction that aborted (book: Kafka: The Definitive Guide, section How Do Transactions Guarantee Exactly-Once, page 188). After we committed block c, `read_committed` sees `['a1', 'a2', 'c1']` (ran).
+
+<Callout type="warn" title="After an abort, records still in the client are lost">
+In our first attempt `read_uncommitted` did not see `b1` and `b2` at all, because `abort_transaction()` throws away records that are still queued in the client and not yet sent. We have to call `flush()` before the abort if we want the aborted records to appear in the log (ran).
+</Callout>
+
+</Step>
+
+<Step>
+
+## Inside the log there are markers
+
+A transaction does not use a special log. It writes into the normal log, and when it closes a block it writes a special record, a marker, at the end. We opened the log file of that partition with `kafka-dump-log.sh`:
+
+```text
+offset  content  kind
+0       a1       data
+1       a2       data
+2       COMMIT   control
+3       b1       data
+4       b2       data
+5       ABORT    control
+6       c1       data
+7       COMMIT   control
+```
+
+Five data records use 8 offsets, because the marker of each block takes an offset too (ran). A consumer never receives the markers, but it uses them to decide which records count. While block c was still open the log ended at offset 6, and a `read_committed` consumer could not read past that. That point is called the last stable offset, the offset of the first record in a transaction that has not finished. Choose the level and the state of the last block in this lab to see the result.
+
+<TxnLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## Consume-transform-produce, exactly once
+
+The most common job is to read from one topic, change the data, and write to another. If the program crashes on the way we do not want the results to repeat or go missing. Kafka's way is to put two things in one transaction: writing the results, and committing the offset that the group has read to, with `send_offsets_to_transaction`. So if the transaction aborts, both the results and the offset do not count at the same time.
+
+We tried it with 10 jobs, processed 5 per transaction. The first worker finished the first block with a commit, then wrote the second block and was abandoned halfway (no commit). At that point the log of the result topic held 10 records (5 committed and 5 not closed). Then we started a new worker with the same `transactional.id`, which makes Kafka abort the block that was left open and shut the door on the old producer.
+
+```text
+read_committed   sees 10 results: N0 to N9, one each
+read_uncommitted sees 15 results (the aborted block is still in the log)
+the old producer tried to commit: _FENCED
+```
+
+Every result appears exactly once for a `read_committed` reader, and the abandoned old producer can no longer commit because it was fenced (ran). The book calls this mechanism transactional ids and fencing (book: Kafka: The Definitive Guide, section Transactional IDs and Fencing, page 196).
+
+<Callout type="note" title="The limit of exactly-once">
+The guarantee holds when both reading and writing happen inside Kafka. The book says plainly that a transaction does not solve the case where results leave Kafka, for example into a database or an email, because we cannot abort what is outside Kafka (book: Kafka: The Definitive Guide, section What Problems Aren't Solved by Transactions, page 191). In that case we have to make the write at the destination safe to repeat ourselves, for example with a primary key as we do in [lesson 12](/en/kafka/capstone-pipeline/).
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A consumer sets isolation.level to read_committed. One transaction wrote 3 records to a partition and then the producer hung, with neither commit nor abort. Records of another transaction that did commit sit after those records in the log. What does the consumer get?"
+  options={[
+    'The committed records at once, skipping the ones that hang',
+    'Nothing after the point where the open transaction starts, until that transaction finishes, because it cannot read past the last stable offset',
+    'Every record, including the hanging ones',
+    'An error'
+  ]}
+  answer={1}
+  why="read_committed stops at the last stable offset, which is the first record of a transaction that is still open. Committed records that sit behind it are held back. That is why a transaction that hangs for long slows the consumer down. The exercise and the lab show the last stable offset while the last block is open (ran)."
+/>
+
+</Step>
+
+<Step>
+
+## Sources of this lesson
+
+| Statement | Source |
+|---|---|
+| A follower frozen and a retry: idempotence off gave 3 copies of the order in the log, and on gave 1 | ran: `exercises/08_delivery.py` |
+| Committing before processing, then a crash: records 0 to 5 were never processed | ran: `exercises/08_delivery.py` |
+| `read_committed` sees a1, a2 and `read_uncommitted` sees a1, a2, b1, b2, c1 while c is open, and a1, a2, c1 once c commits | ran: `exercises/08_delivery.py` |
+| The log has 8 offsets for 5 records (markers COMMIT, ABORT, COMMIT), and `abort_transaction()` throws away records that were not sent | ran: `exercises/08_delivery.py` |
+| Consume-transform-produce: `read_committed` sees results N0 to N9 once each, `read_uncommitted` sees 15, and the old producer is fenced (`_FENCED`) | ran: `exercises/08_delivery.py` |
+| The idempotent producer uses `producerId` and a sequence, and only guards against duplicates from retries of the same producer | book: Kafka: The Definitive Guide, section Idempotent Producer pages 182 and 184 |
+| Transactions, `isolation.level`, markers, and transactional ids with fencing | book: Kafka: The Definitive Guide, section Transactions page 186, How Do Transactions Guarantee Exactly-Once page 188, Transactional IDs and Fencing page 196 |
+| A transaction does not cover results that leave Kafka | book: Kafka: The Definitive Guide, section What Problems Aren't Solved by Transactions, page 191 |
+| The cost in speed of transactions, and a last stable offset that stays stuck for long | not measured (the book covers it under Performance of Transactions, page 200, and we did not read its numbers) |
+
+</Step>

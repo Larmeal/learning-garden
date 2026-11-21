@@ -1,0 +1,157 @@
+---
+title: Topics, partitions and keys
+summary: A topic is split into several partitions, and each partition is an independent log that counts its own offsets. We see how the key of a record decides which partition it lands in, why order only holds inside one partition, and why adding partitions makes keys move.
+facts:
+  - "Run for real in exercises/02_topics_partitions.py against Kafka 4.4.0: 18 orders with a customer id as the key were sent to a topic of 3 partitions, and the partition that the broker reported was compared with the rule toPositive(murmur2(key)) % partitions, rewritten in Python from Kafka's Utils.murmur2. They matched for every key."
+  - "The rule of the Java producer was read from the 4.4.0 source (BuiltInPartitioner.java and Utils.java). That the confluent-kafka library uses another hash by default is a result of the exercise, which compared them, and the book Kafka: The Definitive Guide, section Partitions page 68, describes choosing a partition from the key."
+order: 2
+phase: A
+level: 1
+stage: sprout
+format: steps
+requires: [what-is-kafka]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import PartitionLab from '../../../../components/labs/kafka/PartitionLab';
+
+<Step>
+
+## One topic, three logs
+
+In [lesson 1](/en/kafka/what-is-kafka/) we used a topic with one partition, which means one log. That is fine for five orders, but with a million orders an hour one log on one broker cannot keep up. So Kafka lets us split a topic into several partitions. Each partition is a log of its own that can live on a different broker, with producers and consumers working on each partition in parallel (book: Kafka: The Definitive Guide, section Topics and Partitions, page 5).
+
+Let us create a topic `orders` with three partitions and send 18 orders into it, with six customers (`c1` to `c6`) ordering three times each, and the customer id as the key of the record.
+
+```text
+partition 0: offsets [0, 1, 2]
+partition 1: offsets [0, 1, 2, 3, 4, 5]
+partition 2: offsets [0, 1, 2, 3, 4, 5, 6, 7, 8]
+```
+
+Notice two things. First, the 18 orders spread over the three partitions unevenly (3, 6 and 9). Second, the offsets of every partition count from 0 again, because each partition is a different log. So "offset 4" alone says nothing: we have to say offset 4 of which partition (ran).
+
+</Step>
+
+<Step>
+
+## The key chooses the partition for us
+
+Who decides which partition an order goes to? The producer does, by computing something from the key of the record. The result is the same partition every time for the same key. The book says the partitioner makes a hash of the key and turns it into a partition number, so that records with the same key are always written to the same partition (book: Kafka: The Definitive Guide, section Partitions, page 68).
+
+The rule of the Java producer can be read in the Kafka 4.4.0 source, in `BuiltInPartitioner.java` at line 412: `toPositive(murmur2(key)) % number of partitions`. The function `murmur2` is the hash in `Utils.java`, and `toPositive` just drops the sign bit so that the number is positive (source). We rewrote the same function in Python and compared it with what the broker reported.
+
+| Key | murmur2 | partition by the rule | partition the broker reported |
+|---|---|---|---|
+| `c1` | 2069367011 | 2 | 2 |
+| `c2` | -1855343131 | 1 | 1 |
+| `c3` | 1044721541 | 2 | 2 |
+| `c4` | 1864598678 | 2 | 2 |
+| `c5` | -274743689 | 0 | 0 |
+| `c6` | 978391183 | 1 | 1 |
+
+Every row matches (ran), and the same key lands in the same partition for all three orders of each customer. Partition 2 holds nine because three customers (`c1`, `c3`, `c4`) hash there. A hash does not promise an even spread. Type a key of your own in the lab and change the number of partitions to see where each key lands.
+
+<PartitionLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## The hash is not the same in every library
+
+We found this one by running the exercise. Our exercise uses the Python library `confluent-kafka`, which is built on librdkafka. Unless we set something, it uses a CRC32 hash called `consistent_random`, which differs from the Java one.
+
+| Key | Java (`murmur2`) | librdkafka (default) |
+|---|---|---|
+| `c1` | 2 | 2 |
+| `c2` | 1 | 1 |
+| `c3` | 2 | 0 |
+| `c4` | 2 | 2 |
+| `c5` | 0 | 1 |
+| `c6` | 1 | 0 |
+
+Three of the six land in a different partition (ran). If a Java service and a Python service send orders of the same customer into the same topic, those orders spread over different partitions and the order of that customer is lost. The fix is to set the `partitioner` of librdkafka to `murmur2_random`, which we tried and which gave the same partition as the Java rule for every key (ran).
+
+<Callout type="warn" title="Set it the same in every language">
+If an organisation has producers in several languages, set the partitioners so that they give the same result, or send keys through one path only. Otherwise the promise that the same key lives in one partition does not hold.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Order only holds inside one partition
+
+Because the records of one key go to one partition, Kafka guarantees order inside that partition. A record that was sent earlier has a smaller offset and is read earlier. Between partitions there is no guarantee at all. The book says it plainly: a topic with several partitions has no guarantee of message order across the whole topic, only inside a single partition (book: Kafka: The Definitive Guide, section Topics and Partitions, page 5).
+
+The exercise confirmed that when reading the three partitions, the offsets of each partition come in order (ran). But a consumer tends to take a chunk from one partition at a time. In our run the first 12 records came from partition 2 only, so the order in which a consumer receives records should not be taken as the order in which the producer sent them. In short, if something has to stay in order, choose a key that puts its records in one partition, for example the customer id for the orders of that customer.
+
+</Step>
+
+<Step>
+
+## A key is optional
+
+A record does not have to have a key. Without one, the producer spreads records over the partitions by itself. The book says that with no key and the default partitioner, a record goes to one of the available partitions, and since Kafka 2.4 the algorithm sticks to one partition until a batch is full (book: Kafka: The Definitive Guide, section Partitions, page 69). When we sent 60 records without a key they spread over partitions 0, 1 and 2 (ran). This suits data where order does not matter, such as web logs.
+
+</Step>
+
+<Step>
+
+## More partitions, and the keys move
+
+Sometimes three partitions are not enough any more, so we grow to six with `kafka-topics.sh --alter --partitions 6`. Records already written stay where they are, but the rule `% number of partitions` has a new divisor, so many keys land in a new partition.
+
+| Key | with 3 partitions | with 6 partitions |
+|---|---|---|
+| `c1` | 2 | 5 |
+| `c2` | 1 | 1 |
+| `c3` | 2 | 5 |
+| `c4` | 2 | 2 |
+| `c5` | 0 | 3 |
+| `c6` | 1 | 1 |
+
+Three of the six keys moved (ran). The new orders of `c1` go to partition 5 while the old ones sit in partition 2, so the order of that customer is cut in two. If our system relies on order per key, we should choose the number of partitions with room to spare from the start. And one more thing to know: Kafka cannot reduce partitions. When we asked to go from 6 to 2 we got `InvalidPartitionsException: The topic orders currently has 6 partition(s); 2 would not be an increase` (ran).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A Python service using confluent-kafka without any partitioner setting sends orders of customer c3, and a Java service sends orders of c3 into the same topic too. The topic has 3 partitions. What happens?"
+  options={[
+    'Both services send c3 to the same partition, because the key is the same',
+    'The orders of c3 from the two services land in different partitions (Java to 2, Python to 0), so the order of c3 is not guaranteed',
+    'Kafka rejects records from the service whose hash differs',
+    'Kafka moves the records of c3 into one partition when they are read'
+  ]}
+  answer={1}
+  why="The default of librdkafka is CRC32, and Java uses murmur2. For the key c3 with 3 partitions they differ (Java gets 2, librdkafka gets 0). The exercise measured that 3 of 6 keys differ (ran). The broker neither checks nor moves records. The fix is to set the librdkafka partitioner to murmur2_random to match Java."
+/>
+
+</Step>
+
+<Step>
+
+## Sources of this lesson
+
+| Statement | Source |
+|---|---|
+| A topic with 3 partitions: each partition counts offsets from 0, and 18 orders landed as 3, 6 and 9 | ran: `exercises/02_topics_partitions.py` |
+| The partition that the broker reports equals `toPositive(murmur2(key)) % n` for every key (Python rewritten from `Utils.murmur2`) | ran: `exercises/02_topics_partitions.py` |
+| The default of confluent-kafka (`consistent_random`) puts 3 of 6 keys in a different partition than Java, and `murmur2_random` makes them agree | ran: `exercises/02_topics_partitions.py` |
+| Offsets inside a partition are in the order of sending | ran: `exercises/02_topics_partitions.py` |
+| Records without a key spread over several partitions | ran: `exercises/02_topics_partitions.py` |
+| After growing to 6 partitions 3 of 6 keys moved, and partitions cannot be reduced | ran: `exercises/02_topics_partitions.py` |
+| The rule `toPositive(murmur2(key)) % partitions` of the Java producer | source: `BuiltInPartitioner.java` line 412 and `Utils.murmur2` in `Utils.java` (Kafka 4.4.0) |
+| A partition is one log that is only appended to, and there is no guarantee of order across partitions | book: Kafka: The Definitive Guide, section Topics and Partitions, page 5 |
+| A hash of the key chooses the partition, and a record without a key goes round (sticky since 2.4) | book: Kafka: The Definitive Guide, section Partitions, pages 68 and 69 |
+| The number of partitions should be chosen with room to spare from the start | author |
+
+</Step>

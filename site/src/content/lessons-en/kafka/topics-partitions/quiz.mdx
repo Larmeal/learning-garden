@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you understand how a key chooses a partition, how far order is guaranteed, and what happens when partitions are added.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A topic has 3 partitions. We send a record with the key c1 twice, an hour apart, and never change the number of partitions. Where do the two records go?"
+  options={[
+    'The same partition, because the partitioner computes it from the key and the number of partitions, which did not change',
+    'Different partitions, because the producer picks at random each time',
+    'Whichever partition is the emptiest at that moment',
+    'The same partition only if the same producer sent them'
+  ]}
+  answer={0}
+  why="The result of the hash and the divisor depends on the key and the number of partitions only. Which producer sends, and when, does not matter (as long as the producers use the same partitioner). The exercise sent three orders per customer and every customer got a single partition (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A consumer reads all three partitions of a topic and sees 12 records, all from partition 2, before it gets any record from another partition. What can we conclude?"
+  options={[
+    'The producer sent those 12 records before all the records of the other partitions',
+    'Kafka sorts the records of the whole topic by time and hands them to the consumer',
+    'Nothing about the order of sending, because a consumer takes chunks from one partition at a time, and order is guaranteed only inside a single partition',
+    'Partition 2 is a main partition that matters more than the others'
+  ]}
+  answer={2}
+  why="Kafka guarantees order only inside a partition. The order in which a consumer receives records from several partitions depends on which one it picks up first. The exercise saw the first 12 records come from partition 2 without that meaning the producer sent them that way (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A topic has 3 partitions. The team grows it to 6 because the data is growing. What is the effect on records that have keys?"
+  options={[
+    'The old records move to the new partitions by the old rule',
+    'No effect, because a key always goes to the same partition',
+    'The old records stay put, but the new records of some keys land in another partition, so the order of that key is cut in two',
+    'Kafka refuses to add partitions when the topic already has data'
+  ]}
+  answer={2}
+  why="Records that were written are not moved, but the divisor of the rule changes from 3 to 6, so keys whose result differs move. In the exercise 3 of 6 keys moved (for example customer c1 from partition 2 to 5). Kafka does not refuse: what it refuses is reducing the number of partitions (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A web log system sends records into a topic without a key and does not care about order. Where do the records go?"
+  options={[
+    'All to partition 0',
+    'They spread over the partitions, chosen by the producer',
+    'They are rejected, because a record must have a key',
+    'They wait until a key exists, and then are written'
+  ]}
+  answer={1}
+  why="A key is optional. Without one the producer spreads records over the partitions by itself. In the exercise 60 records without a key landed in all 3 partitions (ran). It suits data that does not need order."
+/>
+
+</Step>

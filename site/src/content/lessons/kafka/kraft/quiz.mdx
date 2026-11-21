@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจว่า Metadata ของ Cluster เป็น Log อย่างไร การสร้าง Topic เพิ่มอะไร Epoch ใช้ทำอะไร และทำไมต้องมีเสียงข้างมาก
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราสั่งสร้าง Topic ที่มี 2 Partition ใน Cluster แล้วเปิด Log ของ Metadata ดู จะเห็น Record อะไรเพิ่มขึ้นมา?"
+  options={[
+    'Record เดียวชื่อ CREATE_TOPIC ที่เก็บทั้ง Topic',
+    'Record ของ Topic 1 ตัว และ Record ของ Partition อีก 2 ตัว',
+    'ไม่มี Record ใหม่ เพราะสถานะเก็บใน Memory ของ Controller',
+    'ไฟล์ใหม่ 2 ไฟล์ แต่ไม่มี Record'
+  ]}
+  answer={1}
+  why="การเปลี่ยนแปลงของ Cluster ทุกอย่างคือ Record ต่อท้าย Log ชื่อ __cluster_metadata การสร้าง Topic เพิ่ม TOPIC_RECORD หนึ่งตัวกับ PARTITION_RECORD หนึ่งตัวต่อ Partition ในแบบฝึกคือ 1 บวก 2 (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Epoch ของ Leader ใน Quorum มีไว้ทำอะไร?"
+  options={[
+    'บอกจำนวน Topic ใน Cluster',
+    'เป็นเลขรอบของการเลือก Leader ใช้แยกว่าใครเป็น Leader ปัจจุบัน และกันไม่ให้สอง Node เชื่อว่าตัวเองเป็น Leader พร้อมกัน',
+    'บอกเวอร์ชันของ Kafka',
+    'นับ Record ที่ Producer ส่ง'
+  ]}
+  answer={1}
+  why="ทุกครั้งที่เลือก Leader ใหม่ Epoch เพิ่มขึ้น Node ที่เห็น Epoch ที่ใหม่กว่าจะรู้ว่า Leader เก่าล้าสมัยไปแล้ว หนังสือเล่าว่านี่คือวิธีกัน Split Brain (หนังสือ: Kafka: The Definitive Guide หัวข้อ The Controller หน้า 136) แบบฝึกเห็น Epoch เพิ่มหลังฆ่า Leader (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Cluster ที่ทุก Node เป็นทั้ง Broker และ Controller มี 3 ตัว ถ้าฆ่าไป 2 ตัวจะเกิดอะไรกับคำสั่งสร้าง Topic?"
+  options={[
+    'สำเร็จตามปกติ เพราะ Broker ที่เหลืออยู่ยังรับคำสั่งได้',
+    'ค้างจนหมดเวลา เพราะเหลือ Controller ไม่ถึงครึ่ง จึงไม่มี Leader ต่อท้าย Log ได้',
+    'สร้างได้แต่ไม่มี Replica',
+    'Kafka เลือก Controller เพิ่มให้เองจากตัวที่เหลือ'
+  ]}
+  answer={1}
+  why="การเปลี่ยน Metadata ต้องผ่าน Leader ของ Quorum และ Leader ต้องมีเสียงข้างมาก เหลือ 1 ใน 3 จึงไม่มี Leader แบบฝึกเห็นคำสั่งสร้าง Topic ค้างแล้วหมดเวลา (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="สถานะปัจจุบันของ Cluster (Topic ไหนมี Partition ไหน Leader คือใคร) ได้มาอย่างไรในแนวคิดของ KRaft?"
+  options={[
+    'เก็บเป็นตารางที่อัปเดตทับของเดิม',
+    'เล่น Log ของ Metadata ตั้งแต่ต้นจน (หรือจาก Snapshot ล่าสุดจน) ถึงท้าย ผลที่ได้คือสถานะปัจจุบัน',
+    'ถามทุก Broker ทุกครั้งที่ต้องการ',
+    'อ่านจาก ZooKeeper'
+  ]}
+  answer={1}
+  why="Metadata เป็น Log เหมือนข้อมูลใน Topic สถานะคือผลของการเล่น Record ตามลำดับ และ Snapshot ช่วยไม่ต้องเล่นตั้งแต่ต้นทุกครั้ง Kafka 4.4.0 ไม่ใช้ ZooKeeper (รัน)"
+/>
+
+</Step>

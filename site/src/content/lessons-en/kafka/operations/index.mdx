@@ -1,0 +1,124 @@
+---
+title: Running Kafka
+summary: The thing that breaks most often when a client connects to Kafka is the address that the broker advertises. We see where the bookmark of a group lives in __consumer_offsets, read the lag, rewind the offsets of a group, change a config while the broker runs, and see a quota slow a client down when it goes over its share.
+facts:
+  - "Run for real in exercises/11_operations.py against Kafka 4.4.0: advertised.listeners set wrongly and where the client fails, finding which partition of __consumer_offsets holds the bookmark of a group with kafka-dump-log, measuring lag, rewinding offsets with kafka-consumer-groups --reset-offsets, changing retention.ms with kafka-configs while the broker runs, and setting a producer quota and timing the sending of 4 MB."
+  - "Not run: TLS, SASL, ACLs, moving replicas (kafka-reassign-partitions), tiered storage, and watching metrics through JMX. That a client connects by the names the broker answers with was read from the book Kafka: The Definitive Guide, pages 116 and 269, and quotas from page 73. The times and batch counts in this lesson come from one run, and other runs differ a little (for example 594 and 595 batches, 9.1 and 9.3 seconds), so the exercise checks bounds only."
+order: 11
+phase: E
+level: 3
+stage: sprout
+format: steps
+requires: [connect-streams]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ListenerLab from '../../../../components/labs/kafka/ListenerLab';
+
+<Step>
+
+## We cannot connect to Kafka, though the broker is running
+
+The thing that people new to Kafka meet most often is that the first call to a broker works, but the commands after it fail. The reason lies in the way a client connects. We give it only a starting address (the bootstrap), and the client asks the broker who is where. After that it connects to the brokers by the names that the broker answers with, which come from the setting `advertised.listeners` (book: Kafka: The Definitive Guide, page 116, where it says that a client makes connections by the names in the bootstrap setting and then by the names the brokers give in advertised.listeners). So the address that a broker advertises must be one that the client can reach from where the client runs.
+
+We tried making a broker advertise a name that does not exist (`broker.invalid:29092`) on the listener that is used from our own computer, while the internal listener still advertised `klab-k1:9092` as usual.
+
+```text
+through the internal listener: klab-k1:9092 (id: 1 ...)
+through the external listener: broker.invalid:29092 (id: 1 ...) -> ERROR: DisconnectException
+```
+
+On the side of `confluent-kafka` on our computer we got `Local: Broker transport failure` when asking for the list of topics, and when we sent a record it timed out (`_MSG_TIMED_OUT`), with the client log saying `Failed to resolve 'broker.invalid:29092'` (ran). Notice that the bootstrap address `127.0.0.1:29092` could be reached, but the address that the broker answered with could not. Choose where the client runs and what the broker advertises in the lab below, and see whether the third arrow arrives.
+
+<ListenerLab client:visible lang="en" />
+
+<Callout type="note" title="The fix we use in the exercises">
+Every exercise opens two listeners: `INTERNAL`, which advertises the name of the container (`klab-k1:9092`) for brokers talking to each other and for clients in the same Docker network, and `EXTERNAL`, which advertises `127.0.0.1` and the published port for clients on our own computer. The book has an example with several listeners split by group of clients, each with its own security protocol (book: Kafka: The Definitive Guide, page 269). We did not run TLS or SASL.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Where the bookmark of a group lives
+
+In [lesson 1](/en/kafka/what-is-kafka/) we said that a committed offset is stored in a topic named `__consumer_offsets`. Let us find where. That topic has 50 partitions (ran). Which partition a group goes to is computed from a hash of the group name with the rule `abs(hashCode(group id)) % 50`, where `hashCode` is that of a Java String. For the group `billing` we get 9, and when we looked at the file sizes of all 50 partitions, only partition 9 held any data (ran).
+
+Opening the log of partition 9 with `kafka-dump-log.sh --offsets-decoder`, we found one kind of record whose key is `{"group":"billing","topic":"orders","partition":0}` and whose value has the `offset` and the time of commit, three of them, one for each partition of the topic `orders`, and another kind (type 2) that holds the data of the group itself, such as its members and how it splits work (ran). So the bookmark that we have been talking about is only a record in an ordinary topic, and the broker that owns that partition acts as the coordinator of the group.
+
+</Step>
+
+<Step>
+
+## Lag and rewinding offsets
+
+Lag is the first thing we watch. In the exercise the group `billing` had read everything, and then we sent 60 more records. `kafka-consumer-groups.sh --describe` showed a total lag of 60, as expected (ran). A lag that keeps growing and never falls says that the consumer cannot keep up, or is not running at all.
+
+Sometimes we want a group to read again, for example when we find the processing code was wrong and we fixed it. We can use `--reset-offsets`, and first look with `--dry-run`:
+
+```text
+GROUP    TOPIC   PARTITION  NEW-OFFSET
+billing  orders  0          0
+billing  orders  1          0
+billing  orders  2          0
+```
+
+This command changes nothing yet (the lag was still 60). When we ran it for real with `--execute`, the group read all 90 records again (ran). But there is a condition: the group must have no active consumer. If there is one, the command says `Assignments can only be reset if the group 'billing' is inactive, but the current state is Stable` (ran), because rewinding while somebody reads would let that consumer commit over the value we just set.
+
+</Step>
+
+<Step>
+
+## Changing a config while it runs, and quotas
+
+Many settings can change without restarting the broker, with `kafka-configs.sh --alter`. When we set `retention.ms=123456` on the topic `orders` and ran `--describe --all`, we saw `retention.ms=123456 ... synonyms={DYNAMIC_TOPIC_CONFIG:retention.ms=123456}`, which says that the value comes from a topic-level setting made dynamically (ran). The `synonyms` text also says which level each value came from, which helps when we are not sure where the value in use comes from.
+
+Another thing operators use is quotas, so that one client cannot eat the whole cluster. The book says the broker slows a client that sends or reads over its quota (book: Kafka: The Definitive Guide, section Quotas and Throttling, page 73). We set `producer_byte_rate=200000` (200 KB per second) for a client named `limited`, and sent 4 MB, against a client with no quota.
+
+```text
+4 MB without a quota:     0.2 seconds
+4 MB with 200 KB/s:      12.8 seconds
+```
+
+Notice that in our first tries we sent only 800 KB and saw nothing at all, because a quota allows a short burst, about the quota times ten seconds, which here is around 2 MB. Only data beyond that is slowed (ran). That figure is what we observed from running it, and we did not read it from the source.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A client on our own computer connects to the bootstrap 127.0.0.1:29092 well, but sending a record times out, and the client log says Failed to resolve for one name. What is the most likely cause?"
+  options={[
+    'The broker is down',
+    'The broker advertises a name in advertised.listeners that the client does not know or cannot reach. The client could dial the bootstrap but cannot go on with the name the broker answers with',
+    'The topic has not been created yet',
+    'There are not enough partitions'
+  ]}
+  answer={1}
+  why="The client uses the bootstrap address only to ask for the list of brokers. The real sending and receiving use the names that the broker advertises. If that name cannot be found from where the client runs, the client cannot connect. The exercise imitated this case and got the same result (ran). The fix is to advertise an address that the client can reach, which usually means separate listeners for internal and external clients."
+/>
+
+</Step>
+
+<Step>
+
+## Sources of this lesson
+
+| Statement | Source |
+|---|---|
+| `advertised.listeners` set to a name that cannot be found: the internal listener answers `klab-k1:9092`, the external one `broker.invalid:29092`, `confluent-kafka` gets a transport failure, the send times out and the log says `Failed to resolve` | ran: `exercises/11_operations.py` |
+| `__consumer_offsets` has 50 partitions and the bookmark of the group `billing` is in the partition `abs(hashCode) % 50` (that is 9) | ran: `exercises/11_operations.py` |
+| Records of `__consumer_offsets` of type 1 hold an offset per partition and type 2 holds the data of the group | ran: `exercises/11_operations.py` |
+| A total lag of 60 after sending 60 more records; `--reset-offsets --dry-run` changes nothing; `--execute` makes the group read 90 again and is refused when the group has a member | ran: `exercises/11_operations.py` |
+| `kafka-configs --alter` changes `retention.ms` at once and it shows as `DYNAMIC_TOPIC_CONFIG` | ran: `exercises/11_operations.py` |
+| Quota `producer_byte_rate=200000`: sending 4 MB took 12.8 seconds against 0.2 seconds with no quota, and 800 KB was not slowed (burst) | ran: `exercises/11_operations.py` |
+| A client connects to the bootstrap and then uses the names that the broker advertises in `advertised.listeners`, and several listeners can be set up | book: Kafka: The Definitive Guide, pages 116 and 269 |
+| The broker slows a client that goes over its quota | book: Kafka: The Definitive Guide, section Quotas and Throttling, page 73 |
+| TLS, SASL, ACLs, `kafka-reassign-partitions`, tiered storage, JMX metrics, consumer-side quotas | not run |
+
+</Step>

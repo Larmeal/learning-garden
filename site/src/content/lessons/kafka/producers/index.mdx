@@ -1,0 +1,151 @@
+---
+title: Producer
+summary: Producer ไม่ได้ส่ง Record ทีละตัว มันรวมเป็น Batch ก่อนแล้วค่อยส่ง เรามาดูจาก Log ของ Broker ว่า linger.ms ทำให้ Request ลดลงเท่าไร การบีบอัดลดขนาดไฟล์เท่าไร Acks ตอบเมื่อไร และ Idempotence ติดตราอะไรไว้ในทุก Batch
+facts:
+  - "รันจริงใน exercises/03_producers.py กับ Kafka 4.4.0 และ confluent-kafka 2.16.2 ส่ง Order 600 ใบห่างกันใบละ 2 ms ด้วย linger.ms ต่างกัน แล้วนับ Batch จาก kafka-dump-log.sh ของ Broker เทียบ Codec การบีบอัด 5 แบบกับ Order 3,000 ใบ ดูว่า acks=0, 1 และ all ได้ Offset กลับมาหรือไม่ ดู producerId กับ sequence ใน Log และส่ง Record ขนาด 2 MB"
+  - "ค่าเริ่มต้นของ Producer แบบ Java (acks=all, linger.ms=5, batch.size=16384, enable.idempotence=true) อ่านจาก ProducerConfig.java ของ source 4.4.0 และคำอธิบาย acks มาจากหนังสือ Kafka: The Definitive Guide หน้า 55 ไม่ได้รัน Producer แบบ Java เพราะแบบฝึกใช้ confluent-kafka ซึ่งค่าเริ่มต้นบางตัวต่างกัน ตัวเลขเวลาและจำนวน Batch ในบทนี้มาจากการรันรอบหนึ่ง รอบอื่นต่างกันเล็กน้อย (เช่น 594 กับ 595 Batch, 9.1 กับ 9.3 วินาที) แบบฝึกจึงตรวจแค่ขอบเขต"
+order: 3
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [topics-partitions]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import BatchLab from '../../../../components/labs/kafka/BatchLab';
+import AcksLab from '../../../../components/labs/kafka/AcksLab';
+
+<Step>
+
+## Producer ส่งเป็นก้อน ไม่ได้ส่งทีละตัว
+
+ตอนเรียก `produce()` เราคิดว่ากำลังส่งทีละ Record แต่จริง ๆ แล้ว Producer เก็บ Record ไว้ในหน่วยความจำก่อน แล้วรวมกันเป็น Batch ที่ไปที่ Partition เดียวกัน จึงค่อยส่งทั้งก้อนใน Request เดียว ข้อดีคือเครือข่ายกับดิสก์ของ Broker ทำงานกับก้อนใหญ่ได้ดีกว่าชิ้นเล็กจำนวนมาก
+
+เราดูก้อนนั้นได้จากไฟล์ Log ของ Broker เอง คำสั่ง `kafka-dump-log.sh` พิมพ์หนึ่งบรรทัดต่อหนึ่ง Batch ดังนี้
+
+```text
+baseOffset: 0 lastOffset: 20 count: 21 baseSequence: -1 lastSequence: -1 producerId: -1 producerEpoch: -1
+partitionLeaderEpoch: 0 isTransactional: false isControl: false position: 0 CreateTime: 1795188576548
+size: 1969 magic: 2 compresscodec: none crc: 2213403328 isvalid: true
+```
+
+บรรทัดนี้บอกว่า Batch นี้ถือ Record 21 ตัว ตั้งแต่ Offset 0 ถึง 20 ใช้พื้นที่ 1,969 ไบต์ และยังไม่ได้บีบอัด (`compresscodec: none`) ส่วนช่อง `producerId` กับ `baseSequence` ที่เป็น -1 เป็นเรื่องของ Idempotence ซึ่งเราจะกลับมาดูในหัวข้อท้าย ๆ (รัน)
+
+</Step>
+
+<Step>
+
+## linger.ms: ยอมรอเพื่อให้ก้อนใหญ่ขึ้น
+
+Producer ตัดสินใจเมื่อไรว่าถึงเวลาส่ง Batch แล้ว มีสองเงื่อนไข ถ้า Batch เต็มตามขนาด `batch.size` ก็ส่งเลย หรือถ้าเวลาที่ Record ตัวแรกรออยู่ถึง `linger.ms` ก็ส่งเลยเหมือนกัน Producer แบบ Java ตั้งค่าเริ่มต้นไว้ที่ `linger.ms=5` และ `batch.size=16384` ไบต์ (Source: `ProducerConfig.java` ของ 4.4.0 บรรทัดที่ 440 กับ 445) หนังสือเล่าว่า `linger.ms` คือเวลาที่ Producer รอ Record เพิ่มก่อนส่ง Batch ออกไป (หนังสือ: Kafka: The Definitive Guide หัวข้อ Message Delivery Time หน้า 56)
+
+เราทดลองด้วยการส่ง Order 600 ใบ โดยให้ Order เข้ามาทีละใบทุก 2 มิลลิวินาที เหมือนบริการที่ส่ง Order ทุกครั้งที่ลูกค้ากดสั่ง แล้วนับ Batch ที่ไปอยู่ใน Log จริง
+
+| ตั้งค่า | Batch ใน Log | Batch ที่ใหญ่ที่สุด | ขนาดไฟล์ |
+|---|---|---|---|
+| `linger.ms=0` | 594 | 7 Record | 90,592 ไบต์ |
+| `linger.ms=50` | 29 | 22 Record | 56,127 ไบต์ |
+
+ตอน `linger.ms=0` เกือบทุก Record กลายเป็น Batch ของตัวเอง ส่วนตอน 50 มิลลิวินาที Producer รอรวม Record ราว 20 ตัวต่อ Batch ทำให้ Request ลดลงเกือบยี่สิบเท่า ไฟล์ก็เล็กลงด้วยเพราะส่วนหัวของ Batch ถูกจ่ายน้อยครั้งลง (รัน) แต่ต้องแลกกับ Record แรกของแต่ละ Batch ที่ต้องรอนานขึ้น กดเปลี่ยนค่าใน Lab ดูได้เลย แล้วลองเปลี่ยนความถี่ที่ Record เข้ามา สังเกตว่าถ้า Record เข้ามาห่างกัน การรอไม่ได้ช่วยอะไร
+
+<BatchLab client:visible />
+
+</Step>
+
+<Step>
+
+## บีบอัดทั้ง Batch
+
+Producer บีบอัดข้อมูลได้ด้วยตัวเลือก `compression.type` และบีบอัดเป็นรายก้อน Batch ที่ใหญ่ขึ้นจึงบีบได้ดีขึ้น Broker เก็บ Batch ที่บีบแล้วไว้ตามนั้นและส่งต่อให้ Consumer โดยไม่ต้องแกะ เราลองส่ง Order 3,000 ใบที่หน้าตาเหมือน JSON ของจริง (ลูกค้า สินค้า จำนวน ราคาแบบสุ่ม) ไปที่ Topic ละหนึ่งแบบ แล้ววัดขนาดไฟล์ Log
+
+| Codec | ขนาด Log (ประมาณ) | เทียบกับไม่บีบ |
+|---|---|---|
+| `none` | 275 KB | 100% |
+| `gzip` | 42 KB | 15% |
+| `zstd` | 48 KB | 17% |
+| `snappy` | 77 KB | 28% |
+| `lz4` | 79 KB | 29% |
+
+Codec ที่ถูกใช้ปรากฏอยู่ในบรรทัดของ Batch (`compresscodec: gzip`) ทุกแบบเล็กกว่าไม่บีบ และ `gzip` กับ `zstd` เหลือไม่ถึงครึ่ง (รัน) ตัวเลขนี้ขึ้นกับหน้าตาของข้อมูล Order ที่ใช้ชื่อฟิลด์ซ้ำ ๆ บีบได้ดีมาก ข้อมูลที่เข้ารหัสแล้วหรือเป็นไบนารีสุ่มจะบีบได้น้อย และแต่ละรอบที่รันตัวเลขขยับได้เล็กน้อยเพราะการแบ่ง Batch ไม่เท่ากันทุกครั้ง
+
+</Step>
+
+<Step>
+
+## Acks: Broker ตอบเมื่อไร
+
+หลังจากส่ง Batch ไปแล้ว Producer จะรู้ว่าสำเร็จเมื่อ Broker ตอบกลับ ค่า `acks` เป็นตัวบอกว่าให้ Broker ตอบตอนไหน (หนังสือ: Kafka: The Definitive Guide หัวข้อ Message Delivery Time หน้า 55) ถ้า `acks=0` Producer ส่งแล้วไม่รอคำตอบ ถ้า `acks=1` Leader ตอบทันทีที่เขียนลง Log ของตัวเอง และถ้า `acks=all` Leader ตอบหลังจากทุก Replica ที่อยู่ใน ISR ได้ Record ไปแล้ว Producer แบบ Java ตั้งค่าเริ่มต้นเป็น `all` (Source: `ProducerConfig.java` บรรทัด 430)
+
+ผลจากการส่ง Record เดียวด้วยสามค่า
+
+```text
+acks=0   -> offset None
+acks=1   -> offset 1
+acks=all -> offset 2
+```
+
+`acks=0` ไม่ได้ Offset กลับมาเลย เพราะ Producer ไม่รอ Broker ส่วนอีกสองแบบได้ตำแหน่งของ Record กลับมา (รัน) ความต่างระหว่าง `1` กับ `all` จะเห็นเมื่อ Leader ล้ม ลองกด Lab ด้านล่าง เลือก `acks` กับจังหวะที่ Leader ล้ม แล้วกดถัดไปทีละขั้น คำว่า ISR กับ Follower เดี๋ยวเราจะมาดูละเอียดใน[บทที่ 6](/kafka/replication/)
+
+<AcksLab client:visible />
+
+</Step>
+
+<Step>
+
+## Idempotence: ติดตราให้ทุก Batch
+
+ถ้า Producer ส่ง Batch ไปแล้วไม่ได้คำตอบ (เครือข่ายช้า หรือ Broker ตอบไม่ทัน) มันก็ส่งซ้ำ ซึ่งอาจทำให้ Record ถูกเขียนสองรอบ ถ้าเปิด `enable.idempotence` Producer จะขอ `producerId` จาก Broker แล้วใส่เลขลำดับ (Sequence) ให้ทุก Record Broker จึงรู้ว่า Batch นี้เคยเห็นแล้วหรือยัง (หนังสือ: Kafka: The Definitive Guide หัวข้อ Idempotent Producer หน้า 182) เราเห็นตรานั้นได้จาก Log
+
+```text
+librdkafka ค่าเริ่มต้น: producerId=-1 baseSequence=-1
+enable.idempotence:    producerId=0 producerEpoch=0 baseSequence=0 lastSequence=9
+```
+
+Record 10 ตัวที่ส่งแบบเปิด Idempotence มีเลขลำดับ 0 ถึง 9 ติดไปกับ Batch (รัน) ค่าเริ่มต้นต่างกันตามไลบรารี Producer แบบ Java เปิดไว้อยู่แล้ว (Source: `ProducerConfig.java` บรรทัด 574) แต่ Librdkafka ปิดไว้ในรุ่นที่เราใช้ ถ้าเขียนด้วย Python ต้องเปิดเอง เรื่องที่ว่า Broker ใช้ตรานี้กำจัด Record ซ้ำอย่างไร เรามีบทหนึ่งไว้ลงรายละเอียดคือ[บทที่ 8](/kafka/delivery/)
+
+<Callout type="note" title="Record ใหญ่เกินไป">
+Producer ปฏิเสธ Record ที่ใหญ่เกินขีดจำกัดตั้งแต่ก่อนส่ง เมื่อเราลองส่ง Record ขนาด 2 MB ได้ข้อผิดพลาด `MSG_SIZE_TOO_LARGE` ทันทีจาก `produce()` โดยไม่มีอะไรออกไปที่เครือข่าย (รัน) ส่วนขนาดสูงสุดที่ Broker รับเป็นอีกค่าหนึ่ง (`message.max.bytes`) ที่ต้องตั้งให้เข้ากัน
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="บริการหนึ่งส่ง Order ทีละใบห่างกัน 2 มิลลิวินาที ตั้ง linger.ms เป็น 50 แล้ว Batch ที่ไปถึง Log ใหญ่ขึ้นมาก ราคาที่ต้องจ่ายคืออะไร?"
+  options={[
+    'Record จะถูกเขียนลง Log ไม่ครบ',
+    'Record แรกของแต่ละ Batch ต้องรอได้นานถึง 50 มิลลิวินาทีก่อนถูกส่ง',
+    'ลำดับของ Record ใน Partition เดียวกันสลับกัน',
+    'Broker ต้องบีบอัดทุก Batch เอง'
+  ]}
+  answer={1}
+  why="linger.ms คือเวลาที่ Producer ยอมรอเพื่อให้ Batch ใหญ่ขึ้น จึงแลกกับความหน่วงของ Record ตัวแรก ในแบบฝึก Batch ลดจาก 594 เหลือ 29 โดยที่ Record ครบ 600 ตัวและเรียงเหมือนเดิม (รัน) ส่วนการบีบอัดเป็นเรื่องของ compression.type ซึ่ง Producer ทำเอง"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Log ของ Broker มีหนึ่งบรรทัดต่อ Batch (`count`, `size`, `compresscodec`, `producerId`) | รัน: `exercises/03_producers.py` |
+| Order 600 ใบห่างกัน 2 ms: `linger.ms=0` ได้ 594 Batch ใหญ่สุด 7 ตัว, `linger.ms=50` ได้ 29 Batch ใหญ่สุด 22 ตัว | รัน: `exercises/03_producers.py` |
+| Codec ทั้งห้าแบบทำให้ Log เล็กกว่าไม่บีบ (`gzip` และ `zstd` เหลือไม่ถึงครึ่ง) และ Batch ระบุ Codec ที่ใช้ | รัน: `exercises/03_producers.py` |
+| `acks=0` ไม่ได้ Offset กลับมา ส่วน `acks=1` และ `acks=all` ได้ | รัน: `exercises/03_producers.py` |
+| ตอนเปิด Idempotence Batch มี `producerId` และ Sequence 0 ถึง 9 ส่วนค่าเริ่มต้นของ Librdkafka เป็น -1 | รัน: `exercises/03_producers.py` |
+| Record ขนาด 2 MB ถูกปฏิเสธด้วย `MSG_SIZE_TOO_LARGE` ตั้งแต่เรียก `produce()` | รัน: `exercises/03_producers.py` |
+| ค่าเริ่มต้นของ Producer แบบ Java: `acks=all`, `batch.size=16384`, `linger.ms=5`, `enable.idempotence=true`, `retries` สูงสุด, `delivery.timeout.ms=120000` | Source: `ProducerConfig.java` (Kafka 4.4.0) บรรทัด 429 ถึง 446 และ 574 |
+| ความหมายของ `acks` สามแบบ และ `delivery.timeout.ms` กับ `linger.ms` | หนังสือ: Kafka: The Definitive Guide หัวข้อ Message Delivery Time หน้า 55 ถึง 57 |
+| Idempotent Producer ใช้ `producerId` กับ Sequence ป้องกัน Record ซ้ำจากการส่งซ้ำ | หนังสือ: Kafka: The Definitive Guide หัวข้อ Idempotent Producer หน้า 182 |
+| Batch ที่ใหญ่ขึ้นบีบอัดได้ดีขึ้น และ Broker เก็บ Batch ที่บีบแล้วไว้ตามเดิม | ผู้เขียน (ส่วนแรกเห็นจากตัวเลขของแบบฝึก ส่วนหลังไม่ได้ตรวจใน Source) |
+| ตัวเลขเวลา (ความหน่วงที่เพิ่มจาก `linger.ms`) | ไม่ได้วัด (Lab เป็นแบบจำลอง) |
+
+</Step>

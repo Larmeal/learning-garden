@@ -1,0 +1,130 @@
+---
+title: Connect และ Streams
+summary: Connect ย้ายข้อมูลระหว่างระบบอื่นกับ Topic และจำว่าอ่านถึงไหนไว้ใน Topic ของมันเอง ส่วน Streams ประมวลผลข้อมูลใน Topic แล้วเก็บสถานะไว้ใน Topic อีกใบ เราลองรันทั้งสองอย่างที่มากับ Kafka และดูว่าเมื่อรีสตาร์ทหรือลบสถานะทิ้งแล้วผลไม่หาย
+facts:
+  - "รันจริงใน exercises/10_connect_streams.py กับ Kafka 4.4.0: เปิด Kafka Connect แบบ Distributed เป็นโปรเซสแยก สร้าง FileStreamSource และ FileStreamSink ผ่าน REST API ดูตำแหน่งที่ Source จดไว้ใน Topic connect-offsets และรัน WordCountDemo ของ Kafka Streams ที่มากับ Kafka ในคอนเทนเนอร์ของ Broker (ต้องติดตั้ง libstdc++ เพิ่ม) ดู Topic ภายในที่มันสร้าง แล้วลบสถานะบนเครื่องทิ้งก่อนรีสตาร์ท"
+  - "หลักการของ Connect (Worker, Task, Topic เก็บ Offset) อ่านจากหนังสือ Kafka Connect: Build and Run Data Pipelines หน้า 38, 66 และ 72 และของ Streams (State Store กับ Changelog) จาก Kafka Streams in Action หน้า 215 ถึง 216 ไม่ได้รัน Connector ที่ต่อฐานข้อมูลหรือ S3 ไม่ได้เขียน Topology ของเราเองและไม่ได้ลองการ Join หรือ Window"
+order: 10
+phase: E
+level: 3
+stage: sprout
+format: steps
+requires: [schemas]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ConnectLab from '../../../../components/labs/kafka/ConnectLab';
+import StreamsLab from '../../../../components/labs/kafka/StreamsLab';
+
+<Step>
+
+## ไม่อยากเขียน Producer เองทุกครั้ง
+
+ข้อมูลที่เราต้องการส่งเข้า Kafka มักมาจากระบบอื่น เช่นไฟล์ Log ฐานข้อมูล หรือ Bucket ใน S3 และข้อมูลที่ออกจาก Kafka ก็ต้องไปลงที่ใดที่หนึ่งเช่นกัน ถ้าเราเขียน Producer กับ Consumer เองทุกครั้ง เราต้องคิดเรื่องการลองใหม่ การจำตำแหน่งที่อ่านถึง และการแบ่งงานซ้ำ ๆ Kafka Connect เป็นโปรเซสที่รับหน้าที่เหล่านี้ไปให้ เราแค่บอกว่าจะเชื่อมกับอะไรผ่าน Connector (หนังสือ: Kafka Connect: Build and Run Data Pipelines หัวข้อ Meet Kafka Connect หน้า 10)
+
+ส่วน Kafka Streams เป็นไลบรารีสำหรับเขียนโปรแกรมที่อ่านจาก Topic ประมวลผล แล้วเขียนผลลงอีก Topic หนึ่ง เหมือน Consumer ที่ฉลาดขึ้นและมีสถานะติดตัว ทั้งสองอย่างมากับ Kafka ในไดเรกทอรีเดียวกับ Broker เราจึงลองรันทั้งคู่ได้ทันที
+
+</Step>
+
+<Step>
+
+## Connect: Worker, Connector และ Task
+
+Connect รันเป็นโปรเซสของมันเอง เรียกว่า Worker เราเปิดมันด้วย `connect-distributed.sh` ในคอนเทนเนอร์ที่แยกจาก Broker แล้วควบคุมผ่าน REST API ทางพอร์ต 8083 ตรงที่น่าสังเกตคือ Worker ใช้ Topic ของ Kafka เป็นที่เก็บสถานะของตัวเอง สามใบ ได้แก่ `connect-configs` เก็บการตั้งค่าของ Connector `connect-offsets` เก็บตำแหน่งที่ Source อ่านถึง และ `connect-status` เก็บสถานะ (หนังสือ: Kafka Connect: Build and Run Data Pipelines หัวข้อ Worker Configuration หน้า 38 และ 72) พอเราเปิด Worker ในแบบฝึก Topic ทั้งสามใบปรากฏขึ้นเองและ REST API ตอบรายการ Plugin ที่มีตัว `FileStreamSourceConnector` กับ `FileStreamSinkConnector` (รัน)
+
+สองตัวนี้เป็น Connector สาธิตที่มากับ Kafka สำหรับส่งข้อมูลระหว่างไฟล์กับ Topic (หนังสือ: Kafka Connect: Build and Run Data Pipelines หัวข้อ Running Connectors หน้า 44) เราสร้างไฟล์ `in.txt` สามบรรทัด สร้าง Source Connector ด้วยคำสั่ง POST ไปที่ `/connectors` ระบุ `file`, `topic` และ `tasks.max` แล้วอ่าน Topic `lines` ได้ Record สามตัวคือ `order 1` ถึง `order 3` เมื่อถามสถานะ ทั้ง Connector และ Task เป็น `RUNNING` (รัน)
+
+</Step>
+
+<Step>
+
+## Connect จำว่าอ่านถึงไหน
+
+ต่อไปเราต่อท้ายไฟล์อีกสองบรรทัด Source อ่านต่อเฉพาะบรรทัดใหม่ แล้วเราลบ Connector ทิ้งและสร้างใหม่ด้วยชื่อเดิม คำถามคือมันจะอ่านทั้งไฟล์ซ้ำไหม คำตอบคือไม่ Topic `lines` ยังมี Record ห้าตัวพอดี เพราะ Connector ที่สร้างใหม่ถามตำแหน่งจาก `connect-offsets` ซึ่งเป็น Record ที่เก็บไว้แล้ว
+
+```text
+key   = ["file-source", {"filename": "/tmp/in.txt"}]
+value = {"position": 40}
+```
+
+ตำแหน่ง 40 คือจำนวนไบต์ของห้าบรรทัด บรรทัดละ 8 ไบต์ (รัน) นั่นคือคีย์ของ Record เป็นชื่อ Connector กับไฟล์ ถ้าเราตั้งชื่อใหม่ มันก็มองเป็นงานใหม่แล้วอ่านทั้งไฟล์ต้นทางใหม่ ส่วนอีกด้านหนึ่ง Sink Connector ที่เราสร้างต่อมาเป็น Consumer Group ชื่อ `connect-file-sink` ของ Topic `lines` ที่เขียนห้าบรรทัดลงไฟล์ `out.txt` และไม่มี Lag (รัน) กดทีละขั้นใน Lab นี้เพื่อดูทั้งเส้นทาง
+
+<ConnectLab client:visible />
+
+<Callout type="note" title="Worker ที่ไม่ได้ปิดอย่างสะอาด">
+หนังสือเตือนว่าถ้า Worker ถูกหยุดแบบไม่เรียบร้อย Task อาจยังไม่ได้ Commit Offset ของ Record ที่กำลังประมวลผลอยู่ ตอนเริ่มใหม่จึงอาจอ่านซ้ำบ้าง (หนังสือ: Kafka Connect: Build and Run Data Pipelines หน้า 77) ซึ่งเป็นพฤติกรรมแบบ At-least-once เหมือนที่เราเห็นกับ Consumer ธรรมดา เราไม่ได้ลองฆ่า Worker กลางทาง
+</Callout>
+
+</Step>
+
+<Step>
+
+## Streams: นับคำแบบมีสถานะ
+
+ต่อไปเป็น Kafka Streams ที่มากับ Kafka มีโปรแกรมตัวอย่างชื่อ `WordCountDemo` ซึ่งอ่านข้อความจาก Topic `streams-plaintext-input` แยกเป็นคำ นับว่าคำแต่ละคำเจอกี่ครั้ง แล้วเขียนผลลงใน `streams-wordcount-output` เราส่งสามบรรทัดคือ `hello kafka`, `hello streams` และ `kafka streams kafka` เข้าไป
+
+```text
+('hello', 1), ('kafka', 1), ('hello', 2), ('streams', 1), ('kafka', 2), ('streams', 2), ('kafka', 3)
+```
+
+Topic ผลลัพธ์ได้ Record เจ็ดตัว ตัวละหนึ่งการเปลี่ยนของตัวเลข ดังนั้นผลลัพธ์เป็นสายของการอัปเดต ไม่ได้มีตัวเลขสุดท้ายตัวเดียวต่อคำ และตัวเลขล่าสุดของแต่ละคำคือ `hello` 2, `kafka` 3, `streams` 2 (รัน) ตัวที่เก็บตัวเลขเหล่านี้คือ State Store ในโปรแกรม และสิ่งที่ Streams สร้างเพิ่มใน Kafka มีสอง Topic ภายใน ตัวหนึ่งเป็น Repartition Topic สำหรับส่งคำเดียวกันไปรวมที่ Partition เดียวกัน อีกตัวเป็น Changelog Topic ที่เก็บทุกการเปลี่ยนของ State Store เป็นสำเนาสำรอง (รัน) หนังสือเล่าว่า Changelog Topic คือ Topic ภายในที่ Kafka Streams สร้างเพื่อให้ State Store ทนต่อความผิดพลาด (หนังสือ: Kafka Streams in Action หัวข้อ State Stores in Kafka Streams หน้า 215)
+
+</Step>
+
+<Step>
+
+## ลบสถานะทิ้ง แล้วตัวเลขกลับมา
+
+ถ้าคอมพิวเตอร์ที่รันโปรแกรมพังจนสถานะบนดิสก์หายล่ะ เราหยุดโปรแกรม ลบโฟลเดอร์สถานะ `/tmp/kafka-streams` ทิ้งทั้งหมด (ข้างในมี `0_0` กับ `1_0` ซึ่งเป็นสถานะของแต่ละ Task) แล้วเริ่มโปรแกรมใหม่ พร้อมส่งบรรทัด `hello again`
+
+```text
+new updates after the restart: [('hello', 3), ('again', 1)]
+```
+
+`hello` นับต่อเป็น 3 ไม่ได้เริ่มที่ 1 เพราะ Streams อ่าน Changelog Topic กลับมาสร้าง State Store ใหม่ก่อนจะประมวลผลต่อ (รัน) หนังสือเรียกขั้นตอนนี้ว่าการกู้ State Store จาก Changelog (หนังสือ: Kafka Streams in Action หัวข้อ Changelog Topics Restoring State Stores หน้า 216) ดูภาพเต็มของสามบรรทัดและการกู้ใน Lab นี้ได้
+
+<StreamsLab client:visible />
+
+<Callout type="warn" title="Image ของ Broker เป็น Alpine">
+`WordCountDemo` ใช้ RocksDB เป็น State Store ซึ่งต้องการไลบรารี `libstdc++` ที่ Image `apache/kafka` ไม่มี ครั้งแรกที่รันมันล้มทันที เราจึงติดตั้งด้วย `apk add libstdc++` ในคอนเทนเนอร์ของแบบฝึก ซึ่งเป็นเรื่องของ Image ที่เราใช้ ไม่ใช่ของ Kafka Streams เอง
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Source Connector อ่านไฟล์มาแล้ว 5 บรรทัด จากนั้นเราลบ Connector แล้วสร้างใหม่ด้วยชื่อและการตั้งค่าเดิมทุกอย่าง ผลคืออะไร?"
+  options={[
+    'อ่านทั้งไฟล์ซ้ำ ทำให้ Topic มี 10 Record',
+    'ไม่อ่านซ้ำ เพราะ Connector ใหม่ถามตำแหน่งที่เคยอ่านถึงจาก Topic Connect-offsets ด้วยชื่อ Connector',
+    'ไม่อ่านอะไรเลย แม้จะมีบรรทัดใหม่ต่อท้ายไฟล์',
+    'ล้มเพราะไม่มีตำแหน่งเก็บไว้'
+  ]}
+  answer={1}
+  why="Connect เก็บตำแหน่งของ Source ไว้เป็น Record ใน Topic Connect-offsets โดยใช้ชื่อ Connector กับไฟล์เป็น Key Connector ที่ใช้ชื่อเดิมจึงอ่านต่อจากตำแหน่ง 40 และถ้ามีบรรทัดใหม่ก็อ่านเฉพาะบรรทัดใหม่ แบบฝึกเห็น Topic มี 5 Record พอดีหลังสร้างใหม่ (รัน) ถ้าเปลี่ยนชื่อ Connector จะถูกมองเป็นงานใหม่และอ่านใหม่ทั้งไฟล์"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Worker แบบ Distributed สร้าง Topic `connect-configs`, `connect-offsets`, `connect-status` และ REST API แสดง Plugin ของไฟล์ | รัน: `exercises/10_connect_streams.py` |
+| Source สร้างบรรทัด 3 ตัวเป็น Record 3 ตัว และ Connector กับ Task เป็น `RUNNING` | รัน: `exercises/10_connect_streams.py` |
+| ลบแล้วสร้าง Connector ใหม่ชื่อเดิม: Topic ยังมี 5 Record และตำแหน่ง `{"position":40}` เก็บใน `connect-offsets` | รัน: `exercises/10_connect_streams.py` |
+| Sink เขียน 5 บรรทัดลง `out.txt` เป็น Group `connect-file-sink` และไม่มี Lag | รัน: `exercises/10_connect_streams.py` |
+| `WordCountDemo`: ได้ Record ผลลัพธ์ 7 ตัว ค่าล่าสุด Hello 2, Kafka 3, Streams 2 และสร้าง Topic Changelog กับ Repartition | รัน: `exercises/10_connect_streams.py` |
+| ลบสถานะบนดิสก์แล้วเริ่มใหม่: `hello` นับต่อเป็น 3 | รัน: `exercises/10_connect_streams.py` |
+| Connect เป็นโปรเซสที่ย้ายข้อมูลโดยไม่ต้องเขียน Producer เอง, Worker เก็บสถานะใน 3 Topic, FileStream เป็น Connector ตัวอย่าง, Task ที่ไม่ปิดสะอาดอาจอ่านซ้ำ | หนังสือ: Kafka Connect: Build and Run Data Pipelines หัวข้อ Meet Kafka Connect หน้า 10, Worker Configuration หน้า 38, Running Connectors หน้า 44, Designing Effective Data Pipelines หน้า 72 และ 77 |
+| Changelog Topic ช่วยให้ State Store ทนความผิดพลาดและกู้คืนได้ | หนังสือ: Kafka Streams in Action หัวข้อ State Stores in Kafka Streams หน้า 215 และ 216 |
+| Connector ที่ต่อฐานข้อมูล, S3 หรือ Debezium, Topology ที่เขียนเอง, Join และ Window, ksqlDB | ไม่ได้รัน |
+
+</Step>

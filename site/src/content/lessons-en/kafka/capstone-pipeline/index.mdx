@@ -1,0 +1,102 @@
+---
+title: Capstone order pipeline
+summary: "We put everything together in one pipeline: an idempotent producer into a topic of 6 partitions and 3 copies, and a group of 3 consumers that write to a table with a primary key before they commit. Then we crash one consumer and kill one broker, and check that all 600 orders are in the table, none twice and none missing."
+facts:
+  - "Run for real in exercises/12_capstone_pipeline.py against Kafka 4.4.0 (3 brokers, 1 separate controller) and confluent-kafka 2.16.2: the topic orders with 6 partitions, 3 copies and min.insync.replicas=2, an idempotent producer with acks=all sending 600 orders in three waves, the group ledger of 3 consumers writing to a SQLite table and committing every 40 records, one consumer crashed without committing, and the broker that leads partition 0 killed with SIGKILL."
+  - "The destination table is SQLite in the same process, not a real database, and everything runs on one computer with Docker, so a slow or broken network was not tried. How many records were delivered twice (610 in one run, 650 in another) depends on timing, so we only confirm that the table does not count them twice, not the number of repeats."
+order: 12
+phase: E
+level: 4
+stage: sprout
+format: steps
+requires: [operations]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import PipelineLab from '../../../../components/labs/kafka/PipelineLab';
+
+<Step>
+
+## The task: lose nothing, count nothing twice
+
+Our online shop receives orders all the time, and the accounting system has to record every order in a table exactly once. We have studied 11 lessons, so now we put everything together and then break it one piece at a time to see whether it survives. The structure is this.
+
+On the sending side the producer turns idempotence on, sets `acks=all`, and uses the customer id as the key (with the partitioner set to `murmur2_random` to match Java, as we learned in [lesson 2](/en/kafka/topics-partitions/)). It sends 600 orders from 8 customers. In the cluster the topic `orders` has 6 partitions, 3 copies and `min.insync.replicas=2`, as seen in [lesson 6](/en/kafka/replication/). On the receiving side the group `ledger` has 3 workers. Each reads an order and writes it into a table whose primary key is `order_id` with `INSERT OR IGNORE`, and only then commits the offset, every 40 records. That is committing after processing, as recommended in [lesson 4](/en/kafka/consumer-groups/).
+
+</Step>
+
+<Step>
+
+## Play it one event at a time
+
+The run has three events. We send the first wave of 200 orders. Then worker `w2` crashes suddenly with 10 orders that it read and wrote but has not committed, and we send a second wave of 200. After that we kill the broker that leads partition 0 with SIGKILL while the last 200 orders are being sent, and start a new worker `w4` to replace the one that was lost. Step through the lab below to see who reads which partition, and the number of rows in the table at each moment.
+
+<PipelineLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## The result, and what saved us
+
+At the end the table holds exactly 600 orders, from `o-0000` to `o-0599`, with none missing (ran). The producer got an ack for every order without a single error, although a broker was killed on the way, and the lag of the group is 0. Each outcome has a mechanism behind it.
+
+**Nothing is missing** because the producer uses `acks=all` with `min.insync.replicas=2`, so every order that got an ack is on at least two copies, and when a broker dies another copy still exists. Idempotence means the retries while waiting for a new leader do not duplicate orders in the log ([lesson 6](/en/kafka/replication/) and [lesson 8](/en/kafka/delivery/)).
+
+**Nothing is counted twice**, even though the workers received more than 600 deliveries in total (610 in one run and 650 in another). The reason is that `w2` read and wrote but had not committed, so the bookmark stayed where it was, and the workers that took over read those orders again. The table, with its primary key, rejected the duplicate rows with `INSERT OR IGNORE`, so the rows stayed at 600 (ran). We did not check why the number of repeats goes beyond the 10 orders of `w2`. We personally think it probably comes from a rebalance when the broker died, but we did not verify it.
+
+**The order of each customer is kept** because the orders of one customer share one key and so one partition, and when we sort the table rows by (partition, offset), the order numbers of every customer go up (ran).
+
+</Step>
+
+<Step>
+
+## What we found, and what we have not done
+
+The first thing we saw is that the 8 customers spread over only 4 of the 6 partitions. The number of records per partition was `{0: 0, 1: 150, 2: 75, 3: 150, 4: 0, 5: 225}` (ran). Partitions 0 and 4 are empty, and the worker that got partition 5 works almost twice as hard as the others, because a hash of the key does not promise an even spread, as we saw in [lesson 2](/en/kafka/topics-partitions/). When there are few keys compared with partitions, a result like this is normal.
+
+And here is what we have not done. The pipeline uses a SQLite table in the same process as its destination, while real work usually has a database outside the process that can be slow or fail. The workers, the brokers and Docker all sit on one computer, so we did not try a network that is cut or slow. We did not switch on TLS or SASL, as mentioned in [lesson 11](/en/kafka/operations/), and we did not write anything that watches metrics or raises an alarm when the lag is high. All of that is left to the person who will take this pipeline into real use.
+
+<Callout type="note" title="If you want to go on">
+If you want to continue on the streaming side, the Spark path has a lesson on [Structured Streaming](/en/spark/structured-streaming/) that uses Kafka as a source, and the [Iceberg](/en/iceberg/streaming/) path, which talks about incremental reads, connects to a topic in much the same way. We did not connect Kafka to those two paths ourselves here.
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A worker crashes after writing 10 orders into the table but before committing, and the new worker reads those 10 orders again. How does a table with no primary key compare with one that has one?"
+  options={[
+    'No difference, because Kafka already prevents duplicate records',
+    'The table without a primary key gets 10 duplicate rows, while the table with a primary key and INSERT OR IGNORE does not count them twice',
+    'The table without a primary key rejects the repeated writes by itself',
+    'The table with a primary key stops working when it meets a duplicate order'
+  ]}
+  answer={1}
+  why="Kafka gives at-least-once delivery, so duplicates are possible when a consumer crashes before it commits. Making the write at the destination safe to repeat, for example with a primary key and INSERT OR IGNORE, is the way used in the exercise, which got exactly 600 rows from more than 600 deliveries (ran). A table without a key accepts the duplicate rows just as they are written."
+/>
+
+</Step>
+
+<Step>
+
+## Sources of this lesson
+
+| Statement | Source |
+|---|---|
+| The producer got an ack for all 600 orders although a broker was killed on the way | ran: `exercises/12_capstone_pipeline.py` |
+| The table has exactly 600 rows (`o-0000` to `o-0599`) and the lag of the group is 0 | ran: `exercises/12_capstone_pipeline.py` |
+| The workers received more than 600 deliveries (610 in one run, 650 in another), and at least the orders that the crashed worker had not committed (10) were read again but not counted twice in the table | ran: `exercises/12_capstone_pipeline.py` |
+| The order numbers of each customer go up when the rows are sorted by (partition, offset) | ran: `exercises/12_capstone_pipeline.py` |
+| The 8 customers landed in only 4 of the 6 partitions, with 150, 75, 150 and 225 | ran: `exercises/12_capstone_pipeline.py` |
+| The origin of the parts: key and partition, `acks` and idempotence, committing after processing, `min.insync.replicas` | ran: the exercises of [lesson 2](/en/kafka/topics-partitions/), [lesson 3](/en/kafka/producers/), [lesson 4](/en/kafka/consumer-groups/), [lesson 6](/en/kafka/replication/) and [lesson 8](/en/kafka/delivery/) |
+| The part of the repeats beyond 10 orders probably comes from a rebalance when the broker died | author (not checked) |
+| A destination that is a database outside the process, a slow or cut network, TLS and SASL, watching the lag | not run |
+
+</Step>

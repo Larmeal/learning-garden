@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจว่า Key เลือก Partition อย่างไร ลำดับมีรับประกันแค่ไหน และเกิดอะไรขึ้นเมื่อเพิ่ม Partition
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Topic มี 3 Partition เราส่ง Record ที่มี Key เป็น c1 สองครั้งห่างกันหนึ่งชั่วโมง โดยที่ไม่ได้เปลี่ยนจำนวน Partition เลย Record สองตัวนี้จะอยู่ที่ไหน?"
+  options={[
+    'Partition เดียวกัน เพราะ Partitioner คำนวณจาก Key และจำนวน Partition ซึ่งไม่เปลี่ยน',
+    'คนละ Partition เพราะ Producer สุ่มทุกครั้ง',
+    'Partition ที่ว่างที่สุดในตอนนั้น',
+    'Partition เดียวกันเฉพาะถ้า Producer ตัวเดิมเป็นคนส่ง'
+  ]}
+  answer={0}
+  why="ผลของ Hash กับตัวหารเป็นฟังก์ชันของ Key กับจำนวน Partition เท่านั้น Producer ตัวไหนส่งและส่งเมื่อไรไม่มีผล (ถ้า Producer ใช้ Partitioner แบบเดียวกัน) แบบฝึกส่ง Order สามใบต่อลูกค้าหนึ่งคนแล้วได้ Partition เดียวทุกคน (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Consumer คนหนึ่งอ่านทั้งสาม Partition ของ Topic แล้วเห็น Record เรียงมาดังนี้ จาก Partition 2 ทั้งหมด 12 ตัว ก่อนจะได้ Record จาก Partition อื่น เราสรุปอะไรได้บ้าง?"
+  options={[
+    'Producer ส่ง 12 Record นั้นก่อน Record ของ Partition อื่นทั้งหมด',
+    'Kafka เรียง Record ทั้ง Topic ตามเวลาแล้วส่งให้ Consumer',
+    'ไม่ได้สรุปอะไรเรื่องลำดับการส่ง เพราะ Consumer หยิบจาก Partition ทีละก้อน ลำดับรับประกันได้แค่ภายใน Partition เดียว',
+    'Partition 2 เป็น Partition หลักที่สำคัญกว่าตัวอื่น'
+  ]}
+  answer={2}
+  why="Kafka รับประกันลำดับเฉพาะภายใน Partition ลำดับที่ Consumer ได้รับจากหลาย Partition ขึ้นกับว่ามันหยิบจากตัวไหนก่อน แบบฝึกเห็น 12 Record แรกมาจาก Partition 2 ทั้งหมดโดยไม่ได้แปลว่า Producer ส่งอย่างนั้น (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Topic มี 3 Partition ทีมเพิ่มเป็น 6 Partition เพราะข้อมูลโตขึ้น ผลกับ Record ที่มี Key อยู่แล้วคืออะไร?"
+  options={[
+    'Record เก่าย้ายไป Partition ใหม่เองตามสูตรเดิม',
+    'ไม่มีผล เพราะ Key เดิมก็ยังไป Partition เดิมเสมอ',
+    'Record เก่าอยู่ที่เดิม แต่ Record ใหม่ของ Key บางตัวไปลง Partition อื่น ทำให้ลำดับของ Key นั้นขาดเป็นสองท่อน',
+    'Kafka ปฏิเสธการเพิ่ม Partition ถ้า Topic มีข้อมูลอยู่'
+  ]}
+  answer={2}
+  why="Record ที่เขียนแล้วไม่ถูกย้าย แต่ตัวหารของสูตรเปลี่ยนจาก 3 เป็น 6 Key ที่ได้ผลต่างกันจึงย้ายที่ ในแบบฝึก 3 จาก 6 Key ย้าย (เช่นลูกค้า c1 จาก Partition 2 ไป 5) ส่วน Kafka ไม่ได้ปฏิเสธ แต่ปฏิเสธการลดจำนวน Partition (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ระบบเก็บ Log ของเว็บส่ง Record เข้า Topic โดยไม่ใส่ Key และไม่สนใจลำดับ Record จะไปอยู่ที่ไหน?"
+  options={[
+    'ทั้งหมดไป Partition 0',
+    'กระจายไปตาม Partition ต่าง ๆ โดย Producer เลือกเอง',
+    'ถูกปฏิเสธ เพราะ Record ต้องมี Key',
+    'รอจนมี Key แล้วค่อยเขียน'
+  ]}
+  answer={1}
+  why="Key เป็นของเสริม ถ้าไม่มี Producer กระจาย Record ไปตาม Partition เอง ในแบบฝึก Record ที่ไม่มี Key 60 ตัวไปลงทั้ง 3 Partition (รัน) เหมาะกับข้อมูลที่ไม่ต้องรักษาลำดับ"
+/>
+
+</Step>

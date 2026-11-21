@@ -1,0 +1,123 @@
+---
+title: KRaft
+summary: The state of the cluster is a log too, kept by a small group of controllers with a majority vote. We open the __cluster_metadata log to see which records creating a topic adds, kill the quorum leader and watch the epoch go up, and see why the cluster can change nothing once fewer than half of the controllers are left.
+facts:
+  - "Run for real in exercises/07_kraft.py against Kafka 4.4.0, on a cluster where all 3 nodes are both broker and controller: the leader of the quorum seen with kafka-metadata-quorum, the log named __cluster_metadata opened with kafka-dump-log --cluster-metadata-decoder, the records that creating a topic adds, killing the quorum leader, and killing more controllers until there is no majority."
+  - "The ideas of KRaft and the controller come from the book Kafka: The Definitive Guide, section The Controller page 136 and KRaft page 137, written when KRaft was still experimental. What ran is Kafka 4.4.0. Adding a new controller to the quorum (kafka-metadata-quorum add-controller) was not tried and the Raft source was not read. The times and batch counts in this lesson come from one run, and other runs differ a little (for example 594 and 595 batches, 9.1 and 9.3 seconds), so the exercise checks bounds only."
+order: 7
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [replication]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ElectionLab from '../../../../components/labs/kafka/ElectionLab';
+
+<Step>
+
+## Who knows which partition is on which broker
+
+In [lesson 6](/en/kafka/replication/) we saw the leader, ISR and replicas of each partition change all the time as brokers come and go. The question is where that information is kept, and who decides that a given broker leads a given partition. The answer is the controller, a broker (or a special node) that looks after the state of the whole cluster, for example by choosing leaders when a broker disappears (book: Kafka: The Definitive Guide, section The Controller, page 136).
+
+Older Kafka kept this information in a separate ZooKeeper. Newer Kafka keeps it itself, with a system called KRaft (Kafka plus Raft, an algorithm that elects a leader by majority vote). The book presents it as a project started in 2019 that is now ready to use, and the Kafka 4.4.0 that we use does not use ZooKeeper at all (book: Kafka: The Definitive Guide, section KRaft, page 137). Let us see what this cluster data looks like.
+
+</Step>
+
+<Step>
+
+## The data of the cluster is a log
+
+We ask the quorum who leads it, with `kafka-metadata-quorum.sh describe --status` (the cluster has three nodes that are both broker and controller).
+
+```text
+LeaderId:       1
+LeaderEpoch:    1
+HighWatermark:  28
+CurrentVoters:  [{"id": 1 ...}, {"id": 2 ...}, {"id": 3 ...}]
+```
+
+The words from the last lesson come back. The high watermark is a number in a log, and that log is a folder called `__cluster_metadata-0` in the data folder of each node. It holds `.log` and `.index` files just like an ordinary partition, and we can open it with `kafka-dump-log.sh --cluster-metadata-decoder`. Right after the cluster had started, the log held a little over thirty records, for example 3 `REGISTER_BROKER_RECORD` (brokers registering) and `FEATURE_LEVEL_RECORD`, which says which version of features the cluster has. It also holds `NO_OP_RECORD` records that the leader keeps appending every half second (ran).
+
+Then we create a topic `orders` with 2 partitions and look at the log again.
+
+```text
+offset 39  TOPIC_RECORD      {"name":"orders","topicId": ...}
+offset 40  PARTITION_RECORD  {"partitionId":0, ...}
+offset 41  PARTITION_RECORD  {"partitionId":1, ...}
+```
+
+Creating a topic is nothing mysterious: it just appends three records to the end of a log (ran), and the other nodes copy them until they are the same. If we kill a broker the log gets new records too, a `BROKER_REGISTRATION_CHANGE_RECORD` (the broker is fenced) and `PARTITION_CHANGE_RECORD` for the partitions that it led or sat in the ISR of (ran). Every change of the cluster is a record in this log, and the current state of the cluster is what we get by replaying that log from the start, which is the same idea as the commit log we opened this path with.
+
+</Step>
+
+<Step>
+
+## The quorum leader, and a majority
+
+The three controllers do not write the log together. One of them is the leader and the only one that appends to the log, and the other two are followers that copy it. If the leader fails, the followers must elect a new one, and every election has a round number called an epoch (the book says the controller uses an epoch to prevent a split brain in which two nodes each believe they are the controller: book: Kafka: The Definitive Guide, section The Controller, page 136). Let us kill the leader of the quorum with SIGKILL.
+
+```text
+killed node 1 (epoch 1); after 19.1 s the leader is node 3 in epoch 2
+```
+
+The epoch went from 1 to 2 and node 3 became the leader in that round. The two that were left could still create a new topic as usual (ran). The 19.1 seconds includes the delay of polling through `docker exec`, and in another run the epoch went up to 4. We did not check why, so all we can conclude is that the epoch rises and there is a new leader within some tens of seconds.
+
+What matters more is what happens when we kill a second node and one controller out of three is left. We asked for a new topic and the command hung until it timed out (`createTopics ... timed out`) without succeeding (ran). Raft needs a majority, which is 2 of 3, before there can be a leader and the log can be appended to. Play with the lab below: stop controllers one at a time and press create topic.
+
+<ElectionLab client:visible lang="en" />
+
+<Callout type="warn" title="Nodes that are both broker and controller">
+In a cluster where every node does both jobs, losing two nodes also loses the quorum, so even `kafka-topics.sh --describe` hangs. We met this while building the exercise of [lesson 6](/en/kafka/replication/), which is why that exercise uses one separate controller, so that brokers can be killed while the quorum survives. In real work a big cluster usually runs three dedicated controllers, while a small one may put both roles on the same computer to save money, but then it has to accept this trade-off.
+</Callout>
+
+</Step>
+
+<Step>
+
+## How a node knows itself
+
+In the data folder of a node there is a file `meta.properties` that holds the id of the cluster (`cluster.id`), the number of the node (`node.id`) and a `directory.id` for the folder. These let a node refuse to join the wrong cluster or run on a folder that is not its own (ran). The metadata log folder also holds a file `quorum-state` with the latest leader and epoch, and `.snapshot` files that cut a picture of the state so that a new node does not have to replay the whole log. The command `kafka-features.sh describe` tells the version of the metadata in use, which in the exercise was `4.4-IV2` (ran).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A cluster has 3 controllers (a majority quorum). One controller dies, and later another one dies. What is the effect on the cluster?"
+  options={[
+    'After the first one it still works, after the second one it can neither create nor change a topic, because fewer than a majority are left',
+    'It works the same whichever one dies, because the data is copied to every node',
+    'The first death already stops the whole cluster',
+    'Consumers and producers all stop at once in both cases'
+  ]}
+  answer={0}
+  why="Raft needs a majority, which is 2 of 3. With one dead, 2 are left and can elect a leader (the exercise saw the epoch rise). With two dead, 1 is left, which is not half, and asking for a new topic hangs until it times out (ran). Reading and writing partitions whose leaders are still alive does not stop at once, but anything that has to change the metadata cannot be done."
+/>
+
+</Step>
+
+<Step>
+
+## Sources of this lesson
+
+| Statement | Source |
+|---|---|
+| `kafka-metadata-quorum` shows `LeaderId`, `LeaderEpoch`, `HighWatermark` and the 3 voters | ran: `exercises/07_kraft.py` |
+| The `__cluster_metadata` log at start holds 3 `REGISTER_BROKER_RECORD` and `FEATURE_LEVEL_RECORD`, plus a `NO_OP_RECORD` every half second | ran: `exercises/07_kraft.py` |
+| Creating a topic adds 1 `TOPIC_RECORD` and 2 `PARTITION_RECORD`, and the other nodes have the same log | ran: `exercises/07_kraft.py` |
+| Killing a broker adds `BROKER_REGISTRATION_CHANGE_RECORD` and `PARTITION_CHANGE_RECORD` | ran: `exercises/07_kraft.py` |
+| Killing the quorum leader: the epoch rises (1 to 2 in one run, 1 to 4 in another), there is a new leader, and a topic can be created with 2 of 3 | ran: `exercises/07_kraft.py` |
+| With 1 controller of 3 left, a topic cannot be created | ran: `exercises/07_kraft.py` |
+| `meta.properties` holds `cluster.id` and `node.id`, and `__cluster_metadata-0` holds `quorum-state` and `.snapshot` files | ran: `exercises/07_kraft.py` |
+| The controller chooses leaders when a broker disappears and uses an epoch to prevent split brain, and KRaft is the Raft controller that replaces ZooKeeper | book: Kafka: The Definitive Guide, section The Controller page 136 and KRaft page 137 |
+| Why the epoch reached 4 in one run, and the real time a quorum election takes (19.1 seconds including the delay of measuring) | not checked |
+| Adding a controller to a running quorum (`add-controller`), three controllers on separate computers in real work | not run |
+
+</Step>

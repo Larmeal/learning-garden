@@ -1,0 +1,152 @@
+---
+title: Producers
+summary: "A producer does not send records one at a time: it packs them into batches first. From the broker's own log we see how many requests linger.ms saves, how much compression shrinks the file, when acks answers, and what stamp idempotence puts on every batch."
+facts:
+  - "Run for real in exercises/03_producers.py against Kafka 4.4.0 and confluent-kafka 2.16.2: 600 orders sent 2 ms apart with different linger.ms values and the batches counted from the broker's kafka-dump-log.sh, five compression codecs compared on 3,000 orders, whether acks=0, 1 and all bring an offset back, the producerId and sequence in the log, and a record of 2 MB."
+  - "The defaults of the Java producer (acks=all, linger.ms=5, batch.size=16384, enable.idempotence=true) were read from ProducerConfig.java in the 4.4.0 source, and the explanation of acks comes from the book Kafka: The Definitive Guide, page 55. A Java producer was not run, because the exercise uses confluent-kafka, whose defaults differ in places. The times and batch counts in this lesson come from one run, and other runs differ a little (for example 594 and 595 batches, 9.1 and 9.3 seconds), so the exercise checks bounds only."
+order: 3
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [topics-partitions]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import BatchLab from '../../../../components/labs/kafka/BatchLab';
+import AcksLab from '../../../../components/labs/kafka/AcksLab';
+
+<Step>
+
+## A producer sends in chunks, not one by one
+
+When we call `produce()` we feel that we send one record at a time, but in fact the producer keeps records in memory first and groups those that go to the same partition into a batch, which it then sends in a single request. The benefit is that the network and the broker's disk work much better with big chunks than with many small pieces.
+
+We can look at those chunks in the broker's own log file. The command `kafka-dump-log.sh` prints one line per batch:
+
+```text
+baseOffset: 0 lastOffset: 20 count: 21 baseSequence: -1 lastSequence: -1 producerId: -1 producerEpoch: -1
+partitionLeaderEpoch: 0 isTransactional: false isControl: false position: 0 CreateTime: 1795188576548
+size: 1969 magic: 2 compresscodec: none crc: 2213403328 isvalid: true
+```
+
+This line says that the batch holds 21 records, from offset 0 to 20, takes 1,969 bytes and is not compressed (`compresscodec: none`). The `producerId` and `baseSequence` of -1 have to do with idempotence, which we come back to at the end of the lesson (ran).
+
+</Step>
+
+<Step>
+
+## linger.ms: willing to wait for a bigger chunk
+
+When does the producer decide that it is time to send a batch? There are two conditions. If the batch is full according to `batch.size`, it goes out at once. Or if the time that the first record has waited reaches `linger.ms`, it goes out as well. The Java producer defaults to `linger.ms=5` and `batch.size=16384` bytes (source: `ProducerConfig.java` of 4.4.0, lines 440 and 445). The book says `linger.ms` is the time the producer waits for more records before sending a batch (book: Kafka: The Definitive Guide, section Message Delivery Time, page 56).
+
+We experiment by sending 600 orders, one every 2 milliseconds, like a service that sends an order each time a customer taps buy, and counting the batches that end up in the log.
+
+| Setting | Batches in the log | Biggest batch | File size |
+|---|---|---|---|
+| `linger.ms=0` | 594 | 7 records | 90,592 bytes |
+| `linger.ms=50` | 29 | 22 records | 56,127 bytes |
+
+With `linger.ms=0` almost every record is a batch of its own. With 50 milliseconds the producer waits and packs about 20 records per batch, so there are almost twenty times fewer requests, and the file is smaller because the header of a batch is paid fewer times (ran). The price is that the first record of each batch has to wait longer. Press the buttons in the lab, and also change how often a record arrives: notice that when records arrive far apart, waiting buys nothing.
+
+<BatchLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## Compress the whole batch
+
+A producer can compress data with the option `compression.type`, and it compresses per batch, so a bigger batch compresses better. The broker stores a compressed batch as it is and passes it on to consumers without opening it. We sent 3,000 orders that look like real JSON (customer, item, quantity and price chosen at random) to one topic per codec and measured the size of the log file.
+
+| Codec | Log size (approx.) | Compared with none |
+|---|---|---|
+| `none` | 275 KB | 100% |
+| `gzip` | 42 KB | 15% |
+| `zstd` | 48 KB | 17% |
+| `snappy` | 77 KB | 28% |
+| `lz4` | 79 KB | 29% |
+
+The codec in use shows in the line of a batch (`compresscodec: gzip`). Every codec is smaller than no compression, and `gzip` and `zstd` leave less than half (ran). The numbers depend on the data: orders that repeat field names compress very well, while encrypted data or random binary compresses little. Each run also moves the numbers a little, because batches are not split the same way every time.
+
+</Step>
+
+<Step>
+
+## acks: when does the broker answer
+
+After sending a batch the producer learns that it worked when the broker answers. The `acks` setting says when the broker should answer (book: Kafka: The Definitive Guide, section Message Delivery Time, page 55). With `acks=0` the producer sends and does not wait. With `acks=1` the leader answers as soon as it has written to its own log. With `acks=all` the leader answers after every replica in the ISR has the record. The Java producer defaults to `all` (source: `ProducerConfig.java`, line 430).
+
+The result of sending one record with the three settings:
+
+```text
+acks=0   -> offset None
+acks=1   -> offset 1
+acks=all -> offset 2
+```
+
+`acks=0` brings no offset back, because the producer does not wait for the broker. The other two bring the position of the record back (ran). The difference between `1` and `all` shows when a leader crashes. Try the lab below: choose `acks` and the moment the leader crashes, then press next one step at a time. The words ISR and follower get a closer look in [lesson 6](/en/kafka/replication/).
+
+<AcksLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## Idempotence: a stamp on every batch
+
+If a producer sends a batch and gets no answer (a slow network, or a broker that did not answer in time), it sends again, and that can make a record get written twice. If we turn on `enable.idempotence`, the producer asks the broker for a `producerId` and numbers every record with a sequence number, so the broker can tell whether it has seen this batch before (book: Kafka: The Definitive Guide, section Idempotent Producer, page 182). We can see the stamp in the log:
+
+```text
+librdkafka default: producerId=-1 baseSequence=-1
+enable.idempotence: producerId=0 producerEpoch=0 baseSequence=0 lastSequence=9
+```
+
+The 10 records sent with idempotence on carry sequence numbers 0 to 9 on the batch (ran). The defaults differ between libraries. The Java producer has it on already (source: `ProducerConfig.java`, line 574), but librdkafka had it off in the version we use, so with Python we must switch it on ourselves. How the broker uses this stamp to get rid of duplicates is the topic of [lesson 8](/en/kafka/delivery/).
+
+<Callout type="note" title="A record that is too big">
+The producer refuses a record above the limit before sending it. When we tried a record of 2 MB, `produce()` raised `MSG_SIZE_TOO_LARGE` at once and nothing went onto the network (ran). The biggest size that the broker accepts is another setting (`message.max.bytes`), and the two have to be set to fit each other.
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A service sends one order every 2 milliseconds. We set linger.ms to 50 and the batches that reach the log become much bigger. What is the price?"
+  options={[
+    'Records are not fully written to the log',
+    'The first record of each batch may wait up to 50 milliseconds before it is sent',
+    'The order of records in the same partition gets mixed up',
+    'The broker has to compress every batch itself'
+  ]}
+  answer={1}
+  why="linger.ms is the time the producer is willing to wait for a bigger batch, so it trades latency of the first record. In the exercise batches fell from 594 to 29 while all 600 records were there in the same order (ran). Compression is the matter of compression.type, which the producer does itself."
+/>
+
+</Step>
+
+<Step>
+
+## Sources of this lesson
+
+| Statement | Source |
+|---|---|
+| The broker's log has one line per batch (`count`, `size`, `compresscodec`, `producerId`) | ran: `exercises/03_producers.py` |
+| 600 orders 2 ms apart: `linger.ms=0` gave 594 batches, biggest 7 records; `linger.ms=50` gave 29 batches, biggest 22 records | ran: `exercises/03_producers.py` |
+| All five codecs make the log smaller than no compression (`gzip` and `zstd` less than half), and a batch names the codec used | ran: `exercises/03_producers.py` |
+| `acks=0` brings no offset back, while `acks=1` and `acks=all` do | ran: `exercises/03_producers.py` |
+| With idempotence on, a batch carries a `producerId` and sequence 0 to 9, while the librdkafka default is -1 | ran: `exercises/03_producers.py` |
+| A record of 2 MB is refused with `MSG_SIZE_TOO_LARGE` when `produce()` is called | ran: `exercises/03_producers.py` |
+| Defaults of the Java producer: `acks=all`, `batch.size=16384`, `linger.ms=5`, `enable.idempotence=true`, `retries` at the maximum, `delivery.timeout.ms=120000` | source: `ProducerConfig.java` (Kafka 4.4.0) lines 429 to 446 and 574 |
+| The meaning of the three `acks` values, and `delivery.timeout.ms` with `linger.ms` | book: Kafka: The Definitive Guide, section Message Delivery Time, pages 55 to 57 |
+| An idempotent producer uses `producerId` and a sequence to stop duplicates caused by retries | book: Kafka: The Definitive Guide, section Idempotent Producer, page 182 |
+| A bigger batch compresses better, and the broker keeps a compressed batch as it is | author (the first part is seen in the numbers of the exercise, the second was not checked in the source) |
+| Timing figures (the latency that `linger.ms` adds) | not measured (the lab is a model) |
+
+</Step>

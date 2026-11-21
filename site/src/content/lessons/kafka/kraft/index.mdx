@@ -1,0 +1,122 @@
+---
+title: KRaft
+summary: ข้อมูลของ Cluster เองก็เป็น Log เหมือนกัน และมี Controller กลุ่มเล็กที่ใช้เสียงข้างมากรักษาไว้ เราเปิดไฟล์ __cluster_metadata ดูว่าการสร้าง Topic เพิ่ม Record อะไร ฆ่า Leader ของกลุ่มแล้วดู Epoch ขึ้น และดูว่าเมื่อ Controller เหลือไม่ถึงครึ่งทำไม Cluster เปลี่ยนอะไรไม่ได้
+facts:
+  - "รันจริงใน exercises/07_kraft.py กับ Kafka 4.4.0 เป็น Cluster ที่ทั้ง 3 Node เป็นทั้ง Broker และ Controller: ดูผู้นำของ Quorum ด้วย kafka-metadata-quorum, เปิด Log ชื่อ __cluster_metadata ด้วย kafka-dump-log --cluster-metadata-decoder, ดูว่าการสร้าง Topic เพิ่ม Record อะไร, ฆ่า Leader ของ Quorum, และฆ่า Controller เพิ่มจนไม่มีเสียงข้างมาก"
+  - "หลักการของ KRaft และ Controller อ่านจากหนังสือ Kafka: The Definitive Guide หัวข้อ The Controller หน้า 136 และ KRaft หน้า 137 ซึ่งเขียนตอนที่ KRaft ยังเป็นรุ่นทดลอง ส่วนค่าที่รันจริงเป็น Kafka 4.4.0 ไม่ได้ลองการเพิ่ม Controller ใหม่เข้า Quorum (kafka-metadata-quorum add-controller) และไม่ได้อ่าน source ของ Raft ตัวเลขเวลาและจำนวน Batch ในบทนี้มาจากการรันรอบหนึ่ง รอบอื่นต่างกันเล็กน้อย (เช่น 594 กับ 595 Batch, 9.1 กับ 9.3 วินาที) แบบฝึกจึงตรวจแค่ขอบเขต"
+order: 7
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [replication]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ElectionLab from '../../../../components/labs/kafka/ElectionLab';
+
+<Step>
+
+## ใครรู้ว่า Partition ไหนอยู่ที่ Broker ไหน
+
+ใน[บทที่ 6](/kafka/replication/) เราเห็น Leader, ISR และ Replica ของแต่ละ Partition เปลี่ยนไปเรื่อย ๆ ตามที่ Broker เข้าออก คำถามคือข้อมูลเหล่านี้ถูกเก็บไว้ที่ไหน และใครเป็นคนตัดสินว่า Broker ตัวไหนเป็น Leader ของอะไร คำตอบคือ Controller ซึ่งเป็น Broker (หรือ Node พิเศษ) ที่ทำหน้าที่ดูแลสถานะของทั้ง Cluster เช่นเลือก Leader เมื่อ Broker หาย (หนังสือ: Kafka: The Definitive Guide หัวข้อ The Controller หน้า 136)
+
+Kafka รุ่นเก่าเก็บข้อมูลนี้ไว้ใน ZooKeeper แยกอีกชุดหนึ่ง Kafka รุ่นใหม่เปลี่ยนมาเก็บเองด้วยระบบที่ชื่อ KRaft (Kafka และ Raft ซึ่งเป็นอัลกอริทึมที่ใช้เลือกผู้นำด้วยเสียงข้างมาก) หนังสือเล่าเรื่องนี้ในฐานะโครงการใหม่ที่เริ่มตั้งแต่ปี 2019 ซึ่งตอนนี้ใช้งานจริงได้แล้ว และ Kafka 4.4.0 ที่เราใช้ไม่ใช้ ZooKeeper เลย (หนังสือ: Kafka: The Definitive Guide หัวข้อ KRaft หน้า 137) เรามาดูว่าข้อมูลของ Cluster ที่ว่านี้หน้าตาเป็นอย่างไร
+
+</Step>
+
+<Step>
+
+## ข้อมูลของ Cluster ก็เป็น Log
+
+เราถาม Quorum ว่าใครเป็นผู้นำ ด้วยคำสั่ง `kafka-metadata-quorum.sh describe --status` (Cluster นี้มี Node สามตัวที่ทำหน้าที่ทั้ง Broker และ Controller)
+
+```text
+LeaderId:       1
+LeaderEpoch:    1
+HighWatermark:  28
+CurrentVoters:  [{"id": 1 ...}, {"id": 2 ...}, {"id": 3 ...}]
+```
+
+คำที่คุ้นจาก[บทที่แล้ว](/kafka/replication/)กลับมาอีก High Watermark คือเลขของ Log และ Log นั้นคือไฟล์ชื่อ `__cluster_metadata-0` ที่อยู่ในโฟลเดอร์ข้อมูลของแต่ละ Node ข้างในมีไฟล์ `.log` กับ `.index` เหมือน Partition ธรรมดา เราเปิดมันด้วย `kafka-dump-log.sh --cluster-metadata-decoder` ได้ ตอนที่ Cluster เพิ่งเริ่ม Log มี Record อยู่สามสิบกว่าตัว เช่น `REGISTER_BROKER_RECORD` 3 ตัว (Broker ลงทะเบียน) และ `FEATURE_LEVEL_RECORD` ที่บอกเวอร์ชันความสามารถของ Cluster และยังมี `NO_OP_RECORD` ที่ Leader เติมเข้ามาเรื่อย ๆ ทุกครึ่งวินาทีด้วย (รัน)
+
+แล้วเราสร้าง Topic `orders` สองสำเนา สอง Partition ดู Log อีกครั้ง
+
+```text
+offset 39  TOPIC_RECORD      {"name":"orders","topicId": ...}
+offset 40  PARTITION_RECORD  {"partitionId":0, ...}
+offset 41  PARTITION_RECORD  {"partitionId":1, ...}
+```
+
+การสร้าง Topic ไม่ได้ทำอะไรลึกลับ มันแค่เพิ่ม Record สามตัวต่อท้าย Log (รัน) Node อื่นคัดลอกตามจนเหมือนกัน ถ้าเราฆ่า Broker ตัวหนึ่ง Log ก็ได้ Record ใหม่ว่า `BROKER_REGISTRATION_CHANGE_RECORD` (Broker ถูกตัดสิทธิ์) กับ `PARTITION_CHANGE_RECORD` ของ Partition ที่เคยมีมันเป็น Leader หรืออยู่ใน ISR (รัน) ทุกการเปลี่ยนแปลงของ Cluster คือ Record ใน Log นี้ และสถานะปัจจุบันของ Cluster ก็คือผลที่ได้จากการเล่น Log นั้นตั้งแต่ต้น ซึ่งเป็นแนวคิดเดียวกับ Commit Log ที่เราเปิดเรื่องมาในบทแรก
+
+</Step>
+
+<Step>
+
+## Leader ของ Quorum และเสียงข้างมาก
+
+Controller ทั้งสามตัวไม่ได้เขียน Log พร้อมกัน ตัวหนึ่งเป็น Leader เป็นคนเดียวที่ต่อท้าย Log อีกสองตัวเป็น Follower ที่คัดลอกตาม ถ้า Leader ล้ม Follower ที่เหลือต้องเลือกใหม่ โดยทุกครั้งที่เลือกจะมีเลขรอบกำกับเรียกว่า Epoch (หนังสือบอกว่า Controller ใช้ Epoch กันกรณี Split Brain ที่สอง Node เชื่อว่าตัวเองเป็น Controller ตามที่เล่าไว้ใน หนังสือ: Kafka: The Definitive Guide หัวข้อ The Controller หน้า 136) เรามาฆ่า Leader ของ Quorum ด้วย SIGKILL
+
+```text
+killed node 1 (epoch 1); after 19.1 s the leader is node 3 in epoch 2
+```
+
+Epoch ขึ้นจาก 1 เป็น 2 และ Node 3 ขึ้นเป็น Leader ในรอบนั้น Cluster ที่เหลือสองตัวยังสร้าง Topic ใหม่ได้ตามปกติ (รัน) เวลาที่วัดได้ 19.1 วินาทีรวมความล่าช้าของการสอบถามผ่าน `docker exec` ด้วย และในการรันอีกรอบ Epoch ขึ้นไปถึง 4 เราไม่ได้ตรวจว่าเพราะอะไร จึงสรุปได้แค่ว่า Epoch เพิ่มขึ้นและมี Leader ใหม่ภายในไม่กี่สิบวินาที
+
+สิ่งที่สำคัญกว่าคือเมื่อฆ่า Node ที่สอง เหลือ Controller ตัวเดียวจากสาม เราสั่งสร้าง Topic ใหม่ แล้วคำสั่งค้างจนหมดเวลา (`createTopics ... timed out`) ไม่สำเร็จ (รัน) เพราะ Raft ต้องการเสียงข้างมากคือ 2 จาก 3 ถึงจะมีผู้นำและต่อท้าย Log ได้ ลองเล่นใน Lab ด้านล่าง หยุด Controller ทีละตัวแล้วกดสร้าง Topic ดู
+
+<ElectionLab client:visible />
+
+<Callout type="warn" title="Node ที่เป็นทั้ง Broker และ Controller">
+ใน Cluster ที่ทุก Node เป็นทั้งสองอย่าง การล้มของ Node สองตัวทำให้ Quorum หายไปด้วย ผลคือสั่ง `kafka-topics.sh --describe` ก็ค้าง ซึ่งเราเจอตอนทำแบบฝึกของ[บทที่ 6](/kafka/replication/) แบบฝึกชุดนั้นจึงใช้ Controller แยกอีกหนึ่งตัวเพื่อให้ฆ่า Broker ได้โดย Quorum ยังอยู่ ในงานจริงมักแยก Controller สามตัวออกมาโดยเฉพาะสำหรับ Cluster ที่ใหญ่ ส่วน Cluster เล็กอาจรวมสองบทบาทไว้ในคอมพิวเตอร์เครื่องเดียวกันเพื่อประหยัด แต่ต้องรู้ข้อแลกเปลี่ยนนี้
+</Callout>
+
+</Step>
+
+<Step>
+
+## Node แต่ละตัวรู้จักตัวเองอย่างไร
+
+ในโฟลเดอร์ข้อมูลของ Node มีไฟล์ `meta.properties` ที่เก็บรหัสของ Cluster (`cluster.id`) กับเลข Node (`node.id`) ของมัน และมี `directory.id` ของโฟลเดอร์นั้น ซึ่งช่วยให้ Node ปฏิเสธที่จะเข้าร่วม Cluster ผิดตัวหรือทำงานบนโฟลเดอร์ที่ไม่ใช่ของมัน (รัน) ส่วนข้อมูลที่เป็น Log ของ Metadata มีไฟล์ `quorum-state` เก็บผู้นำและ Epoch ล่าสุด และไฟล์ `.snapshot` ที่ตัดภาพของสถานะไว้ให้ Node ที่มาใหม่ไม่ต้องเล่น Log ทั้งหมดตั้งแต่ต้น คำสั่ง `kafka-features.sh describe` บอกเวอร์ชันของ Metadata ที่ใช้อยู่ ซึ่งในแบบฝึกคือ `4.4-IV2` (รัน)
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Cluster มี Controller 3 ตัว (Quorum แบบเสียงข้างมาก) ถ้า Controller ล้ม 1 ตัว และต่อมาล้มอีก 1 ตัว ผลต่อ Cluster คืออะไร?"
+  options={[
+    'ล้มตัวแรกยังทำงานได้ ล้มตัวที่สองสร้างหรือแก้ Topic ไม่ได้ เพราะเหลือไม่ถึงเสียงข้างมาก',
+    'ล้มตัวไหนก็ยังทำงานเหมือนเดิม เพราะข้อมูลถูกคัดลอกไว้ทุกตัว',
+    'ล้มตัวแรกก็หยุดทั้ง Cluster แล้ว',
+    'Consumer และ Producer หยุดทำงานทันทีทั้งหมดในทั้งสองกรณี'
+  ]}
+  answer={0}
+  why="Raft ต้องการเสียงข้างมาก คือ 2 ใน 3 เมื่อล้ม 1 ตัวยังเหลือ 2 จึงเลือก Leader ใหม่ได้ (แบบฝึกเห็น Epoch ขึ้น) แต่ล้มตัวที่สองเหลือ 1 ซึ่งไม่ถึงครึ่ง สั่งสร้าง Topic แล้วค้างจนหมดเวลา (รัน) การอ่านเขียน Partition ที่ Leader ยังอยู่ไม่ได้หยุดทันที แต่เรื่องที่ต้องเปลี่ยน Metadata ทำไม่ได้"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| `kafka-metadata-quorum` แสดง `LeaderId`, `LeaderEpoch`, `HighWatermark` และผู้มีสิทธิ์ลงคะแนนทั้ง 3 ตัว | รัน: `exercises/07_kraft.py` |
+| Log `__cluster_metadata` ตอนเริ่มมี `REGISTER_BROKER_RECORD` 3 ตัวและ `FEATURE_LEVEL_RECORD` และมี `NO_OP_RECORD` ทุกครึ่งวินาที | รัน: `exercises/07_kraft.py` |
+| การสร้าง Topic เพิ่ม `TOPIC_RECORD` 1 ตัวกับ `PARTITION_RECORD` 2 ตัว และ Node อื่นมี Log เหมือนกัน | รัน: `exercises/07_kraft.py` |
+| การฆ่า Broker เพิ่ม `BROKER_REGISTRATION_CHANGE_RECORD` และ `PARTITION_CHANGE_RECORD` | รัน: `exercises/07_kraft.py` |
+| ฆ่า Leader ของ Quorum: Epoch เพิ่ม (1 เป็น 2 ในรอบหนึ่ง และ 1 เป็น 4 ในอีกรอบ) มี Leader ใหม่ และสร้าง Topic ได้เมื่อเหลือ 2 จาก 3 | รัน: `exercises/07_kraft.py` |
+| เหลือ Controller 1 ตัวจาก 3: สร้าง Topic ไม่สำเร็จ | รัน: `exercises/07_kraft.py` |
+| `meta.properties` มี `cluster.id` กับ `node.id` และมีไฟล์ `quorum-state`, `.snapshot` ใน `__cluster_metadata-0` | รัน: `exercises/07_kraft.py` |
+| Controller เลือก Leader เมื่อ Broker หาย ใช้ Epoch กัน Split Brain และ KRaft คือ Controller แบบ Raft ที่มาแทน ZooKeeper | หนังสือ: Kafka: The Definitive Guide หัวข้อ The Controller หน้า 136 และ KRaft หน้า 137 |
+| สาเหตุที่ Epoch ขึ้นไปถึง 4 ในรอบหนึ่ง, เวลาเลือก Leader ของ Quorum ที่แท้จริง (19.1 วินาทีรวมความล่าช้าของการวัด) | ไม่ได้ตรวจ |
+| การเพิ่ม Controller เข้า Quorum ขณะทำงาน (`add-controller`), Controller แยกเครื่อง 3 ตัวในงานจริง | ไม่ได้รัน |
+
+</Step>

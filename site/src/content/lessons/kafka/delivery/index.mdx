@@ -1,0 +1,147 @@
+---
+title: Delivery และ Transaction
+summary: เราทำให้ Record ซ้ำจริงด้วยการตรึง Follower ตัวหนึ่งไว้แล้วดูว่า Idempotence ขจัดมันได้อย่างไร จากนั้นเปิด Log ของ Transaction ที่มี Marker COMMIT กับ ABORT ดูว่า read_committed ข้ามอะไร และทำ Consume-Transform-Produce ที่ได้ผลลัพธ์ทุกชิ้นครั้งเดียวแม้ตัวทำงานถูกทิ้งกลางทาง
+facts:
+  - "รันจริงใน exercises/08_delivery.py กับ Kafka 4.4.0 (Broker 3 ตัวกับ Controller แยก 1 ตัว) และ confluent-kafka 2.16.2: ตรึง Follower ด้วย docker pause เพื่อให้ Producer ส่งซ้ำ, เทียบ enable.idempotence ปิดกับเปิด, ทำ Transaction ที่ Commit, Abort และค้างเปิด, เปิด Log ของมันด้วย kafka-dump-log, และทำ Consume-Transform-Produce ที่ทิ้งงานรอบหนึ่งไว้กลางทาง"
+  - "ความหมายของ Idempotent Producer และ Transaction อ่านจากหนังสือ Kafka: The Definitive Guide หัวข้อ Idempotent Producer หน้า 182 และ Transactions หน้า 186 ถึง 200 ไม่ได้รันกรณีที่ผลลัพธ์ออกไปนอก Kafka (เช่นลงฐานข้อมูล) ซึ่งหนังสือบอกว่า Transaction ของ Kafka ไม่ครอบคลุม และไม่ได้วัดความช้าของ Transaction"
+order: 8
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [kraft]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import DuplicateLab from '../../../../components/labs/kafka/DuplicateLab';
+import TxnLab from '../../../../components/labs/kafka/TxnLab';
+
+<Step>
+
+## ส่งครั้งเดียว ส่งอย่างน้อยหนึ่งครั้ง หรือส่งพอดีหนึ่งครั้ง
+
+เวลาเราบอกว่าระบบ "ส่งข้อมูลถึง" มีสามระดับให้เลือก ระดับแรกคือ At-most-once ซึ่งส่งไม่เกินหนึ่งครั้ง ถ้าผิดพลาดก็ปล่อยให้หาย ระดับที่สองคือ At-least-once ซึ่งส่งซ้ำจนกว่าจะสำเร็จ ไม่หายแต่อาจซ้ำ ส่วนระดับสุดท้ายคือ Exactly-once ที่ทุกชิ้นถูกประมวลผลพอดีหนึ่งครั้ง ใน[บทที่ 4](/kafka/consumer-groups/) เราเห็นฝั่ง Consumer ไปแล้วว่าการ Commit ก่อนประมวลผลเป็น At-most-once และการ Commit หลังประมวลผลเป็น At-least-once ในบทนี้เราดูฝั่ง Producer และดูว่า Kafka ทำให้ Exactly-once เกิดขึ้นได้อย่างไร
+
+</Step>
+
+<Step>
+
+## ทำให้ Record ซ้ำ แล้วดู Idempotence แก้
+
+ใน[บทที่ 3](/kafka/producers/) เราบอกไว้ว่า Producer ส่งซ้ำเมื่อไม่ได้รับคำตอบ ทีนี้เรามาทำให้มันเกิดจริง เราตั้ง Topic ที่มีสามสำเนา `min.insync.replicas=2` และ Producer ใช้ `acks=all` กับ `request.timeout.ms=3000` แล้วใช้ `docker pause` ตรึง Follower ตัวหนึ่งไว้ ผลคือ Leader เขียน Order ลง Log ของตัวเองแล้ว แต่ต้องรอ Follower ซึ่งไม่ตอบ จึงตอบ Producer ไม่ได้ พอครบ 3 วินาที Producer คิดว่าไม่สำเร็จและส่งซ้ำ ซึ่ง Leader ก็เขียนอีกรอบ เมื่อปล่อย Follower แล้วอ่าน Log ได้
+
+```text
+enable.idempotence=false -> ['order-o-1', 'order-o-1', 'order-o-1']
+enable.idempotence=true  -> ['order-o-1']
+```
+
+Order ใบเดียวกลายเป็นสามชุดเพราะ Producer ส่งซ้ำสองครั้ง ส่วนตอนเปิด Idempotence เหลือชุดเดียว (รัน) เพราะทุก Batch ถูกติดตรา `producerId` กับเลขลำดับไปด้วย (ดูได้จาก Log ในบทนั้น) Leader เห็นว่าตราชุดนี้เขียนไปแล้วก็ไม่เขียนซ้ำ แต่ตอบ Offset ของที่มีอยู่ (หนังสือ: Kafka: The Definitive Guide หัวข้อ Idempotent Producer หน้า 182) กดดูทีละขั้นใน Lab ด้านล่าง
+
+<DuplicateLab client:visible />
+
+Idempotence กันเฉพาะการซ้ำที่มาจากการส่งซ้ำของ Producer ตัวเดียวกัน ถ้าโปรแกรมของเรารันสองรอบแล้วส่ง Order เดียวกันสองครั้งเอง ตราของสองรอบไม่เหมือนกัน และ Kafka ไม่รู้ว่าซ้ำ หนังสืออธิบายข้อจำกัดนี้ไว้ (หนังสือ: Kafka: The Definitive Guide หัวข้อ Limitations of the Idempotent Producer หน้า 184)
+
+</Step>
+
+<Step>
+
+## Transaction: เขียนหลาย Record แล้วค่อยบอกว่าให้นับ
+
+บางครั้งเราต้องเขียนหลาย Record ให้เป็นก้อนเดียวกัน คือหรือทั้งหมดนับ หรือไม่นับเลย Kafka มี Transaction ให้ Producer ที่ตั้ง `transactional.id` เรียก `begin_transaction`, ส่ง Record, แล้ว `commit_transaction` หรือ `abort_transaction` (หนังสือ: Kafka: The Definitive Guide หัวข้อ Transactions หน้า 186) เราลองทำสามก้อนตามลำดับ ก้อน a (a1, a2) แล้ว Commit ก้อน b (b1, b2) แล้ว Abort และก้อน c (c1) ที่เขียนไปแล้วแต่ยังไม่ปิด Consumer สองแบบจะเห็นไม่เหมือนกัน
+
+```text
+read_committed   เห็น ['a1', 'a2']
+read_uncommitted เห็น ['a1', 'a2', 'b1', 'b2', 'c1']
+```
+
+ค่า `isolation.level` ของ Consumer เป็นตัวตัดสิน แบบ `read_committed` ได้เฉพาะ Record ที่อยู่ใน Transaction ที่ Commit แล้ว (หรือไม่ได้อยู่ใน Transaction) ส่วนแบบ `read_uncommitted` ได้ทุกตัวรวม Record ของ Transaction ที่ Abort ไปแล้ว (หนังสือ: Kafka: The Definitive Guide หัวข้อ How Do Transactions Guarantee Exactly-Once หน้า 188) พอเรา Commit ก้อน c ตัว `read_committed` เห็น `['a1', 'a2', 'c1']` (รัน)
+
+<Callout type="warn" title="Abort แล้ว Record ที่ยังไม่ออกจาก Client จะหาย">
+ตอนทดลองครั้งแรก `read_uncommitted` ไม่เห็น `b1` กับ `b2` เลย เพราะ `abort_transaction()` ทิ้ง Record ที่ยังค้างอยู่ใน Queue ของ Client ที่ยังไม่ได้ส่ง ต้องเรียก `flush()` ก่อน Abort ถ้าอยากให้ Record ที่ Abort ไปปรากฏใน Log จริง (รัน)
+</Callout>
+
+</Step>
+
+<Step>
+
+## ข้างใน Log มี Marker
+
+Transaction ไม่ได้ใช้ Log พิเศษ มันเขียนลงใน Log ปกติ และเมื่อปิดก้อนก็เขียน Record พิเศษชื่อ Marker ต่อท้าย เราเปิดไฟล์ Log ของ Partition นั้นด้วย `kafka-dump-log.sh`
+
+```text
+offset  content  kind
+0       a1       data
+1       a2       data
+2       COMMIT   control
+3       b1       data
+4       b2       data
+5       ABORT    control
+6       c1       data
+7       COMMIT   control
+```
+
+Record ข้อมูล 5 ตัวใช้ 8 Offset เพราะ Marker ของแต่ละก้อนใช้ Offset ของตัวเองด้วย (รัน) Consumer ไม่เคยได้รับ Marker ตัวเหล่านี้ แต่ใช้มันตัดสินว่า Record ไหนนับ ตอนที่ก้อน c ยังเปิดอยู่ Log จบที่ Offset 6 และ Consumer แบบ `read_committed` อ่านผ่านตรงนั้นไปไม่ได้ จุดนั้นเรียกว่า Last Stable Offset ซึ่งก็คือ Offset ของ Record แรกใน Transaction ที่ยังไม่จบ เลือกระดับกับสถานะของก้อนสุดท้ายใน Lab นี้ดูผลได้เลย
+
+<TxnLab client:visible />
+
+</Step>
+
+<Step>
+
+## Consume-Transform-Produce แบบพอดีหนึ่งครั้ง
+
+งานที่พบบ่อยที่สุดคืออ่านจาก Topic หนึ่ง แปลงข้อมูล แล้วเขียนลงอีก Topic ถ้าโปรแกรมล้มระหว่างทางเราไม่อยากให้ผลลัพธ์ซ้ำหรือขาด วิธีของ Kafka คือรวมสองอย่างไว้ใน Transaction เดียว คือเขียนผลลัพธ์ และ Commit Offset ที่อ่านถึงของ Group ด้วยคำสั่ง `send_offsets_to_transaction` ดังนั้นถ้า Transaction Abort ทั้งผลลัพธ์และ Offset ก็ไม่นับพร้อมกัน
+
+เราทดลองด้วยงาน 10 ชิ้น ประมวลผลทีละ 5 ชิ้นต่อ Transaction ตัวทำงานรอบแรกจบก้อนแรกด้วย Commit แล้วเขียนก้อนที่สองไปแต่ถูกทิ้งไว้กลางทาง (ไม่ Commit) ณ ตอนนั้น Log ของ Topic ผลลัพธ์มี 10 Record (5 ที่ Commit แล้วกับ 5 ที่ยังไม่ปิด) จากนั้นเราเริ่มตัวทำงานรอบใหม่ด้วย `transactional.id` เดิม ซึ่งทำให้ Kafka Abort ก้อนที่ค้างและปิดประตูใส่ Producer ตัวเก่า
+
+```text
+read_committed   เห็น 10 ผลลัพธ์: N0 ถึง N9 ชิ้นละหนึ่งตัว
+read_uncommitted เห็น 15 ผลลัพธ์ (ก้อนที่ Abort ยังอยู่ใน Log)
+Producer ตัวเก่าพยายาม Commit: _FENCED
+```
+
+ผลลัพธ์ทุกชิ้นปรากฏพอดีหนึ่งครั้งสำหรับผู้อ่านแบบ `read_committed` และ Producer ตัวเก่าที่ถูกทิ้งไว้ Commit ไม่ได้อีกเพราะถูก Fence (รัน) หนังสือเรียกกลไกนี้ว่า Transactional ID และ Fencing (หนังสือ: Kafka: The Definitive Guide หัวข้อ Transactional IDs and Fencing หน้า 196)
+
+<Callout type="note" title="ขอบเขตของ Exactly-once">
+ความรับประกันนี้ใช้ได้เมื่อทั้งอ่านและเขียนเกิดใน Kafka หนังสือบอกชัดว่า Transaction ไม่แก้ปัญหาที่ผลลัพธ์ออกไปนอก Kafka เช่นเขียนลงฐานข้อมูล หรือส่งอีเมล เพราะเรา Abort สิ่งที่อยู่นอก Kafka ไม่ได้ (หนังสือ: Kafka: The Definitive Guide หัวข้อ What Problems Aren't Solved by Transactions หน้า 191) กรณีนั้นเราต้องทำให้การเขียนปลายทางทนการซ้ำเอง เช่นใช้ Primary Key อย่างที่เราจะทำใน[บทที่ 12](/kafka/capstone-pipeline/)
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Consumer ตั้ง isolation.level เป็น read_committed Transaction หนึ่งเขียน Record 3 ตัวเข้า Partition แล้ว Producer ค้างไม่ Commit ไม่ Abort Record ถัดมาของ Transaction อื่นที่ Commit แล้วอยู่หลัง Record พวกนั้นใน Log Consumer จะได้อะไร?"
+  options={[
+    'ได้ Record ที่ Commit แล้วทันที ข้าม Record ที่ค้างไป',
+    'ไม่ได้ Record หลังจุดที่ Transaction เปิดค้างอยู่ จนกว่า Transaction นั้นจะจบ เพราะอ่านเกิน Last Stable Offset ไม่ได้',
+    'ได้ทุก Record รวมตัวที่ค้าง',
+    'ข้อผิดพลาด'
+  ]}
+  answer={1}
+  why="read_committed หยุดที่ Last Stable Offset ซึ่งอยู่ที่ Record แรกของ Transaction ที่ยังเปิดอยู่ Record ที่ Commit แล้วแต่อยู่ข้างหลังจึงถูกกันไว้ก่อน นี่คือเหตุผลที่ Transaction ที่ค้างนานทำให้ Consumer ช้า แบบฝึกและ Lab แสดงเส้น Last Stable Offset ตอนที่ก้อนสุดท้ายยังเปิดอยู่ (รัน)"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| ตรึง Follower แล้วส่งซ้ำ: ปิด Idempotence ได้ Order 3 ชุดใน Log และเปิดแล้วได้ 1 ชุด | รัน: `exercises/08_delivery.py` |
+| Commit ก่อนประมวลผลแล้วล้ม: Record 0 ถึง 5 ไม่ถูกประมวลผลเลย | รัน: `exercises/08_delivery.py` |
+| `read_committed` เห็น a1, a2 และ `read_uncommitted` เห็น a1, a2, b1, b2, c1 ตอนที่ c ยังเปิด และเห็น a1, a2, c1 เมื่อ c Commit | รัน: `exercises/08_delivery.py` |
+| Log มี 8 Offset สำหรับ Record 5 ตัว (Marker COMMIT, ABORT, COMMIT) และ `abort_transaction()` ทิ้ง Record ที่ยังไม่ส่ง | รัน: `exercises/08_delivery.py` |
+| Consume-Transform-Produce: `read_committed` เห็นผลลัพธ์ N0 ถึง N9 ชิ้นละตัว, `read_uncommitted` เห็น 15, Producer ตัวเก่าถูก Fence (`_FENCED`) | รัน: `exercises/08_delivery.py` |
+| Idempotent Producer ใช้ `producerId` กับ Sequence และมีข้อจำกัดเฉพาะการซ้ำจากการส่งซ้ำของ Producer เดิม | หนังสือ: Kafka: The Definitive Guide หัวข้อ Idempotent Producer หน้า 182 และ 184 |
+| Transaction, `isolation.level`, Marker และ Transactional ID กับ Fencing | หนังสือ: Kafka: The Definitive Guide หัวข้อ Transactions หน้า 186, How Do Transactions Guarantee Exactly-Once หน้า 188, Transactional IDs and Fencing หน้า 196 |
+| Transaction ไม่ครอบคลุมผลลัพธ์ที่ออกนอก Kafka | หนังสือ: Kafka: The Definitive Guide หัวข้อ What Problems Aren't Solved by Transactions หน้า 191 |
+| ต้นทุนด้านความเร็วของ Transaction และ Last Stable Offset ที่ค้างนาน | ไม่ได้วัด (บอกจากหนังสือ หัวข้อ Performance of Transactions หน้า 200 ไม่ได้อ่านตัวเลข) |
+
+</Step>

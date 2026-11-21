@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจว่า Idempotence กันอะไรได้ Marker ของ Transaction ทำงานอย่างไร และ Exactly-once ใช้ได้ถึงตรงไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="โปรแกรมส่ง Order ถูกรีสตาร์ท แล้วส่ง Order ใบเดิมซ้ำอีกครั้งเพราะอ่านจากไฟล์ซ้ำ Producer เปิด Idempotence ไว้ Kafka จะกันซ้ำได้ไหม?"
+  options={[
+    'กันได้ เพราะ Idempotence ตรวจเนื้อหาของ Record',
+    'กันไม่ได้ เพราะ Idempotence กันแค่การส่งซ้ำของ Producer ตัวเดิมในรอบเดียวกัน Producer ที่เริ่มใหม่ได้ตราใหม่ ซึ่ง Kafka มองเป็น Record คนละตัว',
+    'กันได้ถ้าตั้ง Acks เป็น 0',
+    'กันได้เฉพาะถ้า Record มี Key'
+  ]}
+  answer={1}
+  why="Broker เทียบ Producer Id กับเลขลำดับ ไม่ได้เทียบเนื้อหา Producer ตัวใหม่ได้ Id ใหม่ และเลขลำดับเริ่มใหม่ หนังสือเล่าข้อจำกัดนี้ (หนังสือ: Kafka: The Definitive Guide หัวข้อ Limitations of the Idempotent Producer หน้า 184) ปลายทางจึงควรทนการซ้ำเอง"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Partition มี Record ข้อมูล 5 ตัว กับ Transaction 3 ก้อน (Commit, Abort, Commit) Log ใช้กี่ Offset และ Consumer ที่ตั้ง read_committed เห็นกี่ตัว?"
+  options={[
+    '5 Offset และเห็น 5 ตัว',
+    '8 Offset (Marker ใช้ Offset ของตัวเอง) และเห็นเฉพาะข้อมูลของ Transaction ที่ Commit',
+    '8 Offset และเห็น 8 ตัวรวม Marker',
+    '5 Offset และเห็น 3 ตัว'
+  ]}
+  answer={1}
+  why="Marker COMMIT และ ABORT เป็น Record ควบคุมที่ใช้ Offset ด้วย แต่ Consumer ไม่เคยได้รับมัน ในแบบฝึก Offset ที่ใช้คือ 0 ถึง 7 และ read_committed เห็น a1 a2 c1 เมื่อก้อน c ปิดแล้ว (รัน) ส่วน b1 b2 ที่ Abort ไม่ถูกส่ง"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Producer เขียน Record แล้วเรียก abort_transaction ทันที โดยไม่ได้ Flush ก่อน ผลที่อาจเกิดคืออะไร?"
+  options={[
+    'Record ถูกเขียนลง Log ทุกตัวแล้วถูกทำเครื่องหมาย Abort เสมอ',
+    'Record ที่ค้างอยู่ใน Queue ของ Client ถูกทิ้งก่อนถึง Broker จึงไม่ปรากฏใน Log เลย แม้แต่แบบ Abort',
+    'Broker ปฏิเสธการ Abort',
+    'Consumer ตัวใดก็เห็น Record เหล่านั้น'
+  ]}
+  answer={1}
+  why="Client ทิ้ง Record ที่ยังไม่ส่งตอน Abort จึงเห็นแค่ที่ไปถึง Broker แล้ว ตอนทดลองครั้งแรก read_uncommitted ไม่เห็น b1 b2 เลยจนเราใส่ Flush ก่อน Abort (รัน) ถ้าไม่ได้ต้องการให้ Record ที่ Abort อยู่ใน Log การทิ้งก็ไม่เสียหายอะไร"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Pipeline อ่านจาก Kafka แล้วเขียนผลลงฐานข้อมูล PostgreSQL การใช้ Transaction ของ Kafka กับ Producer อย่างเดียวทำให้ Exactly-once ตลอดทางได้ไหม?"
+  options={[
+    'ได้ เพราะ Transaction ของ Kafka ครอบคลุมทุกระบบที่เชื่อมอยู่',
+    'ไม่ได้ เพราะ Kafka Abort สิ่งที่เขียนนอก Kafka ไม่ได้ ต้องทำให้การเขียนลงฐานข้อมูลทนการซ้ำเอง เช่นใช้ Primary Key',
+    'ได้ถ้าเปิด Acks เป็น all',
+    'ได้ถ้าเพิ่ม Partition'
+  ]}
+  answer={1}
+  why="Exactly-once ของ Kafka ใช้ได้เมื่ออ่านและเขียนใน Kafka หนังสือบอกว่าสิ่งที่ออกนอก Kafka ไม่ถูกครอบคลุม (หนังสือ: Kafka: The Definitive Guide หัวข้อ What Problems Aren't Solved by Transactions หน้า 191) บทสุดท้ายของเส้นทางนี้ใช้ INSERT OR IGNORE กับ Primary Key เพื่อรับมือกับการส่งซ้ำ"
+/>
+
+</Step>

@@ -1,0 +1,120 @@
+---
+title: Schemas and schema changes
+summary: Kafka stores only bytes, so what the bytes mean has to be agreed by the sender and the reader. We compare JSON with Avro to see how much smaller a message gets, try 8 changes to a schema to see which ones leave a new or an old reader unable to read, and see how the schema id sits at the head of a message.
+facts:
+  - "Run for real in exercises/09_schemas.py with fastavro 1.12.1 and Kafka 4.4.0: the size of JSON against Avro for 1,000 orders, a message written with the schema of one side and read with the other for 8 kinds of schema change in both directions, a message with a schema id in front assembled by hand, and two schema versions sent into one topic."
+  - "A Schema Registry was not run: the registry in the exercise is a dictionary in the process, and the compatibility results come from really reading with fastavro, not from the rules of a real registry. That a message has a schema id in front and the backward and forward rules come from the books Kafka: The Definitive Guide, pages 64 to 65, and Kafka Streams in Action, pages 71 to 72."
+order: 9
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [delivery]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import SchemaLab from '../../../../components/labs/kafka/SchemaLab';
+
+<Step>
+
+## Kafka does not know what is inside
+
+Until now we sent orders as JSON text and Kafka stored them without complaint, because to a broker the key and the value of a record are just bytes with no meaning. At the end of this lesson the exercise also sends binary-looking data into a topic and the broker checks nothing (ran). The meaning of the bytes has to come from an agreement between the sender and the reader, and if the sender changes the format, a reader that does not know about it breaks. So this lesson is about agreeing on a format, and about changing the format without breaking anybody. It is the same thing as a data contract in the [Data Quality](/en/data-quality/agreements/contracts-in-practice/) path.
+
+</Step>
+
+<Step>
+
+## JSON is big because it writes the field names every time
+
+We compare 1,000 orders with `order_id`, `item` and `qty`, kept as JSON and kept as Avro.
+
+```text
+JSON 44,500 bytes  Avro 14,500 bytes  ratio 3.1 times
+```
+
+Avro is the format that the book recommends for Kafka: compact, with the schema kept apart from the data, and supporting schema changes in both backward and forward directions (book: Kafka: The Definitive Guide, section Serializing Using Apache Avro, page 64). It is smaller because an Avro message holds only the values, with no field names or quotation marks to repeat. Look at one message, `{'order_id': 'o-1', 'item': 'book', 'qty': 2}`, encoded as `066f2d3108626f6f6b04`, ten bytes made of the length of `o-1`, its letters, the length of `book`, its letters and the number 2 (ran).
+
+A problem follows at once: those ten bytes cannot be read without the schema of whoever wrote them. So we have to tell the reader which schema this message was written with.
+
+</Step>
+
+<Step>
+
+## The schema id at the head of the message
+
+The book says that putting the whole schema in every record usually makes a record more than twice as big. The usual way is to keep the schema in a registry in the middle and put only a reference at the head of the message (book: Kafka: The Definitive Guide, section Using Avro Records with Kafka, page 65). A common layout is one zero byte, then a four-byte schema id, then the Avro body. We assembled two versions by hand and looked at the bytes.
+
+```text
+version 1: 00 00000001 066f2d3108626f6f6b04
+version 2: 00 00000002 066f2d3108626f6f6b04 06544842
+```
+
+Version 2 is longer because it has a new field `currency` (the value `THB` at the end), and a consumer decodes each message with the schema that its id points to. One topic can hold messages of both versions mixed (ran). One important note: the registry here is only a dictionary in the process, so a real Schema Registry was not run. What a real registry adds is a compatibility check when a new schema is registered, which we imitate by really reading in the next step.
+
+</Step>
+
+<Step>
+
+## Change the schema, and see who breaks
+
+Say a producer has used schema version 1 for a while, and now we want to change it. There are two questions. First, can a reader that uses the new schema still read the old messages in the topic? That is backward compatible. Second, can a reader that still uses the old schema read the new messages that the producer has just sent? That is forward compatible. If both hold, it is full (book: Kafka Streams in Action, section Schema Compatibility, page 71). We wrote a message with the schema of one side and read it with the other, for real, with fastavro, in both directions, for eight kinds of change.
+
+| Change | New reader reads old message | Old reader reads new message |
+|---|---|---|
+| add a field with a default | yes | yes |
+| add a field without a default | no | yes |
+| remove a field without a default | yes | no |
+| remove a field that had a default | yes | yes |
+| rename a field | no | no |
+| rename, keeping the old name as an alias | yes | no |
+| widen `int` to `long` | yes | no |
+| change `int` to `string` | no | no |
+
+(ran) The reason for each row is in the lab below. Choose a change and look at the fields that change colour and at the two verdicts. The short rule to remember: a new field should always have a default, and we should remove only a field that had a default.
+
+<SchemaLab client:visible lang="en" />
+
+<Callout type="note" title="What a real registry adds">
+A Schema Registry can set a compatibility mode per subject (backward, forward, full, or no check) and refuses a new schema that breaks the rule before a producer sends its first message (book: Kafka Streams in Action, section Schema Compatibility, pages 71 to 73). We did not run a registry, so we do not confirm that its rules match every row of the table above.
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A team adds a field currency to the Order schema without a default. A consumer that uses the new schema has already been deployed, and old messages without currency are still in the topic. What is the result?"
+  options={[
+    'The new consumer cannot read the old messages, because there is no value to put in the missing field',
+    'The new consumer reads them and gets an empty currency',
+    'The old consumer cannot read the new messages',
+    'No effect, because Avro skips a field that is missing by itself'
+  ]}
+  answer={0}
+  why="Adding a field without a default stops a reader with the new schema from reading old messages (backward fails). The old reader can still read new messages because it skips the field it does not know. The exercise really tried it and got that result (ran). Giving the new field a default is what makes both directions work."
+/>
+
+</Step>
+
+<Step>
+
+## Sources of this lesson
+
+| Statement | Source |
+|---|---|
+| 1,000 orders: JSON 44,500 bytes, Avro 14,500 bytes (3.1 times), and an Avro message holds values with no field names | ran: `exercises/09_schemas.py` |
+| The results of reading for all 8 kinds of schema change in both directions (the table and the lab) | ran: `exercises/09_schemas.py` |
+| A message with a zero byte, a 4-byte schema id, and one topic that holds two versions of messages | ran: `exercises/09_schemas.py` |
+| Avro is compact, keeps the schema apart from the data, and supports backward and forward changes | book: Kafka: The Definitive Guide, section Serializing Using Apache Avro, page 64 |
+| Do not keep the whole schema in every record, keep a reference instead | book: Kafka: The Definitive Guide, section Using Avro Records with Kafka, page 65 |
+| The definitions of backward, forward and full compatibility, and setting the mode in a registry | book: Kafka Streams in Action, section Schema Compatibility, pages 71 to 73 |
+| A new field should have a default, and only a field that had a default should be removed | author (summed up from the table) |
+| A real Schema Registry, its compatibility rules, and Protobuf and JSON Schema | not run |
+
+</Step>

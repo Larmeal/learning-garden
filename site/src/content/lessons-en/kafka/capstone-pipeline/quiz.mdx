@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check why the order pipeline neither loses nor double-counts an order, and how keys make partitions uneven.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The producer of the pipeline uses acks=all, idempotence, and the topic has min.insync.replicas set to 2. We kill one broker while it sends. Which result is correct?"
+  options={[
+    'An order that got an ack can still be lost, always',
+    'An order that got an ack is on at least two copies, so it is not lost when one broker dies, and a retry of the producer does not add a record to the log',
+    'The producer must stop sending until the broker is brought back',
+    'Consumers must read again from the beginning'
+  ]}
+  answer={1}
+  why="acks=all with min.insync.replicas=2 puts every acknowledged order on at least two copies, and idempotence stops retries from adding records. In the exercise the producer got all 600 acks with no error although one broker was killed on the way (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A worker wrote 10 orders into the table and crashed before committing, and another worker read those 10 orders again. Why does the table still hold exactly 600 rows?"
+  options={[
+    'Because Kafka remembers which orders were read already',
+    'Because the table uses order_id as a primary key and INSERT OR IGNORE skips rows that exist, so writing again has no effect',
+    'Because the producer deletes old orders first',
+    'Because a commit can go back in time'
+  ]}
+  answer={1}
+  why="Kafka delivers at-least-once, so it can deliver again. The destination has to tolerate repeats itself. The exercise saw the workers receive more than 600 deliveries while the table had 600 rows (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="8 customers use the customer id as the key into a topic of 6 partitions. The result is 2 empty partitions and the heaviest partition holding 225 of 600 records. What explains it?"
+  options={[
+    'Kafka cannot spread records evenly when there are keys',
+    'A hash of the key does not promise an even spread. With few keys compared with partitions, some partitions are empty and some are heavier',
+    'The producer sent to the wrong partition',
+    'The empty partitions are damaged'
+  ]}
+  answer={1}
+  why="The same key always goes to the same partition, and the 8 keys fell onto 4 partitions as the hash decided. The exercise got counts of 150, 75, 150 and 225 (ran). A key with more distinct values would spread better, but we would lose the order that a key gives."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We chose to commit offsets after writing to the table, every 40 records, rather than before writing. What is the advantage and what is the price?"
+  options={[
+    'The advantage is that nothing repeats, the price is that records may be lost',
+    'The advantage is that no record is lost even if the process crashes midway, the price is that some may be read again, which we handle with the primary key',
+    'There is no difference, the two are the same',
+    'The advantage is that Kafka gives exactly-once for us, the price is a little less speed'
+  ]}
+  answer={1}
+  why="Committing after processing is at-least-once: if we crash midway the new consumer starts at the old bookmark and reads again, but does not skip what was not processed. Kafka's exactly-once covers only reading and writing inside Kafka, as in [lesson 8](/en/kafka/delivery/). When the destination is an outside table, it has to tolerate repeats itself."
+/>
+
+</Step>

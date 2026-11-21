@@ -1,0 +1,175 @@
+---
+title: What Kafka is
+summary: We send five orders into a topic and let two consumer groups read them, which shows that Kafka keeps everything as a log that you can only append to, that reading removes nothing, and that every group has a bookmark of its own.
+facts:
+  - "Run for real in exercises/01_what_is_kafka.py against Kafka 4.4.0 (image apache/kafka:4.4.0, KRaft mode, one broker): five orders sent with kafka-console-producer, read by two groups with kafka-console-consumer, offsets seen with kafka-get-offsets and kafka-consumer-groups, and the folder of a partition looked at on the broker's disk."
+  - "That Kafka is a distributed commit log and that a topic is split into partitions comes from the book Kafka: The Definitive Guide, section Enter Kafka page 4 and Topics and Partitions page 5, and was not run. The comparison with an ordinary message queue is the author's opinion."
+order: 1
+phase: A
+level: 1
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import LogLab from '../../../../components/labs/kafka/LogLab';
+
+<Step>
+
+## Send five orders into Kafka and read them back
+
+Say we run an online shop. Every time a customer orders something an order is born, and several systems want to know about it: billing, shipping, reporting. We could send each order to every system ourselves, but the more systems we add, the messier it gets. Kafka steps in as a place in the middle. Every system drops its orders there, and every system picks them up and reads them at its own pace.
+
+Let us try it. We start with one Kafka 4.4.0 broker running in Docker and create a topic called `orders`, where we will keep the orders.
+
+```bash
+kafka-topics.sh --bootstrap-server localhost:9092 --create --topic orders --partitions 1 --replication-factor 1
+```
+
+```bash
+printf 'c1:{"order":"o-1001","item":"book","qty":1}\nc2:{"order":"o-1002","item":"pen","qty":3}\n...' \
+  | kafka-console-producer.sh --bootstrap-server localhost:9092 --topic orders \
+      --property parse.key=true --property key.separator=:
+kafka-get-offsets.sh --bootstrap-server localhost:9092 --topic orders
+```
+
+```text
+orders:0:5
+```
+
+The first line creates a topic with one partition and one copy of the data (partitions and copies come in later lessons). The second sends five messages, each with a customer id as the key (`c1` to `c3`) and a JSON order as the value. The last line asks where the end of partition 0 of this topic is, and the answer 5 means that positions 0 to 4 are used (ran).
+
+</Step>
+
+<Step>
+
+## Reading does not remove records
+
+Now billing wants to read all the orders. We stand in for it with a consumer of a group called `billing`.
+
+```bash
+kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic orders \
+  --group billing --from-beginning --max-messages 5 \
+  --property print.offset=true --property print.key=true
+```
+
+```text
+Offset:0	c1	{"order":"o-1001","item":"book","qty":1}
+Offset:1	c2	{"order":"o-1002","item":"pen","qty":3}
+Offset:2	c1	{"order":"o-1003","item":"lamp","qty":1}
+Offset:3	c3	{"order":"o-1004","item":"cup","qty":2}
+Offset:4	c2	{"order":"o-1005","item":"book","qty":2}
+```
+
+All five orders come back in the order they were sent, each with a position number that Kafka calls an offset. If we are used to a queue where a message disappears once someone takes it, we might think the topic is empty now. So let shipping (a group called `shipping`) read and see what happens.
+
+```bash
+kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic orders \
+  --group shipping --from-beginning --max-messages 5 --property print.offset=true
+kafka-get-offsets.sh --bootstrap-server localhost:9092 --topic orders
+```
+
+The group `shipping` reads all five as well, and the end of the topic is still `orders:0:5`. It did not move (ran). So reading does not take any record out of the topic.
+
+</Step>
+
+<Step>
+
+## A log that you can only append to
+
+What we just saw is the heart of Kafka. Kafka keeps data as a log: a row of records in the order they arrived, where a producer can only append new records on the right. It cannot insert in the middle or change old ones. A consumer simply walks along the log with a position of its own. The Definitive Guide says Kafka is often called a "distributed commit log", because the commit log of a database also keeps every transaction as a sequence, so that it can be replayed to rebuild the state, and data in Kafka is kept as a sequence in the same way (book: Kafka: The Definitive Guide, section Enter Kafka, page 4).
+
+Play with the lab below. Let the producer send more orders, then let group A and group B read one at a time or to the end. Notice that no cell of the log ever disappears: only the bookmarks of the groups move forward. Also try sending group B back to read from the start.
+
+<LogLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## A bookmark for each group
+
+If the log does not shrink when somebody reads it, how does Kafka know how far the group `billing` has read? Kafka notes the position that each group has reached. We call it the committed offset, and it works like a bookmark: one book can hold many bookmarks, each belonging to someone. We can see the bookmarks of every group with this command.
+
+```bash
+kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --all-groups
+```
+
+```text
+GROUP     TOPIC   PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG
+billing   orders  0          5               5               0
+shipping  orders  0          5               5               0
+```
+
+Both groups stand at position 5, which is exactly the end of the log. The difference between the two columns is called lag, and it is 0 now. If three more orders arrive, the end of the log moves to 8 but the bookmark of `billing` stays at 5 until that group reads and saves a new position, so the lag becomes 3, which the exercise confirms (ran). Lag is how we tell whether a reading system has fallen behind, and we come back to it in [lesson 4](/en/kafka/consumer-groups/).
+
+</Step>
+
+<Step>
+
+## Inside, it is just files on a disk
+
+A topic looks abstract, but when we look at the broker's disk, a partition is an ordinary folder named `orders-0` (the topic name followed by the partition number), and it holds files.
+
+```text
+00000000000000000000.index
+00000000000000000000.log
+00000000000000000000.timeindex
+leader-epoch-checkpoint
+partition.metadata
+```
+
+The `.log` file is where the five orders were written one after another, and the `.index` and `.timeindex` files help find a record by position or by time. We open these files for real in [lesson 5](/en/kafka/log-storage/). For now remember only that no mysterious database hides in Kafka. The bookmarks of the groups are records too, written to an internal topic called `__consumer_offsets` (ran).
+
+<Callout type="note" title="No ZooKeeper any more">
+Older Kafka needed a separate ZooKeeper to keep the state of the cluster, but Kafka 4.4.0 does not use it. The broker in the exercise sets `process.roles=broker,controller`, so it is both broker and controller in one process, a mode called KRaft. We see how it works in [lesson 7](/en/kafka/kraft/). The Definitive Guide that we cite was written for Kafka 2.7, so it still talks about ZooKeeper.
+</Callout>
+
+</Step>
+
+<Step>
+
+## How Kafka differs from an ordinary queue
+
+We have now seen three things together. Data does not disappear when it is read. Many groups can read the same data without disturbing each other. And a reader can go back and read again. In the author's opinion this is why Kafka suits data work: a new system that arrives later can start reading from the beginning of the log. With a queue that deletes a message after it is read, the old data would already be gone.
+
+Data does not stay in the log forever, though. Kafka deletes old records by a rule that we set (for example, keep seven days), but that rule belongs to the broker and has nothing to do with whether somebody has already read the records. We look at the details in [lesson 5](/en/kafka/log-storage/).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The topic orders holds 5 records (offsets 0 to 4) and group A has read all 5. Group B, which has never read this topic, starts reading from the beginning of the log. What does B get?"
+  options={[
+    'Nothing, because A has read everything and the records were removed from the topic',
+    'All 5 records, because the log does not change when somebody reads it and B has a bookmark of its own',
+    'Only the records that arrive from now on',
+    'An error, because a topic can be read by one group at a time'
+  ]}
+  answer={1}
+  why="Kafka does not delete records when somebody reads them, and it notes the position per group. In the exercise the group shipping read after billing had read everything and got all 5 orders, and the end offset was still 5 (ran). Getting only new records is the behaviour of a new group with auto.offset.reset set to latest, which we meet in [lesson 4](/en/kafka/consumer-groups/)."
+/>
+
+</Step>
+
+<Step>
+
+## Sources of this lesson
+
+| Statement | Source |
+|---|---|
+| The five orders sent got offsets 0 to 4, and the end of the partition is 5 | ran: `exercises/01_what_is_kafka.py` |
+| Two consumer groups both read all 5 orders and the end offset did not change | ran: `exercises/01_what_is_kafka.py` |
+| Every group has a committed offset of its own, and lag is the end offset minus the committed offset (3 after 3 more orders) | ran: `exercises/01_what_is_kafka.py` |
+| A partition is a folder with `.log`, `.index` and `.timeindex` files, and the bookmarks live in the topic `__consumer_offsets` | ran: `exercises/01_what_is_kafka.py` |
+| Kafka 4.4.0 runs as broker and controller in one process without ZooKeeper (`process.roles=broker,controller`) | ran: `exercises/01_what_is_kafka.py` |
+| Kafka is often called a distributed commit log, and a partition is one log that is only appended to | book: Kafka: The Definitive Guide, section Enter Kafka page 4 and Topics and Partitions page 5 |
+| Kafka suits data work because a new system can start reading from the beginning of the log | author |
+
+</Step>

@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you understand the ISR and the high watermark, the difference between stopping and killing a broker, the effect of min.insync.replicas, and the price of an unclean election.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The leader has written a record at offset 7, but a follower in the ISR has fetched only up to offset 5. Where is the high watermark, and how far can a consumer read?"
+  options={[
+    'The high watermark equals the end of the leader, because the leader decides. A consumer can read up to 7',
+    'The high watermark follows the slowest copy in the ISR (position 5 or 6), and a consumer reads only what is committed',
+    'The high watermark is 0 until every broker has fetched everything',
+    'The high watermark has nothing to do with consumers'
+  ]}
+  answer={1}
+  why="The high watermark is the position that every replica of the ISR already has, so it is below the end of the leader when a follower is slow. Consumers can read only records that every copy has, so that a record that might be lost when the leader crashes is never read (book: Kafka: The Definitive Guide, page 140). The lab of this lesson shows the cells that are written but not yet committed."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We stop a follower with a normal stop, and we kill a leader with SIGKILL. In which case does the cluster have to wait for broker.session.timeout.ms before it notices?"
+  options={[
+    'In the normal stop, because the broker has to wait for every client to close first',
+    'Both wait the same',
+    'In the kill, because the broker did not say goodbye to the controller, which has to wait until the heartbeats have been missing for the whole time',
+    'Neither waits, because the controller sees it at once'
+  ]}
+  answer={2}
+  why="A broker that stops cleanly announces that it leaves, so the ISR changes at once. A broker that is killed does not, and the controller learns from missing heartbeats after 9 seconds by default. The exercise measured 9.1 seconds before a new leader (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A topic has min.insync.replicas of 2 and only one broker is left in the ISR. What does a producer with acks=all meet?"
+  options={[
+    'The write succeeds, because the leader is still there',
+    'The write does not succeed, and because the producer retries NotEnoughReplicas it finally sees a timeout, while a consumer can still read the old records',
+    'Neither reading nor writing works',
+    'The write succeeds but the record is marked as unsafe'
+  ]}
+  answer={1}
+  why="When the ISR is smaller than min.insync.replicas the broker refuses the write. That error can be retried, so the producer keeps retrying until the time is up. Reading does not depend on this setting. The exercise saw the 5 old records still readable (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A partition has no leader because the last leader of the ISR died and the replicas that are left are behind. An operator forces an unclean leader election. What is the price?"
+  options={[
+    'There is no price, because Kafka copies the missing data first',
+    'Records that the old leader had but the new one does not are gone for good, even though the producer was told they were acknowledged',
+    'Every consumer has to start again from the beginning of the log',
+    'The partition is deleted'
+  ]}
+  answer={1}
+  why="An unclean election trades data for availability. The replica that becomes leader lacks the records that were acknowledged while it was outside the ISR, and when the old broker returns it cuts its log to match the new leader. In the exercise 5 orders were lost for good (ran)."
+/>
+
+</Step>

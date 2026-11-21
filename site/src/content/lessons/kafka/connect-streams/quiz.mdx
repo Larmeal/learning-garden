@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจว่า Connect เก็บสถานะไว้ที่ไหน Sink Connector คืออะไร และ State Store กับ Changelog ของ Streams ทำงานร่วมกันอย่างไร
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Kafka Connect แบบ Distributed เก็บการตั้งค่า ตำแหน่งที่ Source อ่านถึง และสถานะของ Connector ไว้ที่ไหน?"
+  options={[
+    'ในฐานข้อมูลที่ต้องติดตั้งแยก',
+    'ในไฟล์ในโฟลเดอร์ของ Worker แต่ละตัว',
+    'ใน Topic ของ Kafka เอง สามใบ คือ Configs, Offsets และ status',
+    'ใน ZooKeeper'
+  ]}
+  answer={2}
+  why="Worker เก็บสถานะไว้ใน Topic ของ Kafka ทำให้ Worker ตัวใหม่เข้ามารับงานต่อได้ แบบฝึกเห็น Topic ทั้งสามปรากฏทันทีที่ Worker เริ่ม (รัน) Kafka 4.4.0 ไม่มี ZooKeeper"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Sink Connector ที่เขียน Topic ลงไฟล์ มีลักษณะเป็นอะไรในมุมของ Kafka?"
+  options={[
+    'Producer ที่เขียน Record เข้า Topic',
+    'Consumer Group ธรรมดา ชื่อ Connect- ตามด้วยชื่อ Connector ที่อ่าน Topic แล้วเขียนปลายทาง ดู Lag ได้เหมือน Group อื่น',
+    'โปรเซสของ Broker',
+    'Topic ภายในพิเศษ'
+  ]}
+  answer={1}
+  why="Sink Task คือ Consumer ในรูปแบบหนึ่ง จึงมี Group และ Lag เหมือนกัน แบบฝึกเห็น Group ชื่อ Connect-file-sink อ่านห้า Record และ Lag เป็น 0 (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="โปรแกรม Streams นับคำ หลังรับบรรทัดที่ทำให้คำ Hello เปลี่ยนจาก 1 เป็น 2 Topic ผลลัพธ์จะมีอะไรของ Hello?"
+  options={[
+    'Record เดียวคือ Hello 2 โดย Record เดิมถูกแทนที่',
+    'Record ใหม่ Hello 2 ต่อท้าย Record เดิม Hello 1 ที่ยังอยู่ ผลลัพธ์เป็นสายของการอัปเดต',
+    'ไม่มีอะไรจนกว่าจะปิดโปรแกรม',
+    'Hello 3 เพราะนับรวมการรีสตาร์ท'
+  ]}
+  answer={1}
+  why="Topic เขียนต่อท้ายอย่างเดียว ทุกครั้งที่ตัวเลขเปลี่ยน Streams จึงส่ง Record ใหม่ แบบฝึกเห็น 7 Record จากสามบรรทัด เช่น Hello:1 แล้ว Hello:2 (รัน) ถ้าต้องการแค่ค่าล่าสุดของแต่ละคำ ให้เปิด Topic แบบ Compact ตาม[บท 5](/kafka/log-storage/)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราลบโฟลเดอร์สถานะบนดิสก์ของโปรแกรม Streams ที่นับคำไว้แล้วเริ่มใหม่ ตัวเลขการนับเป็นอย่างไร?"
+  options={[
+    'เริ่มที่ 0 ใหม่หมด เพราะสถานะหาย',
+    'ยังนับต่อ เพราะ Streams อ่าน Changelog Topic กลับมาสร้าง State Store ใหม่',
+    'โปรแกรมไม่ยอมเริ่ม',
+    'นับต่อจากค่าใน Topic ผลลัพธ์'
+  ]}
+  answer={1}
+  why="ทุกการเปลี่ยนของ State Store ถูกเขียนลง Changelog Topic ด้วย สำเนาหลักของสถานะจึงอยู่ใน Kafka ในแบบฝึก Hello นับต่อเป็น 3 หลังลบโฟลเดอร์ทิ้ง (รัน)"
+/>
+
+</Step>

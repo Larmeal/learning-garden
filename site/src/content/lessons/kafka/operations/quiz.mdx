@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจว่า advertised.listeners ทำให้ Client ล้มได้อย่างไร ที่คั่นหนังสือของ Group อยู่ที่ไหน ย้อน Offset ได้เมื่อไร และ Quota ทำงานอย่างไร
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="แอปพลิเคชันของเราอยู่ในคอนเทนเนอร์เครือข่ายเดียวกับ Broker แต่ตั้ง Bootstrap เป็นชื่อภายใน ส่วน Broker ประกาศ Listener ภายนอกเป็น 127.0.0.1:29092 อย่างเดียวและไม่มี Listener ภายใน ผลคืออะไร?"
+  options={[
+    'ใช้ได้ เพราะ 127.0.0.1 หมายถึง Broker เสมอ',
+    'อาจต่อไม่ติด เพราะ 127.0.0.1 ในคอนเทนเนอร์ของแอปหมายถึงตัวแอปเอง ไม่ใช่ Broker ต้องประกาศชื่อที่เข้าถึงได้จากที่ Client รันอยู่',
+    'Kafka เปลี่ยนที่อยู่ให้เองตามที่ Client อยู่',
+    'ใช้ได้เฉพาะ Producer'
+  ]}
+  answer={1}
+  why="Client ใช้ชื่อที่ Broker ประกาศเพื่อต่อหลังจากถาม Bootstrap ชื่อนั้นต้องเข้าถึงได้จากตำแหน่งของ Client ในแบบฝึกเราตั้งสอง Listener ให้ Client ในเครือข่าย Docker ใช้ชื่อคอนเทนเนอร์ และ Client บนคอมพิวเตอร์ใช้ 127.0.0.1 (Lab ของบทนี้ แสดงช่องที่ไม่ได้รันและอธิบายจากกติกาเดียวกัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ที่คั่นหนังสือ (Committed Offset) ของ Group ที่ชื่อ Billing ถูกเก็บไว้ที่ไหนใน Kafka?"
+  options={[
+    'ในไฟล์บนคอมพิวเตอร์ของ Consumer',
+    'ใน Topic ภายในชื่อ __consumer_offsets Partition ที่ได้จากการแฮชชื่อ Group หารเอาเศษด้วย 50',
+    'ใน ZooKeeper',
+    'ในหน่วยความจำของ Producer'
+  ]}
+  answer={1}
+  why="Offset ที่ Commit เป็น Record ใน Topic ภายในที่มี 50 Partition Partition ของ Group คำนวณจากชื่อ Group ในแบบฝึก Billing ไปอยู่ Partition 9 และเป็น Partition เดียวที่มีข้อมูล (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราต้องการให้ Group อ่าน Topic ใหม่ตั้งแต่ต้นหลังแก้โค้ด แต่ Consumer ของ Group ยังทำงานอยู่ ควรทำอย่างไร?"
+  options={[
+    'สั่ง Reset Offsets แบบ Execute ได้เลย ระหว่างที่ Consumer ยังอ่านอยู่',
+    'หยุด Consumer ของ Group ก่อน (ให้ Group ว่าง) แล้วจึงสั่ง Reset Offsets เพราะ Kafka ปฏิเสธการย้อนตอนที่ Group มีสมาชิก',
+    'ลบ Topic แล้วสร้างใหม่',
+    'เพิ่ม Partition'
+  ]}
+  answer={1}
+  why="ถ้าย้อนตอนมี Consumer อยู่ Consumer จะ Commit ทับค่าที่ตั้งใหม่ Kafka จึงตอบ Assignments can only be reset if the group is inactive ตามที่แบบฝึกเห็น (รัน) ควรดูผลด้วย Dry Run ก่อนเสมอ"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ตั้ง Quota ให้ Client ที่ 200 KB ต่อวินาที แล้วทดสอบส่งข้อมูล 800 KB ไม่เห็นว่าช้าลงเลย ข้อใดอธิบายได้?"
+  options={[
+    'Quota ใช้ไม่ได้กับ Producer',
+    'Quota ยอมให้ส่งเกินได้ชั่วครู่ (Burst) ราวสิบวินาทีของอัตราที่ตั้ง การทดสอบเล็กเกินไปจึงไม่ถูกหน่วง ต้องส่งมากกว่านั้นถึงเห็นผล',
+    'Broker ไม่ได้อ่านค่า Quota',
+    'ต้องตั้ง Quota ที่ Consumer ก่อน'
+  ]}
+  answer={1}
+  why="แบบฝึกส่ง 800 KB แล้วไม่เห็นผล แต่ส่ง 4 MB ใช้ 12.8 วินาทีเทียบกับ 0.2 วินาทีเมื่อไม่มีโควต้า (รัน) Burst ราว 2 MB ตามที่สังเกต"
+/>
+
+</Step>

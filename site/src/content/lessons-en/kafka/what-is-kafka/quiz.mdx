@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you understand that a topic is a log you can only append to, that reading does not remove records, and what lag means.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A producer sends an order into a topic that already holds 5 records (offsets 0 to 4). Which offset does the new order get, and where is it in the log?"
+  options={[
+    'Offset 0, because counting starts again and the old records are pushed back',
+    'Offset 5, at the end of the log, because a producer can only append',
+    'Whichever offset is free in the middle of the log',
+    'The offset where the latest consumer has read to'
+  ]}
+  answer={1}
+  why="A log is only appended to, so a new record always gets the offset after the last one, which in the exercise is 5, and the end of the topic becomes 6. The position of a consumer has nothing to do with where a new record lands (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The group billing has read up to offset 5 and stopped, while the producer sent 3 more orders. The end of the log is 8. What is the lag of billing, and what does it mean?"
+  options={[
+    '8, because it counts all records in the log',
+    '5, because it counts the records that billing has read',
+    '3, which is the number of records that billing has not read yet',
+    '0, because records are never removed from the log'
+  ]}
+  answer={2}
+  why="Lag is the end of the log minus the position that the group saved (8 minus 5), so it is 3, which matches what the exercise printed (ran). The number tells us how far a consumer has fallen behind."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The data team has just built a new reporting system and wants it to read every order that came in this week, which the topic still keeps. How does it do that?"
+  options={[
+    'The producer has to send all the old orders again',
+    'It uses a new group and starts from the beginning of the log, because the records are still there and every group has its own bookmark',
+    'It has to wait until billing has finished, and then read on from where billing stopped',
+    'It cannot, because records that were read are gone'
+  ]}
+  answer={1}
+  why="A new group has no bookmark, so it can choose to start from the beginning of the log, and records are not removed because somebody read them. In the exercise the group shipping, which had never read before, read all 5 orders after billing had read them (ran). The only limit is the retention rule of the broker, which we meet in [lesson 5](/en/kafka/log-storage/)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="When we look into the disk of the broker, what do we see for the topic orders with one partition?"
+  options={[
+    'A table in a database that the broker embeds',
+    'A folder for the partition that holds a file for the records and index files that help searching',
+    'One JSON file per order',
+    'Nothing, because Kafka keeps everything in memory'
+  ]}
+  answer={1}
+  why="A partition is a folder named after the topic and the partition number, with a log file, an index file and a time index file inside. The records are written one after another in the log file (ran). They are neither only in memory nor one file per record."
+/>
+
+</Step>

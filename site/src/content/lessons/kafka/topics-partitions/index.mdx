@@ -1,0 +1,156 @@
+---
+title: Topic, Partition และ Key
+summary: Topic หนึ่งแบ่งเป็นหลาย Partition ซึ่งแต่ละ Partition เป็น Log อิสระที่นับ Offset ของตัวเอง เรามาดูว่า Key ของ Record ตัดสินว่าจะไปลง Partition ไหนอย่างไร ทำไมลำดับมีค่าแค่ใน Partition เดียว และทำไมการเพิ่ม Partition ทำให้ Key ย้ายที่
+facts:
+  - "รันจริงใน exercises/02_topics_partitions.py กับ Kafka 4.4.0 ส่ง Order 18 ใบที่มี Key เป็นรหัสลูกค้า 6 คนไปที่ Topic 3 Partition แล้วเทียบ Partition ที่ Broker ตอบกลับมากับสูตร toPositive(murmur2(key)) % จำนวน Partition ที่เขียนซ้ำใน Python จาก Utils.murmur2 ของ Kafka ได้ตรงกันทุก Key"
+  - "สูตรของ Producer แบบ Java อ่านจาก source 4.4.0 (BuiltInPartitioner.java และ Utils.java) ส่วนที่ว่าไลบรารี confluent-kafka ใช้ Hash ตัวอื่นเป็นค่าเริ่มต้นเป็นผลจากแบบฝึกที่รันเทียบ และหนังสือ Definitive Guide หัวข้อ Partitions หน้า 68 เล่าเรื่องการเลือก Partition จาก Key"
+order: 2
+phase: A
+level: 1
+stage: sprout
+format: steps
+requires: [what-is-kafka]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import PartitionLab from '../../../../components/labs/kafka/PartitionLab';
+
+<Step>
+
+## Topic เดียว แต่มีสาม Log
+
+ใน[บทที่ 1](/kafka/what-is-kafka/) เราใช้ Topic ที่มี Partition เดียว คือมี Log เส้นเดียว ซึ่งใช้ได้กับ Order ห้าใบ แต่ถ้ามี Order เข้ามาเป็นล้านใบต่อชั่วโมง Log เส้นเดียวบน Broker ตัวเดียวก็รับไม่ไหว Kafka จึงให้เราแบ่ง Topic ออกเป็นหลาย Partition ซึ่งแต่ละ Partition เป็น Log ของตัวเองที่เก็บอยู่บน Broker คนละตัวได้ และมี Producer กับ Consumer ทำงานกับแต่ละ Partition ขนานกันไป (หนังสือ: Kafka: The Definitive Guide หัวข้อ Topics and Partitions หน้า 5)
+
+เรามาลองสร้าง Topic `orders` ที่มีสาม Partition แล้วส่ง Order 18 ใบเข้าไป โดยให้ลูกค้าหกคน (`c1` ถึง `c6`) สั่งคนละสามใบ และใช้รหัสลูกค้าเป็น Key ของ Record
+
+```text
+partition 0: offsets [0, 1, 2]
+partition 1: offsets [0, 1, 2, 3, 4, 5]
+partition 2: offsets [0, 1, 2, 3, 4, 5, 6, 7, 8]
+```
+
+ตรงนี้อยากให้สังเกตสองอย่าง อย่างแรก Order 18 ใบกระจายไปอยู่ในสาม Partition ไม่เท่ากัน (3, 6 และ 9 ใบ) อย่างที่สอง Offset ของแต่ละ Partition นับจาก 0 ใหม่ทุกอัน เพราะแต่ละ Partition เป็น Log คนละเส้น ดังนั้น "Offset 4" เฉย ๆ ไม่บอกอะไร เราต้องบอกว่า Offset 4 ของ Partition ไหน (รัน)
+
+</Step>
+
+<Step>
+
+## Key เลือก Partition ให้เรา
+
+แล้ว Order แต่ละใบไปลง Partition ไหนเป็นผู้ตัดสินใจ คำตอบคือ Producer ตัดสินใจเอง โดยเอา Key ของ Record มาคำนวณ ได้ผลเป็นเลข Partition ที่เดิมทุกครั้งสำหรับ Key เดิม หนังสือเล่าไว้ว่า Partitioner จะสร้าง Hash ของ Key แล้วแปลงเป็นเลข Partition ทำให้ Record ที่ใช้ Key เดียวกันถูกเขียนลง Partition เดียวกันเสมอ (หนังสือ: Kafka: The Definitive Guide หัวข้อ Partitions หน้า 68)
+
+สูตรของ Producer แบบ Java อ่านได้จาก Source ของ Kafka 4.4.0 ที่ `BuiltInPartitioner.java` บรรทัดที่ 412 คือ `toPositive(murmur2(key)) % จำนวน Partition` ตัว `murmur2` เป็นฟังก์ชัน Hash ใน `Utils.java` และ `toPositive` แค่ตัดบิตเครื่องหมายทิ้งให้เลขเป็นบวก (Source) เราเขียนฟังก์ชันเดียวกันขึ้นมาใหม่ใน Python แล้วเทียบกับที่ Broker ตอบกลับมาจริง
+
+| Key | murmur2 | สูตรได้ Partition | Broker ตอบ Partition |
+|---|---|---|---|
+| `c1` | 2069367011 | 2 | 2 |
+| `c2` | -1855343131 | 1 | 1 |
+| `c3` | 1044721541 | 2 | 2 |
+| `c4` | 1864598678 | 2 | 2 |
+| `c5` | -274743689 | 0 | 0 |
+| `c6` | 978391183 | 1 | 1 |
+
+ตรงกันทุกแถว (รัน) และ Key เดียวกันลงที่ Partition เดียวกันทั้งสามใบของลูกค้าแต่ละคน ที่ Partition 2 มีเก้าใบเพราะมีลูกค้าสามคน (`c1`, `c3`, `c4`) ที่ Hash ไปตกที่นั่น Hash แบบนี้ไม่รับประกันว่าจะกระจายเท่ากัน ลองพิมพ์ Key ของตัวเองใน Lab แล้วเปลี่ยนจำนวน Partition ดูว่าแต่ละ Key ไปตกที่ไหน
+
+<PartitionLab client:visible />
+
+</Step>
+
+<Step>
+
+## Hash ของแต่ละไลบรารีไม่เหมือนกัน
+
+เรื่องนี้เราไปเจอตอนรันแบบฝึก แบบฝึกของเราใช้ไลบรารี `confluent-kafka` ของ Python ซึ่งสร้างบน Librdkafka ถ้าเราไม่ได้ตั้งอะไรเพิ่ม มันใช้ Hash แบบ CRC32 ที่ชื่อ `consistent_random` ซึ่งต่างจากของ Java
+
+| Key | Java (`murmur2`) | Librdkafka (ค่าเริ่มต้น) |
+|---|---|---|
+| `c1` | 2 | 2 |
+| `c2` | 1 | 1 |
+| `c3` | 2 | 0 |
+| `c4` | 2 | 2 |
+| `c5` | 0 | 1 |
+| `c6` | 1 | 0 |
+
+สามจากหกคนไปตกคนละ Partition (รัน) ถ้าบริการฝั่ง Java กับฝั่ง Python ส่ง Order ของลูกค้าคนเดียวกันเข้า Topic เดียวกัน Order เหล่านั้นจะกระจายอยู่คนละ Partition และลำดับของลูกค้าคนนั้นหายไป ทางแก้คือตั้ง `partitioner` ของ Librdkafka เป็น `murmur2_random` ซึ่งเราลองแล้วได้ Partition ตรงกับสูตรของ Java ทุก Key (รัน)
+
+<Callout type="warn" title="ตั้งให้ตรงกันทุกภาษา">
+ถ้าองค์กรมี Producer หลายภาษา ให้ตั้ง Partitioner ให้ได้ผลเหมือนกัน หรือส่ง Key ผ่านทางเดียว ไม่อย่างนั้นการรับประกันว่า Key เดียวกันอยู่ Partition เดียวกันจะใช้ไม่ได้
+</Callout>
+
+</Step>
+
+<Step>
+
+## ลำดับมีค่าแค่ใน Partition เดียว
+
+เมื่อ Record ของ Key เดียวกันไปอยู่ Partition เดียวกัน Kafka รับประกันลำดับให้เราภายใน Partition นั้น Record ที่ส่งก่อนมี Offset น้อยกว่าและถูกอ่านก่อนเสมอ แต่ระหว่าง Partition ไม่มีลำดับรับประกันเลย หนังสือบอกไว้ตรง ๆ ว่า Topic ที่มีหลาย Partition ไม่มีการรับประกันลำดับของข้อความทั้ง Topic มีแค่ภายใน Partition เดียว (หนังสือ: Kafka: The Definitive Guide หัวข้อ Topics and Partitions หน้า 5)
+
+แบบฝึกยืนยันว่าตอนอ่านทั้งสาม Partition Offset ของแต่ละ Partition มาตามลำดับ (รัน) แต่ Consumer มักหยิบจาก Partition ทีละก้อน ในการรันของเรา 12 Record แรกที่ Consumer ได้มาจาก Partition 2 ทั้งหมด จึงไม่ควรเอาลำดับที่ Consumer ได้รับมาคิดเป็นลำดับที่ Producer ส่ง สรุปว่าถ้าเรื่องไหนต้องเรียงลำดับ ให้เลือกใช้ Key ที่ทำให้ Record ของเรื่องนั้นอยู่ Partition เดียวกัน เช่นรหัสลูกค้าสำหรับ Order ของลูกค้าคนนั้น
+
+</Step>
+
+<Step>
+
+## ไม่มี Key ก็ได้
+
+Record ไม่จำเป็นต้องมี Key ถ้าไม่มี Producer จะกระจาย Record ไปตาม Partition เอง หนังสือเล่าว่าตอนไม่มี Key และใช้ Partitioner ค่าเริ่มต้น Record จะถูกส่งไปยัง Partition ที่ใช้ได้ตัวหนึ่งแบบสุ่ม โดยตั้งแต่ Kafka 2.4 อัลกอริทึมเปลี่ยนเป็นแบบที่อยู่ Partition เดิมไปจนกว่า Batch จะเต็ม (หนังสือ: Kafka: The Definitive Guide หัวข้อ Partitions หน้า 69) เมื่อเราส่ง Record ไม่มี Key 60 ตัว มันกระจายไปทั้ง Partition 0, 1 และ 2 (รัน) เหมาะกับข้อมูลที่ไม่ต้องรักษาลำดับ เช่น Log ของเว็บ
+
+</Step>
+
+<Step>
+
+## เพิ่ม Partition แล้ว Key ย้ายที่
+
+บางครั้งสาม Partition ไม่พออีกต่อไป เราจึงเพิ่มเป็นหกด้วย `kafka-topics.sh --alter --partitions 6` Record ที่เขียนไว้แล้วอยู่ที่เดิม แต่สูตร `% จำนวน Partition` เปลี่ยนตัวหาร Key หลายตัวจึงไปตกที่ Partition ใหม่
+
+| Key | ตอนมี 3 Partition | ตอนมี 6 Partition |
+|---|---|---|
+| `c1` | 2 | 5 |
+| `c2` | 1 | 1 |
+| `c3` | 2 | 5 |
+| `c4` | 2 | 2 |
+| `c5` | 0 | 3 |
+| `c6` | 1 | 1 |
+
+สามจากหก Key ย้ายที่ (รัน) ผลคือ Order ใหม่ของ `c1` ไปอยู่ Partition 5 ส่วน Order เก่าของเขาอยู่ Partition 2 ลำดับของลูกค้าคนนั้นขาดเป็นสองท่อน ถ้าระบบของเราต้องพึ่งลำดับตาม Key จึงควรเลือกจำนวน Partition ให้เผื่อไว้ตั้งแต่แรก และมีอีกเรื่องที่ควรรู้ Kafka ลด Partition ไม่ได้ เมื่อเราสั่งลดจาก 6 เหลือ 2 ได้ข้อผิดพลาด `InvalidPartitionsException: The topic orders currently has 6 partition(s); 2 would not be an increase` (รัน)
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="บริการ Python ที่ใช้ Confluent-kafka ส่ง Order ของลูกค้า c3 โดยไม่ได้ตั้งค่า Partitioner ส่วนบริการ Java ก็ส่ง Order ของ c3 เข้า Topic เดียวกัน Topic มี 3 Partition ผลจะเป็นอย่างไร?"
+  options={[
+    'ทั้งสองบริการส่ง c3 ไป Partition เดียวกัน เพราะ Key เหมือนกัน',
+    'Order ของ c3 จากสองบริการไปอยู่คนละ Partition (Java ไป 2 และ Python ไป 0) ทำให้ลำดับของ c3 ไม่ได้รับประกัน',
+    'Kafka ปฏิเสธ Record จากบริการที่ Hash ต่างกัน',
+    'Kafka ย้าย Record ของ c3 ให้อยู่ Partition เดียวกันเองตอนอ่าน'
+  ]}
+  answer={1}
+  why="ค่าเริ่มต้นของ Librdkafka คือ CRC32 ส่วน Java ใช้ murmur2 สำหรับ Key c3 ที่มี 3 Partition ผลต่างกัน (Java ได้ 2 ส่วน Librdkafka ได้ 0) แบบฝึกวัดแล้วว่า 3 จาก 6 Key ต่างกัน (รัน) Broker ไม่ตรวจและไม่ย้าย Record ให้ ทางแก้คือตั้ง Partitioner ของ Librdkafka เป็น Murmur2 Random ให้ตรงกับ Java"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Topic 3 Partition: แต่ละ Partition นับ Offset จาก 0 และ Order 18 ใบลงที่ 3, 6 และ 9 ใบ | รัน: `exercises/02_topics_partitions.py` |
+| Partition ที่ Broker ตอบตรงกับ `toPositive(murmur2(key)) % n` ทุก Key (Python เขียนซ้ำจาก `Utils.murmur2`) | รัน: `exercises/02_topics_partitions.py` |
+| ค่าเริ่มต้นของ Confluent-kafka (`consistent_random`) ทำให้ 3 จาก 6 Key ไปคนละ Partition กับ Java และ `murmur2_random` ทำให้ตรงกัน | รัน: `exercises/02_topics_partitions.py` |
+| Offset ภายใน Partition เรียงตามลำดับที่ส่ง | รัน: `exercises/02_topics_partitions.py` |
+| Record ไม่มี Key กระจายไปหลาย Partition | รัน: `exercises/02_topics_partitions.py` |
+| เพิ่มเป็น 6 Partition แล้ว 3 จาก 6 Key ย้ายที่ และลด Partition ไม่ได้ | รัน: `exercises/02_topics_partitions.py` |
+| สูตร `toPositive(murmur2(key)) % partitions` ของ Producer แบบ Java | Source: `BuiltInPartitioner.java` บรรทัด 412 และ `Utils.murmur2` ใน `Utils.java` (Kafka 4.4.0) |
+| Partition เป็น Log เส้นหนึ่งที่เขียนต่อท้ายอย่างเดียว และไม่มีการรับประกันลำดับข้าม Partition | หนังสือ: Kafka: The Definitive Guide หัวข้อ Topics and Partitions หน้า 5 |
+| Hash ของ Key เลือก Partition และ Record ไม่มี Key ไปแบบหมุนเวียน (Sticky ตั้งแต่ 2.4) | หนังสือ: Kafka: The Definitive Guide หัวข้อ Partitions หน้า 68 และ 69 |
+| ควรเลือกจำนวน Partition ให้เผื่อไว้ตั้งแต่แรก | ผู้เขียน |
+
+</Step>

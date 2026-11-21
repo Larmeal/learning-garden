@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you can find an offset among segment files, know how retention changes the start offset of the log, and know how compaction and a tombstone work.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A partition has segment files that start at offsets 0, 13, 26, 39 and 52. A consumer asks for offset 40. Which file does the broker open?"
+  options={[
+    'File 52, because it is the newest',
+    'File 26, because it is the biggest even name not above 40',
+    'File 39, because it is the biggest name that is not above 40',
+    'Every file in order until it finds it'
+  ]}
+  answer={2}
+  why="The name of a file is the first offset in it, so the offset we ask for must be in the file with the biggest name that does not exceed it, which is 39. The broker then opens the index of that file, jumps to the nearest entry and reads on. The exercise confirmed this with offset 30, which is in file 26 (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The index of a segment file has fewer entries than the file has batches. Why, and what does that mean for finding an offset?"
+  options={[
+    'The index is damaged, so the whole file has to be read',
+    'The index writes an entry only at intervals of index.interval.bytes, so it stays small. To find an offset the broker takes the nearest entry and reads on a few batches',
+    'The index lists only records that have a key',
+    'The index lists only records that a consumer has read'
+  ]}
+  answer={1}
+  why="A sparse index keeps an entry every so many bytes. In the exercise segment 26 had only three entries (offsets 30, 34, 38). Looking for an offset starts from the biggest entry not above it and then reads a short way (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="At the start the log began at offset 0. After retention deleted four old segments, a new group starts reading from the beginning of the log. Which offset does it get first, and does the end offset change?"
+  options={[
+    'Offset 0 as before, and the end offset goes down',
+    'The offset of the first segment that is left (for example 52), and the end offset does not change because offsets are never reused',
+    'All offsets are renumbered from 0',
+    'The new group cannot read at all'
+  ]}
+  answer={1}
+  why="Deleting segments moves the log start offset up but does not change the offsets of the records that remain. The exercise got start 52 and end 65, the same as before the deletion (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A compacted topic has 12 values of the key k3 followed by a tombstone (a null value). After the first run of the cleaner, what do we see of k3?"
+  options={[
+    'The latest value before the tombstone',
+    'All 12 values, because compaction deletes nothing of a key that has a tombstone',
+    'Only the tombstone. The old values are gone, and the tombstone is removed later, after delete.retention.ms',
+    'Nothing at all at once, tombstone included'
+  ]}
+  answer={2}
+  why="A tombstone says that the key is deleted. The cleaner drops all old values of k3 but keeps the tombstone so that consumers that are following can see it, until delete.retention.ms has passed. In the exercise the tombstone was at offset 48, and disappeared about 13 seconds later (ran)."
+/>
+
+</Step>

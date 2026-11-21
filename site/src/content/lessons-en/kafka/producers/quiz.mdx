@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check that you understand batches and linger.ms, when each acks setting answers, and where the idempotence stamp sits.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Orders arrive one at a time, 10 milliseconds apart, and we set linger.ms to 5. What do the batches look like?"
+  options={[
+    'Several orders per batch, because the producer waits the full 5 milliseconds',
+    'Each order becomes a batch of its own, because the next order comes later than the producer is willing to wait',
+    'The producer rejects the orders because they come too slowly',
+    'One batch, sent after 10 orders'
+  ]}
+  answer={1}
+  why="The producer sends a batch when the time of its first record reaches linger.ms. If the next record arrives after that, a new batch has to begin. Waiting therefore does not help when records arrive further apart than the time we are willing to wait. The lab of this lesson shows it when you change the arrival rate."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A team keeps order JSON, whose field names repeat in every order, and turns on gzip compression. How does the size of the log of this topic change?"
+  options={[
+    'It does not change, because the broker unpacks and stores it in the old way',
+    'It gets much smaller, about 15 percent of the original in the exercise, because the whole batch is compressed and repeated field names compress well',
+    'It gets bigger, because a codec has to be stored',
+    'It shrinks only if acks=all is on'
+  ]}
+  answer={1}
+  why="The producer compresses the whole batch and the broker stores the compressed batch as it is (the line of a batch says compresscodec: gzip). Data with repeated field names compresses very well: in the exercise 3,000 orders went from 275 KB to about 42 KB (ran). acks has nothing to do with compression."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A service sets acks to 1. The leader answers ack and crashes at once, before any follower could copy the order. What happens?"
+  options={[
+    'Nothing bad: the follower that becomes the new leader already has the order',
+    'The order is lost, although the producer already got its ack',
+    'The producer gets no ack, so it automatically sends again to the new leader',
+    'The broker that crashed comes back and hands the order to the consumer'
+  ]}
+  answer={1}
+  why="acks=1 means the leader answers as soon as it has written to its own log. If it crashes before the followers copy, the new leader lacks that record, and the producer believes it succeeded so it does not send again. With acks=all the leader would not have answered yet, so the producer could resend (the lab of this lesson shows both cases)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We turn on idempotence and send 10 records. In the broker's log file, on the batch of these records, what extra do we see compared with idempotence off?"
+  options={[
+    'A producer id that is not -1 and sequence numbers 0 to 9',
+    'The IP address of the producer',
+    'The name of the consumer that will read it',
+    'Nothing extra, because idempotence works on the producer side only'
+  ]}
+  answer={0}
+  why="With idempotence on, the broker gives the producer an id and the producer numbers each record. The exercise saw producer id 0 and sequence 0 to 9, against -1 for both when it was off (ran). This stamp is what the broker uses to catch a batch that comes twice."
+/>
+
+</Step>

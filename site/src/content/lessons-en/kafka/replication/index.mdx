@@ -1,0 +1,133 @@
+---
+title: Replication
+summary: Every partition has several copies, with one leader and followers that fetch from it. We look at the ISR and the high watermark, kill brokers to see what happens to records that were already acknowledged, and see how min.insync.replicas and an unclean leader election can make data disappear.
+facts:
+  - "Run for real in exercises/06_replication.py against Kafka 4.4.0, on a cluster of 3 brokers plus 1 separate controller: the 3 copies of each partition, stopping a follower and starting it again, killing a leader with SIGKILL and measuring how long a new leader takes, a write with min.insync.replicas=2 when only one broker is left, and a forced unclean election after a leader that had acknowledged records died."
+  - "The meaning of ISR and the high watermark comes from the book Kafka: The Definitive Guide, pages 139 to 147 and 163 to 168. The default broker.session.timeout.ms of 9 seconds was read from KRaftConfigs.java and the default unclean.leader.election.interval.ms of 5 minutes from ReplicationConfigs.java. A cluster with several racks or on several real computers was not run. The times and batch counts in this lesson come from one run, and other runs differ a little (for example 594 and 595 batches, 9.1 and 9.3 seconds), so the exercise checks bounds only."
+order: 6
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [log-storage]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import IsrLab from '../../../../components/labs/kafka/IsrLab';
+
+<Step>
+
+## Three copies, one leader
+
+If one broker dies, all its data is gone. Kafka answers by keeping copies of each partition in several places, as many as the replication factor that we set when we create the topic. Among those copies Kafka picks one as the leader, which producers and consumers talk to, and the rest are followers that keep sending fetch requests to the leader and storing what they get (book: Kafka: The Definitive Guide, section Replication, page 139).
+
+Let us build a group of three brokers with a topic of three partitions and three copies, and see who is what.
+
+```text
+Partition: 0  Leader: 2  Replicas: 2,3,1  Isr: 2,3,1
+Partition: 1  Leader: 3  Replicas: 3,1,2  Isr: 3,1,2
+Partition: 2  Leader: 1  Replicas: 1,2,3  Isr: 1,2,3
+```
+
+Each broker leads one partition, which spreads the work evenly. The column `Isr` stands for in-sync replicas: the copies that are keeping up with the leader. The book says a replica that has not fetched for longer than `replica.lag.time.max.ms` counts as out of sync and is dropped from the ISR (book: Kafka: The Definitive Guide, section Replication, page 141). All three are in the ISR now, and Kafka 4.4 also shows an `Elr` column, which we come back to later.
+
+After sending 30 orders with `acks=all`, the `.log` file of each partition has the same size on all three copies, for example 145 bytes at all three places for partition 0 and 310 bytes at all three for partition 2 (ran). So the copies really are the same file.
+
+</Step>
+
+<Step>
+
+## High watermark: you can read only what every copy has
+
+The leader does not let consumers read every record it has written straight away. It lets them read only the records that every replica in the ISR already has. That position is called the high watermark, and the leader sends it to the followers with every fetch (book: Kafka: The Definitive Guide, section Replication, page 140, and Fetch Requests, page 145). The reason is that if a consumer read a record that only the leader has, and the leader then crashed, the record would be gone although somebody had read it. The broker saves this value in a file named `replication-offset-checkpoint` in its data folder. That file is written from time to time, and when we opened it the value was still 0 for every partition (ran), so we should not read that file as the current value.
+
+The lab below is a single partition with three copies. Press write a record before the followers fetch. Notice that the cells in the leader's log have a different colour from the committed ones. Then press followers fetch, and then try stopping brokers one at a time.
+
+<IsrLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## A broker stops working
+
+There are two cases. The first is a clean stop, where we stopped one follower with `docker stop`. The ISR of every partition dropped it at once (it became `[2, 1]`). The command `kafka-topics.sh --describe --under-replicated-partitions` listed the partitions that had lost a copy. When we started the broker again it fetched what it had missed, caught up, and was back in the ISR of every partition within 5.5 seconds (ran).
+
+The second case is a sudden crash. We killed the leader of partition 0 with `docker kill` (SIGKILL), which gives it no chance to say goodbye. The controller learns of it from the heartbeats that stop, and waits for `broker.session.timeout.ms`, which is 9 seconds by default (source: `KRaftConfigs.java`). We measured 9.1 seconds before one follower became the new leader, and the ISR shrank to two. The most important result is that the 60 orders that had been acknowledged under `acks=all` could all be read from the new leader (ran), because every one of them had been on every copy before the producer got its answer.
+
+</Step>
+
+<Step>
+
+## min.insync.replicas: how small may the ISR get before we refuse writes
+
+If only the leader is left in the ISR, then `acks=all` means waiting for the leader alone, which is no safer than `acks=1`. To prevent that we set `min.insync.replicas`, which says how many copies must be in the ISR for a write to be accepted (book: Kafka: The Definitive Guide, section Minimum In-Sync Replicas, page 167). We created a topic with this set to 2 and stopped both followers.
+
+```text
+only broker 1 is alive, ISR = [1], min.insync.replicas=2
+write result: _MSG_TIMED_OUT
+```
+
+The producer could not write, but it saw `_MSG_TIMED_OUT`, not an immediate error, because `NotEnoughReplicasException` is a retriable error (source: the class extends `RetriableException`), so the producer keeps retrying until the time runs out. A consumer could still read the 5 records that were already written (ran). The setting chooses "cannot write" over "can write but risk losing it".
+
+</Step>
+
+<Step>
+
+## When the last leader that had the data dies
+
+Now let us do the most dangerous thing. We keep `min.insync.replicas=1` (the default) and stop both followers, so the ISR is the leader alone. We write 5 more orders, and the leader acknowledges all 5 under `acks=all` (offsets 3 to 7), because it waits only for itself. Then we kill the leader with SIGKILL and start one follower.
+
+That follower cannot become leader, because it is not in the ISR and does not have the last 5 records. The partition has no leader (`leader None`), so it can be neither read nor written. There are two ways out. The first is to wait for the dead broker to come back, which is best because it holds all the data. The second is to force an unclean leader election, which we ran with `kafka-leader-election.sh --election-type unclean`, and the follower became leader at once. We sent 2 new orders and brought the old broker back. The final log was:
+
+```text
+['safe-0', 'safe-1', 'safe-2', 'new-0', 'new-1']
+```
+
+The 5 orders that had been acknowledged were lost for good (ran). The old broker that returned cut its log back to match the new leader. Setting `unclean.leader.election.enable=true` does the same thing automatically, with the controller checking every 5 minutes by default (source: `unclean.leader.election.interval.ms` in `ReplicationConfigs.java`). The book therefore warns that allowing unclean election trades correctness for availability (book: Kafka: The Definitive Guide, section Unclean Leader Election, page 166).
+
+<Callout type="note" title="The Elr column">
+When the last leader dies, Kafka 4.x remembers who was the last one that had everything (eligible leader replicas), so that when it returns it can lead again at once without losing data. The lab above imitates this by starting that broker again. We did not test that the ELR mechanism behaves like the lab in every case.
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A topic has replication factor 3 and min.insync.replicas 1. The producer uses acks=all. Both followers stop, so the ISR is the leader alone. The leader writes an order and acknowledges it, and then the leader dies for ever. Which statement is right?"
+  options={[
+    'The order is safe, because acks=all always means every replica has it',
+    'The order can be lost, because acks=all waits only for the replicas that are in the ISR at that moment, which was the leader alone',
+    'The order is safe, because Kafka keeps a copy at the controller',
+    'The producer gets an error when writing, so it knows it failed'
+  ]}
+  answer={1}
+  why="acks=all means every replica of the ISR, not every replica that was configured. When the ISR shrinks to one and min.insync.replicas is 1, a write succeeds on a single copy. The exercise did this and the 5 acknowledged orders were gone after an unclean election (ran). With min.insync.replicas set to 2 the write would fail instead of taking the risk."
+/>
+
+</Step>
+
+<Step>
+
+## Sources of this lesson
+
+| Statement | Source |
+|---|---|
+| A topic of 3 partitions and 3 copies: the leaders spread over all 3 brokers and the ISR is full | ran: `exercises/06_replication.py` |
+| The `.log` file of every copy has the same size (145, 228 and 310 bytes by partition) | ran: `exercises/06_replication.py` |
+| A clean stop of a follower: it leaves the ISR at once and, once started, rejoins in 5.5 seconds | ran: `exercises/06_replication.py` |
+| Killing the leader with SIGKILL: a new leader in 9.1 seconds, the ISR down to 2, and all 60 acknowledged orders readable | ran: `exercises/06_replication.py` |
+| `min.insync.replicas=2` with one broker left: the write fails (times out) but reading still works | ran: `exercises/06_replication.py` |
+| `min.insync.replicas=1`, ISR of one, 5 acknowledged, then the leader dies: no leader, a forced unclean election, and the 5 are lost for good | ran: `exercises/06_replication.py` |
+| `broker.session.timeout.ms` defaults to 9000 and `NotEnoughReplicasException` is retriable | source: `KRaftConfigs.java` lines 43 to 44 and `NotEnoughReplicasException.java` (Kafka 4.4.0) |
+| `unclean.leader.election.interval.ms` defaults to 5 minutes | source: `ReplicationConfigs.java` lines 122 to 124 (Kafka 4.4.0) |
+| Leader, follower, ISR, high watermark, and the effects of unclean election and `min.insync.replicas` | book: Kafka: The Definitive Guide, section Replication pages 139 to 141, Fetch Requests page 145, Unclean Leader Election page 166, Minimum In-Sync Replicas page 167 |
+| A cluster with several racks, moving replicas (`kafka-reassign-partitions`), brokers on different computers | not run |
+
+</Step>

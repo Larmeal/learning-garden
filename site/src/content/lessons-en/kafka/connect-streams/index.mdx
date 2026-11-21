@@ -1,0 +1,131 @@
+---
+title: Kafka Connect and Kafka Streams
+summary: Connect moves data between other systems and topics, and remembers how far it has read in a topic of its own. Streams processes the data of topics and keeps its state in another topic. We run both, which ship with Kafka, and see that the result survives a restart and even deleting the state.
+facts:
+  - "Run for real in exercises/10_connect_streams.py against Kafka 4.4.0: Kafka Connect in distributed mode as a separate process, a FileStreamSource and a FileStreamSink created through the REST API, the position that the source notes in the topic connect-offsets, and the WordCountDemo of Kafka Streams that ships with Kafka, run in the broker's container (libstdc++ had to be added), with the internal topics it creates seen and the local state deleted before a restart."
+  - "The ideas of Connect (worker, task, a topic that holds offsets) come from the book Kafka Connect: Build and Run Data Pipelines, pages 38, 66 and 72, and those of Streams (state store and changelog) from Kafka Streams in Action, pages 215 to 216. A connector for a database or S3 was not run, no topology of our own was written, and joins and windows were not tried."
+order: 10
+phase: E
+level: 3
+stage: sprout
+format: steps
+requires: [schemas]
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ConnectLab from '../../../../components/labs/kafka/ConnectLab';
+import StreamsLab from '../../../../components/labs/kafka/StreamsLab';
+
+<Step>
+
+## We do not want to write a producer every time
+
+The data we want in Kafka usually comes from another system, such as a log file, a database or a bucket in S3, and the data that leaves Kafka has to land somewhere too. If we write a producer and a consumer ourselves each time, we have to think again and again about retries, about remembering how far we read, and about dividing the work. Kafka Connect is a process that takes over those jobs, and we only say what to connect with, through a connector (book: Kafka Connect: Build and Run Data Pipelines, section Meet Kafka Connect, page 10).
+
+Kafka Streams is a library for programs that read from a topic, process the data and write the result to another topic, like a smarter consumer that carries state with it. Both ship with Kafka in the same directory as the broker, so we can run them at once.
+
+</Step>
+
+<Step>
+
+## Connect: workers, connectors and tasks
+
+Connect runs as a process of its own, called a worker. We started it with `connect-distributed.sh` in a container separate from the broker and drive it through a REST API on port 8083. The worker keeps its own state in three Kafka topics: `connect-configs` holds the settings of connectors, `connect-offsets` the position that a source has read to, and `connect-status` the status (book: Kafka Connect: Build and Run Data Pipelines, section Worker Configuration, pages 38 and 72). When we started the worker in the exercise, the three topics appeared by themselves and the REST API listed the plugins, including `FileStreamSourceConnector` and `FileStreamSinkConnector` (ran).
+
+Those two are demo connectors that ship with Kafka for moving data between files and topics (book: Kafka Connect: Build and Run Data Pipelines, section Running Connectors, page 44). We made a file `in.txt` with three lines, created a source connector with a POST to `/connectors` giving `file`, `topic` and `tasks.max`, and read the topic `lines` to get three records, `order 1` to `order 3`. When we asked for the status, both the connector and the task were `RUNNING` (ran).
+
+</Step>
+
+<Step>
+
+## Connect remembers how far it read
+
+Next we append two more lines to the file. The source reads on, only the new lines, and then we delete the connector and create it again with the same name. Will it read the whole file again? No. The topic `lines` still holds exactly five records, because the new connector asks `connect-offsets` for the position, which is a record that was stored.
+
+```text
+key   = ["file-source", {"filename": "/tmp/in.txt"}]
+value = {"position": 40}
+```
+
+Position 40 is the number of bytes of five lines of 8 bytes each (ran). The key of that record is the name of the connector and the file, so if we choose a new name it is seen as new work and reads the source file from the start. On the other side, the sink connector that we created next is a consumer group named `connect-file-sink` of the topic `lines`, writing five lines to the file `out.txt` with no lag (ran). Step through the whole path in the lab.
+
+<ConnectLab client:visible lang="en" />
+
+<Callout type="note" title="A worker that is not closed cleanly">
+The book warns that if a worker is stopped uncleanly, a task may not have committed the offsets of the records it was processing, so after a restart it may read some again (book: Kafka Connect: Build and Run Data Pipelines, page 77). That is at-least-once behaviour, like the ordinary consumer we saw. We did not kill a worker halfway.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Streams: counting words with state
+
+Now Kafka Streams. Kafka ships a sample program called `WordCountDemo`, which reads text from the topic `streams-plaintext-input`, splits it into words, counts how often each word has appeared, and writes the result to `streams-wordcount-output`. We sent in three lines: `hello kafka`, `hello streams` and `kafka streams kafka`.
+
+```text
+('hello', 1), ('kafka', 1), ('hello', 2), ('streams', 1), ('kafka', 2), ('streams', 2), ('kafka', 3)
+```
+
+The output topic got seven records, one for each change of a number, so the result is a stream of updates and not a single final number per word. The latest counts are `hello` 2, `kafka` 3 and `streams` 2 (ran). The thing that holds those numbers is a state store inside the program, and Streams created two internal topics in Kafka: a repartition topic, which sends the same word to the same partition, and a changelog topic, which records every change of the state store as a backup (ran). The book says a changelog topic is an internal topic that Kafka Streams creates to make state stores fault tolerant (book: Kafka Streams in Action, section State Stores in Kafka Streams, page 215).
+
+</Step>
+
+<Step>
+
+## Delete the state, and the numbers come back
+
+What if the computer that ran the program breaks and the state on its disk is gone? We stopped the program, deleted the state folder `/tmp/kafka-streams` completely (inside were `0_0` and `1_0`, the state of each task), and started the program again, sending the line `hello again`.
+
+```text
+new updates after the restart: [('hello', 3), ('again', 1)]
+```
+
+`hello` carried on counting to 3 and did not start from 1, because Streams read the changelog topic back and rebuilt the state store before it went on processing (ran). The book calls this step restoring a state store from its changelog (book: Kafka Streams in Action, section Changelog Topics Restoring State Stores, page 216). The lab shows all three lines and the restore.
+
+<StreamsLab client:visible lang="en" />
+
+<Callout type="warn" title="The broker's image is Alpine">
+`WordCountDemo` uses RocksDB as its state store, which needs the library `libstdc++`, and the image `apache/kafka` does not have it. The first time we ran it, it failed at once. We installed it with `apk add libstdc++` inside the container of the exercise. That is a matter of the image we use, not of Kafka Streams.
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A source connector has read 5 lines of a file. We delete the connector and create it again with exactly the same name and settings. What is the result?"
+  options={[
+    'It reads the whole file again, so the topic has 10 records',
+    'It does not read again, because the new connector asks the topic connect-offsets, by the connector name, how far it had read',
+    'It reads nothing, even when new lines are appended to the file',
+    'It fails because no position is kept'
+  ]}
+  answer={1}
+  why="Connect keeps the position of a source as a record in the topic connect-offsets, with the connector name and the file as the key. A connector with the same name carries on from position 40, and if there are new lines it reads only the new ones. The exercise saw exactly 5 records in the topic after recreating it (ran). With a different connector name it would be seen as new work and read the whole file again."
+/>
+
+</Step>
+
+<Step>
+
+## Sources of this lesson
+
+| Statement | Source |
+|---|---|
+| A distributed worker creates the topics `connect-configs`, `connect-offsets`, `connect-status`, and the REST API lists the file plugins | ran: `exercises/10_connect_streams.py` |
+| The source turns 3 lines into 3 records, and the connector and task are `RUNNING` | ran: `exercises/10_connect_streams.py` |
+| Delete and recreate a connector with the same name: the topic still has 5 records and the position `{"position":40}` is stored in `connect-offsets` | ran: `exercises/10_connect_streams.py` |
+| The sink writes 5 lines to `out.txt` as the group `connect-file-sink` with no lag | ran: `exercises/10_connect_streams.py` |
+| `WordCountDemo`: 7 result records, latest values hello 2, kafka 3, streams 2, and a changelog and a repartition topic were created | ran: `exercises/10_connect_streams.py` |
+| Delete the state on disk and restart: `hello` carries on to 3 | ran: `exercises/10_connect_streams.py` |
+| Connect moves data without us writing a producer, a worker keeps its state in 3 topics, FileStream is a sample connector, and a task that is not closed cleanly may read again | book: Kafka Connect: Build and Run Data Pipelines, section Meet Kafka Connect page 10, Worker Configuration page 38, Running Connectors page 44, Designing Effective Data Pipelines pages 72 and 77 |
+| A changelog topic makes a state store fault tolerant and lets it be restored | book: Kafka Streams in Action, section State Stores in Kafka Streams, pages 215 and 216 |
+| Connectors for a database, S3 or Debezium, a topology of our own, joins and windows, ksqlDB | not run |
+
+</Step>

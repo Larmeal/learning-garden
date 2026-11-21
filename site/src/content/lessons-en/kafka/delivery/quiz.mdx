@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check what idempotence guards against, how the markers of a transaction work, and how far exactly-once goes.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The order program is restarted and sends the same order again, because it reads the file again. The producer has idempotence on. Can Kafka stop the duplicate?"
+  options={[
+    'Yes, because idempotence checks the content of a record',
+    'No, because idempotence only guards against retries of the same producer in the same run. A producer that starts again gets a new stamp, which Kafka sees as a different record',
+    'Yes if acks is set to 0',
+    'Yes only if the record has a key'
+  ]}
+  answer={1}
+  why="The broker compares a producer id with a sequence number, not content. A new producer gets a new id and its sequence starts again. The book describes this limit (book: Kafka: The Definitive Guide, section Limitations of the Idempotent Producer, page 184), so the destination should tolerate repeats too."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A partition holds 5 data records and 3 transactions (commit, abort, commit). How many offsets does the log use, and how many records does a read_committed consumer see?"
+  options={[
+    '5 offsets, and it sees 5 records',
+    '8 offsets (a marker takes an offset of its own), and it sees only data of the transactions that committed',
+    '8 offsets, and it sees 8 records including the markers',
+    '5 offsets, and it sees 3 records'
+  ]}
+  answer={1}
+  why="COMMIT and ABORT markers are control records that take offsets, but a consumer never receives them. In the exercise the offsets used were 0 to 7 and read_committed saw a1 a2 c1 once block c had closed (ran). b1 and b2, which were aborted, are not delivered."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A producer writes records and calls abort_transaction at once, without a flush first. What may happen?"
+  options={[
+    'Every record is written to the log and then marked as aborted, always',
+    'The records still queued in the client are thrown away before they reach the broker, so they do not show in the log at all, not even as aborted',
+    'The broker refuses the abort',
+    'Every consumer sees those records'
+  ]}
+  answer={1}
+  why="The client throws away records it has not sent when it aborts, so we only see what had reached the broker. In our first attempt read_uncommitted did not see b1 and b2 until we put a flush before the abort (ran). If we do not need the aborted records in the log, throwing them away does no harm."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A pipeline reads from Kafka and writes the results into a PostgreSQL database. Does a Kafka transaction on the producer alone give exactly-once all the way?"
+  options={[
+    'Yes, because a Kafka transaction covers every system it is connected to',
+    'No, because Kafka cannot abort what is written outside Kafka. The write to the database must be safe to repeat itself, for example with a primary key',
+    'Yes if acks is all',
+    'Yes if partitions are added'
+  ]}
+  answer={1}
+  why="Exactly-once in Kafka holds when reading and writing both happen in Kafka. The book says that what leaves Kafka is not covered (book: Kafka: The Definitive Guide, section What Problems Aren't Solved by Transactions, page 191). The last lesson of this path uses INSERT OR IGNORE with a primary key to deal with repeats."
+/>
+
+</Step>

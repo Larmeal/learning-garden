@@ -1,0 +1,84 @@
+---
+title: Check your understanding
+summary: Four questions to check where Connect keeps its state, what a sink connector is, and how the state store and the changelog of Streams work together.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Where does distributed Kafka Connect keep the settings, the positions that sources have read to, and the status of connectors?"
+  options={[
+    'In a database that has to be installed separately',
+    'In files in the folder of each worker',
+    'In Kafka topics themselves, three of them: configs, offsets and status',
+    'In ZooKeeper'
+  ]}
+  answer={2}
+  why="The worker keeps its state in Kafka topics, so a new worker can take over the work. The exercise saw all three topics appear as soon as the worker started (ran). Kafka 4.4.0 has no ZooKeeper."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="From the point of view of Kafka, what is a sink connector that writes a topic to a file?"
+  options={[
+    'A producer that writes records into a topic',
+    'An ordinary consumer group named connect- followed by the connector name, which reads a topic and writes the destination. Its lag can be seen like that of any group',
+    'A process of the broker',
+    'A special internal topic'
+  ]}
+  answer={1}
+  why="A sink task is a consumer of a kind, so it has a group and a lag like any other. The exercise saw a group named connect-file-sink read five records with a lag of 0 (ran)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A Streams program counts words. After a line that makes the word hello go from 1 to 2, what does the output topic hold for hello?"
+  options={[
+    'A single record, hello 2, with the old one replaced',
+    'A new record hello 2 after the old record hello 1, which is still there. The result is a stream of updates',
+    'Nothing until the program is closed',
+    'hello 3, because it counts the restart too'
+  ]}
+  answer={1}
+  why="A topic is only appended to, so every time a number changes Streams sends a new record. The exercise saw 7 records from three lines, for example hello:1 and then hello:2 (ran). If we want only the latest value of each word we open a compacted topic, as in [lesson 5](/en/kafka/log-storage/)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We delete the folder with the state on the disk of a Streams program that has been counting words, and start it again. What happens to the counts?"
+  options={[
+    'They start from 0 again, because the state is gone',
+    'They carry on, because Streams reads the changelog topic back and rebuilds the state store',
+    'The program refuses to start',
+    'They carry on from the values in the output topic'
+  ]}
+  answer={1}
+  why="Every change of the state store is also written to the changelog topic, so the main copy of the state lives in Kafka. In the exercise hello carried on to 3 after the folder was deleted (ran)."
+/>
+
+</Step>

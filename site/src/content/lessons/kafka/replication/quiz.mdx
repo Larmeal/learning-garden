@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจ ISR กับ High Watermark ความต่างของการหยุด Broker กับการฆ่า Broker ผลของ min.insync.replicas และราคาของ Unclean Election
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Leader เขียน Record ที่ Offset 7 แล้ว แต่ Follower ใน ISR ตัวหนึ่งยังดึงถึงแค่ Offset 5 High Watermark อยู่ที่ไหน และ Consumer อ่านถึงไหนได้?"
+  options={[
+    'High Watermark เท่ากับท้ายสุดของ Leader เพราะ Leader เป็นคนตัดสิน Consumer อ่านได้ถึง 7',
+    'High Watermark ตามสำเนาที่ช้าที่สุดใน ISR คือ 5 หรือ 6 (ตำแหน่งถัดไป) Consumer อ่านเฉพาะที่ Commit แล้ว',
+    'High Watermark เป็น 0 จนกว่าทุก Broker จะดึงครบ',
+    'High Watermark ไม่เกี่ยวกับ Consumer'
+  ]}
+  answer={1}
+  why="High Watermark คือตำแหน่งที่ทุก Replica ใน ISR มีแล้ว ซึ่งต่ำกว่าท้ายสุดของ Leader ถ้ามี Follower ที่ช้า Consumer จึงอ่านได้เฉพาะ Record ที่ครบทุกสำเนา เพื่อไม่ให้ Record ที่อาจหายตอน Leader ล้มถูกอ่านไปแล้ว (หนังสือ: Kafka: The Definitive Guide หน้า 140) Lab ของบทนี้แสดงช่องที่เขียนแล้วแต่ยังไม่ Commit"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราหยุด Follower ด้วยคำสั่งหยุดแบบปกติ กับฆ่า Leader ด้วย SIGKILL กรณีไหนที่ Cluster ต้องรอ broker.session.timeout.ms ก่อนรู้ตัว?"
+  options={[
+    'กรณีหยุดแบบปกติ เพราะ Broker ต้องรอให้ Client ทุกตัวปิดก่อน',
+    'ทั้งสองกรณีรอเท่ากัน',
+    'กรณีที่ถูกฆ่า เพราะ Broker ไม่ได้บอกลา Controller จึงต้องรอ Heartbeat หายจนครบเวลา',
+    'ไม่มีกรณีไหนต้องรอ เพราะ Controller เห็นทันที'
+  ]}
+  answer={2}
+  why="Broker ที่หยุดอย่างเรียบร้อยแจ้งออกจาก Cluster เอง ISR จึงเปลี่ยนทันที ส่วน Broker ที่ถูกฆ่าไม่ได้แจ้ง Controller รู้ได้จาก Heartbeat ที่หายไปเมื่อพ้น 9 วินาทีตามค่าเริ่มต้น แบบฝึกวัดได้ 9.1 วินาทีกว่าจะได้ Leader ใหม่ (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Topic ตั้ง min.insync.replicas เป็น 2 เหลือ Broker เดียวใน ISR Producer ที่ใช้ Acks=All จะพบอะไร?"
+  options={[
+    'เขียนสำเร็จเพราะ Leader ยังอยู่',
+    'เขียนไม่สำเร็จ และเพราะ Producer ลองใหม่เมื่อเจอ NotEnoughReplicas จึงเห็นเป็นหมดเวลาในที่สุด ส่วน Consumer ยังอ่านของเก่าได้',
+    'ทั้งอ่านและเขียนไม่ได้',
+    'เขียนสำเร็จแต่ Record ถูกทำเครื่องหมายว่าไม่ปลอดภัย'
+  ]}
+  answer={1}
+  why="เมื่อ ISR เล็กกว่า min.insync.replicas Broker ปฏิเสธการเขียน ข้อผิดพลาดนี้เป็นชนิดลองใหม่ได้ Producer จึงรอจนหมดเวลา ส่วนการอ่านไม่เกี่ยวกับค่านี้ แบบฝึกเห็น Record 5 ตัวเก่ายังอ่านได้ (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Partition ไม่มี Leader เพราะ Leader ตัวสุดท้ายใน ISR ตายและ Replica ที่เหลือตามไม่ทัน ผู้ดูแลสั่งเลือก Leader แบบ Unclean ราคาที่จ่ายคืออะไร?"
+  options={[
+    'ไม่มีราคา เพราะ Kafka คัดลอกข้อมูลที่ขาดให้ครบก่อน',
+    'Record ที่ Leader เก่ามีแต่ Replica ใหม่ไม่มีจะหายถาวร แม้ Producer เคยได้รับการตอบรับ',
+    'Consumer ทุกตัวต้องเริ่มอ่านใหม่จากต้น Log',
+    'Partition ถูกลบ'
+  ]}
+  answer={1}
+  why="Unclean Election แลกข้อมูลกับความพร้อมใช้งาน Replica ที่ได้เป็น Leader ไม่มี Record ที่ตอบรับไปตอนที่มันอยู่นอก ISR เมื่อ Broker เก่ากลับมาก็ตัด Log ให้ตรงกับ Leader ใหม่ ในแบบฝึก 5 Order หายถาวร (รัน)"
+/>
+
+</Step>

@@ -1,0 +1,174 @@
+---
+title: Kafka คืออะไร
+summary: เราส่ง Order ห้าใบเข้า Topic แล้วให้ Consumer สองกลุ่มอ่านออกมา จึงเห็นว่า Kafka เก็บทุกอย่างไว้เป็น Log ที่ต่อท้ายได้อย่างเดียว การอ่านไม่ทำให้อะไรหาย และแต่ละกลุ่มมีที่คั่นหนังสือของตัวเอง
+facts:
+  - "รันจริงใน exercises/01_what_is_kafka.py กับ Kafka 4.4.0 (Image apache/kafka:4.4.0, โหมด KRaft, Broker ตัวเดียว) ส่ง Order 5 ใบด้วย kafka-console-producer, อ่านด้วย kafka-console-consumer สองกลุ่ม, ดู Offset ด้วย kafka-get-offsets และ kafka-consumer-groups, และดูโฟลเดอร์ของ Partition บนดิสก์ของ Broker"
+  - "ส่วนที่ว่า Kafka เป็น Distributed Commit Log และ Topic แบ่งเป็น Partition มาจากหนังสือ Kafka: The Definitive Guide หัวข้อ Enter Kafka หน้า 4 และ Topics and Partitions หน้า 5 ไม่ได้รัน ส่วนการเปรียบเทียบกับ Message Queue ทั่วไปเป็นความเห็นของผู้เขียน"
+order: 1
+phase: A
+level: 1
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import LogLab from '../../../../components/labs/kafka/LogLab';
+
+<Step>
+
+## ส่ง Order ห้าใบเข้า Kafka แล้วอ่านออกมา
+
+สมมติว่าเราทำร้านค้าออนไลน์ ทุกครั้งที่ลูกค้าสั่งของจะมี Order เกิดขึ้นหนึ่งใบ และมีระบบอีกหลายตัวที่อยากรู้เรื่อง Order นั้น ไม่ว่าจะเป็นระบบเก็บเงิน ระบบส่งของ หรือระบบทำรายงาน เราจะส่ง Order ไปให้ทุกระบบเองก็ได้ แต่พอระบบเพิ่มขึ้นทีละตัวเรื่องก็วุ่นวายขึ้นเรื่อย ๆ Kafka เข้ามาแก้ตรงนี้ โดยทำตัวเป็นที่กลางที่ทุกระบบส่ง Order มาวาง และทุกระบบมาหยิบไปอ่านเองตามจังหวะของตัวเอง
+
+เรามาลองกันเลย เริ่มจาก Broker ตัวเดียวของ Kafka 4.4.0 ที่รันอยู่ใน Docker แล้วสร้าง Topic ชื่อ `orders` ซึ่งเราจะเก็บ Order ไว้ในนั้น
+
+```bash
+kafka-topics.sh --bootstrap-server localhost:9092 --create --topic orders --partitions 1 --replication-factor 1
+```
+
+```bash
+printf 'c1:{"order":"o-1001","item":"book","qty":1}\nc2:{"order":"o-1002","item":"pen","qty":3}\n...' \
+  | kafka-console-producer.sh --bootstrap-server localhost:9092 --topic orders \
+      --property parse.key=true --property key.separator=:
+kafka-get-offsets.sh --bootstrap-server localhost:9092 --topic orders
+```
+
+```text
+orders:0:5
+```
+
+บรรทัดแรกสร้าง Topic ที่มี Partition เดียวและมีสำเนาของข้อมูลชุดเดียว (เรื่อง Partition กับสำเนาเดี๋ยวเราจะมาคุยกันในบทถัด ๆ ไป) บรรทัดที่สองส่งข้อความห้าข้อความเข้าไป โดยแต่ละข้อความมี Key เป็นรหัสลูกค้า (`c1` ถึง `c3`) และ Value เป็นข้อความ JSON ของ Order ส่วนบรรทัดสุดท้ายถามว่า Partition ที่ 0 ของ Topic นี้ "ตำแหน่งท้ายสุด" อยู่ตรงไหน ซึ่งได้เลข 5 หมายความว่าตำแหน่ง 0 ถึง 4 ถูกใช้ไปแล้วห้าตำแหน่ง (รัน)
+
+</Step>
+
+<Step>
+
+## อ่านแล้ว Record ไม่หาย
+
+ต่อไปเรามีระบบเก็บเงินที่อยากอ่าน Order ทั้งหมด ซึ่งเราจะแทนด้วย Consumer ของ Group ชื่อ `billing`
+
+```bash
+kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic orders \
+  --group billing --from-beginning --max-messages 5 \
+  --property print.offset=true --property print.key=true
+```
+
+```text
+Offset:0	c1	{"order":"o-1001","item":"book","qty":1}
+Offset:1	c2	{"order":"o-1002","item":"pen","qty":3}
+Offset:2	c1	{"order":"o-1003","item":"lamp","qty":1}
+Offset:3	c3	{"order":"o-1004","item":"cup","qty":2}
+Offset:4	c2	{"order":"o-1005","item":"book","qty":2}
+```
+
+Order ทั้งห้าใบกลับมาตามลำดับที่ส่ง พร้อมเลขตำแหน่งที่ Kafka เรียกว่า Offset กำกับอยู่หน้าแต่ละบรรทัด ถึงตรงนี้ถ้าเราเคยใช้ Queue แบบที่ข้อความถูกหยิบไปแล้วหายไปเลย เราอาจคิดว่าตอนนี้ Topic ว่างแล้ว ลองให้ระบบส่งของ (Group ชื่อ `shipping`) มาอ่านดูว่าจะเกิดอะไรขึ้น
+
+```bash
+kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic orders \
+  --group shipping --from-beginning --max-messages 5 --property print.offset=true
+kafka-get-offsets.sh --bootstrap-server localhost:9092 --topic orders
+```
+
+Group `shipping` อ่านได้ครบทั้งห้าใบเหมือนกัน และตำแหน่งท้ายสุดของ Topic ยังเป็น `orders:0:5` ไม่ขยับเลย (รัน) แปลว่าการอ่านไม่ได้เอา Record ออกจาก Topic เลย
+
+</Step>
+
+<Step>
+
+## Log ที่ต่อท้ายได้อย่างเดียว
+
+สิ่งที่เราเพิ่งเห็นคือหัวใจของ Kafka ทั้งหมด Kafka เก็บข้อมูลไว้เป็น Log หมายถึงแถวของ Record ที่เรียงตามลำดับที่เข้ามา โดย Producer ทำได้แค่ต่อท้าย Record ใหม่ไปทางขวาเท่านั้น จะแทรกตรงกลางหรือแก้ของเก่าไม่ได้ ส่วน Consumer ก็แค่เดินไปตาม Log ด้วยตำแหน่งของตัวเอง หนังสือ Kafka: The Definitive Guide เล่าว่า Kafka มักถูกเรียกว่า "Distributed Commit Log" เพราะ Commit Log ของฐานข้อมูลก็เก็บทุกธุรกรรมไว้เป็นลำดับเพื่อให้เล่นซ้ำแล้วสร้างสถานะกลับมาได้ และข้อมูลใน Kafka ก็เก็บเป็นลำดับในแบบเดียวกัน (หนังสือ: Kafka: The Definitive Guide หัวข้อ Enter Kafka หน้า 4)
+
+ลองเล่นกับ Lab ด้านล่างดู กดให้ Producer ส่ง Order เพิ่ม แล้วให้กลุ่ม A กับกลุ่ม B อ่านทีละตัวหรือจนหมด สังเกตว่าช่องใน Log ไม่เคยหายไปเลย มีแค่ที่คั่นหนังสือของแต่ละกลุ่มที่เดินไปข้างหน้า และลองกดให้กลุ่ม B ย้อนกลับไปอ่านใหม่ตั้งแต่ต้นดูด้วย
+
+<LogLab client:visible />
+
+</Step>
+
+<Step>
+
+## ที่คั่นหนังสือของแต่ละกลุ่ม
+
+ถ้า Log ไม่ลดลงเวลามีคนอ่าน แล้ว Kafka รู้ได้อย่างไรว่ากลุ่ม `billing` อ่านถึงไหนแล้ว คำตอบคือ Kafka จดตำแหน่งที่แต่ละกลุ่มอ่านถึงไว้ให้ เราเรียกตำแหน่งนี้ว่า Committed Offset ซึ่งเปรียบได้กับที่คั่นหนังสือ หนังสือเล่มเดียวกันมีที่คั่นได้หลายอัน อันของใครของมัน เราดูที่คั่นของทุกกลุ่มได้ด้วยคำสั่งนี้
+
+```bash
+kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --all-groups
+```
+
+```text
+GROUP     TOPIC   PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG
+billing   orders  0          5               5               0
+shipping  orders  0          5               5               0
+```
+
+ทั้งสองกลุ่มอยู่ที่ตำแหน่ง 5 ซึ่งเท่ากับท้ายของ Log พอดี ผลต่างระหว่างสองคอลัมน์นี้เรียกว่า Lag ตอนนี้เป็น 0 ถ้ามี Order ใหม่เข้ามาอีกสามใบ ท้ายของ Log ก็เลื่อนเป็น 8 แต่ที่คั่นหนังสือของกลุ่ม `billing` ยังอยู่ที่ 5 จนกว่ากลุ่มนั้นจะอ่านและบันทึกตำแหน่งใหม่ Lag จึงกลายเป็น 3 ซึ่งแบบฝึกยืนยันตัวเลขนี้ (รัน) และเรามักใช้ Lag เป็นตัวบอกว่าระบบที่อ่านตามไม่ทันหรือเปล่า เดี๋ยวเราจะกลับมาที่เรื่องนี้ใน[บทที่ 4](/kafka/consumer-groups/)
+
+</Step>
+
+<Step>
+
+## ข้างในเป็นแค่ไฟล์บนดิสก์
+
+Topic ดูเป็นของนามธรรม แต่พอเข้าไปดูบนดิสก์ของ Broker ก็พบว่ามันเป็นโฟลเดอร์ธรรมดาที่ชื่อ `orders-0` (ชื่อ Topic ตามด้วยเลข Partition) ซึ่งมีไฟล์อยู่ข้างใน
+
+```text
+00000000000000000000.index
+00000000000000000000.log
+00000000000000000000.timeindex
+leader-epoch-checkpoint
+partition.metadata
+```
+
+ไฟล์ `.log` คือที่ที่ Record ทั้งห้าใบถูกเขียนต่อท้ายกัน ส่วนไฟล์ `.index` กับ `.timeindex` ช่วยให้หา Record ตามตำแหน่งหรือตามเวลาได้เร็ว ซึ่งเราจะแกะดูไฟล์เหล่านี้กันจริง ๆ ใน[บทที่ 5](/kafka/log-storage/) ที่ตรงนี้ขอให้จำไว้แค่ว่า Kafka ไม่ได้มีฐานข้อมูลลึกลับอะไรซ่อนอยู่ ที่คั่นหนังสือของแต่ละกลุ่มเองก็เป็น Record ที่ถูกเขียนลงใน Topic ภายในชื่อ `__consumer_offsets` เช่นกัน (รัน)
+
+<Callout type="note" title="ไม่มี ZooKeeper แล้ว">
+Kafka รุ่นเก่าต้องมี ZooKeeper อีกชุดหนึ่งไว้เก็บข้อมูลของ Cluster แต่ Kafka 4.4.0 ไม่ใช้แล้ว Broker ในแบบฝึกตั้ง `process.roles=broker,controller` คือเป็นทั้ง Broker และ Controller ในโปรเซสเดียว ซึ่งเป็นโหมดที่เรียกว่า KRaft เราจะมาดูว่ามันทำงานอย่างไรใน[บทที่ 7](/kafka/kraft/) หนังสือ Definitive Guide ที่เราอ้างถึงเขียนตอน Kafka 2.7 จึงยังเล่าเรื่อง ZooKeeper อยู่
+</Callout>
+
+</Step>
+
+<Step>
+
+## Kafka ต่างจาก Queue ธรรมดาตรงไหน
+
+ที่ผ่านมาเราเห็นสามอย่างพร้อมกัน ข้อมูลไม่หายเมื่อถูกอ่าน คนอ่านหลายกลุ่มอ่านชุดเดียวกันได้โดยไม่รบกวนกัน และคนอ่านย้อนกลับไปอ่านใหม่ได้ ส่วนตัวผู้เขียนคิดว่านี่คือเหตุผลที่ Kafka เหมาะกับงานข้อมูล เพราะระบบใหม่ที่เข้ามาทีหลังสามารถเริ่มอ่านจากต้น Log ได้เลย ถ้าเป็น Queue ที่ลบข้อความหลังอ่าน ข้อมูลเก่าก็หายไปแล้ว
+
+ข้อมูลไม่ได้อยู่ใน Log ตลอดไปนะ Kafka ลบ Record เก่าตามกติกาที่เราตั้ง (เช่นเก็บไว้เจ็ดวัน) แต่กติกานั้นเป็นเรื่องของ Broker ไม่เกี่ยวกับว่ามีคนอ่านไปแล้วหรือยัง ซึ่งเราจะดูรายละเอียดใน[บทที่ 5](/kafka/log-storage/)
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Topic Orders มี Record 5 ตัว (Offset 0 ถึง 4) Group A อ่านครบทั้ง 5 ตัวแล้ว ถ้า Group B ซึ่งไม่เคยอ่าน Topic นี้มาก่อนเริ่มอ่านจากต้น Log ตอนนี้ B จะได้อะไร?"
+  options={[
+    'ไม่ได้อะไรเลย เพราะ A อ่านไปหมดแล้ว Record จึงถูกลบออกจาก Topic',
+    'ได้ Record ครบทั้ง 5 ตัว เพราะ Log ไม่เปลี่ยนตอนมีคนอ่าน และ B มีที่คั่นหนังสือของตัวเอง',
+    'ได้เฉพาะ Record ที่เข้ามาหลังจากนี้',
+    'ได้ข้อผิดพลาด เพราะ Topic หนึ่งอ่านได้ทีละ Group'
+  ]}
+  answer={1}
+  why="Kafka ไม่ลบ Record ตอนที่มีคนอ่าน และจดตำแหน่งที่อ่านถึงแยกตาม Group แบบฝึกให้ Group ชื่อ Shipping อ่านหลังจาก Billing อ่านครบแล้วก็ได้ครบทั้ง 5 ใบ และตำแหน่งท้ายสุดยังเป็น 5 (รัน) ส่วนข้อที่ว่าได้เฉพาะของใหม่เป็นพฤติกรรมของ Group ใหม่ที่ตั้ง auto.offset.reset เป็น Latest ซึ่งเราจะเจอใน[บท 4](/kafka/consumer-groups/)"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Order 5 ใบที่ส่งได้ Offset 0 ถึง 4 และตำแหน่งท้ายสุดของ Partition เป็น 5 | รัน: `exercises/01_what_is_kafka.py` |
+| Consumer สองกลุ่มอ่านครบทั้ง 5 ใบ และตำแหน่งท้ายสุดไม่เปลี่ยน | รัน: `exercises/01_what_is_kafka.py` |
+| แต่ละกลุ่มมี Committed Offset ของตัวเอง และ Lag คือตำแหน่งท้ายสุดลบ Committed Offset (3 เมื่อเพิ่ม Order อีก 3 ใบ) | รัน: `exercises/01_what_is_kafka.py` |
+| Partition เป็นโฟลเดอร์ที่มีไฟล์ `.log`, `.index` และ `.timeindex` และที่คั่นหนังสือเก็บใน Topic `__consumer_offsets` | รัน: `exercises/01_what_is_kafka.py` |
+| Kafka 4.4.0 รันเป็น Broker และ Controller ในโปรเซสเดียวโดยไม่มี ZooKeeper (`process.roles=broker,controller`) | รัน: `exercises/01_what_is_kafka.py` |
+| Kafka มักถูกเรียกว่า Distributed Commit Log และ Partition คือ Log หนึ่งเส้นที่เขียนต่อท้ายอย่างเดียว | หนังสือ: Kafka: The Definitive Guide หัวข้อ Enter Kafka หน้า 4 และ Topics and Partitions หน้า 5 |
+| Kafka เหมาะกับงานข้อมูลเพราะระบบใหม่เริ่มอ่านจากต้น Log ได้ | ผู้เขียน |
+
+</Step>

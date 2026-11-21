@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจ Batch กับ linger.ms ว่าตัวเลือก Acks ตอบเมื่อไร และตรา Idempotence อยู่ตรงไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Order เข้ามาทีละใบห่างกัน 10 มิลลิวินาที เราตั้ง linger.ms เป็น 5 Batch จะเป็นอย่างไร?"
+  options={[
+    'รวมหลายใบต่อ Batch เพราะรอครบ 5 มิลลิวินาที',
+    'แต่ละใบกลายเป็น Batch ของตัวเอง เพราะ Order ใบถัดไปมาช้ากว่าที่ Producer ยอมรอ',
+    'Producer ปฏิเสธ Order เพราะมาช้าเกินไป',
+    'Batch เดียวที่ส่งหลังจากครบ 10 ใบ'
+  ]}
+  answer={1}
+  why="Producer ส่ง Batch เมื่อเวลาของ Record ตัวแรกถึง linger.ms ถ้า Record ถัดไปมาหลังจากนั้นก็ต้องเริ่ม Batch ใหม่ การรอจึงไม่ช่วยเมื่อ Record เข้ามาห่างกันมากกว่าเวลาที่ยอมรอ Lab ของบทนี้แสดงเรื่องนี้เมื่อเปลี่ยนความถี่ของ Record"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ทีมเก็บ JSON ของ Order ซึ่งชื่อฟิลด์ซ้ำกันทุกใบ แล้วเปิดการบีบอัดแบบ Gzip ขนาด Log ของ Topic นี้เปลี่ยนอย่างไร?"
+  options={[
+    'ไม่เปลี่ยน เพราะ Broker แกะการบีบอัดแล้วเก็บแบบเดิม',
+    'เล็กลงมาก ในแบบฝึกเหลือประมาณ 15 เปอร์เซ็นต์ของขนาดเดิม เพราะบีบอัดทั้ง Batch และชื่อฟิลด์ซ้ำบีบได้ดี',
+    'ใหญ่ขึ้น เพราะต้องเก็บ Codec เพิ่ม',
+    'เล็กลงเฉพาะถ้าเปิด Acks=all'
+  ]}
+  answer={1}
+  why="Producer บีบอัดทั้ง Batch และ Broker เก็บ Batch ที่บีบแล้วไว้ตามนั้น (ในบรรทัดของ Batch มี Compresscodec: Gzip) ข้อมูลที่ชื่อฟิลด์ซ้ำ ๆ บีบได้ดีมาก ในแบบฝึก Order 3,000 ใบเหลือราว 42 KB จาก 275 KB (รัน) ส่วน Acks ไม่เกี่ยวกับการบีบอัด"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="บริการตั้ง Acks เป็น 1 Leader ตอบ Ack แล้วล้มทันทีก่อนที่ Follower จะทันคัดลอก Order ใบนั้น เกิดอะไรขึ้น?"
+  options={[
+    'ไม่เป็นไร Follower ที่ขึ้นเป็น Leader ใหม่มี Order ใบนั้นอยู่แล้ว',
+    'Order ใบนั้นหาย ทั้งที่ Producer ได้ Ack ไปแล้ว',
+    'Producer ไม่ได้ Ack จึงส่งใหม่ให้ Leader ใหม่โดยอัตโนมัติ',
+    'Broker ที่ล้มกลับมาแล้วส่ง Order ให้ Consumer'
+  ]}
+  answer={1}
+  why="Acks เป็น 1 หมายความว่า Leader ตอบทันทีที่เขียนลง Log ของตัวเอง ถ้าล้มก่อน Follower ทันคัดลอก Leader ใหม่ไม่มีใบนั้น และ Producer เชื่อว่าสำเร็จไปแล้วจึงไม่ส่งซ้ำ ถ้าเป็น Acks แบบ All Leader จะยังไม่ตอบ Producer ก็ส่งซ้ำได้ (Lab ของบทนี้แสดงทั้งสองกรณี)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราเปิด Idempotence แล้วส่ง Record 10 ตัว ในไฟล์ Log ของ Broker ที่ Batch ของมันเราจะเห็นอะไรเพิ่มขึ้นมาจากตอนปิด?"
+  options={[
+    'Producer Id ที่ไม่ใช่ -1 กับเลขลำดับ 0 ถึง 9',
+    'ที่อยู่ IP ของ Producer',
+    'ชื่อของ Consumer ที่จะอ่าน',
+    'ไม่มีอะไรเพิ่ม เพราะ Idempotence ทำงานฝั่ง Producer อย่างเดียว'
+  ]}
+  answer={0}
+  why="ตอนเปิด Idempotence Broker ให้ Producer Id และ Producer ใส่เลขลำดับให้แต่ละ Record แบบฝึกเห็น Producer Id 0 และเลขลำดับ 0 ถึง 9 ส่วนตอนปิดเป็น -1 ทั้งคู่ (รัน) ตราเหล่านี้คือสิ่งที่ Broker ใช้จับ Batch ซ้ำ"
+/>
+
+</Step>

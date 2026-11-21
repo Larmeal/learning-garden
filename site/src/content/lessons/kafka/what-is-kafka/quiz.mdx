@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจว่า Topic เป็น Log ที่ต่อท้ายได้อย่างเดียว การอ่านไม่ทำให้ Record หาย และ Lag หมายถึงอะไร
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Producer ส่ง Order เข้า Topic ที่มี Record 5 ตัวอยู่แล้ว (Offset 0 ถึง 4) Order ใหม่จะได้ Offset อะไร และมันไปอยู่ตรงไหนของ Log?"
+  options={[
+    'Offset 0 เพราะเริ่มนับใหม่ และ Record เก่าถูกดันไปข้างหลัง',
+    'Offset 5 ต่อท้าย Log เพราะ Producer ต่อท้ายได้อย่างเดียว',
+    'Offset ที่ว่างที่สุดตรงกลาง Log',
+    'Offset ที่ Consumer ตัวล่าสุดอ่านถึง'
+  ]}
+  answer={1}
+  why="Log เขียนต่อท้ายอย่างเดียว Record ใหม่จึงได้ Offset ถัดจากตัวสุดท้ายเสมอ ซึ่งในแบบฝึกคือ 5 และตำแหน่งท้ายสุดของ Topic กลายเป็น 6 ตำแหน่งของ Consumer ไม่เกี่ยวกับตำแหน่งที่ Record ใหม่ไปอยู่ (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Group Billing อ่านจนถึง Offset 5 แล้วหยุด ส่วน Producer ส่ง Order เพิ่มอีก 3 ใบ ตำแหน่งท้ายสุดของ Log เป็น 8 Lag ของ Group Billing คือเท่าไร และหมายความว่าอะไร?"
+  options={[
+    '8 เพราะนับ Record ทั้งหมดใน Log',
+    '5 เพราะนับ Record ที่ Billing อ่านไปแล้ว',
+    '3 ซึ่งคือจำนวน Record ที่ Billing ยังไม่ได้อ่าน',
+    '0 เพราะ Record ไม่เคยถูกลบออกจาก Log'
+  ]}
+  answer={2}
+  why="Lag คือตำแหน่งท้ายสุดของ Log ลบด้วยตำแหน่งที่ Group บันทึกไว้ (8 ลบ 5) จึงได้ 3 ซึ่งตรงกับที่แบบฝึกพิมพ์ออกมา (รัน) ตัวเลขนี้บอกว่า Consumer อ่านตามไม่ทันไปเท่าไร"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ทีมข้อมูลเพิ่งสร้างระบบทำรายงานใหม่ แล้วอยากให้มันอ่าน Order ทั้งหมดที่เคยเข้ามาในสัปดาห์นี้ ซึ่ง Topic ยังเก็บไว้ ระบบนี้ทำอย่างไร?"
+  options={[
+    'ต้องให้ Producer ส่ง Order เก่าใหม่ทั้งหมด',
+    'ใช้ Group ใหม่ แล้วเริ่มอ่านจากต้น Log เพราะ Record ยังอยู่และแต่ละ Group มีที่คั่นหนังสือของตัวเอง',
+    'ต้องรอให้ระบบเก็บเงินอ่านเสร็จก่อน แล้วถึงอ่านต่อจากที่เขาหยุด',
+    'ทำไม่ได้ เพราะ Record ที่ถูกอ่านแล้วถูกลบไปแล้ว'
+  ]}
+  answer={1}
+  why="Group ใหม่ไม่มีที่คั่นหนังสือ จึงเลือกเริ่มจากต้น Log ได้ และ Record ไม่ได้ถูกลบเพราะมีคนอ่าน แบบฝึกให้ Group Shipping ที่ไม่เคยอ่านมาก่อนอ่านได้ครบทั้ง 5 ใบหลังจากที่ Billing อ่านไปแล้ว (รัน) สิ่งที่จำกัดมีแค่กติกาเก็บ Record ของ Broker ที่เราจะดูใน[บท 5](/kafka/log-storage/)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เมื่อเข้าไปดูในดิสก์ของ Broker เราจะเห็นอะไรสำหรับ Topic Orders ที่มี Partition เดียว?"
+  options={[
+    'ตารางในฐานข้อมูลที่ Broker ฝังไว้',
+    'โฟลเดอร์ของ Partition ที่มีไฟล์สำหรับเก็บ Record กับไฟล์ Index ช่วยค้นหา',
+    'ไฟล์ JSON หนึ่งไฟล์ต่อหนึ่ง Order',
+    'ไม่มีอะไรเลย เพราะ Kafka เก็บทุกอย่างไว้ใน Memory'
+  ]}
+  answer={1}
+  why="Partition เป็นโฟลเดอร์ที่ใช้ชื่อ Topic ตามด้วยเลข Partition และมีไฟล์ Log, Index และ Time Index อยู่ข้างใน Record ถูกเขียนต่อกันในไฟล์ Log (รัน) ไม่ได้เก็บแค่ใน Memory และไม่ได้แยกไฟล์ต่อ Record"
+/>
+
+</Step>

@@ -1,0 +1,80 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจว่า Pipeline ของ Order ไม่ให้หายและไม่นับซ้ำได้เพราะอะไร และ Key ทำให้ Partition ไม่เท่ากันอย่างไร
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-21
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Producer ใน Pipeline ตั้ง Acks เป็น All, เปิด Idempotence และ Topic ตั้ง min.insync.replicas เป็น 2 แล้วเราฆ่า Broker ตัวหนึ่งขณะส่ง ข้อใดเป็นผลที่ถูกต้อง?"
+  options={[
+    'Order ที่ได้ Ack แล้วอาจหายได้เสมอ',
+    'Order ที่ได้ Ack อยู่อย่างน้อยสองสำเนา จึงไม่หายเมื่อ Broker ตัวเดียวตาย และการส่งซ้ำของ Producer ไม่ทำให้ Order ซ้ำใน Log',
+    'Producer ต้องหยุดส่งทั้งหมดจนกว่าจะเปิด Broker กลับมา',
+    'Consumer ต้องอ่านซ้ำตั้งแต่ต้น'
+  ]}
+  answer={1}
+  why="Acks เป็น All กับ min.insync.replicas เป็น 2 ทำให้ทุก Order ที่ตอบรับอยู่อย่างน้อยสองสำเนา และ Idempotence ทำให้การส่งซ้ำไม่เพิ่ม Record ในแบบฝึก Producer ได้ Ack ครบ 600 ใบโดยไม่มีข้อผิดพลาด แม้ Broker ตัวหนึ่งถูกฆ่ากลางทาง (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Worker อ่านและเขียน 10 Order ลงตารางแล้วล้มก่อน Commit Worker ตัวใหม่อ่าน 10 Order เดิมอีกรอบ ทำไมตารางยังมี 600 แถวพอดี?"
+  options={[
+    'เพราะ Kafka จำได้ว่า Order ไหนอ่านไปแล้ว',
+    'เพราะตารางใช้ order_id เป็น Primary Key และ INSERT OR IGNORE ข้ามแถวที่มีอยู่แล้ว การเขียนซ้ำจึงไม่มีผล',
+    'เพราะ Producer ลบ Order เก่าก่อน',
+    'เพราะ Commit ย้อนหลังได้'
+  ]}
+  answer={1}
+  why="Kafka ส่งแบบ At-least-once จึงส่งซ้ำได้ ปลายทางต้องทนการซ้ำเอง แบบฝึกเห็น Worker ได้รับ Order เกิน 600 ครั้ง แต่ตารางมี 600 แถว (รัน)"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ลูกค้า 8 คน ใช้รหัสลูกค้าเป็น Key ส่งเข้า Topic 6 Partition ผลที่เห็นคือ 2 Partition ว่างเลย และ Partition ที่หนักที่สุดมี 225 Record จากทั้งหมด 600 อธิบายได้ว่าอะไร?"
+  options={[
+    'Kafka เกลี่ย Record ให้เท่ากันไม่ได้เมื่อมี Key',
+    'Hash ของ Key ไม่รับประกันว่าจะกระจายเท่ากัน ถ้ามี Key น้อยเทียบกับ Partition จะมี Partition ว่างและมี Partition ที่หนักกว่าได้',
+    'Producer ส่งผิด Partition',
+    'Partition ที่ว่างเสียหาย'
+  ]}
+  answer={1}
+  why="Key เดียวกันไป Partition เดียวกันเสมอ และ Key ทั้ง 8 ตัวตกลงไปที่ 4 Partition ตามผลของ Hash แบบฝึกได้จำนวนเป็น 150, 75, 150 และ 225 (รัน) ถ้าอยากกระจายดีกว่าอาจใช้ Key ที่มีค่าต่างกันมากกว่านี้ แต่ต้องแลกกับการสูญเสียลำดับรวมของ Key เดิม"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราเลือก Commit Offset หลังเขียนลงตารางทุก 40 Record แทนที่จะ Commit ก่อนเขียน ข้อดีและราคาที่จ่ายคืออะไร?"
+  options={[
+    'ข้อดีคือไม่มีทางซ้ำ ราคาคือ Record อาจหาย',
+    'ข้อดีคือ Record ไม่หายแม้ล้มกลางทาง ราคาคืออาจอ่านซ้ำได้ ซึ่งเรารับมือด้วย Primary Key',
+    'ไม่มีข้อดีหรือราคา เพราะสองแบบเหมือนกัน',
+    'ข้อดีคือ Kafka ทำ Exactly-once ให้ ราคาคือช้าลงเล็กน้อย'
+  ]}
+  answer={1}
+  why="Commit หลังประมวลผลคือ At-least-once ถ้าล้มกลางทาง ตัวใหม่เริ่มจากที่คั่นหนังสือเก่าและอ่านซ้ำ แต่ไม่ข้ามของที่ยังไม่ได้ประมวลผล ส่วน Exactly-once ของ Kafka ครอบคลุมเฉพาะอ่านและเขียนใน Kafka ตาม[บท 8](/kafka/delivery/) เมื่อปลายทางเป็นตารางภายนอก ต้องทนการซ้ำเอง"
+/>
+
+</Step>
