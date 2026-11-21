@@ -49,6 +49,7 @@ def main():
                 pg.evaluate("document.querySelector('[data-toggle-view]').click()")
                 pg.wait_for_timeout(700)
             fig.scroll_into_view_if_needed()
+            pg.wait_for_timeout(2500)  # a lab is a React island that hydrates when it scrolls into view; a click before that does nothing
             if option:
                 fig.get_by_role("button", name=option).first.click()
             for c in [c for c in clicks.split(";") if c]:
