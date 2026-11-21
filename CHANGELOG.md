@@ -4,6 +4,29 @@ Made from the commit messages by `npm run changelog` (from `site/`), newest day 
 instead, or read the commit body for the reasons. How a message is written is in [`.cz.toml`](.cz.toml) (`type(scope): subject`).
 Housekeeping (`chore`, `ci`, `test`) is not listed. The older, hand-written notes are in [`docs/changelog-handwritten.md`](docs/changelog-handwritten.md).
 
+## 2026-11-21
+
+### Added
+
+- **docker**: add the Docker subject with 12 lessons in Thai and English, 16 labs and 12 exercises ([`9d1435c`](https://github.com/Larmeal/learning-garden/commit/9d1435cdb4bcc5d2d9e4286fdd9e7231006d583f))
+- **devops**: add the DevOps subject with 14 lessons in Thai and English, 14 labs and 14 exercises ([`076a2d1`](https://github.com/Larmeal/learning-garden/commit/076a2d10e1e03f9aa55deff5c8f3025ec67f8799))
+- **polars**: add the Polars subject with 12 lessons in Thai and English, 8 labs and 12 exercises ([`f7e8ae1`](https://github.com/Larmeal/learning-garden/commit/f7e8ae14ee53c2e52c05946d7418dcd08c07f00f))
+- **duckdb**: add the DuckDB subject with 12 lessons in Thai and English, 13 labs and 12 exercises ([`2811fc9`](https://github.com/Larmeal/learning-garden/commit/2811fc9e7121a45b155df8c3dae1d22a9cf87eec))
+- **kubernetes**: add the Kubernetes subject with 15 lessons in Thai and English, 16 labs and 15 exercises ([`525cc90`](https://github.com/Larmeal/learning-garden/commit/525cc907bba404cfc74e02387d85bdd126956d38))
+- **kafka**: add the Kafka subject with 12 lessons in Thai and English, 17 labs and 12 exercises ([`8ec8b93`](https://github.com/Larmeal/learning-garden/commit/8ec8b932d56d31503e416b74ce5a520d6b24ba2c))
+
+### Fixed
+
+- **skill**: make lab-steps.py wait for a lab to hydrate before it clicks ([`6be729b`](https://github.com/Larmeal/learning-garden/commit/6be729bf4e4fa8795f4060bc6ac4e7c2dd17430b))
+
+### Changed
+
+- **tools**: teach lesson-refs the book names of devops, duckdb and kafka ([`ab47e5f`](https://github.com/Larmeal/learning-garden/commit/ab47e5f2499f7c72b34e2896ad7cc2899d8df4f9))
+
+### Docs
+
+- **spark**: point the Kubernetes cluster manager page to the Kubernetes subject ([`f5a1320`](https://github.com/Larmeal/learning-garden/commit/f5a1320ed5ddd0917996aed0694dc332a3aa5897))
+
 ## 2026-11-19
 
 ### Added
