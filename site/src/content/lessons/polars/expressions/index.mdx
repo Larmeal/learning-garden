@@ -1,0 +1,209 @@
+---
+title: Expression และ Context
+summary: Expression คือคำอธิบายของการคำนวณที่ยังไม่ได้รัน ส่วน Context อย่าง Select, Filter และ Group By คือที่ที่มันถูกรันจริง บทนี้ดูว่า Expression ตัวเดียวกันให้ผลต่างกันเมื่อวางใน Context ต่างกัน ความยาวของผลลัพธ์ และข้อจำกัดที่ Expression ในคำสั่งเดียวกันมองไม่เห็นกัน
+facts:
+  - "รันจริงใน exercises/02_expressions.py ด้วย Polars 2.1.0 แล้ว Assert ผลและข้อความ Error ทุกข้อ"
+  - "ข้อความ Error ของ ShapeError และ ColumnNotFoundError ที่ยกมาในบทนี้พิมพ์จากการรันจริง"
+  - "ว่า Expression ใน with_columns คำสั่งเดียวกันถูกรันขนานกันหรือไม่ ผู้เขียนยังไม่ได้ไล่โค้ด บทนี้อธิบายจากพฤติกรรมที่เห็นเท่านั้น"
+order: 2
+phase: A
+level: 1
+stage: sprout
+format: steps
+requires: [first-dataframe]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ExpressionLab from '../../../../components/labs/polars/ExpressionLab';
+
+<Step>
+
+## Expression ยังไม่ได้ทำอะไรเลย
+
+เรามาเริ่มจากโจทย์ง่าย ๆ ในตารางออเดอร์จาก [บท 1](/polars/first-dataframe/) ว่าแต่ละออเดอร์ยอดเงินเท่าไร ซึ่งก็คือ `qty` คูณ `price` (รัน: `exercises/02_expressions.py`)
+
+```python
+total = pl.col("qty") * pl.col("price")
+print(total)
+```
+
+```text
+[(col("qty")) * (col("price"))]
+```
+
+ถ้าคุณคาดว่าจะเห็นตัวเลขออกมา ลองสังเกตให้ดี สิ่งที่ถูกพิมพ์คือ **คำอธิบาย** ของการคำนวณ ไม่มีตัวเลขสักตัว เพราะ `pl.col("qty")` ยังไม่ได้ไปหยิบคอลัมน์ไหนมาเลย มันแค่บอกว่า "เอาคอลัมน์ชื่อ Qty" และพอเอามาคูณกัน ก็ได้คำอธิบายที่ยาวขึ้นอีกหนึ่งชั้น ของพวกนี้เรียกว่า **Expression** ซึ่งเป็นอ็อบเจกต์ชนิด `pl.Expr` เราถามได้ด้วยว่ามันอ่านคอลัมน์ไหนบ้างและผลจะชื่ออะไร
+
+```python
+total.meta.root_names()     # ['qty', 'price']
+total.meta.output_name()    # 'qty'
+```
+
+ผลลัพธ์ที่ชื่อ `qty` ทั้งที่เป็นการคูณสองคอลัมน์ เป็นกฎของ Polars ที่ว่าถ้าเราไม่ตั้งชื่อเอง ผลจะใช้ชื่อของคอลัมน์ตัวแรก ซึ่งเป็นเหตุผลที่เราตั้งชื่อด้วย `.alias("total")` แทบทุกครั้ง
+
+ประโยชน์ของการที่ Expression ยังไม่ทำงาน คือ Polars เห็นสิ่งที่เราต้องการทั้งก้อนก่อนจะลงมือ แล้วค่อยเลือกวิธีรันที่เร็วที่สุด เรื่องนี้จะเป็นตัวเอกใน [บท 6](/polars/lazy/)
+
+</Step>
+
+<Step>
+
+## Context คือที่ที่ Expression ถูกรัน
+
+Expression ต้องถูกวางใน **Context** ถึงจะได้ผลจริง และ Context แต่ละตัวทำให้ Expression ตัวเดียวกันให้ผลไม่เหมือนกัน เรามาลองกับ `total` ตัวเดิมใน Context ทั้งสี่
+
+```python
+df.select(total.alias("total"))                # เหลือคอลัมน์เดียว ยาว 8 แถว
+df.with_columns(total.alias("total"))          # คอลัมน์เดิม 7 ตัว เพิ่ม total เป็นตัวที่ 8
+df.filter(total > 10)                          # เหลือแถว 4, 6, 7
+df.group_by("customer", maintain_order=True).agg(total.sum().alias("spent"))
+```
+
+```text
+customer  spent
+Ann       34.5
+Bob       12.5
+Cat       12.0
+Dan       32.0
+```
+
+`select` เก็บเฉพาะสิ่งที่เราขอ `with_columns` เก็บของเดิมไว้แล้วเพิ่มของใหม่ `filter` ใช้ Expression ที่ได้ผลเป็นจริงหรือเท็จมาเลือกแถว ส่วน `group_by(...).agg(...)` รัน Expression ภายในแต่ละกลุ่มแยกกัน แล้วได้หนึ่งแถวต่อหนึ่งกลุ่ม ลองกดสลับ Context ใน Lab ข้างล่าง แล้วดูว่าตารางที่ได้เปลี่ยนรูปไปยังไง
+
+<ExpressionLab client:visible />
+
+สังเกตว่าแถวที่ 8 (ที่ `qty` เป็น `null`) ได้ผลคูณเป็น `null` และ `filter(total > 10)` ทิ้งแถวนี้ไปด้วย เพราะ `null > 10` ไม่ได้เป็นจริง เรื่องนี้ละเอียดพอจะมีบทของมันเอง ไปคุยต่อกันใน [บท 3](/polars/types-and-nulls/)
+
+</Step>
+
+<Step>
+
+## ผลลัพธ์ยาวเท่าไร
+
+Expression บางตัวให้ผลเป็นคอลัมน์ยาวเท่าตาราง (`pl.col("qty") * 2`) แต่บางตัวให้ค่าเดียว (`pl.col("qty").sum()`) แล้วถ้าเอามาวางใน `select` เดียวกันจะเกิดอะไรขึ้น
+
+```python
+df.select("order_id", pl.col("qty").sum().alias("all_qty"))
+```
+
+```text
+order_id  all_qty
+1         18
+2         18
+...
+8         18
+```
+
+ค่าเดียวถูกเติมให้เท่าความยาวของคอลัมน์อื่น (เรียกว่า Broadcast) โดย `18` คือ 2+1+5+1+3+2+4 ซึ่ง `sum` ข้ามค่า `null` ไปเอง ส่วนถ้าความยาวสองข้างไม่ตรงกันและไม่ใช่ค่าเดียว Polars จะไม่เดาให้
+
+```python
+df.select(pl.col("order_id").head(3), pl.col("customer"))
+```
+
+```text
+ShapeError: Series length 3 doesn't match the DataFrame height of 8
+```
+
+หลักก็คือ ความยาว 1 ขยายได้ ความยาวอื่นต้องเท่ากันเป๊ะ
+
+</Step>
+
+<Step>
+
+## Expression ในคำสั่งเดียวกันมองไม่เห็นกัน
+
+อันนี้เป็นจุดที่คนมาจาก Pandas เจอบ่อยมาก เราสร้าง `total` แล้วอยากเอาไปคูณสองต่อในคำสั่งเดียวกัน
+
+```python
+df.with_columns(total=total, doubled=pl.col("total") * 2)
+```
+
+```text
+ColumnNotFoundError: unable to find column "total"; valid columns: ["order_id", "customer", "region", "product", "qty", "price", "ordered_at"]
+```
+
+ในคำสั่งเดียว Expression ทุกตัวถูกคำนวณจากตารางตั้งต้นพร้อม ๆ กัน `doubled` จึงมองไม่เห็นคอลัมน์ `total` ที่ถูกสร้างอยู่ข้าง ๆ (ข้อความ Error ก็แสดงชัดว่า Valid Columns มีแค่ 7 ตัวเดิม) ทางแก้คือแยกเป็นสองคำสั่งต่อกัน
+
+```python
+two = df.with_columns(total=total).with_columns(doubled=pl.col("total") * 2)
+two["doubled"][0]    # 6.0
+```
+
+หรือเขียน Expression ให้ครบในตัวเดียว (`total * 2`) ก็ได้ ส่วนใน [บท 6](/polars/lazy/) เราจะเห็นว่า Optimizer รวม `with_columns` ที่ต่อกันให้เองด้วย ถ้า Expression ในสองคำสั่งนั้นไม่ได้พึ่งกัน
+
+</Step>
+
+<Step>
+
+## เงื่อนไข และการเลือกหลายคอลัมน์ในครั้งเดียว
+
+`if` และ `else` ของ Expression คือ `when / then / otherwise` เรียงกันได้หลายชั้น เราจะแบ่งออเดอร์เป็นสามขนาด โดยดักค่า `null` ไว้ก่อนเพื่อไม่ให้มันหลุดไปเป็น `small`
+
+```python
+size = (
+    pl.when(pl.col("qty").is_null()).then(pl.lit("unknown"))
+    .when(pl.col("qty") >= 4).then(pl.lit("big"))
+    .otherwise(pl.lit("small"))
+    .alias("size")
+)
+df.select(size)["size"].to_list()
+# ['small', 'small', 'big', 'small', 'small', 'small', 'big', 'unknown']
+```
+
+Polars ตรวจเงื่อนไขจากบนลงล่างและหยุดที่เงื่อนไขแรกที่เป็นจริง ถ้าเอา `.when(qty >= 4)` ขึ้นไปไว้ก่อนการเช็ก `null` ผลของแถวที่ 8 จะตกไปที่ `otherwise` กลายเป็น `small` ซึ่งผิดความจริง เพราะ `null >= 4` เป็น `null` ไม่ใช่เท็จ ส่วน `pl.lit` ทำให้ค่าธรรมดาเป็น Expression
+
+ถ้ามีหลายคอลัมน์ที่ต้องการทำเหมือนกัน ไม่ต้องเขียนซ้ำ
+
+```python
+df.select(pl.col("qty", "price").max()).row(0)                 # (5, 12.0)
+df.select(pl.all().exclude("ordered_at").null_count()).row(0)  # (0, 0, 1, 0, 1, 0)
+
+import polars.selectors as cs
+df.select(cs.numeric()).columns                  # ['order_id', 'qty', 'price']
+df.select(cs.string() & ~cs.by_name("region")).columns   # ['customer', 'product']
+df.select((cs.numeric() * 2).name.suffix("_x2")).columns # ['order_id_x2', 'qty_x2', 'price_x2']
+```
+
+`pl.col("qty", "price")` เลือกหลายตัวด้วยชื่อ `pl.all()` เลือกทุกตัว ส่วน `polars.selectors` (ชื่อย่อ `cs`) เลือกตามชนิด เช่น ตัวเลขทั้งหมด หรือเอาสองชุดมาซ้อนกันด้วย `&` และ `~` Expression ที่เลือกหลายคอลัมน์จะถูกขยายเป็นหนึ่ง Expression ต่อหนึ่งคอลัมน์ แล้ว `name.suffix` ใช้ตั้งชื่อใหม่ให้ทุกตัวพร้อมกัน
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เรียก df.with_columns(a=pl.col('qty') + 1, b=pl.col('a') * 2) ใน Polars จะเกิดอะไรขึ้น"
+  options={['ได้คอลัมน์ a และ b โดย b คิดจาก a ที่เพิ่งสร้าง', 'เกิด ColumnNotFoundError เพราะ b มองไม่เห็นคอลัมน์ a ที่สร้างในคำสั่งเดียวกัน', 'ได้ b เป็น Null เพราะ a ยังไม่ถูกคำนวณตอนที่ b ทำงาน']}
+  answer={1}
+  why="Expression ในคำสั่งเดียวกันคำนวณจากตารางตั้งต้นพร้อมกัน จึงไม่เห็นคอลัมน์ที่เพิ่งถูกสร้าง ข้อความ Error จะแสดงรายชื่อคอลัมน์ที่ใช้ได้ซึ่งมีแต่ของเดิม ทางแก้คือแยกเป็นสองคำสั่ง with_columns ต่อกัน"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เรากรองแถวด้วยเงื่อนไขว่ายอดเงินของออเดอร์ (จำนวนคูณราคา) ต้องมากกว่า 10 แล้วออเดอร์ที่ไม่มีจำนวนสินค้า (เป็น Null) ไปอยู่ที่ไหน"
+  options={['อยู่ในผลลัพธ์ เพราะ Null ถือว่ามากกว่า 10', 'ถูกทิ้ง เพราะผลของเงื่อนไขเป็น Null ซึ่ง Filter ไม่ถือว่าเป็นจริง', 'เกิด Error เพราะเทียบ Null กับตัวเลขไม่ได้']}
+  answer={1}
+  why="ผลคูณของแถวที่ 8 เป็น Null และ Null > 10 ได้ Null ไม่ใช่ True Filter เก็บเฉพาะแถวที่ได้ True เท่านั้น ผลที่ได้จึงเหลือแถว 4, 6 และ 7"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| Expression พิมพ์ออกมาเป็นคำอธิบาย และ `meta.root_names()` กับ `meta.output_name()` ให้ผลตามที่แสดง | รัน: `exercises/02_expressions.py` |
+| Select, with_columns, Filter, group_by ให้ผลต่างกันกับ Expression ตัวเดียวกัน | รัน: `exercises/02_expressions.py` |
+| ค่าเดียวถูก Broadcast และความยาวที่ไม่เท่ากันได้ `ShapeError` | รัน: `exercises/02_expressions.py` |
+| Expression ในคำสั่งเดียวกันมองไม่เห็นกัน (ได้ `ColumnNotFoundError`) | รัน: `exercises/02_expressions.py` |
+| `when / then / otherwise` ตรวจจากบนลงล่าง และ `null` ต้องดักเอง | รัน: `exercises/02_expressions.py` |
+| Selectors (`cs.numeric()`, `&`, `~`, `name.suffix`) | รัน: `exercises/02_expressions.py` |
+| เหตุผลที่ Expression ถูกคำนวณพร้อมกันในคำสั่งเดียว | ผู้เขียน (อธิบายจากพฤติกรรมที่เห็น ยังไม่ได้ไล่โค้ด) |
+
+</Step>

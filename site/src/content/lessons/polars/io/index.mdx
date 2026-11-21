@@ -1,0 +1,201 @@
+---
+title: File I/O
+summary: CSV ไม่มีชนิดข้อมูลให้ Polars ต้องเดา ส่วน Parquet เก็บชนิด สถิติของแต่ละ Row Group และข้อมูลแบบบีบอัดไว้ในไฟล์ บทนี้เทียบขนาดไฟล์ของข้อมูล 1 ล้านแถว ดูว่า Filter ข้าม Row Group ได้อย่างไร อ่านโฟลเดอร์ที่แบ่งด้วย Hive และใช้ Scan กับ Sink เพื่อไม่ต้องถือทั้งไฟล์
+facts:
+  - "รันจริงใน exercises/07_reading_and_writing.py ด้วย Polars 2.1.0 และ pyarrow 26 ขนาดไฟล์เป็นของข้อมูลสังเคราะห์ 1,000,000 แถว บน Windows"
+  - "สถิติของ Row Group (min, max, null_count) อ่านออกมาด้วย pyarrow.parquet ไม่ได้ดูจากโค้ดของ Polars ว่าใช้ข้ามอย่างไร ส่วนการข้ามดูจาก Plan ของ explain"
+  - "ไม่ได้รัน Cloud Storage (S3, GCS, Azure) ไม่ได้รัน Delta Lake และ Iceberg ในบทนี้"
+order: 7
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [lazy]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import RowGroupLab from '../../../../components/labs/polars/RowGroupLab';
+
+<Step>
+
+## CSV ไม่มีชนิดข้อมูล
+
+ลองเขียนตารางออเดอร์เป็น CSV แล้วอ่านกลับ (รัน: `exercises/07_reading_and_writing.py`)
+
+```python
+df.write_csv("s.csv")
+```
+
+```text
+order_id,customer,region,product,qty,price,ordered_at
+...
+7,Dan,,ink,4,8.0,2026-01-09
+8,Cat,east,pen,,1.5,2026-01-12
+```
+
+ค่า `null` กลายเป็นช่องว่าง ไม่มีที่ให้เขียนว่าคอลัมน์นี้ชนิดอะไร ตอนอ่านกลับ Polars จึงต้องเดาจากข้อมูล
+
+```python
+back = pl.read_csv("s.csv")
+back.schema["qty"], back.schema["price"], back.schema["ordered_at"]
+# Int64, Float64, String
+```
+
+`qty` กลับเป็น `Int64` และ `price` กลับเป็น `Float64` แต่ `ordered_at` กลับเป็น `String` ไม่ใช่ `Date` Polars ไม่แปลงข้อความที่หน้าตาเหมือนวันที่ให้เอง ถ้าต้องการวันที่ให้บอก `try_parse_dates=True` หรือกำหนดชนิดเองด้วย `schema_overrides={"ordered_at": pl.Date}`
+
+การเดามีข้อจำกัดอยู่ที่ Polars ดูแค่แถวต้น ๆ ถ้าข้อมูลสกปรกอยู่ลึกลงไป ลองดูไฟล์เล็ก ๆ ที่มีตัว x ปนในคอลัมน์ตัวเลข
+
+```python
+late = "a\n1\n2\nx\n"
+pl.read_csv(io.StringIO(late), infer_schema_length=2)
+# ComputeError: could not parse `x` as dtype `i64` at column 'a' (column number 1)
+pl.read_csv(io.StringIO(late), infer_schema=False).schema["a"]     # String   ไม่เดา อ่านทุกคอลัมน์เป็นข้อความ
+```
+
+ถ้าให้ดูแค่สองแถวก็เดาเป็น `Int64` แล้วล้มตอนเจอ x แต่ถ้าใช้ค่าเริ่มต้น (ดู 100 แถว) จะเห็น x ทัน แล้วได้ `String` ทางที่ปลอดภัยสุดกับข้อมูลที่ไม่ไว้ใจคือ `infer_schema=False` อ่านทุกอย่างเป็นข้อความก่อน แล้วค่อย `cast(strict=False)` ตามที่เห็นใน [บท 3](/polars/types-and-nulls/) ส่วนค่าที่เขียนแทนความหายไปในไฟล์ อย่าง `NA` บอกด้วย `null_values=["NA"]` ได้
+
+</Step>
+
+<Step>
+
+## Parquet เก็บชนิด สถิติ และบีบอัดให้
+
+Parquet เป็นไฟล์แบบคอลัมน์ ตัวไฟล์เก็บ Schema ไว้เอง จึงไม่ต้องเดา
+
+```python
+df.write_parquet("s.parquet")
+pl.read_parquet_schema("s.parquet") == df.schema      # True
+```
+
+ในไฟล์ยังเก็บค่า Min, Max และจำนวน `null` ของแต่ละคอลัมน์ในแต่ละ **Row Group** (ก้อนของแถวที่เขียนด้วยกัน) เราอ่านออกมาดูผ่าน `pyarrow` ได้
+
+```python
+md = pq.ParquetFile("s.parquet").metadata
+stats = md.row_group(0).column(4).statistics      # คอลัมน์ qty
+(stats.min, stats.max, stats.null_count)          # (1, 5, 1)
+```
+
+ตัวเลข `(1, 5, 1)` ตรงกับตารางของเรา `qty` ต่ำสุด 1 สูงสุด 5 และมี `null` หนึ่งค่า ข้อมูลเหล่านี้ไม่ต้องอ่านทั้งไฟล์ถึงจะรู้ มันอยู่ที่ส่วนท้ายของไฟล์ ซึ่งจะมีประโยชน์ในหัวข้อถัดไป
+
+ทีนี้ลองเปรียบขนาดไฟล์ของข้อมูลชุดเดียวกัน 1,000,000 แถว (ที่เราสร้างขึ้นเอง) ในสี่รูปแบบ
+
+| รูปแบบ | ขนาด |
+|---|---|
+| CSV | 40.5 MB |
+| Parquet (บีบอัดเป็นค่าเริ่มต้น) | 6.3 MB |
+| Parquet แบบไม่บีบอัด | 21.4 MB |
+| Arrow IPC | 68.0 MB |
+
+Parquet เล็กกว่า CSV มากกว่า 6 เท่า สองเหตุผลที่เราเห็นจากตาราง **เหตุผลแรก** เก็บเป็นตัวเลขจริง ไม่ใช่ตัวอักษร (Parquet แบบไม่บีบอัดก็เล็กกว่า CSV ครึ่งหนึ่งแล้ว) **เหตุผลที่สอง** ข้อมูลในคอลัมน์เดียวกันหน้าตาคล้ายกัน บีบอัดได้ดี ส่วน Arrow IPC ใหญ่ที่สุดเพราะเก็บแบบที่พร้อมให้โปรแกรมอ่านจากหน่วยความจำได้ทันที ไม่ได้ออกแบบมาให้เล็ก ตัวเลขทั้งหมดนี้เป็นของชุดข้อมูลสังเคราะห์ของเรา ข้อมูลจริงอาจได้อัตราส่วนต่างออกไป
+
+</Step>
+
+<Step>
+
+## Filter ข้าม Row Group ได้เมื่อสถิติบอกว่าไม่มีทางเจอ
+
+ถ้า Filter ถามหา `order_id` ที่มากกว่า 250,000 และไฟล์เก็บสถิติของแต่ละ Row Group ไว้ว่าก้อนแรกมีตั้งแต่ 1 ถึง 100,000 ก็ไม่จำเป็นต้องเปิดก้อนนั้นเลย เราลองเขียนไฟล์ที่เรียงตาม `order_id` และแบ่งเป็น Row Group ละ 100,000 แถว
+
+```python
+sorted_big = big.sort("order_id")
+sorted_big.write_parquet("b_sorted.parquet", row_group_size=100_000)
+md = pq.ParquetFile("b_sorted.parquet").metadata
+[md.row_group(i).column(0).statistics.min for i in range(3)]   # [1, 100001, 200001]
+[md.row_group(i).column(0).statistics.max for i in range(3)]   # [100000, 200000, 300000]
+```
+
+ก้อนแรกเก็บ 1 ถึง 100,000 ก้อนที่สองเก็บ 100,001 ถึง 200,000 และต่อไปเรื่อย ๆ ลองลากเส้นเงื่อนไขใน Lab ด้านล่าง แล้วดูว่ามีกี่ก้อนที่ไม่ต้องเปิด
+
+<RowGroupLab client:visible />
+
+สังเกตว่าไฟล์ที่ไม่ได้เรียงมักไม่ได้ประโยชน์นี้ เพราะทุกก้อนมี Min ต่ำ ๆ และ Max สูง ๆ ปนกัน สถิติของทุกก้อนจึงห่าง ๆ กัน ตอบไม่ได้ว่ามีทางเจอหรือไม่ เป็นเหตุผลหนึ่งที่เรามักเขียนข้อมูลที่เรียงตามคอลัมน์ที่กรองบ่อย (บทนี้ตรวจเฉพาะค่า Min และ Max ของไฟล์ที่เราเขียน ส่วนการที่ Polars ใช้ค่าเหล่านี้ข้ามก้อนจริงตอนอ่าน เราอ่านจากแผนและเอกสาร ไม่ได้วัดจำนวนก้อนที่ถูกข้าม)
+
+</Step>
+
+<Step>
+
+## แบ่งเป็นโฟลเดอร์ แล้ว Filter ข้ามทั้งโฟลเดอร์
+
+อีกวิธีที่ข้ามไฟล์ได้ทั้งไฟล์คือ Hive Partitioning เขียนข้อมูลแยกโฟลเดอร์ตามค่าของคอลัมน์
+
+```python
+big.write_parquet("hive", partition_by="region")
+sorted(p.name for p in Path("hive").iterdir())
+# ['region=east', 'region=north', 'region=south', 'region=west']
+
+plan = pl.scan_parquet("hive").filter(pl.col("region") == "north").explain()
+plan.count("Parquet SCAN")          # 1
+```
+
+มีสี่โฟลเดอร์ แต่แผนของ Filter ที่ถามหา North มี Parquet SCAN เพียงอันเดียว และพาธในแผนคือโฟลเดอร์ `region=north` อีกสามโฟลเดอร์ไม่ถูกเปิดเลย อีกอย่างที่น่าสังเกตคือแผนบอก `PROJECT 6/7 COLUMNS` เพราะค่า `region` อยู่ในชื่อโฟลเดอร์ ไม่ได้อยู่ในไฟล์ แต่ Polars ใส่คอลัมน์ `region` กลับมาให้ตอนอ่าน (นับแถวทั้งโฟลเดอร์ก็ได้ 1,000,000 เท่าเดิม)
+
+ถ้าเราอ่านไฟล์หลายไฟล์ ใช้ Glob ได้ในครั้งเดียว และขอให้ Polars ใส่พาธของไฟล์ต้นทางมาด้วย
+
+```python
+pl.scan_csv("p*.csv", include_file_paths="path").collect()     # 20 แถวจาก 2 ไฟล์ มีคอลัมน์ path
+```
+
+</Step>
+
+<Step>
+
+## Scan และ Sink: ไม่ต้องถือทั้งไฟล์
+
+`read_*` อ่านทั้งไฟล์เข้าหน่วยความจำ ส่วน `scan_*` สร้าง LazyFrame ที่ยังไม่ได้อ่านอะไร (เหมือน [บท 6](/polars/lazy/)) และตอนท้ายเรามีฝั่งขาออกคือ `sink_*` ที่เขียนผลลงไฟล์โดยไม่ต้องเก็บผลทั้งก้อนไว้ก่อน
+
+```python
+pl.scan_csv("b.csv").filter(pl.col("qty") > 8).sink_parquet("sink.parquet")
+pl.read_parquet("sink.parquet").height        # 111408
+```
+
+คำสั่งนี้อ่าน CSV ที่มี 1,000,000 แถว กรองเหลือ 111,408 แถว แล้วเขียนเป็น Parquet ทั้งหมดในแผนเดียว ตัวเลข 111,408 ตรวจแล้วว่าเท่ากับที่ได้จากการกรองในหน่วยความจำ ส่วนรูปแบบอื่น Polars ก็อ่านเขียนได้ เช่น NDJSON (`write_ndjson` และ `read_ndjson`) และ Arrow IPC (`write_ipc` และ `read_ipc`)
+
+<Callout type="note" title="สิ่งที่บทนี้ไม่ได้ลอง">
+เราทำงานกับไฟล์ในดิสก์ของคอมพิวเตอร์เครื่องเดียว Polars อ่านจาก S3, GCS, Azure ได้ รวมถึง Delta Lake และ Iceberg (ส่วน Iceberg อ่านได้ที่ [บท 1 ของเรื่อง Iceberg](/iceberg/what-is-iceberg/)) แต่เราไม่ได้รันสิ่งเหล่านี้ จึงไม่ได้ยืนยันอะไรเกี่ยวกับมัน
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ไฟล์ CSV มี 1 ล้านแถว ข้อมูลที่เหมือนกันเป๊ะเขียนเป็น Parquet ที่บีบอัดแล้ว ขนาดไฟล์เป็นอย่างไร"
+  options={['ใหญ่กว่า CSV เพราะ Parquet เก็บ Schema และสถิติเพิ่ม', 'เล็กกว่า CSV หลายเท่า (ในข้อมูลชุดนี้ 6.3 MB เทียบกับ 40.5 MB)', 'ขนาดเท่ากันเพราะข้อมูลเหมือนกัน']}
+  answer={1}
+  why="Parquet เก็บตัวเลขเป็นตัวเลขจริง และบีบอัดข้อมูลของคอลัมน์ที่มีหน้าตาคล้ายกัน ในข้อมูลสังเคราะห์ของเราได้ 6.3 MB เทียบกับ 40.5 MB ข้อมูลจริงอาจได้ไม่เท่านี้"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เรา Scan ข้อมูลที่แบ่งโฟลเดอร์ตาม Region แล้ว Filter ว่า Region เท่ากับ North แผนแสดงอะไร"
+  options={['Scan ทั้งสี่โฟลเดอร์แล้วกรองทีหลัง', 'Scan เฉพาะโฟลเดอร์ Region=North ส่วนอีกสามโฟลเดอร์ไม่ถูกเปิด', 'Error เพราะคอลัมน์ Region ไม่อยู่ในไฟล์']}
+  answer={1}
+  why="ค่าของ Region อยู่ในชื่อโฟลเดอร์ Polars จึงเลือกโฟลเดอร์ตั้งแต่ตอนวางแผน แผนมี Parquet SCAN เดียว และอ่าน 6 จาก 7 คอลัมน์ในไฟล์ แล้วเติมคอลัมน์ Region กลับให้จากชื่อโฟลเดอร์"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| CSV เขียน `null` เป็นช่องว่าง, `ordered_at` อ่านกลับเป็น String, `try_parse_dates` แก้ได้ | รัน: `exercises/07_reading_and_writing.py` |
+| `infer_schema_length=2` ล้มเมื่อเจอ x, `infer_schema=False` ให้ String, `null_values` | รัน: `exercises/07_reading_and_writing.py` |
+| Parquet เก็บ Schema และสถิติ (1, 5, 1) ต่อ Row Group | รัน: `exercises/07_reading_and_writing.py` (อ่านด้วย Pyarrow) |
+| ขนาดไฟล์ CSV 40.5 MB, Parquet 6.3 MB, ไม่บีบอัด 21.4 MB, Arrow IPC 68.0 MB | รัน: `exercises/07_reading_and_writing.py` |
+| ไฟล์ที่เรียง `order_id` ได้ Row Group ที่ช่วง Min และ Max ไม่ทับกัน | รัน: `exercises/07_reading_and_writing.py` |
+| แผนของ Hive Partition เหลือ Parquet SCAN เดียว และ `PROJECT 6/7 COLUMNS` | รัน: `explain()` ใน `exercises/07_reading_and_writing.py` |
+| `sink_parquet` ได้ 111,408 แถว, Glob ได้ 20 แถว | รัน: `exercises/07_reading_and_writing.py` |
+| การข้าม Row Group ตอนอ่านจริงเกิดจากสถิติ Min และ Max | ผู้เขียน (อ่านจากเอกสาร ไม่ได้วัดจำนวนก้อนที่ถูกข้าม) |
+
+</Step>

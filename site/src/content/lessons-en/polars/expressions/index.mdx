@@ -1,0 +1,211 @@
+---
+title: Expressions and Contexts
+summary: An expression describes a calculation that has not run yet, and a context such as select, with_columns, filter or group_by is where it really runs. This lesson shows the same expression giving different results in different contexts, how the length of a result is decided, and why expressions in one call cannot see each other.
+facts:
+  - "Ran for real in exercises/02_expressions.py with Polars 2.1.0, asserting every result and error message."
+  - "The ShapeError and ColumnNotFoundError messages quoted here were printed from real runs."
+  - "Whether the expressions of one with_columns call run in parallel was not traced in the source. This lesson explains from the behaviour only."
+order: 2
+phase: A
+level: 1
+stage: sprout
+format: steps
+requires: [first-dataframe]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ExpressionLab from '../../../../components/labs/polars/ExpressionLab';
+
+<Step>
+
+## An expression has not done anything yet
+
+Start with a simple question on the order table of [lesson 1](/en/polars/first-dataframe/): how much money is each order? That is `qty` times `price` (run: `exercises/02_expressions.py`).
+
+```python
+total = pl.col("qty") * pl.col("price")
+print(total)
+```
+
+```text
+[(col("qty")) * (col("price"))]
+```
+
+If you expected numbers, look again. What was printed is a **description** of a calculation. There is no number at all, because `pl.col("qty")` has not fetched any column yet. It only says "take the column called qty", and multiplying two of them gives a longer description. These things are called **expressions**, objects of type `pl.Expr`. We can ask which columns an expression reads and what its result will be called.
+
+```python
+total.meta.root_names()     # ['qty', 'price']
+total.meta.output_name()    # 'qty'
+```
+
+The result is named `qty` although it multiplies two columns. That is a Polars rule: if you do not name the result yourself, it takes the name of the first column. This is why we nearly always write `.alias("total")`.
+
+The point of an expression not running is that Polars sees everything you want before it starts, and can then choose the fastest way to run it. This is the main subject of [lesson 6](/en/polars/lazy/).
+
+</Step>
+
+<Step>
+
+## A context is where an expression runs
+
+An expression needs a **context** before it gives anything, and each context makes the same expression give a different result. Let us put the same `total` into all four.
+
+```python
+df.select(total.alias("total"))                # one column, 8 rows
+df.with_columns(total.alias("total"))          # the 7 old columns plus total as the 8th
+df.filter(total > 10)                          # only rows 4, 6, 7 remain
+df.group_by("customer", maintain_order=True).agg(total.sum().alias("spent"))
+```
+
+```text
+customer  spent
+Ann       34.5
+Bob       12.5
+Cat       12.0
+Dan       32.0
+```
+
+`select` keeps only what you ask for. `with_columns` keeps the old columns and adds the new one. `filter` uses an expression whose result is true or false to choose rows. `group_by(...).agg(...)` runs the expression inside each group separately and gives one row per group. Switch the context in the lab below and watch the table change shape.
+
+<ExpressionLab client:visible lang="en" />
+
+Notice that row 8 (where `qty` is `null`) gets a `null` product, and `filter(total > 10)` drops that row, because `null > 10` is not true. That is a topic big enough for its own lesson, so we continue in [lesson 3](/en/polars/types-and-nulls/).
+
+</Step>
+
+<Step>
+
+## How long is the result
+
+Some expressions give a column as long as the table (`pl.col("qty") * 2`) and some give a single value (`pl.col("qty").sum()`). What happens when you put both in one `select`?
+
+```python
+df.select("order_id", pl.col("qty").sum().alias("all_qty"))
+```
+
+```text
+order_id  all_qty
+1         18
+2         18
+...
+8         18
+```
+
+The single value is repeated to match the other column (this is called broadcasting). `18` is 2+1+5+1+3+2+4, since `sum` skips the `null`. If the two lengths differ and neither is a single value, Polars does not guess.
+
+```python
+df.select(pl.col("order_id").head(3), pl.col("customer"))
+```
+
+```text
+ShapeError: Series length 3 doesn't match the DataFrame height of 8
+```
+
+The rule: a length of 1 can stretch, any other length must match exactly.
+
+</Step>
+
+<Step>
+
+## Expressions in one call cannot see each other
+
+People coming from pandas hit this one a lot. We make `total` and want to double it in the same call.
+
+```python
+df.with_columns(total=total, doubled=pl.col("total") * 2)
+```
+
+```text
+ColumnNotFoundError: unable to find column "total"; valid columns: ["order_id", "customer", "region", "product", "qty", "price", "ordered_at"]
+```
+
+In one call every expression is computed from the starting table, all together. So `doubled` cannot see the `total` being made next to it (the error message even shows that the valid columns are only the 7 old ones). The fix is two calls in a row.
+
+```python
+two = df.with_columns(total=total).with_columns(doubled=pl.col("total") * 2)
+two["doubled"][0]    # 6.0
+```
+
+Or write the whole expression in one (`total * 2`). In [lesson 6](/en/polars/lazy/) we will also see that the optimizer merges consecutive `with_columns` calls for us when the expressions in them do not depend on each other.
+
+</Step>
+
+<Step>
+
+## Conditions, and many columns at once
+
+The `if` and `else` of expressions are `when / then / otherwise`, and they chain. We will sort the orders into three sizes, catching the `null` first so it does not slip into `small`.
+
+```python
+size = (
+    pl.when(pl.col("qty").is_null()).then(pl.lit("unknown"))
+    .when(pl.col("qty") >= 4).then(pl.lit("big"))
+    .otherwise(pl.lit("small"))
+    .alias("size")
+)
+df.select(size)["size"].to_list()
+# ['small', 'small', 'big', 'small', 'small', 'small', 'big', 'unknown']
+```
+
+Polars checks the conditions from top to bottom and stops at the first true one. If you put `.when(qty >= 4)` above the `null` check, row 8 would fall through to `otherwise` and become `small`, which is wrong, because `null >= 4` is `null`, not false. `pl.lit` turns a plain value into an expression.
+
+When many columns need the same treatment, do not repeat yourself.
+
+```python
+df.select(pl.col("qty", "price").max()).row(0)                 # (5, 12.0)
+df.select(pl.all().exclude("ordered_at").null_count()).row(0)  # (0, 0, 1, 0, 1, 0)
+
+import polars.selectors as cs
+df.select(cs.numeric()).columns                  # ['order_id', 'qty', 'price']
+df.select(cs.string() & ~cs.by_name("region")).columns   # ['customer', 'product']
+df.select((cs.numeric() * 2).name.suffix("_x2")).columns # ['order_id_x2', 'qty_x2', 'price_x2']
+```
+
+`pl.col("qty", "price")` picks several columns by name, and `pl.all()` picks all of them. `polars.selectors` (usually `cs`) picks by type, for example all numbers, and two selections can be combined with `&` and `~`. An expression over several columns is expanded to one expression per column, and `name.suffix` renames all the results at once.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="What happens when you call df.with_columns(a=pl.col('qty') + 1, b=pl.col('a') * 2) in Polars?"
+  options={['You get columns a and b, and b is computed from the new a', 'A ColumnNotFoundError, because b cannot see the column a that is made in the same call', 'b is null, because a had not been computed when b ran']}
+  answer={1}
+  why="Expressions in one call are computed from the starting table together, so they cannot see a column that was just created. The error message lists the usable columns, which are only the old ones. The fix is two with_columns calls in a row."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We filter rows on the condition that an order amount (quantity times price) must be above 10. Where does the order with no quantity (a null) go?"
+  options={['It stays in the result, because null counts as greater than 10', 'It is dropped, because the condition gives null, which a filter does not treat as true', 'An error, because null cannot be compared with a number']}
+  answer={1}
+  why="The product of row 8 is null, and null > 10 gives null, not True. A filter keeps only rows that give True. So the result is rows 4, 6 and 7."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Claim | Source |
+|---|---|
+| An expression prints as a description, and `meta.root_names()` and `meta.output_name()` give what is shown | ran: `exercises/02_expressions.py` |
+| select, with_columns, filter and group_by give different results for the same expression | ran: `exercises/02_expressions.py` |
+| A single value is broadcast, and mismatched lengths give `ShapeError` | ran: `exercises/02_expressions.py` |
+| Expressions in one call cannot see each other (`ColumnNotFoundError`) | ran: `exercises/02_expressions.py` |
+| `when / then / otherwise` is checked top to bottom, and `null` must be caught by hand | ran: `exercises/02_expressions.py` |
+| Selectors (`cs.numeric()`, `&`, `~`, `name.suffix`) | ran: `exercises/02_expressions.py` |
+| Why expressions of one call are computed together | author (explained from behaviour, not traced in code) |
+
+</Step>

@@ -1,0 +1,237 @@
+---
+title: Polars Internals
+summary: เปิดดูว่าคอลัมน์หนึ่งหน้าตาอย่างไรในหน่วยความจำ (Values Buffer กับ Validity Bitmap) ทำไมการต่อตารางไม่ต้อง Copy เพราะเก็บเป็น Chunk มองเห็นข้อมูลผ่าน NumPy แบบไม่ Copy ได้เมื่อไร และดูว่า Streaming Engine ส่งข้อมูลเป็นก้อนเล็ก ๆ (Morsel) ที่ขนาดเริ่มต้น 100,000 แถว พร้อมวิธีนับก้อนจริงผ่าน map_batches
+facts:
+  - "รันจริงใน exercises/10_inside_polars.py ด้วย Polars 2.1.0 และ pyarrow 26 รวมถึงการนับขนาดก้อนที่ Streaming Engine ส่งผ่าน map_batches ในโปรเซสแยก"
+  - "ค่าเริ่มต้นของ Morsel (100,000) และชื่อตัวแปร POLARS_IDEAL_MORSEL_SIZE อ่านจาก crates/polars-config/src/lib.rs ที่ Tag py-2.1.0 ส่วนรายชื่อ Node ของ Streaming Engine อ่านจากชื่อไฟล์ใน polars-stream/src/nodes ไม่ได้ไล่ว่าแต่ละ Node ทำงานอย่างไรข้างใน"
+  - "ไม่ได้ตรวจเรื่อง Memory Layout ของ Nested Type (List, Struct) และการทำงานของ Categorical ที่ใช้ร่วมกันหลาย Series (String Cache)"
+order: 10
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [lazy]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ColumnarLab from '../../../../components/labs/polars/ColumnarLab';
+import MorselLab from '../../../../components/labs/polars/MorselLab';
+
+<Step>
+
+## คอลัมน์หนึ่งคอลัมน์ในหน่วยความจำ
+
+ในบทก่อน ๆ เรามอง DataFrame เป็นตาราง ทีนี้เรามาดูว่าจริง ๆ แล้วข้างในหน่วยความจำเก็บอะไร ลองหยิบคอลัมน์ `qty` ที่มีค่า `[2, 1, 5, 1, 3, 2, 4, null]` แล้วส่งให้ `pyarrow` อ่าน Buffer ออกมา (รัน: `exercises/10_inside_polars.py`)
+
+```python
+qty = df["qty"].to_arrow()
+validity, values = qty.buffers()[0], qty.buffers()[1]
+np.frombuffer(values, dtype=np.int64, count=8)[:7].tolist()     # [2, 1, 5, 1, 3, 2, 4]
+format(validity.to_pybytes()[0], "08b")                          # '01111111'
+```
+
+คอลัมน์หนึ่งจึงประกอบด้วยสองก้อน **ก้อนแรกคือ Values Buffer** ตัวเลขเรียงต่อกันตรง ๆ แปดตัวละแปดไบต์ (Int64) **ก้อนที่สองคือ Validity Bitmap** ที่ใช้หนึ่งบิตต่อหนึ่งแถว เพื่อบอกว่าแถวนั้นมีค่าหรือไม่ บิตที่ 0 (นับจากขวา) คือแถวแรก ไบต์ `01111111` จึงอ่านว่าแถว 1 ถึง 7 มีค่า (บิตเป็น 1) และแถวที่ 8 ไม่มีค่า (บิตเป็น 0) ซึ่งตรงกับ `null` ที่เราใส่ไว้ตั้งแต่ [บท 1](/polars/first-dataframe/)
+
+ค่า `null` จึงไม่ได้ถูกเก็บเป็นตัวเลขพิเศษอย่าง -1 หรือ NaN แต่เป็นบิตแยกต่างหาก นี่คือเหตุผลที่ `null` ใช้ได้กับทุกชนิดข้อมูล (จำนวนเต็ม ข้อความ วันที่) และเป็นเหตุผลที่ `Int64` ที่มี `null` ยังเป็น `Int64` ไม่กลายเป็น Float แบบที่ Pandas ทำ ([บท 11](/polars/from-pandas/)) ลองเลือกคอลัมน์ใน Lab ดูว่าแต่ละคอลัมน์ของตารางเรามีสองก้อนนี้หน้าตาอย่างไร
+
+<ColumnarLab client:visible />
+
+คอลัมน์ที่ไม่มี `null` ไม่มี Validity Bitmap เลย (ก้อนแรกของ `buffers()` เป็น `None` สำหรับ `order_id`) ราคาของ Bitmap จึงจ่ายเฉพาะคอลัมน์ที่ต้องใช้
+
+</Step>
+
+<Step>
+
+## ราคาของแต่ละชนิด
+
+เมื่อรู้ว่าคอลัมน์คือ Buffer ก้อนหนึ่ง เราก็คำนวณขนาดได้ด้วยตัวเอง
+
+```python
+pl.Series(range(1_000_000)).estimated_size()                  # 8000000   8 ไบต์ต่อแถว
+pl.Series([1] * 1_000_000 + [None]).estimated_size()          # 8125009   บวก Bitmap ราว 125,000 ไบต์
+pl.Series([1] * 1000, dtype=pl.Int8).estimated_size()         # 1000      Int8 ใช้แถวละ 1 ไบต์
+pl.Series([1] * 1000, dtype=pl.Int64).estimated_size()        # 8000
+pl.Series([True] * 1000).estimated_size()                     # 125       Bool ใช้แถวละ 1 บิต
+```
+
+ล้านแถวของ `Int64` คือแปดล้านไบต์พอดี (ซึ่งตรงกับขนาดที่เห็นใน [บท 7](/polars/io/) เมื่อเทียบกับไฟล์) เมื่อมี `null` สักค่าเดียวก็เพิ่ม Bitmap ราว 125,000 ไบต์ (ล้านบิต) บวกส่วนหัวอีกเล็กน้อย และการเลือกชนิดเล็ก (`Int8`) ประหยัดได้ 8 เท่า ซึ่งก็อย่าลืมว่าการบวกลบคูณของชนิดเล็กวนรอบเงียบ ๆ ตามที่เห็นใน [บท 3](/polars/types-and-nulls/)
+
+</Step>
+
+<Step>
+
+## ข้อความมีสองรูปแบบ
+
+ข้อความยาวไม่เท่ากัน จึงเก็บแบบตัวเลขเรียงต่อกันตรง ๆ ไม่ได้ Arrow มีสองรูปแบบ
+
+```python
+df["customer"].to_arrow().type                                              # large_string
+df["customer"].to_arrow(compat_level=pl.CompatLevel.newest()).type          # string_view
+```
+
+`large_string` เป็นรูปแบบคลาสสิกที่เก็บ Offset ของแต่ละค่าไว้ก้อนหนึ่ง และเก็บไบต์ของข้อความต่อกันอีกก้อนหนึ่ง (ในตัวอย่างของเรา Offset มี 9 ตัว ตัวละ 8 ไบต์ เป็น 72 ไบต์ และชื่อทั้ง 8 ชื่อรวมกัน 24 ไบต์) ส่วน `string_view` เป็นรูปแบบใหม่ที่เก็บ View ขนาดคงที่ 16 ไบต์ต่อค่าที่ชี้ไปยังก้อนข้อความ
+
+ส่วนว่า Polars รุ่นนี้ใช้ `string_view` เป็นรูปแบบภายในจริงหรือไม่ เรายังไม่ได้ไล่โค้ด สิ่งที่เห็นคือ `to_arrow()` ตามค่าเริ่มต้นให้ `large_string` และเมื่อขอระดับความเข้ากันได้ใหม่สุดก็ให้ `string_view` ได้ ส่วนรายละเอียดอื่น เช่นการเก็บ View ช่วยเปรียบเทียบข้อความสั้น ๆ ได้อย่างไร เรายังไม่ได้ตรวจ
+
+</Step>
+
+<Step>
+
+## Zero Copy และ Chunk
+
+ถ้าตัวเลขอยู่ในก้อน Buffer ติดกัน NumPy ก็ชี้ไปที่ก้อนนั้นได้เลย โดยไม่ต้องคัดลอก
+
+```python
+arr = pl.Series([1, 2, 3]).to_numpy(allow_copy=False)
+arr.tolist(), arr.flags["WRITEABLE"]       # ([1, 2, 3], False)   เป็น View ที่อ่านได้อย่างเดียว
+
+pl.Series([1, None]).to_numpy(allow_copy=False)
+# RuntimeError: copy not allowed: cannot convert to a NumPy array without copying data
+```
+
+คอลัมน์ที่ไม่มี `null` เป็น View ของหน่วยความจำของ Polars ตรง ๆ จึงเขียนไม่ได้ ส่วนคอลัมน์ที่มี `null` ต้องมี Bitmap ซึ่ง NumPy ไม่มีที่ให้เก็บ จึงต้องคัดลอกไปแปลงเป็นอย่างอื่น ถ้าเราห้ามด้วย `allow_copy=False` ก็จะได้ Error ตามข้างบน
+
+อีกเรื่องที่ทำให้ "ไม่ต้อง Copy" ทำได้ในหลายที่คือ **Chunk** คอลัมน์ของ Polars ไม่ได้เป็น Buffer ก้อนเดียวเสมอไป แต่เป็นรายการของ Array หลายก้อนที่ต่อกัน
+
+```python
+df["order_id"].n_chunks()                                     # 1
+two = pl.concat([df, df])
+two.n_chunks(), two["order_id"].chunk_lengths()               # 2, [8, 8]
+two.rechunk().n_chunks()                                      # 1
+```
+
+`concat` ไม่ได้คัดลอกข้อมูลของ `df` สองชุดมาต่อกัน แค่วางสอง Chunk เรียงกัน ทำให้ต่อตารางได้เร็วมาก ส่วน `rechunk()` คัดลอกทุก Chunk มารวมเป็นก้อนเดียว ทำเมื่อเราต้องการหน่วยความจำติดกัน เช่นก่อนส่งให้ไลบรารีอื่นที่ต้องการก้อนเดียว (ใน Polars 2.1.0 `concat` ไม่ Rechunk เองตามค่าเริ่มต้น เราตรวจแล้วจากผล `n_chunks` เป็น 2)
+
+</Step>
+
+<Step>
+
+## Categorical และ Enum: ตัวเลขกับพจนานุกรม
+
+ข้อความที่ซ้ำกันมาก (เช่น `region` มีแค่ 4 ค่า ในแถวนับล้าน) เก็บเป็นตัวเลขกับพจนานุกรมจะประหยัดกว่า
+
+```python
+c = pl.Series(["b", "a", "b", "c"], dtype=pl.Categorical)
+c.to_physical().dtype                  # UInt32
+e = pl.Series(["b", "a"], dtype=pl.Enum(["a", "b", "c"]))
+e.to_physical().to_list()              # [1, 0]
+```
+
+`Categorical` เก็บเป็นเลข `UInt32` ที่ชี้ไปยังพจนานุกรมของข้อความ ส่วน `Enum` ตัวเลขคือตำแหน่งของค่าในรายการที่เราประกาศ (`"b"` เป็นตัวที่ 1 และ `"a"` เป็นตัวที่ 0) เราไม่ได้วัดว่าประหยัดหน่วยความจำจริงเท่าไร เพราะ `estimated_size` ของคอลัมน์ข้อความไม่ได้นับ View อย่างครบถ้วนในการทดลองของเรา จึงไม่เอาตัวเลขนั้นมาเป็นหลักฐาน
+
+</Step>
+
+<Step>
+
+## Streaming Engine ส่งข้อมูลเป็นก้อนเล็ก
+
+[บท 6](/polars/lazy/) เราบอกไว้ว่า Streaming Engine เป็นค่าเริ่มต้น และ [บท 9](/polars/performance/) เราไม่เห็นข้อได้เปรียบด้านหน่วยความจำในข้อมูลขนาดนั้น คราวนี้มาดูว่า Streaming ทำอะไรจริง ๆ เราแอบดูด้วยฟังก์ชันที่จดขนาดของข้อมูลทุกครั้งที่ถูกเรียก (ผ่าน `map_batches`) แล้วรันบนไฟล์ Parquet 5,000,000 แถว
+
+```python
+seen = []
+def f(s):
+    seen.append(len(s))
+    return s
+
+q = (
+    pl.scan_parquet("b.parquet")
+    .select(pl.col("order_id").map_batches(f, is_elementwise=True, return_dtype=pl.Int64))
+    .select(pl.col("order_id").sum())
+)
+q.collect(engine="streaming")
+len(seen), max(seen), sum(seen)
+```
+
+```text
+streaming, default morsel size:  calls 56   largest batch 121952
+streaming, ideal morsel 20000:   calls 256  largest batch 20326
+in-memory:                       calls 41   largest batch 121952
+```
+
+ฟังก์ชันของเราถูกเรียก **56 ครั้ง** ในโหมด Streaming โดยแต่ละครั้งได้ข้อมูลไม่เกิน 121,952 แถว แทนที่จะเรียกครั้งเดียวด้วยทั้ง 5 ล้านแถว ผลรวมของทุกก้อนยังเป็น 5,000,000 พอดี ก้อนเหล่านี้คือ **Morsel** ซึ่ง Streaming Engine ส่งผ่านแต่ละขั้นของแผนทีละก้อน
+
+ขนาดที่ตั้งไว้ในใจของมันคือ 100,000 แถว เราเห็นตัวเลขนี้ในโค้ด `crates/polars-config/src/lib.rs` ที่บรรทัด `const DEFAULT_IDEAL_MORSEL_SIZE: u64 = 100_000;` และชื่อตัวแปร `POLARS_IDEAL_MORSEL_SIZE` ลองเปลี่ยนเป็น 20,000 ผ่านตัวแปรสภาพแวดล้อม แล้วรันใหม่ได้ 256 ครั้ง ก้อนใหญ่สุดเหลือ 20,326 (ตัวเลขเกินไปเล็กน้อยจาก 20,000) ส่วนที่ก้อนใหญ่สุดของค่าเริ่มต้นคือ 121,952 ซึ่งเกิน 100,000 ก็เพราะ Parquet ที่เราเขียนมี 41 Row Group ละราว 121,951 แถว และก้อนที่มาจากไฟล์ผ่านมาทั้งก้อน ในโหมด In-memory ฟังก์ชันถูกเรียก 41 ครั้ง เท่ากับจำนวน Row Group พอดี นั่นคือแต่ละ Row Group ถูกอ่านเป็นหนึ่ง Chunk (ตรวจแล้วว่าไฟล์มี 41 Row Group)
+
+ลองลากตัวเลื่อนขนาด Morsel ใน Lab เพื่อดูว่าก้อนถูกส่งผ่านขั้นต่าง ๆ อย่างไร
+
+<MorselLab client:visible />
+
+</Step>
+
+<Step>
+
+## เปิดดู Source
+
+สามจุดใน Source ของ Polars ที่ Tag `py-2.1.0` ที่ตรงกับสิ่งที่เราเห็นในบทนี้ (ทุกจุดอ่านจากชื่อไฟล์และบรรทัด ไม่ได้ไล่ว่าข้างในทำงานอย่างไร)
+
+| อะไร | ที่ไหน |
+|---|---|
+| ลำดับกฎของ Optimizer (Slice, Predicate, Projection และอื่น ๆ) | `crates/polars-plan/src/plans/optimizer/mod.rs` |
+| ขนาด Morsel เริ่มต้น 100,000 และชื่อตัวแปรที่เปลี่ยนได้ | `crates/polars-config/src/lib.rs` (`DEFAULT_IDEAL_MORSEL_SIZE`, `POLARS_IDEAL_MORSEL_SIZE`) |
+| Node ของ Streaming Engine ทีละชนิด เช่น `filter.rs`, `select.rs`, `group_by/`, `joins/`, `sort/` | `crates/polars-stream/src/nodes/` |
+
+รายการนี้ช่วยให้รู้ว่าเมื่ออ่านแผนจาก `explain()` ว่า `FILTER` หรือ `AGGREGATE` ข้างหลังมีโค้ดที่ชื่อเดียวกันอยู่ที่ไหน ถ้าอยากไล่ให้ลึกกว่านี้ ให้เปิดไฟล์พวกนี้ดู
+
+<Callout type="note" title="เรื่องที่บทนี้ยังไม่ได้ตอบ">
+เรายังไม่ได้ตรวจว่า Streaming Engine ควบคุมหน่วยความจำอย่างไร ทำไมในข้อมูลขนาดที่ลองถึงไม่เห็นความต่างของหน่วยความจำ และ Node แต่ละชนิดรับ Morsel อย่างไร ข้อสงสัยเหล่านี้ต้องไล่ใน Source ของ `polars-stream` ต่อ
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="คอลัมน์จำนวนเต็มที่มีค่า Null อยู่หนึ่งค่า ใน Arrow เก็บค่าที่หายไปอย่างไร"
+  options={['เก็บตัวเลขพิเศษ เช่น -1 หรือค่าต่ำสุดของชนิด แทนค่าที่หายไป', 'เก็บ Validity Bitmap แยกต่างหาก หนึ่งบิตต่อแถว ช่องของ Values Buffer ที่ตรงกับแถวนั้นไม่มีความหมาย', 'เก็บเป็นสตริงว่างในรายการแยก']}
+  answer={1}
+  why="ในแบบฝึก คอลัมน์ Qty ได้ Values Buffer ของตัวเลขเรียงกัน และ Bitmap หนึ่งไบต์ 01111111 ที่แถวสุดท้ายเป็นบิต 0 เพราะแบบนี้ Null จึงใช้ได้ทุกชนิดข้อมูลและจำนวนเต็มยังเป็นจำนวนเต็ม"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เรา Concat DataFrame สองชุดแล้วเรียก n_chunks ได้ 2 แปลว่าอะไร"
+  options={['Polars ต่อแบบวาง Chunk สองก้อนเรียงกัน โดยไม่ Copy ข้อมูลเดิม และ Rechunk ภายหลังจะรวมเป็นก้อนเดียวโดย Copy', 'Polars ทำผิดพลาด ผลควรเป็น 1 เสมอ', 'ข้อมูลถูกแบ่งไปคนละ Thread']}
+  answer={0}
+  why="Concat แบบไม่ Rechunk แค่ต่อ Chunk การ Rechunk ภายหลังคัดลอกให้เป็นก้อนเดียว ซึ่งทำเมื่อต้องการหน่วยความจำติดกัน"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราตั้ง POLARS_IDEAL_MORSEL_SIZE เป็น 20000 แล้วรันแผนเดิมใน Streaming Engine จำนวนครั้งที่ฟังก์ชันของเราถูกเรียกเปลี่ยนอย่างไร"
+  options={['ลดลง เพราะก้อนเล็กลงทำงานเร็วขึ้น', 'เพิ่มขึ้น จาก 56 ครั้งเป็น 256 ครั้ง เพราะก้อนเล็กลงต้องส่งผ่านมากครั้งขึ้นเพื่อให้ครบ 5,000,000 แถวเท่าเดิม', 'เท่าเดิม เพราะ Morsel ไม่เกี่ยวกับจำนวนครั้ง']}
+  answer={1}
+  why="ผลรวมของทุกก้อนยังเป็น 5,000,000 แถว ก้อนที่เล็กลงจึงต้องมีมากขึ้น ในแบบฝึกได้ 256 ครั้ง ก้อนใหญ่สุด 20,326 แถว"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| คอลัมน์ที่มี Null มี Values Buffer และ Validity Bitmap `01111111` และที่ไม่มี Null ไม่มี Bitmap | รัน: `exercises/10_inside_polars.py` (อ่านผ่าน Pyarrow) |
+| ขนาด Int64 1,000,000 แถว = 8,000,000 ไบต์, เพิ่ม Null ได้ 8,125,009, Int8 1 ไบต์, Bool 125 ไบต์ต่อพันแถว | รัน: `exercises/10_inside_polars.py` |
+| `to_arrow()` ได้ `large_string`, ขอ `CompatLevel.newest()` ได้ `string_view` | รัน: `exercises/10_inside_polars.py` |
+| `to_numpy(allow_copy=False)` ได้ View อ่านอย่างเดียว และ Error เมื่อมี Null | รัน: `exercises/10_inside_polars.py` |
+| `concat` ได้ 2 Chunk, `rechunk()` ได้ 1 | รัน: `exercises/10_inside_polars.py` |
+| `Categorical` เก็บเป็น `UInt32`, `Enum` เก็บตำแหน่ง | รัน: `exercises/10_inside_polars.py` |
+| Streaming เรียกฟังก์ชัน 56 ครั้ง ก้อนใหญ่สุด 121,952 แถว, ตั้ง Morsel 20,000 ได้ 256 ครั้ง ก้อนใหญ่สุด 20,326, In-memory 41 ครั้ง | รัน: `exercises/10_inside_polars.py` (ผ่าน `map_batches` ในโปรเซสแยก) |
+| ขนาด Morsel เริ่มต้น 100,000 และชื่อตัวแปร | Source: `crates/polars-config/src/lib.rs` |
+| ลำดับกฎของ Optimizer และรายชื่อไฟล์ Node ของ Streaming Engine | Source: `crates/polars-plan/src/plans/optimizer/mod.rs` และ `crates/polars-stream/src/nodes/` |
+| เหตุผลที่ก้อนแรกของ Streaming ใหญ่กว่า 100,000 (มาจากขนาด Row Group) | ผู้เขียน (อนุมานจากตัวเลข 121,951 และ 41 Row Group ไม่ได้ไล่โค้ดของ Source) |
+
+</Step>

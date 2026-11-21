@@ -1,0 +1,206 @@
+---
+title: List, Struct and String
+summary: Data nested inside one cell comes as List and Struct, which are opened with expressions in their own namespaces. This lesson uses group_by to get lists, pulls values out and explodes them back to rows, uses struct to bundle columns, string and regex expressions, and measures how much slower map_elements is than an expression.
+facts:
+  - "Ran for real in exercises/08_nested_and_strings.py with Polars 2.1.0, asserting every List, Struct and String example."
+  - "The timing of map_elements against an expression was measured on one computer. The ratio is about 6 times for the very simple upper-case function; the real ratio depends on what the function does."
+  - "Not run: Array (the fixed-size type), deeply nested JSON, and regular expressions more complex than the examples."
+order: 8
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [group-by-windows]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## One cell, many values: List
+
+In [lesson 4](/en/polars/group-by-windows/) the result of `agg(pl.col("product").unique())` was a column where each cell holds many values. That column has the type `List`, and it does not come only from `agg`. Let us make a table that keeps each customer's products and quantities as lists (run: `exercises/08_nested_and_strings.py`).
+
+```python
+per = df.group_by("customer", maintain_order=True).agg(pl.col("product"), pl.col("qty"))
+per.schema["product"]     # List(String)
+per.row(0)                # ('Ann', ['pen', 'pen', 'book'], [2, 5, 2])
+```
+
+Now Ann has one row, with her three products in one cell. We look inside with the `list.` group of expressions, which is a namespace just like `str.`.
+
+```python
+per.select(
+    "customer",
+    n=pl.col("product").list.len(),
+    kinds=pl.col("product").list.n_unique(),
+    biggest=pl.col("qty").list.max(),
+    first=pl.col("product").list.first(),
+    has_book=pl.col("product").list.contains("book"),
+).row(0)
+# ('Ann', 3, 2, 5, 'pen', True)
+```
+
+Ann's result is 3 items, 2 kinds, a largest quantity of 5, a first product of `pen`, and she does have `book` in her list. To calculate on every member of a list, use `list.eval` and refer to the member with `pl.element()`.
+
+```python
+per.select(d=pl.col("qty").list.eval(pl.element() * 2))["d"][0]    # [4, 10, 4]
+```
+
+</Step>
+
+<Step>
+
+## explode: turn members into rows
+
+To go from a list back to rows, use `explode`.
+
+```python
+per.explode("product", "qty").shape      # (8, 3)   back to the original 8 rows
+```
+
+Watch out for lists that are empty or `null`.
+
+```python
+e = pl.DataFrame({"k": [1, 2, 3], "v": [[1, 2], [], None]})
+e.explode("v").rows()                          # [(1, 1), (1, 2), (3, None)]
+e.explode("v", empty_as_null=True).rows()      # [(1, 1), (1, 2), (2, None), (3, None)]
+e.explode("v", keep_nulls=False).rows()        # [(1, 1), (1, 2)]
+```
+
+By default in 2.1.0 the empty list (`[]`) of `k = 2` has no member to turn into a row, so that row quietly disappears. The list that is `null` keeps one row (with a `null` value). If you do not want the row of `k = 2` to vanish, pass `empty_as_null=True`, and if you do not want the `null` row at all, pass `keep_nulls=False`. We read the defaults of these two parameters from the source of `DataFrame.explode` and tried all three forms.
+
+</Step>
+
+<Step>
+
+## Many columns in one cell: Struct
+
+A `Struct` is a cell that holds several named fields, like a Python dict.
+
+```python
+s = df.select("order_id", item=pl.struct("product", "qty"))
+s.schema["item"]       # Struct({'product': String, 'qty': Int64})
+s["item"][0]           # {'product': 'pen', 'qty': 2}
+s.select(p=pl.col("item").struct.field("product"))["p"][1]     # 'ink'
+s.unnest("item").columns                                        # ['order_id', 'product', 'qty']
+```
+
+`pl.struct` bundles two columns into one, `struct.field` pulls a field out, and `unnest` spreads the fields back into ordinary columns. You often meet a Struct without making one, for example in the result of `value_counts()`, which is a table of two columns (the value and its count).
+
+```python
+df["product"].value_counts(sort=True).row(0)      # ('pen', 4)
+```
+
+And when you read nested JSON, it becomes a Struct column that you open with `unnest` (we did not run a multi-level JSON example).
+
+</Step>
+
+<Step>
+
+## Strings and regex
+
+A text column has the `str.` group. Try it on four messy names.
+
+```python
+names = pl.DataFrame({"s": ["  Ann Lee ", "bob_smith", "Cat-Doe", None]})
+names.select(pl.col("s").str.strip_chars())["s"][0]                       # 'Ann Lee'
+names.select(pl.col("s").str.contains("_|-"))["s"].to_list()              # [False, True, True, None]
+names.select(pl.col("s").str.replace_all(r"[_-]", " "))["s"].to_list()[1:3]   # ['bob smith', 'Cat Doe']
+names.select(pl.col("s").str.split("_"))["s"][1]                          # ['bob', 'smith']
+names.select(pl.col("s").str.extract(r"(\w+)[_-](\w+)", 2))["s"].to_list()   # [None, 'smith', 'Doe', None]
+```
+
+The second line is where `null` makes the result `None` (not `False`), as in [lesson 3](/en/polars/types-and-nulls/). Passing a missing value through is the behaviour of every expression in this group, so you do not have to write an `if` to guard it. `extract` pulls group 2 out of the regex, and gives `None` when there is no match.
+
+Two more tools for building text:
+
+```python
+df.select(label=pl.format("{} x{}", pl.col("product"), pl.col("qty")))["label"].to_list()[:2]
+# ['pen x2', 'ink x1']
+df.select(pl.concat_str("customer", pl.lit("@"), "region", separator="", ignore_nulls=False))["customer"].to_list()[6]
+# None
+```
+
+`pl.format` fills values into a template, and `concat_str` joins several text columns. If any column is `null`, the whole string is `null`. Row 7 of our table has no `region`, so it gives `None`.
+
+</Step>
+
+<Step>
+
+## When an expression cannot do it: map_elements and its price
+
+Sometimes we want to call our own Python function on every value. Polars has `map_elements` for that, but it comes with a warning label.
+
+```python
+pl.DataFrame({"x": [1, 2]}).select(pl.col("x").map_elements(lambda v: v + 1, return_dtype=pl.Int64))
+```
+
+```text
+Expr.map_elements is significantly slower than the native expressions API.
+Only use if you absolutely CANNOT implement your logic otherwise.
+Replace this expression...
+  - pl.col("x").map_elements(lambda v: ...)
+with this one instead:
+  + pl.col("x") + 1
+```
+
+Polars even suggests the expression to use instead. Let us measure with a very easy job: upper-casing the `product` column.
+
+```python
+big.select(label=pl.col("product").str.to_uppercase())                                          # an expression
+sub.select(label=pl.col("product").map_elements(lambda x: x.upper(), return_dtype=pl.String))   # a Python function per value
+```
+
+In our runs the expression took about 25 to 48 nanoseconds per row, and `map_elements` took about 166 to 307 nanoseconds per row (two runs, and both gave a ratio of about 6; the raw numbers change with the machine and the run). The two methods give the same result for every value. It is slower because Polars has to pick each value out of its own memory, hand it to Python, call the function, and take the result back and store it, one row at a time, and Python functions cannot be called on several threads at once, while an expression works directly on the whole column.
+
+<Callout type="tip" title="Before you use map_elements">
+Look for an expression that does the same job first. The warning above usually suggests one by itself for simple arithmetic and text. If the condition is complicated, try `when / then` from [lesson 2](/en/polars/expressions/) first.
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The list [1, 2] for k = 1, an empty list [] for k = 2, and null for k = 3. How many rows remain after exploding with the defaults in Polars 2.1.0?"
+  options={['2 rows, because only k = 1 has members', '3 rows: two for k = 1, and one null row for k = 3', '4 rows, because both the empty list and null always keep one row']}
+  answer={1}
+  why="The default drops the empty list (empty_as_null is False) but keeps the null list as one row (keep_nulls is True). The exercise checked all three options. To keep k = 2 from disappearing, set empty_as_null to True."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You want every row's text in upper case. Which way is best?"
+  options={['Call map_elements with Python\'s upper', 'Use str.to_uppercase, because it works on the whole column directly and was about 6 times faster in our measurement', 'Loop over the rows with iter_rows and build a new column']}
+  answer={1}
+  why="An expression works on the whole column in Polars' own memory with no trip into Python per value. The results are equal for every value, but in our measurement map_elements was about 6 times slower (we did not measure iter_rows looping)."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Claim | Source |
+|---|---|
+| `group_by` gives a `List(String)` column, with `list.len`, `n_unique`, `max`, `first`, `contains` and `list.eval` | ran: `exercises/08_nested_and_strings.py` |
+| `explode` drops an empty list, keeps a null list, and has the options `empty_as_null` and `keep_nulls` | ran: `exercises/08_nested_and_strings.py` and source: `DataFrame.explode` in `dataframe/frame.py` |
+| `Struct`, `struct.field`, `unnest`, `value_counts` | ran: `exercises/08_nested_and_strings.py` |
+| `str.strip_chars`, `contains`, `replace_all`, `split`, `extract`, `extract_all`, `pl.format`, `concat_str` | ran: `exercises/08_nested_and_strings.py` |
+| `map_elements` prints a warning that suggests an expression | ran: `exercises/08_nested_and_strings.py` |
+| `map_elements` is about 6 times slower than an expression for upper-casing | ran: timing in `exercises/08_nested_and_strings.py` (one computer) |
+| Why `map_elements` is slow (a trip to Python per value, and no parallel calls) | author (our explanation, not traced in code) |
+
+</Step>

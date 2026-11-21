@@ -1,0 +1,199 @@
+---
+title: First DataFrame
+summary: DataFrame ของ Polars คือ Series หลายตัวที่ยาวเท่ากัน แต่ละคอลัมน์มี Dtype เดียว ไม่มี Index และทุกคำสั่งคืน DataFrame ใหม่ บทนี้ลองสร้าง ดู Dtype และดูว่าคอลัมน์ที่ไม่ถูกแตะใช้หน่วยความจำร่วมกันจริง ๆ
+facts:
+  - "รันจริงใน exercises/01_first_dataframe.py ด้วย Polars 2.1.0 แล้ว Assert ผลทุกข้อ รวมถึงข้อความ Error ของ pl.Series([1, 2.5])"
+  - "การเทียบ Address ของ Buffer ใช้ to_arrow() ของ pyarrow อ่านที่อยู่ ไม่ได้อ่านจาก Source ของ Polars"
+  - "เรื่องที่ Polars เขียนด้วย Rust และเก็บข้อมูลแบบ Arrow เป็นข้อมูลที่ผู้เขียนอ้างจากเอกสาร ยังไม่ได้ไล่โค้ดในบทนี้ (ไปไล่จริงในบทที่ 10)"
+order: 1
+phase: A
+level: 1
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## ตารางออเดอร์ 8 แถว
+
+ตลอดทั้งเส้นทางนี้เราจะใช้ตารางออเดอร์ของร้านขายเครื่องเขียนเล็ก ๆ ร้านหนึ่ง มีแค่ 8 แถว เพื่อให้เห็นทุกตัวเลขด้วยตา โดยแถวที่ 7 ไม่มี `region` และแถวที่ 8 ไม่มี `qty` เราใส่ค่าที่หายไปสองจุดนี้ไว้ตั้งแต่แรก เพราะข้อมูลจริงมักจะมีแบบนี้อยู่แล้ว (รัน: `exercises/01_first_dataframe.py`)
+
+```python
+import datetime as dt
+import polars as pl
+
+df = pl.DataFrame({
+    "order_id": [1, 2, 3, 4, 5, 6, 7, 8],
+    "customer": ["Ann", "Bob", "Ann", "Cat", "Bob", "Ann", "Dan", "Cat"],
+    "region": ["north", "south", "north", "east", "south", "north", None, "east"],
+    "product": ["pen", "ink", "pen", "book", "pen", "book", "ink", "pen"],
+    "qty": [2, 1, 5, 1, 3, 2, 4, None],
+    "price": [1.5, 8.0, 1.5, 12.0, 1.5, 12.0, 8.0, 1.5],
+    "ordered_at": [dt.date(2026, 1, d) for d in (3, 3, 5, 6, 8, 9, 9, 12)],
+})
+print(df)
+```
+
+```text
+shape: (8, 7)
+┌──────────┬──────────┬────────┬─────────┬──────┬───────┬────────────┐
+│ order_id ┆ customer ┆ region ┆ product ┆ qty  ┆ price ┆ ordered_at │
+│ ---      ┆ ---      ┆ ---    ┆ ---     ┆ ---  ┆ ---   ┆ ---        │
+│ i64      ┆ str      ┆ str    ┆ str     ┆ i64  ┆ f64   ┆ date       │
+╞══════════╪══════════╪════════╪═════════╪══════╪═══════╪════════════╡
+│ 1        ┆ Ann      ┆ north  ┆ pen     ┆ 2    ┆ 1.5   ┆ 2026-01-03 │
+│ 2        ┆ Bob      ┆ south  ┆ ink     ┆ 1    ┆ 8.0   ┆ 2026-01-03 │
+│ 3        ┆ Ann      ┆ north  ┆ pen     ┆ 5    ┆ 1.5   ┆ 2026-01-05 │
+│ 4        ┆ Cat      ┆ east   ┆ book    ┆ 1    ┆ 12.0  ┆ 2026-01-06 │
+│ 5        ┆ Bob      ┆ south  ┆ pen     ┆ 3    ┆ 1.5   ┆ 2026-01-08 │
+│ 6        ┆ Ann      ┆ north  ┆ book    ┆ 2    ┆ 12.0  ┆ 2026-01-09 │
+│ 7        ┆ Dan      ┆ null   ┆ ink     ┆ 4    ┆ 8.0   ┆ 2026-01-09 │
+│ 8        ┆ Cat      ┆ east   ┆ pen     ┆ null ┆ 1.5   ┆ 2026-01-12 │
+└──────────┴──────────┴────────┴─────────┴──────┴───────┴────────────┘
+```
+
+ลองสังเกตหัวตาราง บรรทัด `---` คือที่ว่างสำหรับชื่อชนิดข้อมูล ส่วนบรรทัดถัดมา (`i64`, `str`, `f64`, `date`) คือ Dtype ของแต่ละคอลัมน์ Polars บอกเราตั้งแต่ตอนพิมพ์ตารางเลยว่าแต่ละคอลัมน์เก็บอะไร ซึ่งต่างจากสเปรดชีตที่ช่องแต่ละช่องจะเป็นอะไรก็ได้
+
+</Step>
+
+<Step>
+
+## Series คือคอลัมน์หนึ่งคอลัมน์
+
+ก่อนจะไปถึงตารางทั้งตาราง เรามาดูชิ้นที่เล็กที่สุดก่อน `Series` คือรายการของค่าที่มีชื่อ และมี Dtype ได้ชนิดเดียวเท่านั้น
+
+```python
+s = pl.Series("qty", [2, 1, 5])
+s.dtype        # Int64
+s.name         # 'qty'
+pl.Series(["a", None]).dtype      # String
+pl.Series([None, None]).dtype     # Null
+```
+
+รายการ `["a", None]` ยังเป็น `String` เพราะ `None` ในที่นี้แปลว่าค่าที่หายไป ไม่ได้เปลี่ยนชนิดของคอลัมน์ มีกรณีเดียวที่ Dtype ออกมาเป็น `Null` คือทุกค่าในรายการเป็น `None` หมด เพราะไม่มีอะไรให้ Polars ใช้เดาชนิดเลย
+
+ทีนี้ลองใส่จำนวนเต็มปนกับทศนิยมดู ถ้าคุณเคยใช้ Pandas หรือ NumPy คุณอาจคาดว่าจะได้ `Float64`
+
+```python
+pl.Series([1, 2.5])
+```
+
+```text
+TypeError: unexpected value while building Series of type Int64; found value of type Float64: 2.5
+Hint: Try setting `strict=False` to allow passing data with mixed types.
+```
+
+เอ๊ะ ทำไม Polars ถึงไม่ยอมแปลงให้ ค่าแรกคือ `1` ซึ่งเป็นจำนวนเต็ม Polars จึงเลือก `Int64` ไว้ก่อน พอเจอ `2.5` ที่ใส่ใน `Int64` ไม่ได้โดยไม่เสียเศษ มันจึงหยุดพร้อมบอกว่าเจอค่าอะไร หลักข้อนี้เราจะเจอซ้ำอีกหลายบท คือ Polars เลือกที่จะหยุดแล้วบอก มากกว่าจะแปลงให้เงียบ ๆ ถ้าอยากให้มันยอมรับก็บอกตรง ๆ ว่า `strict=False` ซึ่งในตัวอย่างนี้จะได้ `Float64`
+
+</Step>
+
+<Step>
+
+## DataFrame คือ Series หลายตัวที่ยาวเท่ากัน
+
+`DataFrame` ก็คือ Series หลายตัวที่เอามาเรียงข้างกัน โดยทุกตัวต้องยาวเท่ากัน
+
+```python
+df.shape        # (8, 7)
+df.columns      # ['order_id', 'customer', 'region', 'product', 'qty', 'price', 'ordered_at']
+df.schema       # Schema({'order_id': Int64, 'customer': String, ..., 'price': Float64, 'ordered_at': Date})
+df["qty"]       # Series ชื่อ qty
+```
+
+สิ่งที่คนมาจาก Pandas มักสะดุดคือ DataFrame ของ Polars **ไม่มี Index** เลขแถว (0 ถึง 7) ที่เห็นเวลาเราดูตารางเป็นแค่ลำดับของแถว ไม่ได้เป็นส่วนหนึ่งของข้อมูล เราจึงไม่มี `df.loc[3]` ถ้าอยากได้ออเดอร์หมายเลข 3 ก็ต้องถามจากคอลัมน์ตรง ๆ
+
+```python
+df.filter(pl.col("order_id") == 3)["customer"].item()    # 'Ann'
+df.row(0)                                                 # (1, 'Ann', 'north', 'pen', 2, 1.5, datetime.date(2026, 1, 3))
+df.row(by_predicate=pl.col("order_id") == 4)[1]           # 'Cat'
+df["qty"].to_list()                                       # [2, 1, 5, 1, 3, 2, 4, None]
+```
+
+บรรทัดสุดท้ายแสดงให้เห็นว่าค่าที่หายไปออกมาเป็น `None` ของ Python ส่วนในตาราง Polars เรียกค่านี้ว่า `null` เราจะลงรายละเอียดเรื่อง `null` ใน [บท 3](/polars/types-and-nulls/)
+
+<Callout type="note" title="ทำไมไม่มี Index">
+Index ของ Pandas ทำให้ต้องคอยถามว่าหลัง Filter, หลัง Join และหลัง Concat ป้ายชื่อแถวจะตามมาด้วยหรือเปล่า Polars ตัดเรื่องนี้ทิ้งไปเลย แถวคือตำแหน่ง ถ้าอยากให้ค่าไหนเป็นตัวระบุแถว ก็เก็บไว้เป็นคอลัมน์ธรรมดา เช่น `order_id` ในตารางนี้ (ส่วนเหตุผลของผู้ออกแบบ เราเดาจากหน้าตาของ API เอง ไม่ได้อ้างเอกสาร)
+</Callout>
+
+</Step>
+
+<Step>
+
+## ไม่มีอะไรเปลี่ยนที่เดิม
+
+ทุกคำสั่งของ Polars คืน DataFrame ใหม่กลับมา ตัวเดิมไม่ถูกแก้ ลองเพิ่มคอลัมน์ `total` เข้าไป
+
+```python
+bigger = df.with_columns(total=pl.col("qty") * pl.col("price"))
+df.columns       # ยังมี 7 คอลัมน์เหมือนเดิม
+bigger.columns   # 8 คอลัมน์ ตัวสุดท้ายคือ 'total'
+```
+
+ถ้าลองแก้ตรง ๆ แบบ Pandas (`df["total"] = ...`) Polars จะไม่ให้ทำ เราจะกลับมาดูเรื่องนี้ใน [บท 11](/polars/from-pandas/)
+
+ถึงตรงนี้คุณอาจสงสัยว่า ถ้าทุกครั้งได้ DataFrame ใหม่ มันก็ต้อง Copy ข้อมูลทั้งตารางทุกครั้งสิ คำตอบคือไม่ต้อง เราพิสูจน์ได้ด้วยการเอาที่อยู่ของ Buffer ที่เก็บตัวเลขในหน่วยความจำมาเทียบกัน ผ่าน `pyarrow`
+
+```python
+def addr(s):
+    return s.to_arrow().buffers()[1].address
+
+addr(df["order_id"]) == addr(bigger["order_id"])                              # True
+addr(df.select(pl.col("order_id") + 0)["order_id"]) == addr(df["order_id"])   # False
+```
+
+คอลัมน์ `order_id` ที่เราไม่ได้แตะ ชี้ไปที่ Buffer เดียวกันทั้งใน `df` และ `bigger` ส่วนคอลัมน์ที่เราคำนวณใหม่ (`order_id + 0`) ได้ Buffer ใหม่ของตัวเอง การที่ไม่มีอะไรเปลี่ยนที่เดิมจึงไม่ได้แพงอย่างที่ดู เพราะส่วนที่ไม่เปลี่ยนก็ใช้ร่วมกันไป เราจะเห็นหน้าตาของ Buffer นี้จริง ๆ ใน [บท 10](/polars/inside/)
+
+</Step>
+
+<Step>
+
+## ดูข้อมูลอย่างเร็ว
+
+เมื่อได้ตารางใหม่มา คำสั่งที่เราเปิดดูบ่อยที่สุดมีสี่ตัว
+
+```python
+df.head(2)                          # 2 แถวแรก
+df.tail(3)["order_id"].to_list()    # [6, 7, 8]
+df.describe()                       # จำนวน, null, mean, std, min, quartile, max ของทุกคอลัมน์
+df.glimpse()                        # ทุกคอลัมน์เป็นแถว พร้อม dtype และค่าตัวอย่าง
+```
+
+`describe()` มีแถว `null_count` ซึ่งบอกว่า `qty` มี Null 1 ค่า และ `region` ก็มี 1 ค่า เป็นวิธีเช็กความสะอาดของข้อมูลที่เร็วที่สุดตอนเปิดไฟล์ใหม่ ส่วนการเอาข้อมูลออกจาก DataFrame ไปใช้เป็น Python ธรรมดาทำได้ด้วย `rows()` (รายการของ Tuple), `to_dicts()` (รายการของ Dict) และ `iter_rows()` ถ้าไม่อยากสร้างทั้งรายการ
+
+<Callout type="try" title="ลองทำเอง">
+สร้าง `pl.Series([1, 2.5])` แล้วดู Error จากนั้นเติม `strict=False` แล้วเรียก `.dtype` คุณจะได้ `Float64` เหมือนที่แบบฝึกตรวจไว้
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="df มี 7 คอลัมน์ แล้วเราสร้างตัวใหม่ด้วย df.with_columns(...) เพิ่มอีกหนึ่งคอลัมน์ ผลเป็นอย่างไร"
+  options={['df ถูกแก้ให้มี 8 คอลัมน์ และตัวใหม่ก็คือ df ตัวเดียวกัน', 'ตัวใหม่เป็น DataFrame ใหม่ 8 คอลัมน์ df ยังมี 7 คอลัมน์ และคอลัมน์เดิมไม่ได้ถูก Copy', 'ตัวใหม่เป็น DataFrame ใหม่ 8 คอลัมน์ และ Polars Copy ทุกคอลัมน์ของ df มาใหม่ทั้งหมด']}
+  answer={1}
+  why="with_columns คืนค่าใหม่เสมอ df จึงไม่เปลี่ยน แต่คอลัมน์ที่ไม่ได้แตะ (เช่น order_id) ใช้ Buffer เดียวกับของเดิม เราเทียบที่อยู่ Buffer ผ่าน Pyarrow แล้วได้ที่อยู่เดียวกัน ส่วนคอลัมน์ที่คำนวณใหม่ได้ Buffer ใหม่"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| `pl.Series([1, 2.5])` เกิด TypeError และ `strict=False` ได้ Float64 | รัน: `exercises/01_first_dataframe.py` |
+| ตาราง 8 แถวมี Dtype `Int64`, `String`, `Float64`, `Date` | รัน: `exercises/01_first_dataframe.py` |
+| DataFrame ไม่มี Index, `row(by_predicate=...)` ใช้ได้ | รัน: `exercises/01_first_dataframe.py` |
+| คอลัมน์ที่ไม่ถูกแตะใช้ Buffer ร่วมกัน คอลัมน์ที่คำนวณใหม่ได้ Buffer ใหม่ | รัน: เทียบ `buffers()[1].address` ผ่าน Pyarrow |
+| `describe()` มีแถว `null_count` | รัน: `exercises/01_first_dataframe.py` |
+| เหตุผลที่ Polars ไม่มี Index | ผู้เขียน (สรุปเอง ไม่ได้อ้างเอกสารของ Polars) |
+
+</Step>

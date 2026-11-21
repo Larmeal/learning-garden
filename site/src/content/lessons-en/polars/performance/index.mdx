@@ -1,0 +1,154 @@
+---
+title: Why It Is Fast, Measured
+summary: This lesson measures the real time of a 5-million-row group_by against pandas, reading a whole file against scan for Parquet and CSV, adding threads, and the memory of the two engines, and says what each number can and cannot tell you.
+facts:
+  - "Ran for real in exercises/09_performance.py with Polars 2.1.0 and pandas 3.1.1 on Windows (16 threads), on 5,000,000 rows of synthetic data. Every time is the minimum of 2 or 3 runs, and the asserts are loose ratios, not fixed times."
+  - "Memory was measured as the peak working set of the process through psutil, on Windows only. 5 million rows fit in memory with both engines, so the case of data larger than memory was not tested."
+  - "No comparison with DuckDB, Spark or other tools, and no comparison with pandas using the PyArrow backend."
+order: 9
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [lazy, io]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## What we measure, before the numbers
+
+"Polars is fast" is said everywhere. In this lesson we do not ask you to believe it. We measure, and we say first what was measured, because a number that does not say what it measured is of no use (run: `exercises/09_performance.py`).
+
+The data is 5,000,000 synthetic orders (made from a fixed seed). The computer is a Windows machine with 16 threads. Each time is the minimum of two or three repeated runs, because the minimum is the least disturbed by other work on the system. The asserts in the exercise are loose ratios (for example, pandas must be more than 3 times slower than Polars), not fixed times, because times change from machine to machine and run to run. So read the numbers in this lesson as **orders of magnitude**, not values you will get on your own machine.
+
+</Step>
+
+<Step>
+
+## group_by against pandas
+
+The question is the total sales of each (product, region) pair, which means multiplying `qty` by `price` first and then summing. Both sides do the same work.
+
+```python
+big.group_by("product", "region").agg((pl.col("qty") * pl.col("price")).sum().alias("t"))   # Polars
+pdf.assign(t=pdf.qty * pdf.price).groupby(["product", "region"])["t"].sum()                  # pandas
+```
+
+```text
+group_by: polars 34 ms, pandas 603 ms, ratio 18x
+group_by: polars 38 ms, pandas 747 ms, ratio 20x
+```
+
+The two runs gave 18 and 20 times (when we first wrote the exercise we saw 24 times). The number changes from run to run, but it stays at the same level: **more than ten times**. The results of the two sides agree on every value (the assert compares the list of sums and they are equal). One caution: this comparison is a single case (multiply then sum over two keys) on data with no missing values and few keys. pandas with the PyArrow backend, or other cases, could differ, and we did not measure them.
+
+</Step>
+
+<Step>
+
+## The biggest gain: say what you need before reading the file
+
+We take the same data, write it as Parquet and as CSV, and measure the same question (the total `qty` per product, north only) in two ways. The first reads the whole file and then filters and selects columns. The second uses `scan`, so the optimizer pushes the filter and the column selection down to the reading ([lesson 6](/en/polars/lazy/)).
+
+```text
+parquet: read first 150 ms, scan 21 ms, ratio 7.2x
+parquet: read first 134 ms, scan 18 ms, ratio 7.5x
+csv:     read first 536 ms, scan 374 ms, ratio 1.4x
+csv:     read first 450 ms, scan 406 ms, ratio 1.1x
+```
+
+Parquet gains about 7 times, because only the columns it needs can really be read, as the file is stored by column. CSV gains only 1.1 to 1.4 times, because the file is stored row by row, and whichever columns we want, every character of every row must still be read and parsed before we know which rows are north. So the conclusion is that `scan` pays off most when the file format lets us skip data (row groups and statistics are in [lesson 7](/en/polars/io/)).
+
+</Step>
+
+<Step>
+
+## The number of threads
+
+Polars splits work into pieces and uses many threads together. We limit the number with the environment variable `POLARS_MAX_THREADS` and run the same job (`group_by("customer_id")` on 5,000,000 rows) in three separate fresh processes.
+
+```text
+threads and seconds: {'1': (1, 0.2498), '4': (4, 0.103), 'default': (16, 0.0769)}
+```
+
+One thread takes 0.25 seconds, four threads take 0.10 seconds, and the default (16 threads) takes 0.077 seconds. That is about 2.4 times faster at 4 threads and about 3.2 times faster at 16, not 16 times, because parts of the work cannot run together, and there is a merge at the end. We did not check which part takes how long, so all we have is that more threads really help, but not in a straight line.
+
+</Step>
+
+<Step>
+
+## Memory and the two engines
+
+[Lesson 6](/en/polars/lazy/) said the default is the streaming engine, so we tested what people often expect: that streaming uses much less memory. We ran the same question (read a 5-million-row CSV and group by product), one engine per process, and read the process's peak memory.
+
+```text
+peak working set MB: import only 49, in-memory 438, streaming 400
+```
+
+In-memory used 438 MB and streaming used 400 MB, a small difference (a process that only imports Polars already uses 49 MB). With data of this size, which is only a CSV of about 200 MB, the conclusion is that **we did not see a memory advantage of streaming in this example**. Its benefit probably shows when the data is larger than memory, but we did not measure that case, and we promise nothing beyond what we measured.
+
+Both engines give the same answer (`equals` is true). What changes is how it runs, and we look at that inside in [lesson 10](/en/polars/inside/).
+
+<Callout type="warn" title="Numbers are not promises">
+Every number in this lesson comes from one computer, synthetic data and a few kinds of job. If you must decide something real, measure with your own data and jobs, using the same frame as exercise 09 (repeat, take the minimum, and make the results agree before comparing times).
+</Callout>
+
+</Step>
+
+<Step>
+
+## If it is slow, where to look
+
+From what we measured and saw along this path, here are the likely causes of slow Polars code, in the order to check them.
+
+**First**, check whether you use `map_elements` or loop over rows in Python. In [lesson 8](/en/polars/nested-strings/) we measured it at about 6 times slower than an expression even for a very easy job. **Second**, check whether you read the whole Parquet file and filter afterwards, and change to `scan`, which gave about 7 times here. **Third**, check whether a join added rows by accident ([lesson 5](/en/polars/joins/)), because bigger data makes everything after it slower. **Last**, if something is not shown by the numbers above, look at the plan with `explain()` and see what has been pushed down to the scan yet.
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Scanning a Parquet file was about 7 times faster than reading it whole, but a CSV only 1.1 to 1.4 times. Why?"
+  options={['Polars reads a CSV slower than Parquet by nature', 'A CSV is stored row by row, so every character must be read and parsed before we know which row matches, while Parquet can read only the needed columns', 'The CSV was too big to scan']}
+  answer={1}
+  why="Pushing the column selection and the filter down to the scan helps a lot when the file format lets data be skipped. Parquet is stored by column, so it can skip columns that are not used. A CSV cannot skip, so the help is small."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The peak memory of in-memory and streaming on a 5-million-row CSV was 438 and 400 MB. Which conclusion matches the evidence?"
+  options={['Streaming saves much more memory, proven', 'For data of this size the two use about the same, no advantage was seen, and data larger than memory was not measured', 'In-memory saves more, because streaming has extra work']}
+  answer={1}
+  why="The difference is only 38 MB, small next to 438 MB, and the data fits in memory with both. We report what was measured and do not stretch it to a case we did not test."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Claim | Source |
+|---|---|
+| For `group_by` on 5,000,000 rows Polars was 18 to 24 times faster than pandas, and the results agree | ran: `exercises/09_performance.py` (timed) |
+| Parquet: scan was about 7 times faster than reading it whole | ran: `exercises/09_performance.py` |
+| CSV: scan was about 1.1 to 1.4 times faster than reading it whole | ran: `exercises/09_performance.py` |
+| Threads 1, 4 and 16 took 0.25, 0.10 and 0.077 seconds | ran: `exercises/09_performance.py` (set with `POLARS_MAX_THREADS` in separate processes) |
+| Peak memory 49 (import), 438 (in-memory), 400 (streaming) MB | ran: `exercises/09_performance.py` (psutil, Windows only) |
+| The two engines give the same answer | ran: `exercises/09_performance.py` |
+| Why CSV gains little from scan (row by row, every character is read) | author (explained from the file format, not checked in code) |
+| Why threads do not speed things up in a straight line | author (we did not check which parts cannot run together) |
+| The order of things to check when code is slow | author (a summary of what was measured on this path) |
+
+</Step>

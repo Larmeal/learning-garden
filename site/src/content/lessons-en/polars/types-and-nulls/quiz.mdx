@@ -1,0 +1,79 @@
+---
+title: Check your understanding
+summary: Answer 5 questions to check how well you understood casting, null and NaN.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="A text column holds '1', 'x', '3', and you cast it to integers without setting anything else. What happens?"
+  options={['You get 1, 0, 3, because values that cannot be converted become zero', 'An InvalidOperationError says 1 of 3 values failed and shows x', 'You get 1, null, 3, because Polars converts what it can']}
+  answer={1}
+  why="A Polars cast is strict by default. To get null for values that cannot be converted, pass strict=False, which is also the way to count how many values of the data are dirty."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="One float column holds 1.0, NaN, 3.0 and another holds 1.0, null, 3.0. What are their averages?"
+  options={['The first gives NaN and the second gives 2.0', 'Both give 2.0, because both special values are skipped', 'The first gives 2.0 and the second gives NaN']}
+  answer={0}
+  why="null is a missing value, and aggregate functions skip it (4 divided by 2 gives 2.0). NaN is a kind of number, so it is not skipped and spreads to the whole result. If your data has NaN mixed in, turn it into null first with fill_nan(None)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You call sort() with no options on a column that holds 3, null, 1. What is the result?"
+  options={['null, 1, 3, because null is placed first by default', '1, 3, null, because null is always last', 'An error, because a missing value cannot be sorted']}
+  answer={0}
+  why="The default of sort puts null first. To put it last, pass nulls_last=True. Watch for this when you use the result for a top-k or a head."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="What does sum give for an Int64 column whose every value is null?"
+  options={['null, because there is nothing to add', '0, because the sum of nothing is zero', 'An error, because the column is empty']}
+  answer={1}
+  why="sum skips every null and is left with an empty list, whose sum is 0. The mean of the same column gives null, because there is nothing to divide. In this lesson's exercise we checked the sum of an all-null group."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You have the text '03/01/2026' meant as 3 January. What is the safest way to turn it into a date?"
+  options={['Call to_date() and let Polars guess', 'Give the format explicitly, for example %d/%m/%Y', 'Cast it to Date directly, as you would a number']}
+  answer={1}
+  why="A string like this can be read two ways (day/month or month/day). In the exercise Polars guessed day/month correctly, but we should not rely on a guess for data whose source we do not control. A given format gives the same result every time."
+/>
+
+</Step>

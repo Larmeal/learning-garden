@@ -1,0 +1,181 @@
+---
+title: Coming from pandas
+summary: The same questions asked in pandas and in Polars. There is no index, a DataFrame cannot be assigned into directly, filter against missing values, groupby against over, merge against join, and where NaN and null differ, plus how to move data back and forth and a list of the calls that Polars does not have.
+facts:
+  - "Ran for real in exercises/11_from_pandas.py with Polars 2.1.0 and pandas 3.1.1, the release uv installed (pandas 3 differs from 2 in string types and missing values, so results may differ with pandas 2)."
+  - "The comparison covers the behaviour of an 8-row example. It does not test pandas with the PyArrow backend or a multi-level index."
+  - "The table of what Polars does not have (loc, iloc, apply, iterrows, groupby) was checked by trying each call and getting an AttributeError, not by reading the full API list."
+order: 11
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [group-by-windows, joins]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## One table, two libraries
+
+This lesson is for people who wrote pandas first. If you have never used pandas, skip to [lesson 12](/en/polars/capstone/). We use the 8-row order table from [lesson 1](/en/polars/first-dataframe/) and convert it to a `pandas.DataFrame` with `to_pandas()` so that both sides can be asked the same question (run: `exercises/11_from_pandas.py`). Note that we installed pandas 3.1.1. If you use pandas 2, some results may differ.
+
+The three biggest differences we will see are that Polars has no index, Polars does not let you assign into a DataFrame, and Polars does not quietly change a data type when there are missing values.
+
+</Step>
+
+<Step>
+
+## No index
+
+```python
+pd_df.set_index("order_id").loc[3, "customer"]                  # 'Ann'   pandas: look up by row label
+pl_df.filter(pl.col("order_id") == 3)["customer"].item()        # 'Ann'   Polars: filter on a column
+
+list(pd_df[pd_df.qty > 2].index)       # [2, 4, 6]   pandas: the old row labels are still there after a filter
+pl_df.filter(pl.col("qty") > 2).height # 3           Polars: no labels, only positions
+```
+
+After a filter, pandas rows remember their old labels (2, 4, 6). That is convenient sometimes, but it is also the cause of bugs when a join or a concat meets labels that clash. Polars drops all that (see [lesson 1](/en/polars/first-dataframe/)). If you want a value to identify a row, keep it as a column.
+
+</Step>
+
+<Step>
+
+## No assignment into a DataFrame
+
+```python
+pl_df["total"] = pl_df["qty"] * pl_df["price"]
+```
+
+```text
+TypeError: DataFrame object does not support `Series` assignment by index
+
+Use `DataFrame.with_columns`.
+```
+
+In pandas you write `pd_df["total"] = ...` and the original changes. In Polars you build a new one with `with_columns` (see [lesson 2](/en/polars/expressions/)), and the original does not change. We checked that after `with_columns` the original still has no `total` column.
+
+</Step>
+
+<Step>
+
+## The same questions, the same answers
+
+We go through the four most common questions and check that both sides agree.
+
+| Question | pandas | Polars |
+|---|---|---|
+| Filter north with qty above 1 | `pd_df[(pd_df.region == "north") & (pd_df.qty > 1)]` | `pl_df.filter((pl.col("region") == "north") & (pl.col("qty") > 1))` |
+| Total per customer | `pd_df.groupby("customer")["total"].sum()` | `pl_df.group_by("customer").agg(pl.col("total").sum())` |
+| Customer total on every row | `pd_df.groupby("customer")["total"].transform("sum")` | `pl.col("total").sum().over("customer")` |
+| Attach the customer table | `pd_df.merge(cust, on="customer", how="left")` | `pl_df.join(cust, on="customer", how="left")` |
+
+The answers agree on every one: orders 1, 3, 6 for the first, the totals Ann 34.5, Bob 12.5, Cat 12.0 and Dan 32.0 for the second, and the list `[34.5, 12.5, 34.5, 12.0, 12.5, 34.5, 32.0, 12.0]` for the third. For the last one, both sides get one missing `tier` (Dan). The most notable mapping is the pandas `transform`, which becomes the Polars `over` that we know from [lesson 4](/en/polars/group-by-windows/).
+
+</Step>
+
+<Step>
+
+## Missing values: where the results really differ
+
+```python
+pd_df.qty.dtype            # float64   there is a missing value, so the integers became decimals
+pl_df["qty"].dtype         # Int64     Polars keeps them as integers
+
+(pd_df.region == "north").tolist()[6]                 # False  pandas: comparing a missing value gives False
+pl_df.select(pl.col("region") == "north")["region"].to_list()[6]    # None   Polars: gives null
+```
+
+In pandas the missing value of a number is `NaN`, a decimal, so an integer column with a missing value is lifted to `float64` as a whole. Polars uses a validity bitmap, as seen in [lesson 10](/en/polars/inside/), so integers stay integers. For comparison, pandas answers `False` for a row whose `region` is missing, and Polars answers `null` (as discussed in [lesson 3](/en/polars/types-and-nulls/)). A `filter` drops the row in both cases, but counting the result or combining it with other conditions will not behave the same.
+
+The average of `qty` comes out the same on both sides, because both skip the missing value.
+
+</Step>
+
+<Step>
+
+## Moving data back and forth
+
+```python
+back = pl.from_pandas(pd_df.drop(columns="total"))
+back.schema["qty"]                 # Float64   (pandas had already lifted it to float, and Polars takes what it is given)
+back["qty"].null_count()           # 1         the NaN was turned into null
+
+pl.from_pandas(pd.DataFrame({"a": [1.0, float("nan")]}))["a"].null_count()                         # 1
+pl.from_pandas(pd.DataFrame({"a": [1.0, float("nan")]}), nan_to_null=False)["a"].is_nan().sum()    # 1
+
+pl_df.to_pandas().qty.dtype                                       # float64
+pl_df.to_pandas(use_pyarrow_extension_array=True).qty.dtype       # int64[pyarrow]
+```
+
+`from_pandas` turns pandas `NaN` into `null` by default, and if you want to keep `NaN` you must say `nan_to_null=False`. Going the other way, `to_pandas()` turns an integer column with a `null` back into decimals, but if you ask for `use_pyarrow_extension_array=True` you get `int64[pyarrow]`, which stays an integer and can hold the `null`.
+
+</Step>
+
+<Step>
+
+## Calls that do not exist
+
+People with pandas habits often type these, and when we tried them we got an `AttributeError`.
+
+| In pandas | In Polars |
+|---|---|
+| `df.groupby(...)` | `df.group_by(...)` |
+| `df.apply(...)`, `df.iterrows()` | neither exists; use expressions, and if you really must, `iter_rows(named=True)` |
+| `df.loc[...]`, `df.iloc[...]` | `filter`, `row`, and `df[0, "qty"]` |
+
+The error message for `groupby` is `'DataFrame' object has no attribute 'groupby'`, which does not tell you the right name, so you have to know it. `iter_rows(named=True)` is for when you must walk row by row (for example to call an API per row). A total computed with a loop gave 91.0, the same as the expression, which we checked, but a loop like this is slower on big data, so use it only when there is no other way.
+
+<Callout type="note" title="A suggested way to migrate">
+Move one question at a time, not the whole project. Turn the Polars result back into pandas right at the entrance of code that still needs pandas (`to_pandas()`), and check the result against the old one by comparing lists of values, as exercise 11 did for all four questions.
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A Polars DataFrame has an integer column with one missing value. You convert it to pandas with to_pandas and the defaults. What is the column type?"
+  options={['int64, as before', 'float64, because pandas uses NaN for a missing value, which is a decimal', 'object']}
+  answer={1}
+  why="The exercise checked that the result is float64. To keep it an integer that can hold the missing value, ask for use_pyarrow_extension_array set to True, which gives int64[pyarrow]."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You filter for region equal to north in a DataFrame where one row has no region. What is the comparison result for that row in pandas and in Polars?"
+  options={['False in both', 'False in pandas and null in Polars, but a filter drops that row in both cases', 'null in pandas and False in Polars']}
+  answer={1}
+  why="In the exercise row 7 gave False in pandas and None in Polars. The result of the filter is the same, but if you count that value or combine it with other conditions later, the results will not be the same."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Claim | Source |
+|---|---|
+| No index; pandas `loc` against Polars `filter`; the old row labels remain after a pandas filter | ran: `exercises/11_from_pandas.py` |
+| Assigning with `df["x"] = ...` raises a `TypeError` that suggests `with_columns` | ran: `exercises/11_from_pandas.py` |
+| Filter, groupby, transform against over, and merge against join give matching results | ran: `exercises/11_from_pandas.py` |
+| pandas lifts integers to float64 when a value is missing; comparing a missing value gives False, against null in Polars | ran: `exercises/11_from_pandas.py` (pandas 3.1.1) |
+| `from_pandas` turns NaN into null and `nan_to_null=False` keeps NaN; `use_pyarrow_extension_array` gives `int64[pyarrow]` | ran: `exercises/11_from_pandas.py` |
+| `groupby`, `apply`, `iterrows`, `iloc` are an `AttributeError` | ran: `exercises/11_from_pandas.py` |
+| A row loop is slower than an expression | author (not measured in this lesson; see the `map_elements` numbers in [lesson 8](/en/polars/nested-strings/)) |
+| The suggested migration path | author |
+
+</Step>

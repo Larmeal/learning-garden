@@ -1,0 +1,225 @@
+---
+title: Join
+summary: Join ต่อสองตารางด้วยคอลัมน์ที่เป็นกุญแจ บทนี้ใช้ตารางออเดอร์กับตารางลูกค้าเล็ก ๆ ดูผลของ Inner, Left, Right, Full, Semi, Anti และ Cross ว่าได้กี่แถว ทำไมกุญแจที่ซ้ำทำให้แถวเพิ่ม วิธีกันด้วยการตรวจกุญแจ แล้วต่อด้วย Join ตามเงื่อนไข Join ตามเวลา และการวางตารางต่อกัน
+facts:
+  - "รันจริงใน exercises/05_joins.py ด้วย Polars 2.1.0 แล้ว Assert จำนวนแถวและข้อความ Error ของทุก Join"
+  - "ตารางลูกค้าและตัวอย่าง asof เป็นข้อมูลสังเคราะห์ขนาดเล็กที่เขียนเอง ไม่ได้มาจากระบบจริง"
+  - "ลำดับแถวหลัง Join รับประกันเฉพาะเมื่อใส่ maintain_order ผู้เขียนอ่านจากเอกสาร Parameter ไม่ได้ไล่โค้ดของ Join"
+order: 5
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [expressions]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import JoinLab from '../../../../components/labs/polars/JoinLab';
+
+<Step>
+
+## ตารางที่สอง: ลูกค้า
+
+ร้านเก็บ Tier ของลูกค้าไว้อีกตาราง และอยากเอามาติดกับออเดอร์ ตารางลูกค้ามี 4 คน ได้แก่ Ann, Bob, Cat, Eve ส่วนในออเดอร์มี Ann, Bob, Cat, Dan สังเกตว่า Dan สั่งของแต่ไม่อยู่ในตารางลูกค้า และ Eve อยู่ในตารางลูกค้าแต่ยังไม่เคยสั่ง ความไม่ตรงกันสองจุดนี้คือสิ่งที่ทำให้ Join แต่ละแบบให้ผลต่างกัน (รัน: `exercises/05_joins.py`)
+
+```python
+orders = df.select("order_id", "customer", "qty")     # 8 แถว
+cust = pl.DataFrame({"customer": ["Ann", "Bob", "Cat", "Eve"], "tier": ["gold", "silver", "silver", "gold"]})
+
+orders.join(cust, on="customer", how="left")
+```
+
+```text
+order_id  customer  qty   tier
+1         Ann       2     gold
+2         Bob       1     silver
+3         Ann       5     gold
+4         Cat       1     silver
+5         Bob       3     silver
+6         Ann       2     gold
+7         Dan       4     null
+8         Cat       null  silver
+```
+
+`on="customer"` บอกว่าให้จับคู่แถวที่ค่า `customer` เท่ากัน `how="left"` บอกว่าเก็บทุกแถวของตารางซ้าย (ออเดอร์) ไว้ ถ้าไม่เจอคู่ก็เติม `null` ในคอลัมน์ของตารางขวา Dan จึงได้ `tier` เป็น `null`
+
+</Step>
+
+<Step>
+
+## แต่ละชนิดของ Join ได้กี่แถว
+
+ลองเปลี่ยน `how` ไปทีละแบบ แล้วนับแถว เราสรุปไว้ในตารางข้างล่าง และลองกดใน Lab เพื่อดูว่าแถวไหนจับคู่กับใคร
+
+| `how` | ผลคือ | ได้กี่แถว |
+|---|---|---|
+| `inner` | เฉพาะแถวที่เจอคู่ทั้งสองฝั่ง (ไม่มี Dan ไม่มี Eve) | 7 |
+| `left` | ทุกแถวของออเดอร์ (Dan ได้ `tier` เป็น Null) | 8 |
+| `right` | ทุกแถวของลูกค้า (Eve ปรากฏทั้งที่ยังไม่เคยสั่ง) | 8 |
+| `full` | ทุกแถวของทั้งสองฝั่ง | 9 |
+| `semi` | เฉพาะแถวของออเดอร์ที่มีคู่ และไม่เพิ่มคอลัมน์ใหม่ | 7 |
+| `anti` | เฉพาะแถวของออเดอร์ที่ไม่มีคู่ (คือออเดอร์ 7 ของ Dan) | 1 |
+| `cross` | จับทุกแถวคู่กับทุกแถว (ไม่ใช้กุญแจ) | ลูกค้า 4 คูณ 4 ได้ 16 |
+
+<JoinLab client:visible />
+
+`semi` กับ `anti` เป็นสองแบบที่คนมักลืม ทั้งที่ตอบคำถามที่เจอบ่อยมาก เช่น ออเดอร์ที่ลูกค้าอยู่ในระบบแล้วมีกี่รายการ (`semi`) และออเดอร์ที่ลูกค้าหาไม่เจอมีอะไรบ้าง (`anti`) โดยไม่ต้องมานั่งกรอง `null` ทีหลัง
+
+ส่วน `full` ทิ้งคอลัมน์กุญแจของทั้งสองฝั่งไว้ให้เรา
+
+```python
+orders.join(cust, on="customer", how="full")
+# คอลัมน์: order_id, customer, qty, customer_right, tier   (แถวสุดท้าย: Eve มี customer เป็น null แต่ customer_right เป็น 'Eve')
+orders.join(cust, on="customer", how="full", coalesce=True)    # รวมสองคอลัมน์กุญแจให้เหลืออันเดียว
+```
+
+`coalesce=True` ให้คอลัมน์เดียวที่มีชื่อของฝั่งไหนก็ได้ที่ไม่เป็น `null` ซึ่งโดยมากเป็นสิ่งที่เราอยากได้
+
+</Step>
+
+<Step>
+
+## กุญแจที่ซ้ำ ทำให้แถวเพิ่ม
+
+ลองจินตนาการว่าตารางเบอร์โทรเก็บ Ann ไว้สองเบอร์ แล้ว Join ตามชื่อ
+
+```python
+dup = pl.DataFrame({"customer": ["Ann", "Ann", "Bob"], "phone": ["1", "2", "3"]})
+orders.join(dup, on="customer", how="left").height     # 11   (ออเดอร์เดิมมี 8 แถว)
+```
+
+ออเดอร์ของ Ann มี 3 รายการ และ Ann มี 2 เบอร์ จึงได้ 3 คูณ 2 เท่ากับ 6 แถว ส่วนอีก 5 ออเดอร์ได้แถวละหนึ่ง รวมแล้ว 11 นี่คือสาเหตุอันดับหนึ่งที่ยอดรวมหลัง Join ไม่ตรงกับก่อน Join เรามักไม่รู้ตัวเพราะ Join ไม่เคยฟ้อง
+
+เราสั่งให้ Polars ตรวจแทนเราได้ด้วย `validate`
+
+```python
+orders.join(dup, on="customer", how="left", validate="m:1")
+# ComputeError: join keys did not fulfill m:1 validation
+orders.join(cust, on="customer", how="left", validate="m:1").height    # 8
+```
+
+`m:1` แปลว่าฝั่งซ้ายมีกุญแจซ้ำได้ แต่ฝั่งขวาต้องไม่ซ้ำ (หลายออเดอร์ต่อหนึ่งลูกค้า) ถ้าข้อมูลไม่เป็นอย่างนั้น Polars จะ Error ทันที แทนที่จะปล่อยให้ยอดผิดไปเงียบ ๆ ตัวเลือกอื่นคือ `1:1`, `1:m` และ `m:m` เราควรใส่ `validate` ทุกครั้งที่เรารู้ว่า Join นั้นควรเป็นแบบไหน
+
+</Step>
+
+<Step>
+
+## กุญแจที่เป็น Null และชื่อคอลัมน์ที่ชนกัน
+
+กุญแจที่เป็น `null` ไม่จับคู่กัน เพราะ `null == null` ไม่เป็นจริง (เหมือนที่เห็นใน [บท 3](/polars/types-and-nulls/))
+
+```python
+a = pl.DataFrame({"k": [1, None], "x": ["a", "b"]})
+b = pl.DataFrame({"k": [1, None], "y": ["c", "d"]})
+a.join(b, on="k", how="inner").height                      # 1
+a.join(b, on="k", how="inner", nulls_equal=True).height    # 2
+```
+
+ถ้าอยากให้ `null` จับคู่กับ `null` ต้องบอกด้วย `nulls_equal=True`
+
+เมื่อสองตารางมีคอลัมน์ชื่อเดียวกันที่ไม่ใช่กุญแจ Polars เติมคำต่อท้ายให้คอลัมน์ฝั่งขวา
+
+```python
+c2 = cust.rename({"customer": "name", "tier": "qty"})
+orders.join(c2, left_on="customer", right_on="name", how="left").columns
+# ['order_id', 'customer', 'qty', 'qty_right']
+orders.join(c2, left_on="customer", right_on="name", how="left", suffix="_cust").columns[-1]   # 'qty_cust'
+```
+
+`left_on` กับ `right_on` ใช้เมื่อชื่อกุญแจต่างกัน และ `suffix` เปลี่ยนคำต่อท้ายจาก `_right` เป็นอย่างอื่น
+
+</Step>
+
+<Step>
+
+## Join ตามเงื่อนไข และ Join ตามเวลา
+
+บางครั้งกุญแจไม่ได้เท่ากันเป๊ะ เช่นอยากแบ่งออเดอร์เป็นขนาดตามช่วงของ `qty` ตารางช่วงมีสองแถวคือ 0 ถึง 5 เรียก Small และ 5 ถึง 100 เรียก Big
+
+```python
+t = pl.DataFrame({"lo": [0, 5], "hi": [5, 100], "band": ["small", "big"]})
+bands = orders.join_where(t, pl.col("qty") >= pl.col("lo"), pl.col("qty") < pl.col("hi"))
+bands.filter(pl.col("order_id") == 3)["band"].item()    # 'big'
+bands.height                                             # 7   ออเดอร์ 8 ไม่มี qty จึงไม่เข้าช่วงไหนเลย
+```
+
+`join_where` รับเงื่อนไขกี่ข้อก็ได้แทนการจับคู่ด้วยความเท่ากัน
+
+อีกแบบที่ใช้บ่อยในข้อมูลเวลา คือหาแถว **ล่าสุดก่อนหน้า** `join_asof` เหมาะกับเรื่องอย่างเทียบราคาที่ประกาศล่าสุดกับเวลาที่เกิดรายการซื้อขาย
+
+```python
+trades.join_asof(quotes, on="t", strategy="backward")["px"].to_list()    # [100.0, 101.0]
+trades.join_asof(quotes, on="t", strategy="forward")["px"].to_list()     # [101.0, 102.0]
+trades.join_asof(quotes, on="t", strategy="backward", tolerance=dt.timedelta(seconds=6))["px"].to_list()   # [100.0, None]
+```
+
+รายการซื้อขายที่ 10:00:05 ล่าสุดก่อนหน้าคือราคาที่ 10:00:00 ส่วนที่ 10:00:20 คือราคาที่ 10:00:10 ซึ่งห่างไป 10 วินาที ถ้าเราตั้ง `tolerance` ไว้ที่ 6 วินาที ราคานั้นเก่าเกินไปจึงได้ `null` (ตารางทั้งสองต้องเรียงตามคอลัมน์เวลาก่อน)
+
+</Step>
+
+<Step>
+
+## ต่อตารางโดยไม่มีกุญแจ: Concat
+
+`pl.concat` วางตารางต่อกัน
+
+```python
+pl.concat([orders.head(2), orders.tail(2)], how="vertical").height    # 4 ต่อแถว ต้องมีคอลัมน์เหมือนกันทุกประการ
+pl.concat([orders, cust])
+# ShapeError: unable to append to a DataFrame of width 3 with a DataFrame of width 2
+pl.concat([orders.head(2), cust.head(2).rename({"customer": "x"})], how="diagonal").columns
+# ['order_id', 'customer', 'qty', 'x', 'tier']    ต่อแถวโดยเติม null ให้คอลัมน์ที่ไม่มี
+pl.concat([orders.head(3), cust.head(3).rename({"customer": "c"})], how="horizontal").shape    # (3, 5)
+```
+
+`vertical` ต่อแถวโดยบังคับให้ Schema เหมือนกัน `diagonal` ต่อแถวและเติม `null` ให้คอลัมน์ที่ไม่มีในบางตาราง `horizontal` ต่อคอลัมน์เรียงตามตำแหน่ง ไม่มีการจับคู่ด้วยกุญแจเลย และชื่อคอลัมน์ห้ามซ้ำกัน (ถ้าซ้ำจะได้ `DuplicateError`)
+
+<Callout type="warn" title="ลำดับแถวหลัง Join">
+ในตัวอย่าง `left` Join ของเรา แถวออกมาเรียงตามออเดอร์เดิม แต่นี่เป็นสิ่งที่เราเห็น ไม่ใช่สิ่งที่ Polars สัญญาไว้ ถ้าลำดับสำคัญให้ใส่ `maintain_order="left"` หรือ `sort` ตามหลัง
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ตารางออเดอร์ 8 แถวกับตารางลูกค้า 4 คน เราอยากรู้ว่ามีออเดอร์ไหนที่ไม่มีลูกค้าอยู่ในระบบ วิธีไหนตอบตรงที่สุด"
+  options={['Join แบบ Inner แล้วนับ', 'Join แบบ Anti แล้วดูแถวที่ได้', 'Join แบบ Full แล้วนับแถวที่ได้ 9']}
+  answer={1}
+  why="Anti คืนเฉพาะแถวของตารางซ้ายที่ไม่มีคู่ ในตัวอย่างได้แถวเดียวคือออเดอร์ 7 ของ Dan ส่วน Inner ได้ 7 แถวที่มีคู่ และ Full ได้ 9 แถวซึ่งรวม Eve ที่ไม่เกี่ยวกับคำถามนี้"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ออเดอร์ 8 แถว Left Join กับตารางเบอร์โทรที่ Ann มี 2 เบอร์ Bob มี 1 เบอร์ ผลมีกี่แถว และ Polars เตือนไหม"
+  options={['8 แถว เพราะ Left Join ไม่เพิ่มแถว', '11 แถว และไม่เตือนอะไรเลย ถ้าไม่ได้ใส่ validate', '11 แถว และเกิด Error เสมอ เพราะกุญแจซ้ำ']}
+  answer={1}
+  why="ออเดอร์ 3 รายการของ Ann จับกับ 2 เบอร์ได้ 6 แถว ที่เหลือแถวละหนึ่ง รวม 11 Polars ไม่เตือนเอง ต้องใส่ Validate เช่น m:1 จึงจะได้ ComputeError"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| จำนวนแถวของ Inner 7, Left 8, Right 8, Full 9, Semi 7, Anti 1, Cross 16 | รัน: `exercises/05_joins.py` |
+| `full` เก็บ `customer_right` และ `coalesce=True` รวมกุญแจ | รัน: `exercises/05_joins.py` |
+| กุญแจซ้ำได้ 11 แถว และ `validate="m:1"` ได้ ComputeError | รัน: `exercises/05_joins.py` |
+| `null` ไม่จับคู่กัน เว้นแต่ใช้ `nulls_equal=True` | รัน: `exercises/05_joins.py` |
+| คอลัมน์ชนกันได้ `_right` และ `suffix` เปลี่ยนได้ | รัน: `exercises/05_joins.py` |
+| `join_where` ตามช่วง, `join_asof` ทั้งสาม Strategy กับ `tolerance` | รัน: `exercises/05_joins.py` |
+| `concat` แบบ Vertical, Diagonal, Horizontal และข้อความ Error | รัน: `exercises/05_joins.py` |
+| ลำดับแถวหลัง Join ไม่ได้รับประกันถ้าไม่ใส่ `maintain_order` | ผู้เขียน (อ่านเอกสาร Parameter ไม่ได้ไล่โค้ด) |
+
+</Step>

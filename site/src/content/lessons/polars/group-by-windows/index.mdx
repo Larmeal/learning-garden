@@ -1,0 +1,236 @@
+---
+title: group_by และ Window
+summary: group_by ยุบหลายแถวให้เหลือหนึ่งแถวต่อกลุ่ม ส่วน Over คำนวณแบบเดียวกันแต่เก็บทุกแถวไว้ บทนี้ดูทั้งสองแบบบนตารางออเดอร์ รวมถึงการนับที่ Null มีผล การเรียงลำดับ Pivot และการจัดกลุ่มตามช่วงเวลา
+facts:
+  - "รันจริงใน exercises/04_group_by_windows.py ด้วย Polars 2.1.0 แล้ว Assert ตารางผลทุกตาราง"
+  - "ว่าอัลกอริทึมของ group_by ข้างในเป็น Hash หรือ Sort ผู้เขียนยังไม่ได้ไล่โค้ด บทนี้พูดถึงเฉพาะผลที่เห็น"
+  - "pivot ที่ใช้ sum ได้ 0 ในช่องที่ไม่มีข้อมูล (ไม่ใช่ null) เป็นผลจากการรัน ไม่ได้มาจากเอกสาร"
+order: 4
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [expressions]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import GroupByLab from '../../../../components/labs/polars/GroupByLab';
+
+<Step>
+
+## หนึ่งแถวต่อหนึ่งกลุ่ม
+
+ร้านอยากรู้ว่าลูกค้าแต่ละคนสั่งกี่ออเดอร์ ซื้อสินค้ากี่ชิ้น และจ่ายเงินรวมเท่าไร เราเพิ่มคอลัมน์ `total` เข้าไปก่อน แล้วใช้ `group_by` กับ `agg` (รัน: `exercises/04_group_by_windows.py`)
+
+```python
+df = df.with_columns(total=pl.col("qty") * pl.col("price"))
+
+df.group_by("customer", maintain_order=True).agg(
+    pl.len().alias("orders"),
+    pl.col("qty").sum().alias("qty"),
+    pl.col("total").sum().alias("spent"),
+    pl.col("product").unique().sort().alias("products"),
+)
+```
+
+```text
+┌──────────┬────────┬─────┬───────┬─────────────────┐
+│ customer ┆ orders ┆ qty ┆ spent ┆ products        │
+╞══════════╪════════╪═════╪═══════╪═════════════════╡
+│ Ann      ┆ 3      ┆ 9   ┆ 34.5  ┆ ["book", "pen"] │
+│ Bob      ┆ 2      ┆ 4   ┆ 12.5  ┆ ["ink", "pen"]  │
+│ Cat      ┆ 2      ┆ 1   ┆ 12.0  ┆ ["book", "pen"] │
+│ Dan      ┆ 1      ┆ 4   ┆ 32.0  ┆ ["ink"]         │
+└──────────┴────────┴─────┴───────┴─────────────────┘
+```
+
+ภายใน `agg` ทุก Expression ทำงานกับ **เฉพาะแถวของกลุ่มนั้น** แล้วส่งค่าเดียวกลับมา (หรือรายการ อย่างคอลัมน์ `products`) ตัวเลขของ Ann มาจากสามแถวของ Ann เท่านั้น สังเกตว่า `qty` ของ Cat ได้ 1 ทั้งที่ Cat มีสองออเดอร์ เพราะออเดอร์ที่สองไม่มี `qty` (`null`) และ `sum` ข้ามมันไป
+
+ส่วน `maintain_order=True` เราใส่เพื่อให้ผลเรียงตามที่ลูกค้าโผล่ครั้งแรก ถ้าไม่ใส่ Polars ไม่รับปากว่ากลุ่มจะเรียงแบบไหน และอาจเปลี่ยนในแต่ละครั้งที่รัน ถ้าต้องการลำดับก็ให้ใส่ `maintain_order=True` หรือ `sort` ตามหลัง
+
+</Step>
+
+<Step>
+
+## นับให้ถูก: Len, Count และ Null
+
+```python
+r = df.group_by("customer", maintain_order=True).agg(
+    pl.len().alias("rows"),
+    pl.col("qty").count().alias("qty_count"),
+    pl.col("qty").sum().alias("qty_sum"),
+)
+# Cat -> rows 2, qty_count 1, qty_sum 1
+```
+
+`pl.len()` นับแถวทั้งหมดของกลุ่ม ส่วน `count()` ของคอลัมน์นับเฉพาะค่าที่มีอยู่จริง กลุ่มของ Cat จึงได้ 2 กับ 1 ถ้ากลุ่มหนึ่งมี `null` ทุกค่า `sum` ได้ `0` แต่ `mean` ได้ `null`
+
+```python
+allnull = pl.DataFrame({"k": ["a", "a"], "v": [None, None]}, schema={"k": pl.String, "v": pl.Int64})
+allnull.group_by("k").agg(pl.col("v").sum().alias("s"), pl.col("v").mean().alias("m")).row(0)
+# ('a', 0, None)
+```
+
+เรายังจัดกลุ่มด้วยหลายคอลัมน์ (`group_by("customer", "product")` ได้ 7 กลุ่มจาก 8 แถว) หรือด้วย Expression เช่น `group_by(pl.col("ordered_at").dt.month().alias("month"))` ก็ได้
+
+</Step>
+
+<Step>
+
+## Window: คำนวณเป็นกลุ่ม แต่เก็บทุกแถว
+
+บางครั้งเราไม่อยากให้แถวหายไป เช่นอยากรู้ว่าแต่ละออเดอร์เป็นกี่เปอร์เซ็นต์ของยอดรวมของลูกค้าคนนั้น เราต้องการทั้งยอดของออเดอร์และยอดรวมของกลุ่มอยู่ในแถวเดียวกัน นี่คืองานของ `over`
+
+```python
+df.with_columns(
+    customer_total=pl.col("total").sum().over("customer"),
+    share=(pl.col("total") / pl.col("total").sum().over("customer")).round(3),
+    rank=pl.col("total").rank("dense", descending=True).over("customer"),
+)
+```
+
+```text
+order_id  customer  total  customer_total  share
+1         Ann       3.0    34.5            0.087
+2         Bob       8.0    12.5            0.64
+3         Ann       7.5    34.5            0.217
+4         Cat       12.0   12.0            1.0
+5         Bob       4.5    12.5            0.36
+6         Ann       24.0   34.5            0.696
+7         Dan       32.0   32.0            1.0
+8         Cat       null   12.0            null
+```
+
+ยังมีแปดแถวเหมือนเดิม และ `customer_total` ของ Ann คือ 34.5 ทั้งสามแถว นั่นคือ `over("customer")` คำนวณ `sum` ในแต่ละกลุ่ม แล้วส่งค่ากลับไปให้ทุกแถวของกลุ่ม ลองเทียบสองแบบข้างล่างนี้ ดูว่าแต่ละแถวไปอยู่ที่ไหน
+
+<GroupByLab client:visible />
+
+ถ้าจำไม่ได้ว่าจะใช้อันไหน ให้ถามตัวเองว่าผลลัพธ์ต้องมีกี่แถว ถ้าอยากได้หนึ่งแถวต่อกลุ่มใช้ `group_by().agg()` ถ้าอยากได้เท่าเดิมใช้ `over`
+
+</Step>
+
+<Step>
+
+## Window ที่เห็นแถวข้าง ๆ
+
+`over` ใช้ได้กับฟังก์ชันที่เห็นลำดับของแถว เช่นผลรวมสะสมและค่าของแถวก่อนหน้า
+
+```python
+c = df.sort("order_id").with_columns(
+    running=pl.col("total").cum_sum().over("customer"),
+    prev=pl.col("total").shift(1).over("customer"),
+)
+# Ann: running [3.0, 10.5, 34.5], prev [None, 3.0, 7.5]
+```
+
+ผลรวมสะสมและ `shift` ทำงานภายในกลุ่มของ Ann เท่านั้น แถวแรกของ Ann จึงไม่มี `prev` (`null`) แม้ว่าแถวก่อนหน้าในตารางจะเป็นของ Bob ก็ตาม
+
+อีกงานที่ `over` ช่วยได้มาก คือการเลือกแถวที่ดีที่สุดของแต่ละกลุ่มโดยไม่ต้อง Join กลับ
+
+```python
+df.filter(pl.col("total") == pl.col("total").max().over("customer"))["order_id"].to_list()
+# [2, 4, 6, 7]
+```
+
+Expression ด้านขวาของ `==` ให้ยอดสูงสุดของลูกค้าแต่ละคนกระจายไปทุกแถว แล้ว `filter` เก็บแถวที่ยอดเท่ากับค่านั้น (ถ้ามีสองออเดอร์ที่ยอดเท่ากันพอดีก็จะได้ทั้งคู่)
+
+</Step>
+
+<Step>
+
+## เรียงลำดับ เลือกบนสุด และตัดซ้ำ
+
+```python
+df.sort("total", descending=True, nulls_last=True)["order_id"].to_list()[:3]    # [7, 6, 4]
+df.top_k(2, by="total")["order_id"].to_list()                                  # [7, 6]
+df.sort("customer", "total", descending=[False, True], nulls_last=True)["order_id"].to_list()[:3]   # [6, 3, 1]
+df.unique(subset="customer", keep="first", maintain_order=True)["order_id"].to_list()   # [1, 2, 4, 7]
+df["customer"].value_counts(sort=True).row(0)     # ('Ann', 3)
+```
+
+`sort` รับหลายคอลัมน์และกำหนดทิศทางแยกกันได้ (`descending=[False, True]` คือเรียงชื่อจากน้อยไปมาก แล้วเรียงยอดจากมากไปน้อยภายในชื่อเดียวกัน) `top_k` ได้ค่าสูงสุด k ตัวโดยไม่ต้องเรียงทั้งตาราง `unique` ตัดแถวซ้ำตามคอลัมน์ที่ระบุ และ `value_counts` นับว่าค่าไหนมีกี่ครั้ง ซึ่งเป็นวิธีที่เร็วที่สุดในการดูว่าคอลัมน์หนึ่งมีค่าอะไรบ้าง
+
+</Step>
+
+<Step>
+
+## Pivot, Unpivot และช่วงเวลา
+
+อยากเห็นตารางที่ลูกค้าเป็นแถว สินค้าเป็นคอลัมน์ และค่าในช่องคือจำนวนที่ซื้อ
+
+```python
+p = df.pivot(on="product", index="customer", values="qty", aggregate_function="sum").sort("customer")
+```
+
+```text
+customer  pen  ink  book
+Ann       7    0    2
+Bob       3    1    0
+Cat       0    0    1
+Dan       0    4    0
+```
+
+ลองสังเกตช่องที่ลูกค้าไม่เคยซื้อสินค้านั้น ได้ `0` ไม่ใช่ `null` เพราะ `sum` ของกลุ่มที่ไม่มีค่าเลยคือ 0 ถ้าเราตั้งใจให้แยกคำว่าไม่เคยซื้อออกจากคำว่าซื้อศูนย์ชิ้น เราต้องระวังตรงนี้ ส่วนการกลับด้านทำได้ด้วย `unpivot` ซึ่งได้ 12 แถว (4 ลูกค้า คูณ 3 สินค้า) โดยแถวที่เป็น 0 ก็กลับมาเป็นแถวด้วย
+
+```python
+p.unpivot(index="customer", variable_name="product", value_name="qty")
+```
+
+ส่วนการจัดกลุ่มตามช่วงเวลา ใช้ `group_by_dynamic` กับคอลัมน์ที่เรียงตามเวลาแล้ว
+
+```python
+df.sort("ordered_at").group_by_dynamic("ordered_at", every="1w").agg(pl.col("total").sum())
+# (2025-12-29, 11.0), (2026-01-05, 80.0), (2026-01-12, 0.0)
+```
+
+สัปดาห์เริ่มจากวันจันทร์ ออเดอร์สองรายการแรกอยู่วันที่ 3 มกราคม 2026 (วันเสาร์) จึงตกในสัปดาห์ที่เริ่มวันที่ 29 ธันวาคม 2025 สัปดาห์สุดท้ายได้ 0.0 เพราะมีออเดอร์เดียวคือวันที่ 12 และเป็นแถวที่ `qty` หายไป
+
+<Callout type="note" title="ลำดับของกลุ่ม">
+ผลลัพธ์ของ `group_by` ที่ไม่ใส่ `maintain_order=True` เราตรวจแล้วว่ามีสมาชิกถูกต้องครบ แต่ลำดับที่ออกมาไม่ใช่สิ่งที่ Polars สัญญา ถ้าคุณต้องการเทียบผลสองครั้งหรือเขียนเป็นไฟล์ที่ต้องเหมือนกันทุกครั้ง ให้ `sort` ตามหลังเสมอ
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราอยากได้ตารางออเดอร์เดิมทั้ง 8 แถว โดยมีคอลัมน์เพิ่มที่บอกยอดรวมของลูกค้าคนนั้นอยู่ทุกแถว ควรใช้อะไร"
+  options={['group_by แล้ว Agg เพราะรวมเป็นกลุ่มอยู่แล้ว', 'Over เพราะต้องการคำนวณตามกลุ่มแต่เก็บทุกแถว', 'Sort แล้วหาผลรวมสะสม']}
+  answer={1}
+  why="group_by ยุบเหลือหนึ่งแถวต่อกลุ่ม (ได้ 4 แถว) ส่วน Over คำนวณค่าตามกลุ่มแล้วส่งค่ากลับไปให้ทุกแถวของกลุ่ม ผลจึงยังมี 8 แถวและคอลัมน์ยอดรวมของ Ann เป็น 34.5 ทั้งสามแถว"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ในผลของ Pivot ด้วย Sum ลูกค้า Ann ไม่เคยซื้อ Ink ช่องนั้นได้อะไร"
+  options={['Null เพราะไม่มีข้อมูล', '0 เพราะผลรวมของกลุ่มที่ไม่มีค่าเลยคือศูนย์', 'ช่องนั้นไม่ถูกสร้าง ทั้งคอลัมน์หายไป']}
+  answer={1}
+  why="ในแบบฝึกบทนี้ ช่องของ Ann กับ Ink ได้ 0 ถ้าเราต้องแยกให้ออกระหว่างไม่เคยซื้อกับซื้อศูนย์ชิ้น ต้องเลือกฟังก์ชันรวมอื่นหรือตรวจแยกด้วยการนับแถว"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| ตารางผลของ `group_by` กับ `agg` (Orders, Qty, Spent, Products) | รัน: `exercises/04_group_by_windows.py` |
+| `len` นับแถว, `count` นับที่ไม่ใช่ Null, Sum ของกลุ่มที่ Null ทั้งหมดได้ 0 และ Mean ได้ Null | รัน: `exercises/04_group_by_windows.py` |
+| `over` เก็บ 8 แถว ได้ Share, Rank, ผลรวมสะสมและ `shift` ภายในกลุ่ม | รัน: `exercises/04_group_by_windows.py` |
+| เลือกออเดอร์ที่ดีที่สุดของแต่ละลูกค้าด้วย `over` ได้ 2, 4, 6, 7 | รัน: `exercises/04_group_by_windows.py` |
+| `sort`, `top_k`, `unique`, `value_counts` | รัน: `exercises/04_group_by_windows.py` |
+| `pivot` ใส่ 0 ในช่องที่ไม่มีข้อมูล และ `unpivot` ได้ 12 แถว | รัน: `exercises/04_group_by_windows.py` |
+| `group_by_dynamic` ตามสัปดาห์ เริ่มวันจันทร์ | รัน: `exercises/04_group_by_windows.py` |
+| ลำดับของกลุ่มไม่ได้รับประกันถ้าไม่ใส่ `maintain_order=True` | ผู้เขียน (อ่านจากชื่อและเอกสาร Parameter ไม่ได้ไล่โค้ด) |
+
+</Step>

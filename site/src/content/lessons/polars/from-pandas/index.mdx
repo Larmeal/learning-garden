@@ -1,0 +1,179 @@
+---
+title: From Pandas
+summary: เทียบคำถามเดียวกันที่ถามทั้ง Pandas และ Polars ว่าไม่มี Index, ไม่มีการแก้ DataFrame ตรง ๆ, Filter กับค่าที่หายไป, Group By กับ Over, Merge กับ Join และ NaN กับ Null ต่างกันตรงไหน พร้อมวิธีแปลงข้อมูลไปมาและรายการคำสั่งที่ Polars ไม่มี
+facts:
+  - "รันจริงใน exercises/11_from_pandas.py ด้วย Polars 2.1.0 และ pandas 3.1.1 ซึ่งเป็นรุ่นที่ uv ติดตั้งให้ (pandas 3 ต่างจาก 2 ในเรื่องชนิดข้อความและค่าที่หายไป ผลอาจต่างถ้าใช้ pandas 2)"
+  - "การเทียบเป็นการเทียบพฤติกรรมของตัวอย่างเล็ก 8 แถว ไม่ได้ทดสอบ pandas ที่ใช้ PyArrow Backend หรือ Index แบบหลายระดับ"
+  - "ตารางสิ่งที่ Polars ไม่มี (loc, iloc, apply, iterrows, groupby) ตรวจโดยการลองเรียกแล้วได้ AttributeError ไม่ได้อ่านจากรายการ API ทั้งหมด"
+order: 11
+phase: D
+level: 3
+stage: sprout
+format: steps
+requires: [group-by-windows, joins]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## ตารางเดียวกัน สองไลบรารี
+
+บทนี้เขียนสำหรับคนที่เขียน Pandas มาก่อน ถ้าคุณไม่เคยใช้ Pandas ข้ามไปที่ [บท 12](/polars/capstone/) ได้เลย เราใช้ตารางออเดอร์ 8 แถวจาก [บท 1](/polars/first-dataframe/) แล้วแปลงให้เป็น `pandas.DataFrame` ด้วย `to_pandas()` เพื่อถามคำถามเดียวกันทั้งสองฝั่ง (รัน: `exercises/11_from_pandas.py`) โปรดทราบว่าเราติดตั้ง Pandas 3.1.1 ถ้าคุณใช้ Pandas 2 บางผลอาจต่างออกไป
+
+ความต่างใหญ่สุดสามเรื่องที่เราจะเห็น คือ Polars ไม่มี Index, Polars ไม่ให้แก้ DataFrame ตรง ๆ และ Polars ไม่แปลงชนิดข้อมูลเงียบ ๆ เมื่อมีค่าที่หายไป
+
+</Step>
+
+<Step>
+
+## ไม่มี Index
+
+```python
+pd_df.set_index("order_id").loc[3, "customer"]                  # 'Ann'   pandas: ค้นด้วยป้ายชื่อแถว
+pl_df.filter(pl.col("order_id") == 3)["customer"].item()        # 'Ann'   Polars: กรองด้วยคอลัมน์
+
+list(pd_df[pd_df.qty > 2].index)       # [2, 4, 6]   pandas: ป้ายแถวเดิมยังอยู่หลัง filter
+pl_df.filter(pl.col("qty") > 2).height # 3           Polars: ไม่มีป้าย มีแต่ตำแหน่ง
+```
+
+หลัง Filter ใน Pandas แถวยังจำป้ายชื่อเดิม (2, 4, 6) ไว้ ซึ่งสะดวกบางที แต่ก็เป็นต้นเหตุของบั๊กตอน Join หรือ Concat ที่ป้ายชนกัน Polars ตัดเรื่องนี้ทิ้ง (ดู [บท 1](/polars/first-dataframe/)) ถ้าอยากใช้ค่าไหนเป็นตัวระบุก็เก็บเป็นคอลัมน์
+
+</Step>
+
+<Step>
+
+## ไม่แก้ DataFrame ตรง ๆ
+
+```python
+pl_df["total"] = pl_df["qty"] * pl_df["price"]
+```
+
+```text
+TypeError: DataFrame object does not support `Series` assignment by index
+
+Use `DataFrame.with_columns`.
+```
+
+ใน Pandas เราเขียน `pd_df["total"] = ...` ได้ และตัวเดิมเปลี่ยน ใน Polars ต้องสร้างตัวใหม่ด้วย `with_columns` (ดู [บท 2](/polars/expressions/)) ซึ่งตัวเดิมไม่เปลี่ยน เราตรวจแล้วว่าหลัง `with_columns` ตัวเดิมยังไม่มีคอลัมน์ `total`
+
+</Step>
+
+<Step>
+
+## คำถามเดียวกัน คำตอบเดียวกัน
+
+เราไล่คำถามที่ใช้บ่อยที่สุดสี่ข้อ และตรวจว่าผลของสองฝั่งตรงกัน
+
+| คำถาม | Pandas | Polars |
+|---|---|---|
+| กรองภาค North ที่ Qty มากกว่า 1 | `pd_df[(pd_df.region == "north") & (pd_df.qty > 1)]` | `pl_df.filter((pl.col("region") == "north") & (pl.col("qty") > 1))` |
+| ยอดรวมต่อลูกค้า | `pd_df.groupby("customer")["total"].sum()` | `pl_df.group_by("customer").agg(pl.col("total").sum())` |
+| ยอดรวมของลูกค้า ติดไปทุกแถว | `pd_df.groupby("customer")["total"].transform("sum")` | `pl.col("total").sum().over("customer")` |
+| ต่อตารางลูกค้า | `pd_df.merge(cust, on="customer", how="left")` | `pl_df.join(cust, on="customer", how="left")` |
+
+คำตอบตรงกันทุกข้อ ออเดอร์ 1, 3, 6 สำหรับข้อแรก ยอดรวม Ann 34.5, Bob 12.5, Cat 12.0, Dan 32.0 สำหรับข้อสอง และรายการ `[34.5, 12.5, 34.5, 12.0, 12.5, 34.5, 32.0, 12.0]` สำหรับข้อสาม ส่วนข้อสุดท้ายทั้งสองฝั่งได้ `tier` ที่หายไปหนึ่งค่า (ของ Dan) ที่แปลกที่สุดคือการเขียน `transform` ของ Pandas ที่กลายเป็น `over` ของ Polars ซึ่งเรารู้จักแล้วจาก [บท 4](/polars/group-by-windows/)
+
+</Step>
+
+<Step>
+
+## ค่าที่หายไป: จุดที่ผลต่างกันจริง
+
+```python
+pd_df.qty.dtype            # float64   มีค่าที่หายไป จำนวนเต็มจึงกลายเป็นทศนิยม
+pl_df["qty"].dtype         # Int64     Polars เก็บเป็นจำนวนเต็มต่อไป
+
+(pd_df.region == "north").tolist()[6]                 # False  pandas: เทียบกับค่าที่หายไปได้ False
+pl_df.select(pl.col("region") == "north")["region"].to_list()[6]    # None   Polars: ได้ null
+```
+
+ใน Pandas ค่าที่หายไปของตัวเลขคือ `NaN` ซึ่งเป็นทศนิยม คอลัมน์จำนวนเต็มที่มีค่าหายจึงถูกยกเป็น `float64` ทั้งคอลัมน์ ส่วน Polars ใช้ Validity Bitmap ตามที่เห็นใน [บท 10](/polars/inside/) จำนวนเต็มจึงยังเป็นจำนวนเต็ม เรื่องการเปรียบเทียบ Pandas ตอบ `False` ให้แถวที่ `region` หายไป ส่วน Polars ตอบ `null` (เหมือนที่คุยใน [บท 3](/polars/types-and-nulls/)) ซึ่ง `filter` ไม่เก็บทั้งสองกรณี แต่การนับหรือการเอาเงื่อนไขไปประกอบกันต่อจะไม่เหมือนกัน
+
+ค่าเฉลี่ยของ `qty` ได้ตัวเลขเท่ากันทั้งสองฝั่ง เพราะทั้งคู่ข้ามค่าที่หายไป
+
+</Step>
+
+<Step>
+
+## ย้ายข้อมูลไปมา
+
+```python
+back = pl.from_pandas(pd_df.drop(columns="total"))
+back.schema["qty"]                 # Float64   (pandas ยกเป็น float ไปแล้ว Polars รับตามที่ได้)
+back["qty"].null_count()           # 1         NaN ถูกแปลงเป็น null ให้
+
+pl.from_pandas(pd.DataFrame({"a": [1.0, float("nan")]}))["a"].null_count()                         # 1
+pl.from_pandas(pd.DataFrame({"a": [1.0, float("nan")]}), nan_to_null=False)["a"].is_nan().sum()    # 1
+
+pl_df.to_pandas().qty.dtype                                       # float64
+pl_df.to_pandas(use_pyarrow_extension_array=True).qty.dtype       # int64[pyarrow]
+```
+
+`from_pandas` แปลง `NaN` ของ Pandas เป็น `null` ให้ตามค่าเริ่มต้น และถ้าอยากเก็บเป็น `NaN` ต้องบอก `nan_to_null=False` ส่วนขาออก `to_pandas()` ทำให้จำนวนเต็มที่มี `null` กลับเป็นทศนิยม แต่ถ้าขอ `use_pyarrow_extension_array=True` จะได้ `int64[pyarrow]` ที่ยังคงเป็นจำนวนเต็มและเก็บ `null` ไว้ได้
+
+</Step>
+
+<Step>
+
+## คำสั่งที่ไม่มี
+
+คนที่ติดนิสัย Pandas มักลองพิมพ์คำเหล่านี้ ซึ่งเราลองเรียกแล้วได้ `AttributeError`
+
+| ใน Pandas | ใน Polars |
+|---|---|
+| `df.groupby(...)` | `df.group_by(...)` |
+| `df.apply(...)`, `df.iterrows()` | ไม่มีทั้งคู่ ใช้ Expression และถ้าจำเป็นจริง ๆ ใช้ `iter_rows(named=True)` |
+| `df.loc[...]`, `df.iloc[...]` | `filter`, `row`, การเลือกด้วย `df[0, "qty"]` |
+
+ข้อความ Error ของ `groupby` คือ `'DataFrame' object has no attribute 'groupby'` ซึ่งไม่ได้บอกชื่อที่ถูกต้อง เราจึงต้องรู้เอง ส่วน `iter_rows(named=True)` ใช้ได้เมื่อจำเป็นต้องวนทีละแถว (เช่นยิง API ทีละแถว) ผลรวมที่คำนวณด้วยลูปได้ 91.0 เท่ากับ Expression ซึ่งตรวจแล้ว แต่ลูปแบบนี้ช้ากว่าเมื่อข้อมูลใหญ่ ใช้เมื่อไม่มีทางอื่นจริง ๆ
+
+<Callout type="note" title="เส้นทางย้ายที่แนะนำ">
+ย้ายทีละคำถาม ไม่ต้องย้ายทั้งโปรเจกต์ เอาผลของ Polars แปลงกลับเป็น Pandas ตรงทางเข้าของโค้ดที่ยังต้องใช้ Pandas (`to_pandas()`) ตรวจผลเทียบกับของเดิมด้วยการเทียบรายการค่า ตามที่แบบฝึก 11 ทำกับทั้งสี่คำถาม
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="DataFrame ใน Polars มีคอลัมน์จำนวนเต็มที่ค่าหนึ่งหายไป แปลงเป็น Pandas ด้วย to_pandas ตามค่าเริ่มต้นแล้วชนิดของคอลัมน์เป็นอะไร"
+  options={['int64 เหมือนเดิม', 'float64 เพราะ Pandas ใช้ NaN แทนค่าที่หายไป ซึ่งเป็นทศนิยม', 'object']}
+  answer={1}
+  why="แบบฝึกตรวจแล้วว่าได้ float64 ถ้าอยากให้ยังเป็นจำนวนเต็มและเก็บค่าที่หายไปได้ ให้ขอ use_pyarrow_extension_array เป็น True ซึ่งได้ int64[Pyarrow]"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="กรองแถวที่ Region เท่ากับ North ใน DataFrame ที่มีแถวหนึ่งที่ Region หายไป ผลเปรียบเทียบของแถวนั้นใน Pandas กับ Polars เป็นอย่างไร"
+  options={['ทั้งสองได้ False', 'Pandas ได้ False ส่วน Polars ได้ Null แต่ Filter ทิ้งแถวนั้นทั้งสองกรณี', 'Pandas ได้ Null ส่วน Polars ได้ False']}
+  answer={1}
+  why="ในแบบฝึก แถวที่ 7 ได้ False ใน Pandas และ None ใน Polars ผลลัพธ์ของ Filter เหมือนกัน แต่ถ้านำค่านั้นไปนับหรือประกอบกับเงื่อนไขอื่นต่อ ผลจะไม่เหมือนกัน"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| ไม่มี Index, `loc` ใน Pandas เทียบกับ `filter` ใน Polars, ป้ายแถวเดิมอยู่หลัง Filter | รัน: `exercises/11_from_pandas.py` |
+| แก้ DataFrame ด้วย `df["x"] = ...` ได้ `TypeError` ที่แนะ `with_columns` | รัน: `exercises/11_from_pandas.py` |
+| กรอง, Groupby, Transform กับ Over, Merge กับ Join ให้ผลตรงกันทั้งสองฝั่ง | รัน: `exercises/11_from_pandas.py` |
+| Pandas ยกจำนวนเต็มเป็น float64 เมื่อมีค่าหาย, เทียบค่าหายได้ False เทียบกับ Null ใน Polars | รัน: `exercises/11_from_pandas.py` (Pandas 3.1.1) |
+| `from_pandas` แปลง NaN เป็น Null และ `nan_to_null=False` เก็บ NaN, `use_pyarrow_extension_array` ได้ `int64[pyarrow]` | รัน: `exercises/11_from_pandas.py` |
+| `groupby`, `apply`, `iterrows`, `iloc` เป็น `AttributeError` | รัน: `exercises/11_from_pandas.py` |
+| ลูปแถวช้ากว่า Expression | ผู้เขียน (ยังไม่ได้วัดในบทนี้ ดูตัวเลข `map_elements` ใน [บท 8](/polars/nested-strings/)) |
+| เส้นทางย้ายที่แนะนำ | ผู้เขียน |
+
+</Step>

@@ -1,0 +1,233 @@
+---
+title: Dtypes and null
+summary: Polars checks types more strictly than pandas. A cast that cannot work raises an error until you say strict=False, a missing value is null and not NaN, a comparison with null gives null, and small integers can wrap around silently. This lesson tries each case with real numbers.
+facts:
+  - "Ran for real in exercises/03_types_and_nulls.py with Polars 2.1.0, asserting every result and error message."
+  - "NaN equal to NaN giving True (unlike IEEE 754 and pandas) was confirmed by running it. The reason for the design was not traced in the source."
+  - "Time zone and date format handling uses small examples only. It was not tested on a wide variety of real date data."
+order: 3
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [expressions]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import NullLab from '../../../../components/labs/polars/NullLab';
+
+<Step>
+
+## A cast that cannot work raises an error
+
+Start with what happens most often in real work: the data arrives as text and we need numbers (run: `exercises/03_types_and_nulls.py`).
+
+```python
+s = pl.Series("v", ["1", "x", "3"])
+s.cast(pl.Int64)
+```
+
+```text
+InvalidOperationError: conversion from `str` to `i64` failed in column 'v' for 1 out of 3 values: ["x"]
+```
+
+Polars does not quietly turn a value that cannot be converted into something else. It says how many values failed out of how many, and shows the offending value (`"x"`). If we want the failures to become `null`, we say so.
+
+```python
+s.cast(pl.Int64, strict=False).to_list()      # [1, None, 3]
+pl.Series([1.9, -1.9]).cast(pl.Int64).to_list()   # [1, -1]   the fraction is cut off, not rounded
+pl.Series([300]).cast(pl.UInt8)                    # InvalidOperationError: 300 does not fit in 8 bits
+```
+
+`strict=False` is very useful when you want to know how dirty the data is, because you can count the `null`s it just created. We use that in the capstone when we clean a CSV file. Also note that a float cast to an int cuts toward zero, it does not round (`-1.9` gives `-1`).
+
+</Step>
+
+<Step>
+
+## Arithmetic across types, and silent wrap-around
+
+An integer plus a decimal is promoted to a decimal, but a string plus a number is refused.
+
+```python
+(pl.Series([1, 2]) + pl.Series([0.5, 0.5])).dtype       # Float64
+(pl.Series([1, 2]) / pl.Series([2, 2])).to_list()       # [0.5, 1.0]   division always gives a float
+(pl.Series([5, -5]) // pl.Series([2, 2])).to_list()     # [2, -3]      // rounds down, not toward zero
+pl.Series([1]) + pl.Series(["a"])
+# InvalidOperationError: arithmetic on dtypes i64 and str is not allowed; try an explicit cast first
+```
+
+Here is a trap worth knowing. A small integer type like `Int8` holds only -128 to 127. What happens if we add 100 and 100?
+
+```python
+small = pl.Series([100, 100], dtype=pl.Int8)
+(small + small).to_list()     # [-56, -56]
+small.sum()                   # 200
+```
+
+Why do these two lines disagree? The `+` operator does not check for overflow. 200 does not fit in 8 bits, so the value wraps around to -56 with no error at all. `sum()` widens to `Int64` before adding, so it gets the right 200. If you store data in a small type to save space, remember that adding, subtracting and multiplying that column can wrap around. Summing with `sum()` is safer.
+
+</Step>
+
+<Step>
+
+## null is a missing value
+
+A `null` in a column of any type means "there is no value here", and it spreads, because if we do not know the value, the result of any calculation that uses it is also unknown.
+
+```python
+df.select(pl.col("qty") > 2)["qty"].to_list()
+# [False, False, True, False, True, False, True, None]
+```
+
+Row 8 (where `qty` is `null`) gets `None`, not `False`, because we cannot say whether a missing value is more than 2. And when this condition goes into a `filter`, Polars keeps only the rows that give `True`.
+
+```python
+df.filter(pl.col("qty") > 2).height            # 3   rows 3, 5, 7
+df.filter(pl.col("qty").is_null()).height      # 1   ask with is_null() directly
+df.filter(pl.col("qty").ne_missing(2)).height  # 6   ne_missing treats null as a value
+```
+
+So a row with a `null` `qty` is selected neither by `qty > 2` nor by `qty <= 2`. Try the lab to see what each row answers, and change the way of comparing.
+
+<NullLab client:visible lang="en" />
+
+If you write `pl.lit(1) == None`, Polars warns "Comparisons with None always result in null" and suggests `is_null()` or `is_not_null()`. If you want null to equal null, use `eq_missing`.
+
+</Step>
+
+<Step>
+
+## null is not NaN
+
+`NaN` is a special float value (the result of 0 divided by 0, or a number that cannot be read), while `null` is a missing value that can live in any dtype. They differ from the moment you ask what they are.
+
+```python
+f = pl.Series("f", [1.0, float("nan"), None])
+f.is_null().to_list()    # [False, False, True]
+f.is_nan().to_list()     # [False, True, None]
+```
+
+Asking whether a `null` is `NaN` gives `None`, because we do not know. Now take an average.
+
+```python
+pl.Series([1.0, None, 3.0]).mean()          # 2.0   null is skipped (4 divided by 2)
+pl.Series([1.0, float("nan"), 3.0]).mean()  # nan   NaN is not skipped, it spreads to the whole result
+pl.Series([1.0, float("nan")]).fill_nan(None).to_list()   # [1.0, None]  turn NaN into null
+```
+
+If your data has `NaN` mixed in, the way to make everything consistent is to turn it into `null` with `fill_nan(None)` and then take the average.
+
+One more thing that differs from what you may be used to: in Polars `NaN` equals `NaN`.
+
+```python
+pl.Series([float("nan")]).eq(float("nan")).to_list()    # [True]
+```
+
+This is different from IEEE 754 and from pandas, where `nan == nan` is false. We have not looked into why Polars chose this. We only know from running it that the behaviour is real.
+
+</Step>
+
+<Step>
+
+## Handling null and counting it right
+
+Our table holds two missing values. These are the helpers you will use most.
+
+```python
+pl.Series([1, None, None, 4]).fill_null(strategy="forward").to_list()   # [1, 1, 1, 4]
+pl.Series([1, None]).fill_null(0).to_list()                             # [1, 0]
+df.null_count().row(0)                      # (0, 0, 1, 0, 1, 0, 0)  one in region, one in qty
+pl.Series([None, None], dtype=pl.Int64).sum()                            # 0
+pl.Series([3, None, 1]).sort().to_list()                                 # [None, 1, 3]
+pl.Series([3, None, 1]).sort(nulls_last=True).to_list()                  # [1, 3, None]
+pl.Series([1, None, None]).n_unique()                                    # 2
+```
+
+Three things to notice. **First**, the sum of an all-null column is `0`, which agrees with mathematics, but may surprise you if you expected it to say `null` for "don't know". **Second**, `sort` puts `null` first by default; if you want it last, pass `nulls_last=True`. **Last**, `n_unique` counts `null` as one separate value, and `group_by` treats `null` as a group of its own (in our table the `region` rows that are `null` form a group with one row).
+
+</Step>
+
+<Step>
+
+## Other types worth knowing
+
+Decimal, Categorical, Enum, strings and dates each have details of their own.
+
+```python
+pl.Series([0.1] * 10).sum() == 1.0                          # False   binary floating point
+pl.Series(["1.10", "2.20"]).cast(pl.Decimal(10, 2)).sum()   # 3.30    Decimal keeps the cents exact
+
+c = pl.Series(["a", "b", "a"], dtype=pl.Categorical)
+c.to_physical().to_list()                                   # [0, 1, 0]  stored as numbers instead of text
+pl.Series(["z"], dtype=pl.Enum(["a", "b", "c"]))            # Error: z is not in the Enum list
+
+pl.Series(["กข", "ab"]).str.len_chars().to_list()   # [2, 2]
+pl.Series(["กข", "ab"]).str.len_bytes().to_list()   # [6, 2]   one Thai letter takes 3 bytes in UTF-8
+```
+
+`Categorical` and `Enum` store text that repeats a lot as integers with a dictionary of the strings. The difference is that `Enum` accepts only values you declared up front, and raises an error on any other (which helps catch bad values), while `Categorical` can add new values by itself. What these numbers look like in memory is covered in [lesson 10](/en/polars/inside/).
+
+Dates are converted from text with `str.to_date`. Always give the format, because `03/01/2026` can be read two ways.
+
+```python
+pl.Series(["2026-01-03"]).str.to_date().dtype                              # Date
+pl.Series(["03/01/2026"]).str.to_date("%d/%m/%Y").to_list()               # [date(2026, 1, 3)]
+df["ordered_at"].dt.weekday().to_list()    # [6, 6, 1, 2, 4, 5, 5, 1]   Monday is 1, so 3 Jan 2026 is a Saturday
+df.select(pl.col("ordered_at") + pl.duration(days=7))["ordered_at"][0]   # 2026-01-10
+```
+
+For time zones, use `dt.replace_time_zone` to say which zone a time belongs to, and `dt.convert_time_zone` to show it in another. In the exercise, midnight UTC became 07:00 in Bangkok.
+
+<Callout type="warn" title="Dates with no format">
+`str.to_date()` with no format tries to guess. We tried `"03/01/2026"` and got 3 January (read as day/month), but data that is month/day would give a different date. Always give the format yourself when the source is not certain.
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="An Int8 Series holds two 100s. How do adding them and calling sum differ?"
+  options={['Both give 200', 'The addition gives -56 because the value wraps around, while sum gives 200 because it widens the type first', 'The addition raises an error because of the overflow, while sum gives 200']}
+  answer={1}
+  why="The plus operator of Polars does not check for overflow, so 200 in 8 bits wraps to -56 with no error. sum widens to Int64 before adding. The exercise checked both values."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The quantity column has one null. If you filter with a condition that says the quantity is not equal to 2 (using the normal comparison), what happens to the null row?"
+  options={['It is kept, because null is not equal to 2', 'It is dropped, because the comparison gives null, which is not treated as true', 'An error, because null cannot be compared']}
+  answer={1}
+  why="A comparison with null gives null, and filter keeps only True. If you want null to count as a value that is not 2, use ne_missing. The exercise got 6 rows: 8 rows minus the two rows equal to 2."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Claim | Source |
+|---|---|
+| A failing `cast` raises `InvalidOperationError` and `strict=False` gives `null` | ran: `exercises/03_types_and_nulls.py` |
+| A float cast to int truncates, `//` rounds down, `/` always gives a float | ran: `exercises/03_types_and_nulls.py` |
+| `Int8` addition wraps to -56 but `sum()` gives 200 | ran: `exercises/03_types_and_nulls.py` |
+| A comparison with `null` gives `null`, plus `ne_missing` and `eq_missing` | ran: `exercises/03_types_and_nulls.py` |
+| `NaN` equals `NaN`, `mean` skips `null` but not `NaN` | ran: `exercises/03_types_and_nulls.py` |
+| The sum of an all-null column is 0, and `sort` puts null first | ran: `exercises/03_types_and_nulls.py` |
+| `Decimal`, `Categorical`, `Enum`, text length in characters and in bytes | ran: `exercises/03_types_and_nulls.py` |
+| Dates, weekdays and time zones | ran: `exercises/03_types_and_nulls.py` |
+| Why `NaN` equals `NaN` in Polars | author (not traced in the source) |
+
+</Step>

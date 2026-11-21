@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Answer 4 questions to check how well you understood the Lazy API and the optimizer's plans.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="For a LazyFrame that has not been collected, can we know the names and types of the result columns?"
+  options={['No, you must run it first', 'Yes, because Polars works out the schema of the result from the rules of each expression, without touching data', 'Yes, but only after reading the first 100 rows']}
+  answer={1}
+  why="collect_schema gives the schema of the result without running anything. If you use a column that does not exist or add text to a number, the error comes out right now, before any time is spent reading a big file."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You scan a Parquet file, add head(5), and look at the explain output. What do you see at the scan?"
+  options={['A SLICE that was pushed down to the scan so only 5 rows are read', 'Nothing different, because head always happens last', 'A FILTER that picks the first 5 rows after everything was read']}
+  answer={0}
+  why="Slice pushdown moves head to the scan, so the plan has a SLICE line that says to start at the first row and read 5 rows. The whole file is not read and cut afterwards."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Old code measured the time of each node with the profile method of a LazyFrame. You upgrade to Polars 2.1. What happens?"
+  options={['It works as before', 'An AttributeRemovedError, because it was removed in 2.0 when the streaming engine became the default', 'It works but returns an empty result']}
+  answer={1}
+  why="The error message itself says that profile was designed for the in-memory engine and would give misleading per-node times under the streaming engine, which is now the default."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="When we call collect without choosing an engine, who runs the plan in Polars 2.1.0?"
+  options={['The in-memory engine, always', 'The streaming engine if no engine affinity is set, falling back to in-memory if the query cannot run there', 'The GPU engine if the computer has a graphics card']}
+  answer={1}
+  why="We read in the docstring of explain in the source at tag py-2.1.0 that engine auto takes the value from Config.set_engine_affinity or the environment variable POLARS_ENGINE_AFFINITY, and falls back to streaming if neither is set. The GPU engine has to be asked for and needs an extra library."
+/>
+
+</Step>

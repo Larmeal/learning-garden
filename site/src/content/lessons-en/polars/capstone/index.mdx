@@ -1,0 +1,218 @@
+---
+title: Capstone, Cleaning a Dirty CSV with One Pipeline
+summary: Everything together. Read a CSV with duplicate rows, bad numbers, impossible dates and padded regions, count what is wrong and check it against what was planted, clean it, join it to the customer table, summarise it as a report, and write the result as Parquet with one lazy plan.
+facts:
+  - "Ran for real in exercises/12_capstone_pipeline.py with Polars 2.1.0. The data is synthetic, 100,000 rows plus 150 duplicate rows, with dirt planted in fixed numbers, and the exercise asserts that the pipeline finds every number exactly."
+  - "The planted dirt is what the author thought up and not from any real organisation's data. Real data often has kinds of mistakes that are not on this list."
+  - "The customer table has 1,800 people, but the orders have customer ids up to 2,000 on purpose, to show a join that finds no match."
+order: 12
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [lazy, io, joins, types-and-nulls]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## The file that reached us
+
+Sales sent `orders.csv` with 100,150 rows and asked for a report of sales by customer tier. We know a file like this is never clean. In the exercise we plant the dirt in countable numbers, so that we can check whether our pipeline finds all of it (run: `exercises/12_capstone_pipeline.py`).
+
+| Dirt | Rows | What it looks like |
+|---|---|---|
+| Negative `qty` | 500 | the value is `-1` |
+| `qty` that is not a number | 250 | the text `many` |
+| `region` with spaces and capitals | 300 | for example `  NORTH ` |
+| Dates that do not exist | 200 | `31/02/2026` |
+| Unknown products | 100 | `gizmo` |
+| Duplicate rows | 150 | the same order appears twice |
+
+And the customer table has only 1,800 people, although the orders use ids up to 2,000. We have one question: what is the total revenue by customer tier (gold, silver) once the data is clean?
+
+</Step>
+
+<Step>
+
+## Read everything as text first
+
+As we learned in [lesson 7](/en/polars/io/), for data we do not trust we do not let Polars guess the types.
+
+```python
+src = pl.scan_csv("orders.csv", infer_schema=False)      # every column is a String, and nothing is read yet
+
+typed = src.select(
+    pl.col("order_id").cast(pl.Int64),
+    pl.col("customer_id").cast(pl.Int64),
+    pl.col("region").str.strip_chars().str.to_lowercase(),
+    pl.col("product"),
+    pl.col("qty").cast(pl.Int64, strict=False),
+    pl.col("price").cast(pl.Float64),
+    pl.col("ordered_at").str.to_date("%Y-%m-%d", strict=False),
+)
+```
+
+`scan_csv` gives a LazyFrame, so nothing has run (see [lesson 6](/en/polars/lazy/)). In the `typed` step we do three things at once. **First**, we strip the spaces and lower-case `region`, which fixes the 300 dirty rows right away. **Second**, we cast `qty` with `strict=False`, so that values that cannot be converted become `null` instead of raising an error ([lesson 3](/en/polars/types-and-nulls/)). **Last**, we convert dates with an explicit format, and the dates that do not exist become `null` by the same mechanism.
+
+</Step>
+
+<Step>
+
+## Check before you clean
+
+Before throwing anything away, we want to know what is wrong and in how many rows. We use one `select` that gives several single values at once ([lesson 2](/en/polars/expressions/)).
+
+```python
+checks = typed.select(
+    rows=pl.len(),
+    duplicate_ids=pl.len() - pl.col("order_id").n_unique(),
+    qty_not_a_number=pl.col("qty").is_null().sum(),
+    qty_not_positive=(pl.col("qty") <= 0).sum(),
+    bad_date=pl.col("ordered_at").is_null().sum(),
+    unknown_product=(~pl.col("product").is_in(PRODUCTS)).sum(),
+    dirty_region=(~pl.col("region").is_in(REGIONS)).sum(),
+).collect().row(0, named=True)
+```
+
+```text
+{'rows': 100150, 'duplicate_ids': 150, 'qty_not_a_number': 250, 'qty_not_positive': 500,
+ 'bad_date': 200, 'unknown_product': 100, 'dirty_region': 0}
+```
+
+Every number matches the table we planted (the exercise asserts them one by one), except the last, `dirty_region`, which is 0 because the `typed` step already fixed it. If we check the raw text of the file before the fix, we get the 300 we planted. The lesson here is to check at the step closest to the raw data you can. If you check after fixing, you never learn that the dirt was there.
+
+In real work this set of numbers should be saved as history every time the pipeline runs. If tomorrow `bad_date` goes from 200 to 20,000, the source system changed its date format, and we should know before the report goes wrong (the [Data Quality](/en/data-quality/assurance-basics/) path covers this kind of continuous checking).
+
+</Step>
+
+<Step>
+
+## Clean
+
+```python
+clean = (
+    typed.unique(subset="order_id", keep="first", maintain_order=True)
+    .filter(pl.col("qty") > 0, pl.col("ordered_at").is_not_null(), pl.col("product").is_in(PRODUCTS))
+    .with_columns(revenue=pl.col("qty") * pl.col("price"))
+)
+clean.select(pl.len()).collect().item()     # 98950
+```
+
+`unique` removes rows with a repeated `order_id`, leaving 100,000 rows. Then `filter` keeps rows where `qty` is positive (the `null`s from `many` fail this condition by themselves, by the rule of `null` from [lesson 3](/en/polars/types-and-nulls/)), the date is valid and the product is known. We end up with **98,950 rows**, which equals 100,000 minus 500, 250, 200 and 100 exactly (the four kinds of planted dirt do not overlap, so they subtract directly).
+
+<Callout type="note" title="Why drop rows and not fix them">
+We drop the bad rows and do not guess a correction, because a `qty` of `-1` could mean a return or a typing mistake, and we cannot know. In real work you should keep the dropped rows in a separate file (a quarantine) for the data owner to inspect. This is the author's advice; the exercise does not do it.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Join to the customers, then summarise
+
+```python
+report = (
+    clean.join(customers.lazy(), on="customer_id", how="left")
+    .with_columns(pl.col("tier").fill_null("unknown"))
+    .group_by("tier")
+    .agg(pl.len().alias("orders"), pl.col("revenue").sum().round(2).alias("revenue"))
+    .sort("tier")
+)
+```
+
+```text
+tier     orders   revenue
+gold     29526    6.753638e6
+silver   59489    1.3412487e7
+unknown  9935     2.269109e6
+```
+
+We use `how="left"` so that the orders of customers who are not in the table do not vanish ([lesson 5](/en/polars/joins/)), and give `unknown` to the rows whose tier cannot be found. This is where the choice of join type matters. With `inner`, the 9,935 orders of customers missing from the table would silently drop out of the report. The three groups add up to the 98,950 rows we cleaned, and the revenue of the three groups adds up to the total revenue (the exercise checks that they differ by less than 1). If we want a report without `unknown`, we filter it out afterwards.
+
+Two more reports built from the same `clean`:
+
+```python
+monthly = clean.group_by(pl.col("ordered_at").dt.month().alias("month")).agg(pl.col("revenue").sum()).sort("month")
+top = (
+    clean.group_by("customer_id").agg(pl.col("revenue").sum())
+    .with_columns(rank=pl.col("revenue").rank("dense", descending=True))
+    .filter(pl.col("rank") <= 3)
+    .sort("rank")
+)
+```
+
+The monthly report has months 1, 2 and 3 (the data we made covers three months), and the top-customer report gives exactly 3 rows. We can reuse `clean` because it is still a LazyFrame that has not run; each report runs from the start of its own plan.
+
+</Step>
+
+<Step>
+
+## Look at the plan, then write the result
+
+Before writing, we open the plan of the tier report to see that the optimizer does not read more than it needs.
+
+```python
+plan = clean.join(customers.lazy(), on="customer_id", how="left").group_by("tier").agg(pl.col("revenue").sum()).explain()
+re.search(r"Csv SCAN.*?PROJECT (\d)/7 COLUMNS", plan, re.S).group(1)      # '6'
+```
+
+The CSV scan reads 6 of the 7 columns, because this question does not use `region` at all, so it is cut at read time. The other 6 are still needed, since `ordered_at` and `product` are used in the cleaning conditions (we looked only at the number `6/7` and did not trace which six they are).
+
+The last step is to write the result. We use `sink_parquet`, which writes straight from the plan.
+
+```python
+clean.sink_parquet("clean.parquet")
+out = pl.read_parquet("clean.parquet")
+out.height, out.schema["ordered_at"], out.schema["qty"]      # 98950, Date, Int64
+```
+
+The file we get has the right types (the date is `Date` and `qty` is `Int64`), unlike the source CSV, where everything is text. Whoever reads this file next does not have to guess types again ([lesson 7](/en/polars/io/)).
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="If we change the report's join to Inner instead of Left, what happens to the orders of customers who are not in the customer table?"
+  options={['They stay, with a null tier', 'They silently disappear from the report: in the exercise 9,935 orders and about 2.27 million in revenue', 'An error, because no match can be found']}
+  answer={1}
+  why="Inner keeps only rows that match on both sides, so the group of customers who are not in the table is dropped with no error, and the total of the report is lower than the real one. A Left join plus filling unknown keeps the total right and makes the problem visible."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Why do we count the dirt before cleaning, instead of cleaning and then looking at the result?"
+  options={['Because Polars forces you to check first', 'Because if we clean first we never learn how many dirty rows there were, which is a signal that the source system may have changed', 'Because checking is faster than cleaning']}
+  answer={1}
+  why="A number like bad_date equal to 200 is history that should be saved on every run. If tomorrow it is in the tens of thousands, the source changed its date format. Cleaning and dropping quietly hides that signal."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Claim | Source |
+|---|---|
+| The file has 100,150 rows and the planted dirt counts | ran: `exercises/12_capstone_pipeline.py` (synthetic data) |
+| The checks find 150, 250, 500, 200 and 100 as planted, and the raw regions are wrong in 300 rows | ran: `exercises/12_capstone_pipeline.py` |
+| Cleaning leaves 98,950 rows | ran: `exercises/12_capstone_pipeline.py` |
+| The tier report gives gold 29,526 / silver 59,489 / unknown 9,935 rows, and the three revenues add up to the total | ran: `exercises/12_capstone_pipeline.py` |
+| The monthly report has months 1 to 3 and the top-customer report has 3 rows | ran: `exercises/12_capstone_pipeline.py` |
+| The CSV scan reads 6 of 7 columns and the written file has types Date and Int64 | ran: `exercises/12_capstone_pipeline.py` |
+| Keep dropped rows as a quarantine and keep the check numbers as history | author (advice, not done in the exercise) |
+
+</Step>

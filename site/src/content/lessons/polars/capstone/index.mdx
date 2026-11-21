@@ -1,0 +1,216 @@
+---
+title: Capstone
+summary: รวมทุกอย่างเข้าด้วยกัน อ่าน CSV ที่แถวซ้ำ ตัวเลขผิด วันที่ที่ไม่มีจริง และ Region ที่มีช่องว่าง ตรวจก่อนล้างโดยนับสิ่งที่ผิดให้ตรงกับที่ฝังไว้ ล้าง รวมกับตารางลูกค้า สรุปเป็นรายงาน แล้วเขียนผลเป็น Parquet ด้วยแผน Lazy แผนเดียว
+facts:
+  - "รันจริงใน exercises/12_capstone_pipeline.py ด้วย Polars 2.1.0 ข้อมูลเป็นข้อมูลสังเคราะห์ 100,000 แถว (บวกแถวซ้ำ 150 แถว) ที่ฝังความสกปรกไว้เป็นจำนวนคงที่ และ Assert ว่า Pipeline หาได้ตรงทุกจำนวน"
+  - "ความสกปรกที่ฝังเป็นของที่ผู้เขียนคิดขึ้น ไม่ได้มาจากข้อมูลจริงขององค์กรไหน ข้อมูลจริงมักมีรูปแบบผิดที่ไม่อยู่ในรายการนี้"
+  - "ตารางลูกค้ามี 1,800 คน แต่ในออเดอร์มีรหัสลูกค้าถึง 2,000 คนโดยตั้งใจ เพื่อให้เห็นกรณีที่ Join หาคู่ไม่เจอ"
+order: 12
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [lazy, io, joins, types-and-nulls]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## ไฟล์ที่มาถึงมือเรา
+
+ฝ่ายขายส่งไฟล์ `orders.csv` มาให้ 100,150 แถว และขอรายงานยอดขายตามระดับลูกค้า เรารู้ว่าไฟล์แบบนี้ไม่เคยสะอาด ในแบบฝึกเราฝังความสกปรกไว้เป็นจำนวนที่นับได้ เพื่อจะตรวจได้ว่า Pipeline ของเราหาเจอครบหรือเปล่า (รัน: `exercises/12_capstone_pipeline.py`)
+
+| ความสกปรก | จำนวนแถว | ลักษณะ |
+|---|---|---|
+| `qty` ติดลบ | 500 | ค่าเป็น `-1` |
+| `qty` ไม่ใช่ตัวเลข | 250 | ค่าเป็นข้อความ `many` |
+| `region` มีช่องว่างและตัวพิมพ์ใหญ่ | 300 | เช่น `  NORTH ` |
+| วันที่ไม่มีอยู่จริง | 200 | `31/02/2026` |
+| สินค้าที่ไม่รู้จัก | 100 | `gizmo` |
+| แถวซ้ำ | 150 | ออเดอร์เดียวกันปรากฏสองครั้ง |
+
+และตารางลูกค้ามีแค่ 1,800 คนทั้งที่ในออเดอร์มีรหัสถึง 2,000 เรามีหนึ่งคำถามคือ รายได้รวมแยกตาม Tier ของลูกค้า (Gold, Silver) เมื่อทำความสะอาดแล้ว
+
+</Step>
+
+<Step>
+
+## อ่านทุกอย่างเป็นข้อความก่อน
+
+ตามที่เรียนจาก [บท 7](/polars/io/) กับข้อมูลที่ไม่ไว้ใจ เราไม่ให้ Polars เดาชนิด
+
+```python
+src = pl.scan_csv("orders.csv", infer_schema=False)      # ทุกคอลัมน์เป็น String และยังไม่อ่านอะไร
+
+typed = src.select(
+    pl.col("order_id").cast(pl.Int64),
+    pl.col("customer_id").cast(pl.Int64),
+    pl.col("region").str.strip_chars().str.to_lowercase(),
+    pl.col("product"),
+    pl.col("qty").cast(pl.Int64, strict=False),
+    pl.col("price").cast(pl.Float64),
+    pl.col("ordered_at").str.to_date("%Y-%m-%d", strict=False),
+)
+```
+
+`scan_csv` ให้ LazyFrame จึงยังไม่มีอะไรรัน (ดู [บท 6](/polars/lazy/)) ในขั้น `typed` เราทำสามอย่างไปพร้อมกัน **อย่างแรก** ตัดช่องว่างและทำ `region` เป็นตัวพิมพ์เล็ก ซึ่งแก้ความสกปรก 300 แถวทิ้งไปเลย **อย่างที่สอง** แปลง `qty` ด้วย `strict=False` เพื่อให้ค่าที่แปลงไม่ได้กลายเป็น `null` แทนที่จะ Error ([บท 3](/polars/types-and-nulls/)) **อย่างสุดท้าย** แปลงวันที่ด้วย Format ที่ระบุชัด ซึ่งวันที่ที่ไม่มีจริงก็จะกลายเป็น `null` ด้วยกลไกเดียวกัน
+
+</Step>
+
+<Step>
+
+## ตรวจก่อนล้าง
+
+ก่อนจะทิ้งอะไร เราอยากรู้ว่ามีอะไรผิดบ้าง และผิดกี่แถว เราใช้ `select` ที่ให้ผลเป็นค่าเดียวหลายตัวในครั้งเดียว ([บท 2](/polars/expressions/))
+
+```python
+checks = typed.select(
+    rows=pl.len(),
+    duplicate_ids=pl.len() - pl.col("order_id").n_unique(),
+    qty_not_a_number=pl.col("qty").is_null().sum(),
+    qty_not_positive=(pl.col("qty") <= 0).sum(),
+    bad_date=pl.col("ordered_at").is_null().sum(),
+    unknown_product=(~pl.col("product").is_in(PRODUCTS)).sum(),
+    dirty_region=(~pl.col("region").is_in(REGIONS)).sum(),
+).collect().row(0, named=True)
+```
+
+```text
+{'rows': 100150, 'duplicate_ids': 150, 'qty_not_a_number': 250, 'qty_not_positive': 500,
+ 'bad_date': 200, 'unknown_product': 100, 'dirty_region': 0}
+```
+
+ทุกตัวเลขตรงกับตารางที่ฝังไว้ (แบบฝึก `assert` ทีละตัว) ยกเว้นตัวสุดท้าย `dirty_region` ที่เป็น 0 เพราะขั้น `typed` แก้ให้แล้ว ถ้าตรวจกับข้อความดิบของไฟล์ ก่อนแก้ ได้ 300 ตามที่ฝังไว้ ข้อสังเกตจากตรงนี้คือ การตรวจควรทำที่ขั้นที่ใกล้ข้อมูลดิบที่สุดเท่าที่ทำได้ ถ้าเราตรวจหลังแก้เราจะไม่รู้เลยว่ามีความสกปรกนั้นอยู่
+
+ในงานจริง ตัวเลขชุดนี้ควรถูกเก็บเป็นประวัติทุกครั้งที่ Pipeline รัน เพราะถ้าพรุ่งนี้ `bad_date` จาก 200 เป็น 20,000 แปลว่าระบบต้นทางเปลี่ยนรูปแบบวันที่ แล้วเราควรรู้ก่อนที่รายงานจะผิด (เรื่องการตรวจแบบนี้ต่อเนื่อง เส้นทาง [Data Quality](/data-quality/assurance-basics/) พูดถึงเต็ม ๆ)
+
+</Step>
+
+<Step>
+
+## ล้าง
+
+```python
+clean = (
+    typed.unique(subset="order_id", keep="first", maintain_order=True)
+    .filter(pl.col("qty") > 0, pl.col("ordered_at").is_not_null(), pl.col("product").is_in(PRODUCTS))
+    .with_columns(revenue=pl.col("qty") * pl.col("price"))
+)
+clean.select(pl.len()).collect().item()     # 98950
+```
+
+`unique` ตัดแถวที่ `order_id` ซ้ำ เหลือ 100,000 แถว จากนั้น `filter` เก็บแถวที่ `qty` เป็นบวก (ค่า `null` จาก `many` ไม่ผ่านเงื่อนไขนี้เองตามกฎของ `null` ใน [บท 3](/polars/types-and-nulls/)) มีวันที่ที่ถูกต้อง และเป็นสินค้าที่รู้จัก จบที่ **98,950 แถว** ซึ่งตรงกับ 100,000 ลบ 500, 250, 200 และ 100 พอดี (แถวที่ฝังความสกปรกทั้งสี่แบบไม่ซ้อนกัน จึงลบกันได้ตรง ๆ)
+
+<Callout type="note" title="ทำไมทิ้งแถวโดยไม่แก้">
+เราทิ้งแถวที่ผิดแทนที่จะเดาค่าแก้ เพราะ `qty` เป็น `-1` อาจแปลว่าคืนสินค้าหรือกรอกผิดก็ได้ เรารู้ไม่ได้ ในงานจริงควรเก็บแถวที่ทิ้งไว้ในไฟล์แยก (Quarantine) เพื่อให้เจ้าของข้อมูลตรวจ เรื่องนี้เป็นคำแนะนำของผู้เขียน แบบฝึกไม่ได้ทำ
+</Callout>
+
+</Step>
+
+<Step>
+
+## Join กับลูกค้า แล้วสรุป
+
+```python
+report = (
+    clean.join(customers.lazy(), on="customer_id", how="left")
+    .with_columns(pl.col("tier").fill_null("unknown"))
+    .group_by("tier")
+    .agg(pl.len().alias("orders"), pl.col("revenue").sum().round(2).alias("revenue"))
+    .sort("tier")
+)
+```
+
+```text
+tier     orders   revenue
+gold     29526    6.753638e6
+silver   59489    1.3412487e7
+unknown  9935     2.269109e6
+```
+
+เราใช้ `how="left"` เพื่อไม่ให้ออเดอร์ของลูกค้าที่ไม่อยู่ในตารางหายไป ([บท 5](/polars/joins/)) แล้วใส่ `unknown` ให้แถวที่หา Tier ไม่เจอ ตรงนี้คือความสำคัญของการเลือกชนิด Join ถ้าใช้ `inner` ออเดอร์ 9,935 รายการของลูกค้าที่ไม่อยู่ในตารางจะหายไปจากรายงานเงียบ ๆ ผลรวมของสามกลุ่มเท่ากับ 98,950 แถวตามที่ล้างได้ และยอดสามกลุ่มรวมกันตรงกับยอดรวมทั้งหมด (แบบฝึกตรวจว่าต่างกันไม่ถึง 1) ถ้าเราอยากได้รายงานที่ไม่ปนกับ `unknown` ก็กรองออกทีหลัง
+
+อีกสองรายงานที่ต่อจาก `clean` เดียวกัน
+
+```python
+monthly = clean.group_by(pl.col("ordered_at").dt.month().alias("month")).agg(pl.col("revenue").sum()).sort("month")
+top = (
+    clean.group_by("customer_id").agg(pl.col("revenue").sum())
+    .with_columns(rank=pl.col("revenue").rank("dense", descending=True))
+    .filter(pl.col("rank") <= 3)
+    .sort("rank")
+)
+```
+
+รายงานรายเดือนมีเดือน 1, 2, 3 (ข้อมูลที่เราสร้างครอบคลุมสามเดือน) และรายงานลูกค้าสามอันดับแรกได้ 3 แถวพอดี ใช้ `clean` ซ้ำได้เพราะมันยังเป็น LazyFrame ที่ยังไม่ได้รัน แต่ละรายงานจะรันตั้งแต่ต้นแผนของมันเอง
+
+</Step>
+
+<Step>
+
+## ดูแผน แล้วเขียนผล
+
+ก่อนเขียนผล เราเปิดแผนของรายงาน Tier ดูว่า Optimizer ไม่ได้อ่านเกินจำเป็น
+
+```python
+plan = clean.join(customers.lazy(), on="customer_id", how="left").group_by("tier").agg(pl.col("revenue").sum()).explain()
+re.search(r"Csv SCAN.*?PROJECT (\d)/7 COLUMNS", plan, re.S).group(1)      # '6'
+```
+
+Scan ของ CSV อ่าน 6 จาก 7 คอลัมน์ เพราะคำถามนี้ไม่ได้ใช้ `region` เลย จึงถูกตัดออกตั้งแต่ตอนอ่าน ส่วนที่เหลืออีก 6 ยังต้องใช้เพราะ `ordered_at` กับ `product` ใช้ในเงื่อนไขการล้าง (เราดูแค่ตัวเลข `6/7` ไม่ได้ไล่ว่า 6 ตัวคืออะไรบ้าง)
+
+ขั้นสุดท้ายคือเขียนผล เราใช้ `sink_parquet` ซึ่งเขียนจากแผนโดยตรง
+
+```python
+clean.sink_parquet("clean.parquet")
+out = pl.read_parquet("clean.parquet")
+out.height, out.schema["ordered_at"], out.schema["qty"]      # 98950, Date, Int64
+```
+
+ไฟล์ที่ได้มีชนิดข้อมูลที่ถูกต้อง (วันที่เป็น `Date` และ `qty` เป็น `Int64`) ซึ่งต่างจากไฟล์ CSV ต้นทางที่เป็นข้อความทั้งหมด คนที่อ่านไฟล์นี้ต่อไม่ต้องเดาชนิดอีก ([บท 7](/polars/io/))
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ถ้าเราเปลี่ยน Join ของรายงานเป็น Inner แทน Left ออเดอร์ของลูกค้าที่ไม่อยู่ในตารางลูกค้าจะเป็นอย่างไร"
+  options={['ยังอยู่ แต่ Tier เป็น Null', 'หายไปจากรายงานเงียบ ๆ ซึ่งในแบบฝึกคือ 9,935 รายการและยอดราว 2.27 ล้าน', 'เกิด Error เพราะหาคู่ไม่เจอ']}
+  answer={1}
+  why="Inner เก็บเฉพาะแถวที่มีคู่ทั้งสองฝั่ง ลูกค้ากลุ่มที่ไม่อยู่ในตารางจึงถูกทิ้งโดยไม่มี Error ใด ๆ ซึ่งทำให้ยอดรวมของรายงานต่ำกว่ายอดจริง Left Join บวกการเติม Unknown ช่วยให้ยอดรวมตรงและเห็นปัญหา"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ทำไมเราจึงตรวจจำนวนความสกปรกก่อนล้าง แทนที่จะล้างแล้วค่อยดูผล"
+  options={['เพราะ Polars บังคับให้ตรวจก่อน', 'เพราะถ้าล้างก่อนเราจะไม่รู้ว่าเคยมีความสกปรกกี่แถว ซึ่งเป็นสัญญาณว่าระบบต้นทางเปลี่ยนไปหรือไม่', 'เพราะการตรวจเร็วกว่าการล้าง']}
+  answer={1}
+  why="ตัวเลขอย่าง bad_date เท่ากับ 200 เป็นประวัติที่ควรเก็บทุกครั้งที่ Pipeline รัน ถ้าพรุ่งนี้กลายเป็นหลักหมื่นแปลว่าต้นทางเปลี่ยนรูปแบบวันที่ การล้างแล้วทิ้งเงียบ ๆ ซ่อนสัญญาณนี้ไว้"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| ไฟล์ 100,150 แถวและจำนวนความสกปรกที่ฝังแต่ละแบบ | รัน: `exercises/12_capstone_pipeline.py` (ข้อมูลสังเคราะห์) |
+| ตรวจได้ 150, 250, 500, 200, 100 ตรงกับที่ฝัง และ Region ดิบผิด 300 แถว | รัน: `exercises/12_capstone_pipeline.py` |
+| ล้างแล้วเหลือ 98,950 แถว | รัน: `exercises/12_capstone_pipeline.py` |
+| รายงาน Tier ได้ Gold 29,526 / Silver 59,489 / Unknown 9,935 แถว และยอดรวมสามกลุ่มตรงกับยอดรวมทั้งหมด | รัน: `exercises/12_capstone_pipeline.py` |
+| รายงานรายเดือนได้เดือน 1 ถึง 3 และลูกค้าสามอันดับแรกได้ 3 แถว | รัน: `exercises/12_capstone_pipeline.py` |
+| Scan CSV อ่าน 6 จาก 7 คอลัมน์ และไฟล์ที่เขียนมีชนิด Date และ Int64 | รัน: `exercises/12_capstone_pipeline.py` |
+| ควรเก็บแถวที่ทิ้งไว้เป็น Quarantine และเก็บตัวเลขตรวจเป็นประวัติ | ผู้เขียน (คำแนะนำ ไม่ได้ทำในแบบฝึก) |
+
+</Step>

@@ -1,0 +1,238 @@
+---
+title: group_by and Windows
+summary: group_by folds many rows into one row per group, while over runs the same calculation and keeps every row. This lesson does both on the order table, including how null affects counts, sorting, pivot, and grouping by time buckets.
+facts:
+  - "Ran for real in exercises/04_group_by_windows.py with Polars 2.1.0, asserting every result table."
+  - "Whether group_by uses hashing or sorting inside was not traced in the source. This lesson only describes what you see."
+  - "That pivot with sum gives 0 (not null) in empty cells is a result of running it, not something taken from the documentation."
+order: 4
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [expressions]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import GroupByLab from '../../../../components/labs/polars/GroupByLab';
+
+<Step>
+
+## One row per group
+
+The shop wants to know, for each customer, how many orders, how many items and how much money. We add the `total` column first and then use `group_by` with `agg` (run: `exercises/04_group_by_windows.py`).
+
+```python
+df = df.with_columns(total=pl.col("qty") * pl.col("price"))
+
+df.group_by("customer", maintain_order=True).agg(
+    pl.len().alias("orders"),
+    pl.col("qty").sum().alias("qty"),
+    pl.col("total").sum().alias("spent"),
+    pl.col("product").unique().sort().alias("products"),
+)
+```
+
+```text
+┌──────────┬────────┬─────┬───────┬─────────────────┐
+│ customer ┆ orders ┆ qty ┆ spent ┆ products        │
+╞══════════╪════════╪═════╪═══════╪═════════════════╡
+│ Ann      ┆ 3      ┆ 9   ┆ 34.5  ┆ ["book", "pen"] │
+│ Bob      ┆ 2      ┆ 4   ┆ 12.5  ┆ ["ink", "pen"]  │
+│ Cat      ┆ 2      ┆ 1   ┆ 12.0  ┆ ["book", "pen"] │
+│ Dan      ┆ 1      ┆ 4   ┆ 32.0  ┆ ["ink"]         │
+└──────────┴────────┴─────┴───────┴─────────────────┘
+```
+
+Inside `agg`, every expression works on **only the rows of that group** and returns a single value (or a list, like the `products` column). Ann's numbers come from Ann's three rows only. Notice that Cat's `qty` is 1 although Cat has two orders, because the second order has no `qty` (`null`) and `sum` skips it.
+
+We wrote `maintain_order=True` so that the groups come out in the order the customers first appear. Without it Polars does not promise any order, and it may change from run to run. If you need an order, use `maintain_order=True` or `sort` afterwards.
+
+</Step>
+
+<Step>
+
+## Counting right: len, count and null
+
+```python
+r = df.group_by("customer", maintain_order=True).agg(
+    pl.len().alias("rows"),
+    pl.col("qty").count().alias("qty_count"),
+    pl.col("qty").sum().alias("qty_sum"),
+)
+# Cat -> rows 2, qty_count 1, qty_sum 1
+```
+
+`pl.len()` counts every row of the group, and `count()` of a column counts only the values that exist. Cat's group therefore gives 2 and 1. If a group is all `null`, `sum` gives `0` but `mean` gives `null`.
+
+```python
+allnull = pl.DataFrame({"k": ["a", "a"], "v": [None, None]}, schema={"k": pl.String, "v": pl.Int64})
+allnull.group_by("k").agg(pl.col("v").sum().alias("s"), pl.col("v").mean().alias("m")).row(0)
+# ('a', 0, None)
+```
+
+You can also group by several columns (`group_by("customer", "product")` gives 7 groups from 8 rows), or by an expression, for example `group_by(pl.col("ordered_at").dt.month().alias("month"))`.
+
+</Step>
+
+<Step>
+
+## Windows: compute by group but keep every row
+
+Sometimes we do not want rows to disappear. For example, we want each order as a share of its customer's total, so we need the order amount and the group total in the same row. That is the job of `over`.
+
+```python
+df.with_columns(
+    customer_total=pl.col("total").sum().over("customer"),
+    share=(pl.col("total") / pl.col("total").sum().over("customer")).round(3),
+    rank=pl.col("total").rank("dense", descending=True).over("customer"),
+)
+```
+
+```text
+order_id  customer  total  customer_total  share
+1         Ann       3.0    34.5            0.087
+2         Bob       8.0    12.5            0.64
+3         Ann       7.5    34.5            0.217
+4         Cat       12.0   12.0            1.0
+5         Bob       4.5    12.5            0.36
+6         Ann       24.0   34.5            0.696
+7         Dan       32.0   32.0            1.0
+8         Cat       null   12.0            null
+```
+
+There are still eight rows, and Ann's `customer_total` is 34.5 on all three of her rows. `over("customer")` computes the `sum` in each group and sends the value back to every row of the group. Compare the two ways below and see where each row ends up.
+
+<GroupByLab client:visible lang="en" />
+
+If you cannot remember which to use, ask how many rows the result should have. One row per group means `group_by().agg()`. The same number of rows as before means `over`.
+
+</Step>
+
+<Step>
+
+## Windows that see their neighbours
+
+`over` also works with functions that see the order of rows, such as running totals and the value of the previous row.
+
+```python
+c = df.sort("order_id").with_columns(
+    running=pl.col("total").cum_sum().over("customer"),
+    prev=pl.col("total").shift(1).over("customer"),
+)
+# Ann: running [3.0, 10.5, 34.5], prev [None, 3.0, 7.5]
+```
+
+The running sum and `shift` work inside Ann's group only. So the first row of Ann has no `prev` (`null`), even though the row before it in the table belongs to Bob.
+
+Another job `over` does well is picking the best row of each group without joining back.
+
+```python
+df.filter(pl.col("total") == pl.col("total").max().over("customer"))["order_id"].to_list()
+# [2, 4, 6, 7]
+```
+
+The expression on the right of `==` gives each customer's largest amount, spread to every row, and `filter` keeps the rows whose amount equals it (if two orders tie exactly, you get both).
+
+</Step>
+
+<Step>
+
+## Sorting, top rows and removing duplicates
+
+```python
+df.sort("total", descending=True, nulls_last=True)["order_id"].to_list()[:3]    # [7, 6, 4]
+df.top_k(2, by="total")["order_id"].to_list()                                  # [7, 6]
+df.sort("customer", "total", descending=[False, True], nulls_last=True)["order_id"].to_list()[:3]   # [6, 3, 1]
+df.unique(subset="customer", keep="first", maintain_order=True)["order_id"].to_list()   # [1, 2, 4, 7]
+df["customer"].value_counts(sort=True).row(0)     # ('Ann', 3)
+```
+
+`sort` takes several columns and a direction for each (`descending=[False, True]` sorts names from low to high and then amounts from high to low inside the same name). `top_k` gets the k largest without sorting the whole table. `unique` removes duplicate rows by the columns you name, and `value_counts` counts how many times each value appears, which is the quickest way to see what a column holds.
+
+</Step>
+
+<Step>
+
+## Pivot, unpivot and time
+
+We want a table with customers as rows, products as columns and the quantity bought in each cell.
+
+```python
+p = df.pivot(on="product", index="customer", values="qty", aggregate_function="sum").sort("customer")
+```
+
+```text
+customer  pen  ink  book
+Ann       7    0    2
+Bob       3    1    0
+Cat       0    0    1
+Dan       0    4    0
+```
+
+Look at the cells where a customer never bought that product. They hold `0`, not `null`, because the `sum` of a group with no values is 0. If you meant to tell "never bought" apart from "bought zero", be careful here. The reverse operation is `unpivot`, which gives 12 rows (4 customers times 3 products), and the zero cells come back as rows too.
+
+```python
+p.unpivot(index="customer", variable_name="product", value_name="qty")
+```
+
+For grouping by time, use `group_by_dynamic` on a column that is already sorted by time.
+
+```python
+df.sort("ordered_at").group_by_dynamic("ordered_at", every="1w").agg(pl.col("total").sum())
+# (2025-12-29, 11.0), (2026-01-05, 80.0), (2026-01-12, 0.0)
+```
+
+Weeks start on Monday. The first two orders are on 3 January 2026 (a Saturday), so they fall in the week that starts on 29 December 2025. The last week gives 0.0 because its only order is the one on the 12th, which has no `qty`.
+
+<Callout type="note" title="The order of the groups">
+We checked that the result of `group_by` without `maintain_order=True` has the right members, but the order they come out in is not something Polars promises. If you need to compare two runs, or write a file that must be the same every time, always `sort` afterwards.
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We want the original 8-row order table with an extra column that holds the total of that customer on every row. What should we use?"
+  options={['group_by and then agg, because it sums by group already', 'over, because we want a group calculation but every row kept', 'sort and then cum_sum']}
+  answer={1}
+  why="group_by folds to one row per group (4 rows). over computes the value per group and sends it back to every row of the group, so we still have 8 rows and Ann's total column is 34.5 on all three of her rows."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="In the result of a pivot with sum, Ann never bought ink. What does that cell hold?"
+  options={['null, because there is no data', '0, because the sum of a group with no values is zero', 'The cell is not created and the whole column disappears']}
+  answer={1}
+  why="In this lesson's exercise, Ann's ink cell got 0. If you need to tell never bought apart from bought zero, choose another aggregate or check separately by counting rows."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Claim | Source |
+|---|---|
+| The result table of `group_by` with `agg` (orders, qty, spent, products) | ran: `exercises/04_group_by_windows.py` |
+| `len` counts rows, `count` counts non-null values, a group of all nulls sums to 0 and has a null mean | ran: `exercises/04_group_by_windows.py` |
+| `over` keeps 8 rows and gives share, rank, running sum and `shift` inside the group | ran: `exercises/04_group_by_windows.py` |
+| Picking each customer's best order with `over` gives 2, 4, 6, 7 | ran: `exercises/04_group_by_windows.py` |
+| `sort`, `top_k`, `unique`, `value_counts` | ran: `exercises/04_group_by_windows.py` |
+| `pivot` fills 0 in empty cells and `unpivot` gives 12 rows | ran: `exercises/04_group_by_windows.py` |
+| `group_by_dynamic` by week, starting on Monday | ran: `exercises/04_group_by_windows.py` |
+| The order of groups is not guaranteed without `maintain_order=True` | author (read from the parameter documentation, not traced in code) |
+
+</Step>

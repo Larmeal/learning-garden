@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Answer 4 questions to check how well you understood reading and writing CSV and Parquet.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="You write a table with a date column to CSV and read it back with the defaults. What type is the date column?"
+  options={['Date, because Polars remembers the type', 'String, because a CSV does not store types and Polars does not convert text that looks like a date by itself', 'Datetime, because every date is read as a time']}
+  answer={1}
+  why="In the exercise ordered_at came back as String. To get dates, set try_parse_dates to True or set the type with schema_overrides. Parquet does not have this problem because it keeps the type in the file."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="Data you do not trust has letters mixed into a number column in a few rows deep in a CSV file. What is the safest approach?"
+  options={['Make the number of rows used for guessing as small as possible, to be fast', 'Read every column as text first (turn guessing off), then cast without strict mode to count the values that cannot be converted', 'Raise the number of rows used for guessing to a million and hope to see one']}
+  answer={1}
+  why="If only two rows are looked at, Polars guesses an integer and fails when it meets a letter. Turning guessing off (reading as String) always works, and the count of values that cannot be cast is a result you can check, which is the way used in the last lesson."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A Parquet file that is not sorted usually skips fewer row groups than one sorted by the filtered column. Why?"
+  options={['Parquet does not store statistics unless it is sorted', 'The min to max range of every group is wide and overlapping, so nothing says that a group cannot hold the answer', 'Polars reads only sorted files']}
+  answer={1}
+  why="The statistics of each group are only the minimum, the maximum and the count of nulls. If every group has small and large values mixed, no statistics rule out the condition. In a sorted file the ranges are separate (in the exercise 1 to 100,000, 100,001 to 200,000 and so on)."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You want to read a big CSV, filter it down to a small part and write Parquet without holding the whole result in memory. Which pair do you use?"
+  options={['read_csv and then write_parquet', 'scan_csv and then sink_parquet', 'read_csv and then sink_parquet']}
+  answer={1}
+  why="Scan makes a plan that has read nothing, and sink writes the result to a file while the plan runs. Both are in one plan. The exercise filtered 1,000,000 rows down to 111,408 this way."
+/>
+
+</Step>

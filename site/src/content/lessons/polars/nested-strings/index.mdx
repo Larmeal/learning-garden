@@ -1,0 +1,204 @@
+---
+title: List, Struct และ String
+summary: ข้อมูลที่ซ้อนกันอยู่ในช่องเดียวมี List กับ Struct ซึ่งเปิดดูได้ด้วย Expression ในกลุ่มของมันเอง บทนี้ใช้ group_by ทำให้ได้ List ลองดึงค่าและ Explode กลับเป็นแถว ใช้ Struct รวมหลายคอลัมน์ ใช้ Expression ของ String และ Regex แล้ววัดว่า map_elements ช้ากว่า Expression เท่าไร
+facts:
+  - "รันจริงใน exercises/08_nested_and_strings.py ด้วย Polars 2.1.0 แล้ว Assert ทุกตัวอย่างของ List, Struct และ String"
+  - "ตัวเลขเวลาของ map_elements เทียบกับ Expression วัดบนคอมพิวเตอร์เครื่องเดียว เป็นอัตราส่วนประมาณ 6 เท่าสำหรับฟังก์ชัน upper ที่ง่ายมาก ผลจริงขึ้นกับงานที่ฟังก์ชันทำ"
+  - "ไม่ได้รัน Array (ชนิดที่ขนาดคงที่), การอ่าน JSON ซ้อนกันหลายชั้น และ Regex ที่ซับซ้อนกว่าตัวอย่าง"
+order: 8
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [group-by-windows]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## หนึ่งช่อง หลายค่า: List
+
+ใน [บท 4](/polars/group-by-windows/) เราเห็นผลของ `agg(pl.col("product").unique())` เป็นคอลัมน์ที่แต่ละช่องมีหลายค่า คอลัมน์แบบนี้ชนิดคือ `List` และมันไม่ได้เกิดแค่ตอนใช้ `agg` เท่านั้น เรามาทำตารางที่เก็บสินค้าและจำนวนของแต่ละลูกค้าเป็นรายการ (รัน: `exercises/08_nested_and_strings.py`)
+
+```python
+per = df.group_by("customer", maintain_order=True).agg(pl.col("product"), pl.col("qty"))
+per.schema["product"]     # List(String)
+per.row(0)                # ('Ann', ['pen', 'pen', 'book'], [2, 5, 2])
+```
+
+ตอนนี้ Ann มีแถวเดียว และสินค้าทั้งสามอยู่ในช่องเดียว เราเปิดดูข้างในด้วยกลุ่มคำสั่ง `list.` ที่เหมือนกับ `str.` ในเรื่องว่ามันเป็นเนมสเปซของ Expression
+
+```python
+per.select(
+    "customer",
+    n=pl.col("product").list.len(),
+    kinds=pl.col("product").list.n_unique(),
+    biggest=pl.col("qty").list.max(),
+    first=pl.col("product").list.first(),
+    has_book=pl.col("product").list.contains("book"),
+).row(0)
+# ('Ann', 3, 2, 5, 'pen', True)
+```
+
+ผลของ Ann คือ 3 รายการ 2 ชนิด จำนวนมากสุด 5 สินค้าแรกคือ `pen` และมี `book` อยู่ในรายการ ถ้าต้องการคำนวณกับทุกสมาชิกในรายการ ใช้ `list.eval` โดยอ้างสมาชิกด้วย `pl.element()`
+
+```python
+per.select(d=pl.col("qty").list.eval(pl.element() * 2))["d"][0]    # [4, 10, 4]
+```
+
+</Step>
+
+<Step>
+
+## Explode: เปลี่ยนสมาชิกให้เป็นแถว
+
+ถ้าอยากกลับจากรายการเป็นแถว ใช้ `explode`
+
+```python
+per.explode("product", "qty").shape      # (8, 3)   กลับมา 8 แถวเท่าเดิม
+```
+
+ที่ต้องระวังคือรายการที่ว่างหรือเป็น `null`
+
+```python
+e = pl.DataFrame({"k": [1, 2, 3], "v": [[1, 2], [], None]})
+e.explode("v").rows()                          # [(1, 1), (1, 2), (3, None)]
+e.explode("v", empty_as_null=True).rows()      # [(1, 1), (1, 2), (2, None), (3, None)]
+e.explode("v", keep_nulls=False).rows()        # [(1, 1), (1, 2)]
+```
+
+ตามค่าเริ่มต้นใน 2.1.0 รายการว่าง (`[]`) ของ `k = 2` ไม่มีสมาชิกให้เป็นแถว แถวนั้นจึงหายไปเงียบ ๆ ส่วนรายการที่เป็น `null` ยังเหลือหนึ่งแถว (ค่าเป็น `null`) ถ้าไม่อยากให้แถวของ `k = 2` หาย ให้ใส่ `empty_as_null=True` และถ้าไม่ต้องการแถวของ `null` เลยให้ใส่ `keep_nulls=False` เราอ่านค่าเริ่มต้นของสอง Parameter นี้จาก Source ของ `DataFrame.explode` และทดลองทั้งสามแบบ
+
+</Step>
+
+<Step>
+
+## หลายคอลัมน์ในช่องเดียว: Struct
+
+`Struct` คือช่องที่เก็บหลายฟิลด์ที่มีชื่อ เหมือน Dict ของ Python
+
+```python
+s = df.select("order_id", item=pl.struct("product", "qty"))
+s.schema["item"]       # Struct({'product': String, 'qty': Int64})
+s["item"][0]           # {'product': 'pen', 'qty': 2}
+s.select(p=pl.col("item").struct.field("product"))["p"][1]     # 'ink'
+s.unnest("item").columns                                        # ['order_id', 'product', 'qty']
+```
+
+`pl.struct` รวมสองคอลัมน์เป็นหนึ่งคอลัมน์ `struct.field` ดึงฟิลด์ออกมา และ `unnest` กระจายฟิลด์กลับเป็นคอลัมน์ธรรมดา เรามักเจอ Struct โดยไม่ได้ตั้งใจสร้าง เช่นผลของ `value_counts()` ซึ่งได้ตารางสองคอลัมน์ (ค่ากับจำนวน)
+
+```python
+df["product"].value_counts(sort=True).row(0)      # ('pen', 4)
+```
+
+และเมื่ออ่านข้อมูล JSON ที่ซ้อนกัน มันจะกลายเป็นคอลัมน์ Struct ที่เปิดด้วย `unnest` (ส่วนนี้เราไม่ได้รันตัวอย่าง JSON หลายชั้น)
+
+</Step>
+
+<Step>
+
+## String และ Regex
+
+คอลัมน์ข้อความมีกลุ่ม `str.` ลองดูกับชื่อที่สกปรกสี่ชื่อ
+
+```python
+names = pl.DataFrame({"s": ["  Ann Lee ", "bob_smith", "Cat-Doe", None]})
+names.select(pl.col("s").str.strip_chars())["s"][0]                       # 'Ann Lee'
+names.select(pl.col("s").str.contains("_|-"))["s"].to_list()              # [False, True, True, None]
+names.select(pl.col("s").str.replace_all(r"[_-]", " "))["s"].to_list()[1:3]   # ['bob smith', 'Cat Doe']
+names.select(pl.col("s").str.split("_"))["s"][1]                          # ['bob', 'smith']
+names.select(pl.col("s").str.extract(r"(\w+)[_-](\w+)", 2))["s"].to_list()   # [None, 'smith', 'Doe', None]
+```
+
+บรรทัดที่สองคือจุดที่ `null` ทำให้ผลเป็น `None` (ไม่ใช่ `False`) เหมือนที่เห็นใน [บท 3](/polars/types-and-nulls/) การส่งผ่านค่าที่หายไปเป็นพฤติกรรมของ Expression ทุกตัวในกลุ่มนี้ ไม่ต้องเขียน `if` คอยดักเอง ส่วน `extract` ดึงกลุ่มที่ 2 จาก Regex ออกมา ถ้าไม่เจอให้ `None`
+
+และอีกสองเครื่องมือสำหรับประกอบข้อความ
+
+```python
+df.select(label=pl.format("{} x{}", pl.col("product"), pl.col("qty")))["label"].to_list()[:2]
+# ['pen x2', 'ink x1']
+df.select(pl.concat_str("customer", pl.lit("@"), "region", separator="", ignore_nulls=False))["customer"].to_list()[6]
+# None
+```
+
+`pl.format` แทนค่าลงในแม่แบบ และ `concat_str` ต่อข้อความหลายคอลัมน์ ถ้ามีคอลัมน์ใดเป็น `null` ผลทั้งสตริงจะเป็น `null` แถวที่ 7 ของเราไม่มี `region` จึงได้ `None`
+
+</Step>
+
+<Step>
+
+## เมื่อ Expression ทำไม่ได้: map_elements และราคาที่ต้องจ่าย
+
+บางครั้งเราอยากเรียกฟังก์ชัน Python ของเราเองกับทุกค่า Polars มี `map_elements` สำหรับเรื่องนี้ แต่มันมีป้ายเตือนติดมาด้วย
+
+```python
+pl.DataFrame({"x": [1, 2]}).select(pl.col("x").map_elements(lambda v: v + 1, return_dtype=pl.Int64))
+```
+
+```text
+Expr.map_elements is significantly slower than the native expressions API.
+Only use if you absolutely CANNOT implement your logic otherwise.
+Replace this expression...
+  - pl.col("x").map_elements(lambda v: ...)
+with this one instead:
+  + pl.col("x") + 1
+```
+
+Polars ถึงกับช่วยแนะ Expression ที่ใช้แทนให้เลย ลองวัดกับงานง่ายมาก คือทำตัวพิมพ์ใหญ่ให้คอลัมน์ `product`
+
+```python
+big.select(label=pl.col("product").str.to_uppercase())                                          # ใช้ Expression
+sub.select(label=pl.col("product").map_elements(lambda x: x.upper(), return_dtype=pl.String))   # เรียกฟังก์ชัน Python ทีละค่า
+```
+
+ในการรันของเรา Expression ใช้เวลาประมาณ 25 ถึง 48 นาโนวินาทีต่อแถว ส่วน `map_elements` ใช้ประมาณ 166 ถึง 307 นาโนวินาทีต่อแถว (สองรอบที่รัน ได้อัตราส่วนราว 6 เท่าทั้งคู่ ตัวเลขดิบเปลี่ยนไปตามเครื่องและรอบ) ผลลัพธ์ของสองวิธีเท่ากันทุกค่า ที่ช้าเพราะ Polars ต้องหยิบแต่ละค่าออกจากหน่วยความจำของมัน ส่งเข้า Python เรียกฟังก์ชัน แล้วรับค่ากลับมาเก็บใหม่ทีละแถว และเรียกฟังก์ชัน Python พร้อมกันหลายเธรดไม่ได้ ในขณะที่ Expression ทำงานกับทั้งคอลัมน์โดยตรง
+
+<Callout type="tip" title="ก่อนจะใช้ map_elements">
+ลองหา Expression ที่ทำงานเดียวกันก่อน ป้ายเตือนข้างบนมักแนะนำให้เองสำหรับเลขคณิตและข้อความง่าย ๆ ถ้ามีเงื่อนไขซับซ้อนให้ลอง `when / then` จาก [บท 2](/polars/expressions/) ก่อน
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="รายการ [1, 2] ของ k เท่ากับ 1 รายการว่าง [] ของ k เท่ากับ 2 และ Null ของ k เท่ากับ 3 ถ้า Explode ด้วยค่าเริ่มต้นใน Polars 2.1.0 จะเหลือกี่แถว"
+  options={['2 แถว เพราะเฉพาะ k เท่ากับ 1 ที่มีสมาชิก', '3 แถว คือ k เท่ากับ 1 สองแถว และ k เท่ากับ 3 หนึ่งแถวที่เป็น Null', '4 แถว เพราะทั้งรายการว่างและ Null เหลือหนึ่งแถวเสมอ']}
+  answer={1}
+  why="ค่าเริ่มต้นทิ้งรายการว่าง (empty_as_null เป็น False) แต่เก็บรายการ Null เป็นหนึ่งแถว (keep_nulls เป็น True) แบบฝึกตรวจทั้งสามตัวเลือกแล้ว ถ้าต้องการให้ k เท่ากับ 2 ไม่หาย ให้ใส่ empty_as_null เป็น True"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="อยากแปลงข้อความทุกแถวเป็นตัวพิมพ์ใหญ่ ทางไหนเหมาะที่สุด"
+  options={['เรียก map_elements ด้วยฟังก์ชัน Upper ของ Python', 'ใช้ str.to_uppercase เพราะทำงานกับทั้งคอลัมน์โดยตรงและเร็วกว่าราว 6 เท่าในที่เราวัด', 'วนลูปแถวด้วย iter_rows แล้วสร้างคอลัมน์ใหม่']}
+  answer={1}
+  why="Expression ทำงานกับทั้งคอลัมน์ในหน่วยความจำของ Polars โดยไม่ต้องข้ามไปมากับ Python ทีละค่า ผลลัพธ์เท่ากันทุกค่า แต่ในการวัดของเราช้ากว่าราว 6 เท่าเมื่อใช้ map_elements (การวนลูปด้วย iter_rows เราไม่ได้วัด)"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| `group_by` ได้คอลัมน์ `List(String)`, `list.len`, `n_unique`, `max`, `first`, `contains`, `list.eval` | รัน: `exercises/08_nested_and_strings.py` |
+| `explode` ทิ้งรายการว่าง เก็บรายการ Null และตัวเลือก `empty_as_null`, `keep_nulls` | รัน: `exercises/08_nested_and_strings.py` และ Source: `DataFrame.explode` ใน `dataframe/frame.py` |
+| `Struct`, `struct.field`, `unnest`, `value_counts` | รัน: `exercises/08_nested_and_strings.py` |
+| `str.strip_chars`, `contains`, `replace_all`, `split`, `extract`, `extract_all`, `pl.format`, `concat_str` | รัน: `exercises/08_nested_and_strings.py` |
+| `map_elements` มีข้อความเตือนที่แนะ Expression แทน | รัน: `exercises/08_nested_and_strings.py` |
+| `map_elements` ช้ากว่า Expression ราว 6 เท่าในงานตัวพิมพ์ใหญ่ | รัน: วัดเวลาใน `exercises/08_nested_and_strings.py` (คอมพิวเตอร์เครื่องเดียว) |
+| เหตุผลที่ `map_elements` ช้า (ข้ามไปมากับ Python ทีละค่า และเรียกพร้อมกันหลายเธรดไม่ได้) | ผู้เขียน (อธิบายเอง ไม่ได้ไล่โค้ด) |
+
+</Step>

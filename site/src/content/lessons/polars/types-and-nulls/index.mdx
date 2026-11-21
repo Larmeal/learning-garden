@@ -1,0 +1,231 @@
+---
+title: Dtype และ Null
+summary: Polars ตรวจชนิดข้อมูลเข้มกว่า Pandas การ Cast ที่ไม่ได้จะ Error จนกว่าเราจะบอก Strict=False ค่าที่หายไปเป็น Null ซึ่งต่างจาก NaN การเปรียบเทียบกับ Null ได้ Null กลับมา และตัวเลขขนาดเล็กวนรอบเงียบ ๆ ได้ บทนี้ลองทีละกรณีด้วยตัวเลขจริง
+facts:
+  - "รันจริงใน exercises/03_types_and_nulls.py ด้วย Polars 2.1.0 แล้ว Assert ผลและข้อความ Error ทุกข้อ"
+  - "การเทียบ NaN กับ NaN แล้วได้ True (ต่างจาก IEEE 754 และ pandas) ยืนยันจากการรัน ส่วนเหตุผลของการออกแบบยังไม่ได้ไล่โค้ด"
+  - "การเลือก Timezone และ Format ของวันที่ใช้ตัวอย่างเล็ก ๆ เท่านั้น ไม่ได้ทดสอบกับข้อมูลวันที่ที่หลากหลายในโลกจริง"
+order: 3
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [expressions]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import NullLab from '../../../../components/labs/polars/NullLab';
+
+<Step>
+
+## Cast ที่ไม่ได้ จะ Error
+
+เรามาเริ่มจากเรื่องที่เจอบ่อยที่สุดในงานจริง ข้อมูลมาเป็นข้อความ แล้วเราต้องแปลงเป็นตัวเลข (รัน: `exercises/03_types_and_nulls.py`)
+
+```python
+s = pl.Series("v", ["1", "x", "3"])
+s.cast(pl.Int64)
+```
+
+```text
+InvalidOperationError: conversion from `str` to `i64` failed in column 'v' for 1 out of 3 values: ["x"]
+```
+
+Polars ไม่แปลงค่าที่แปลงไม่ได้ให้เป็นอย่างอื่นเงียบ ๆ แต่บอกเลยว่าล้มเหลวกี่ค่าจากกี่ค่า และบอกค่าที่เป็นปัญหา (`"x"`) ด้วย ถ้าเราต้องการให้ค่าที่แปลงไม่ได้กลายเป็น `null` ก็บอกตรง ๆ
+
+```python
+s.cast(pl.Int64, strict=False).to_list()      # [1, None, 3]
+pl.Series([1.9, -1.9]).cast(pl.Int64).to_list()   # [1, -1]   ตัดเศษทิ้ง ไม่ปัดเลข
+pl.Series([300]).cast(pl.UInt8)                    # InvalidOperationError: 300 ไม่พอดี 8 บิต
+```
+
+`strict=False` มีประโยชน์มากตอนเราอยากรู้ว่าข้อมูลสกปรกแค่ไหน เพราะเราเอา `null` ที่เพิ่งเกิดมานับได้ เราจะใช้เทคนิคนี้ในบทสุดท้ายตอนล้างไฟล์ CSV ส่วน Float ที่ Cast เป็น Int จะตัดเศษไปทางศูนย์ ไม่ใช่ปัดเลข (`-1.9` ได้ `-1`)
+
+</Step>
+
+<Step>
+
+## เลขคณิตระหว่างชนิด และการวนรอบเงียบ ๆ
+
+ถ้าเอาจำนวนเต็มบวกกับทศนิยม Polars ยกขึ้นเป็นทศนิยมให้ แต่เอา String ไปบวกกับตัวเลขจะไม่ยอม
+
+```python
+(pl.Series([1, 2]) + pl.Series([0.5, 0.5])).dtype       # Float64
+(pl.Series([1, 2]) / pl.Series([2, 2])).to_list()       # [0.5, 1.0]   หารแล้วได้ทศนิยมเสมอ
+(pl.Series([5, -5]) // pl.Series([2, 2])).to_list()     # [2, -3]      // ปัดลง ไม่ใช่ปัดเข้าหาศูนย์
+pl.Series([1]) + pl.Series(["a"])
+# InvalidOperationError: arithmetic on dtypes i64 and str is not allowed; try an explicit cast first
+```
+
+ตรงนี้มีกับดักที่ควรรู้ไว้ ตัวเลขขนาดเล็กอย่าง `Int8` เก็บได้แค่ -128 ถึง 127 แล้วจะเกิดอะไรขึ้นถ้าเรานำ 100 มาบวก 100
+
+```python
+small = pl.Series([100, 100], dtype=pl.Int8)
+(small + small).to_list()     # [-56, -56]
+small.sum()                   # 200
+```
+
+เอ๊ะ ทำไมสองบรรทัดนี้ถึงไม่ตรงกัน เครื่องหมาย `+` ไม่เช็กการล้น 200 ไม่พอดี 8 บิต ค่าจึงวนรอบกลายเป็น -56 โดยไม่มี Error ใด ๆ ส่วน `sum()` ขยายเป็น `Int64` ก่อนจะรวม จึงได้ 200 ที่ถูกต้อง ถ้าเก็บข้อมูลด้วยชนิดที่เล็กเพื่อประหยัดที่ ให้จำไว้ว่าการบวกลบคูณของคอลัมน์นั้นอาจวนรอบได้ ส่วนการรวมด้วย `sum()` ปลอดภัยกว่า
+
+</Step>
+
+<Step>
+
+## Null คือค่าที่หายไป
+
+`null` ในคอลัมน์ชนิดไหนก็ได้ แปลว่า "ไม่มีค่าตรงนี้" และมันแพร่กระจาย เพราะเราไม่รู้ว่าค่าที่หายไปคืออะไร ผลของการคำนวณที่ใช้ค่านั้นก็ต้องเป็น "ไม่รู้" ด้วย
+
+```python
+df.select(pl.col("qty") > 2)["qty"].to_list()
+# [False, False, True, False, True, False, True, None]
+```
+
+แถวที่ 8 (`qty` เป็น `null`) ได้ `None` ไม่ใช่ `False` เพราะเราตอบไม่ได้ว่าค่าที่หายไปมากกว่า 2 หรือเปล่า และเมื่อเอาเงื่อนไขนี้ไปใช้ใน `filter` Polars เก็บเฉพาะแถวที่ได้ `True` เท่านั้น
+
+```python
+df.filter(pl.col("qty") > 2).height            # 3   แถว 3, 5, 7
+df.filter(pl.col("qty").is_null()).height      # 1   ต้องถามด้วย is_null() ตรง ๆ
+df.filter(pl.col("qty").ne_missing(2)).height  # 6   ne_missing ถือ null เป็นค่าหนึ่ง
+```
+
+แถวที่มี `qty` เป็น `null` จึงไม่ถูกเลือกทั้งโดย `qty > 2` และโดย `qty <= 2` เราลองกดดูใน Lab ว่าแต่ละแถวได้ผลอะไร และเปลี่ยนวิธีเปรียบเทียบได้
+
+<NullLab client:visible />
+
+ถ้าเขียน `pl.lit(1) == None` Polars จะเตือนว่า "Comparisons with None always result in Null" แล้วแนะให้ใช้ `is_null()` หรือ `is_not_null()` ส่วนถ้าอยากให้ Null เท่ากับ Null ให้ใช้ `eq_missing`
+
+</Step>
+
+<Step>
+
+## Null ไม่ใช่ NaN
+
+`NaN` เป็นค่าพิเศษของ Float (ผลจาก 0 หาด้วย 0 หรือเลขที่อ่านไม่ออก) ขณะที่ `null` คือค่าที่หายไป และอยู่ได้ทุกชนิดข้อมูล ทั้งสองต่างกันตั้งแต่ตอนถามว่ามันคืออะไร
+
+```python
+f = pl.Series("f", [1.0, float("nan"), None])
+f.is_null().to_list()    # [False, False, True]
+f.is_nan().to_list()     # [False, True, None]
+```
+
+ถามว่า `null` เป็น `NaN` ไหม ได้ `None` เพราะไม่รู้ ทีนี้ลองหาค่าเฉลี่ย
+
+```python
+pl.Series([1.0, None, 3.0]).mean()          # 2.0   null ถูกข้าม (4 หาร 2)
+pl.Series([1.0, float("nan"), 3.0]).mean()  # nan   NaN ไม่ถูกข้าม มันแพร่ไปทั้งผล
+pl.Series([1.0, float("nan")]).fill_nan(None).to_list()   # [1.0, None]  เปลี่ยน NaN ให้เป็น null
+```
+
+ถ้าข้อมูลของเรามี `NaN` ปนมา วิธีที่ทำให้ทุกอย่างเรียบร้อยคือแปลงเป็น `null` ด้วย `fill_nan(None)` ก่อน แล้วค่อยหาค่าเฉลี่ย
+
+อีกเรื่องหนึ่งที่ต่างจากที่คนคุ้นเคย ใน Polars `NaN` เท่ากับ `NaN`
+
+```python
+pl.Series([float("nan")]).eq(float("nan")).to_list()    # [True]
+```
+
+ซึ่งต่างจากมาตรฐาน IEEE 754 และต่างจาก Pandas ที่ `nan == nan` เป็นเท็จ เหตุผลที่ Polars เลือกแบบนี้ เรายังไม่ได้ไล่ดูในโค้ด รู้แค่ว่าพฤติกรรมเป็นแบบนี้จริงจากการรัน
+
+</Step>
+
+<Step>
+
+## จัดการ Null และนับให้ถูก
+
+ตารางของเราเก็บค่าที่หายไปสองจุด ตัวช่วยที่ใช้บ่อยมีดังนี้
+
+```python
+pl.Series([1, None, None, 4]).fill_null(strategy="forward").to_list()   # [1, 1, 1, 4]
+pl.Series([1, None]).fill_null(0).to_list()                             # [1, 0]
+df.null_count().row(0)                      # (0, 0, 1, 0, 1, 0, 0)  region หนึ่ง qty หนึ่ง
+pl.Series([None, None], dtype=pl.Int64).sum()                            # 0
+pl.Series([3, None, 1]).sort().to_list()                                 # [None, 1, 3]
+pl.Series([3, None, 1]).sort(nulls_last=True).to_list()                  # [1, 3, None]
+pl.Series([1, None, None]).n_unique()                                    # 2
+```
+
+มีสามเรื่องที่ควรสังเกต **เรื่องแรก** ผลรวมของคอลัมน์ที่ว่างเปล่าทั้งหมดเป็น `0` ซึ่งตรงกับคณิตศาสตร์ แต่อาจแปลกใจถ้าเราคาดว่ามันจะบอกว่า `null` เพราะ "ไม่รู้" **เรื่องที่สอง** `sort` ดัน `null` ไปไว้หน้าสุดเป็นค่าเริ่มต้น ถ้าอยากไว้ท้ายต้องบอก `nulls_last=True` **เรื่องสุดท้าย** `n_unique` นับ `null` เป็นค่าหนึ่งแยกต่างหาก และ `group_by` ก็ถือ `null` เป็นกลุ่มของมันเอง (ในตารางของเรา แถว `region` ที่เป็น `null` ได้กลุ่มละ 1 แถว)
+
+</Step>
+
+<Step>
+
+## ชนิดข้อมูลอื่นที่ควรรู้จัก
+
+Decimal, Categorical, Enum, String และวันที่ มีรายละเอียดของมันเอง
+
+```python
+pl.Series([0.1] * 10).sum() == 1.0                          # False   ทศนิยมแบบไบนารี
+pl.Series(["1.10", "2.20"]).cast(pl.Decimal(10, 2)).sum()   # 3.30    Decimal เก็บสตางค์ให้ตรง
+
+c = pl.Series(["a", "b", "a"], dtype=pl.Categorical)
+c.to_physical().to_list()                                   # [0, 1, 0]  เก็บเป็นเลขแทนข้อความ
+pl.Series(["z"], dtype=pl.Enum(["a", "b", "c"]))            # Error: ค่า z ไม่อยู่ในรายการ Enum
+
+pl.Series(["กข", "ab"]).str.len_chars().to_list()   # [2, 2]
+pl.Series(["กข", "ab"]).str.len_bytes().to_list()   # [6, 2]   ตัวอักษรไทยหนึ่งตัวใช้ 3 ไบต์ใน UTF-8
+```
+
+`Categorical` กับ `Enum` เก็บข้อความที่ซ้ำกันบ่อย ๆ เป็นเลขจำนวนเต็มพร้อมพจนานุกรมของข้อความ ต่างกันที่ `Enum` รับเฉพาะค่าที่ประกาศไว้ล่วงหน้า ถ้าเจอค่าอื่นจะ Error (ซึ่งช่วยดักค่าผิด) ส่วน `Categorical` เพิ่มค่าใหม่ได้เอง เรื่องหน้าตาของเลขเหล่านี้ในหน่วยความจำ เราจะเห็นใน [บท 10](/polars/inside/)
+
+วันที่แปลงจากข้อความได้ด้วย `str.to_date` ควรระบุ Format เสมอ เพราะ `03/01/2026` อ่านได้สองแบบ
+
+```python
+pl.Series(["2026-01-03"]).str.to_date().dtype                              # Date
+pl.Series(["03/01/2026"]).str.to_date("%d/%m/%Y").to_list()               # [date(2026, 1, 3)]
+df["ordered_at"].dt.weekday().to_list()    # [6, 6, 1, 2, 4, 5, 5, 1]   วันจันทร์คือ 1 ดังนั้น 3 ม.ค. 2026 เป็นวันเสาร์
+df.select(pl.col("ordered_at") + pl.duration(days=7))["ordered_at"][0]   # 2026-01-10
+```
+
+ส่วน Timezone ใช้ `dt.replace_time_zone` เพื่อบอกว่าเวลานี้เป็นของ Timezone ไหน แล้วใช้ `dt.convert_time_zone` เพื่อแปลงไปแสดงเป็นอีกที่ ในแบบฝึก เที่ยงคืน UTC กลายเป็น 07:00 ที่กรุงเทพ
+
+<Callout type="warn" title="วันที่ไม่มี Format">
+`str.to_date()` โดยไม่ระบุ Format จะพยายามเดา เราลองกับ `"03/01/2026"` แล้วได้ 3 มกราคม (อ่านเป็นวัน/เดือน) แต่ข้อมูลที่เป็นเดือน/วันจะได้คนละวัน ให้ระบุ Format เองเสมอเมื่อแหล่งข้อมูลไม่แน่นอน
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="Series ชนิด Int8 มี 100 สองตัว ผลของการบวกกันกับการเรียก Sum ต่างกันอย่างไร"
+  options={['ทั้งสองได้ 200', 'การบวกได้ -56 เพราะค่าวนรอบ ส่วน Sum ได้ 200 เพราะขยายชนิดก่อนรวม', 'การบวกเกิด Error เพราะล้น ส่วน Sum ได้ 200']}
+  answer={1}
+  why="เครื่องหมายบวกของ Polars ไม่เช็กการล้น 200 ใน 8 บิตวนเป็น -56 โดยไม่มี Error ส่วน Sum ขยายเป็น Int64 ก่อนรวม เราตรวจทั้งสองค่านี้ในแบบฝึกแล้ว"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="คอลัมน์จำนวนสินค้ามีค่า Null อยู่หนึ่งแถว ถ้าเรากรองด้วยเงื่อนไขว่าจำนวนไม่เท่ากับ 2 (ใช้ตัวเปรียบเทียบธรรมดา) แถวที่เป็น Null จะเป็นอย่างไร"
+  options={['ถูกเก็บไว้ เพราะ Null ไม่เท่ากับ 2', 'ถูกทิ้ง เพราะผลเปรียบเทียบเป็น Null ซึ่งไม่ถือว่าเป็นจริง', 'เกิด Error เพราะเปรียบเทียบ Null ไม่ได้']}
+  answer={1}
+  why="การเปรียบเทียบกับ Null ได้ Null และ Filter เก็บเฉพาะ True ถ้าอยากให้ Null นับเป็นค่าหนึ่งที่ไม่เท่ากับ 2 ต้องใช้ ne_missing ซึ่งแบบฝึกได้ 6 แถว คือ 8 แถวเอาแถวที่เท่ากับ 2 ออกสองแถว"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| `cast` ที่ล้มเหลวได้ `InvalidOperationError` และ `strict=False` ให้ `null` | รัน: `exercises/03_types_and_nulls.py` |
+| Float ตัดเศษเมื่อ Cast เป็น Int, `//` ปัดลง, `/` ได้ Float เสมอ | รัน: `exercises/03_types_and_nulls.py` |
+| `Int8` บวกกันวนรอบเป็น -56 แต่ `sum()` ได้ 200 | รัน: `exercises/03_types_and_nulls.py` |
+| การเปรียบเทียบกับ `null` ได้ `null` และ `ne_missing`, `eq_missing` | รัน: `exercises/03_types_and_nulls.py` |
+| `NaN` เท่ากับ `NaN`, `mean` ข้าม `null` แต่ไม่ข้าม `NaN` | รัน: `exercises/03_types_and_nulls.py` |
+| ผลรวมของคอลัมน์ที่เป็น Null ทั้งหมดได้ 0, `sort` ใส่ Null ไว้หน้า | รัน: `exercises/03_types_and_nulls.py` |
+| `Decimal`, `Categorical`, `Enum`, ความยาวข้อความเป็นตัวอักษรและไบต์ | รัน: `exercises/03_types_and_nulls.py` |
+| วันที่ วันในสัปดาห์ และ Timezone | รัน: `exercises/03_types_and_nulls.py` |
+| เหตุผลที่ `NaN` เท่ากับ `NaN` ใน Polars | ผู้เขียน (ยังไม่ได้ไล่โค้ด) |
+
+</Step>

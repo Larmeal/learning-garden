@@ -1,0 +1,222 @@
+---
+title: Lazy API
+summary: LazyFrame เก็บแผนว่าจะทำอะไรไว้ก่อนแล้วค่อยรันตอน Collect ทำให้ Optimizer เขียนแผนใหม่ให้ได้ บทนี้อ่านแผนจาก Explain ทั้งแบบก่อนและหลังปรับ ดูว่า Predicate Pushdown, Projection Pushdown และการรวมคำสั่งทำอะไร ปิดทีละตัวแล้วเทียบ และดูว่า Polars 2.1 รันด้วย Streaming Engine เป็นค่าเริ่มต้น
+facts:
+  - "รันจริงใน exercises/06_lazy_and_optimizer.py ด้วย Polars 2.1.0 ข้อความ Plan ทุกบรรทัดที่ยกมามาจาก explain() จริงบน Windows (ข้อมูล Parquet 200,000 แถว)"
+  - "ลำดับของ Optimizer และการเป็นค่าเริ่มต้นของ Streaming Engine อ่านจาก Source ที่ Tag py-2.1.0 (polars-plan/src/plans/optimizer/mod.rs และ lazyframe/frame.py)"
+  - "เวลาที่เร็วขึ้นของ Lazy กับ Eager วัดไว้ในบทที่ 9 บทนี้ไม่ได้วัดเวลา"
+order: 6
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [expressions, group-by-windows]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import PlanLab from '../../../../components/labs/polars/PlanLab';
+
+<Step>
+
+## LazyFrame คือแผน
+
+ตั้งแต่ [บท 1](/polars/first-dataframe/) เราใช้ `DataFrame` ซึ่งรันทุกคำสั่งทันที `LazyFrame` ต่างกันตรงที่ไม่รันอะไรเลยจนกว่าเราจะสั่ง `collect()` มันแค่จดว่าเราอยากได้อะไร (รัน: `exercises/06_lazy_and_optimizer.py`)
+
+```python
+lf = big.lazy()
+q = lf.with_columns(total=pl.col("qty") * pl.col("price")).filter(pl.col("region") == "north")
+isinstance(q, pl.LazyFrame)                  # True
+hasattr(q, "shape")                          # False   ยังไม่มีแถวให้นับ
+q.collect_schema().names()[-1]               # 'total'
+q.collect_schema()["total"]                  # Float64
+q.collect()                                  # ถึงตรงนี้ถึงจะคำนวณจริง
+```
+
+`collect_schema()` บอกชื่อและชนิดของผลลัพธ์ได้ทั้งที่ยังไม่ได้รันสักบรรทัด เพราะ Polars รู้กฎของแต่ละ Expression (`Int64` คูณ `Float64` ได้ `Float64`) ก็เลยคำนวณได้ว่าผลสุดท้ายหน้าตาเป็นอย่างไร ถ้าเราใช้คอลัมน์ที่ไม่มี หรือบวกข้อความกับตัวเลข Error จะออกมาตั้งแต่ตอนนี้ ก่อนที่จะเสียเวลาอ่านไฟล์ใหญ่เสียอีก
+
+การที่ได้แผนมาทั้งก้อนก่อน คือเหตุผลที่คนมักพูดว่า Polars เร็ว เพราะเรามีโอกาสเขียนแผนใหม่ให้ดีขึ้น
+
+</Step>
+
+<Step>
+
+## อ่านแผนก่อนและหลังปรับ
+
+เรามาลองเขียนคำถามหนึ่งข้อ ยอดขายรวมของแต่ละสินค้าในภาค North โดยอ่านจากไฟล์ Parquet ที่มี 200,000 แถว 7 คอลัมน์
+
+```python
+query = (
+    pl.scan_parquet("o.parquet")
+    .with_columns(total=pl.col("qty") * pl.col("price"))
+    .filter(pl.col("region") == "north")
+    .group_by("product")
+    .agg(pl.col("total").sum())
+    .sort("product")
+)
+print(query.explain(optimized=False))   # แผนตามที่เขียน
+print(query.explain())                  # แผนหลัง Optimizer ปรับ
+```
+
+เริ่มจากแผนตามที่เขียน ให้อ่านจากล่างขึ้นบน เพราะข้อมูลไหลจากล่างขึ้นบน
+
+```text
+SORT BY [col("product")]
+  AGGREGATE[maintain_order: false]
+    [col("total").sum()] BY [col("product")]
+    FROM
+    FILTER col("region") == "north"
+    FROM
+       WITH_COLUMNS:
+       [(col("qty").cast(Float64) * col("price")).alias("total")]
+        Parquet SCAN [.../o.parquet]
+        PROJECT */7 COLUMNS
+        ESTIMATED ROWS: 200000
+```
+
+ส่วนแผนหลังปรับ หน้าตาเป็นแบบนี้
+
+```text
+SORT BY [col("product")]
+  AGGREGATE[maintain_order: false]
+    [col("total").sum()] BY [col("product")]
+    FROM
+    simple π 2/2 ["product", "total"]
+       WITH_COLUMNS:
+       [(col("qty").cast(Float64) * col("price")).alias("total")]
+        simple π 3/3 ["product", "qty", "price"]
+          Parquet SCAN [.../o.parquet]
+          PROJECT 4/7 COLUMNS
+          SELECTION: col("region") == "north"
+          ESTIMATED ROWS: 200000
+```
+
+เทียบสองแผนแล้วเห็นความต่างสองจุดที่ Scan ล่างสุด **จุดแรก** `PROJECT */7 COLUMNS` กลายเป็น `PROJECT 4/7 COLUMNS` คือ Polars ดูว่าทั้งคำถามใช้คอลัมน์ `product`, `qty`, `price` และ `region` เท่านั้น จึงอ่านจากไฟล์แค่ 4 จาก 7 คอลัมน์ เทคนิคนี้เรียกว่า **Projection Pushdown** **จุดที่สอง** บรรทัด `FILTER` ที่เดิมอยู่เหนือ Scan หายไป และไปโผล่ที่ Scan เป็น `SELECTION: col("region") == "north"` นั่นคือ Filter ถูกดันลงไปทำตอนอ่านไฟล์ เรียกว่า **Predicate Pushdown** แถวที่ไม่ใช่ North จึงไม่เคยถูกส่งต่อขึ้นไปข้างบนเลย
+
+ส่วนบรรทัด `simple π` คือการเลือกคอลัมน์ (π คือสัญลักษณ์ของ Projection ในพีชคณิตเชิงสัมพันธ์) Optimizer แทรกไว้เพื่อทิ้งคอลัมน์ที่ใช้เสร็จแล้ว เช่น `region` ที่ใช้กรองเสร็จก็ไม่ต้องแบกต่อ
+
+</Step>
+
+<Step>
+
+## ปิดทีละตัวแล้วเทียบ
+
+Optimizer ที่ทำงานอยู่เบื้องหลังมีรายการของมัน เราปิดทีละตัวได้ด้วย `QueryOptFlags`
+
+```python
+query.explain(optimizations=pl.QueryOptFlags(predicate_pushdown=False))      # ไม่มี SELECTION, กลับมามี FILTER
+query.explain(optimizations=pl.QueryOptFlags(projection_pushdown=False))     # PROJECT */7 COLUMNS
+query.explain(optimizations=pl.QueryOptFlags.none())                         # ปิดหมด
+```
+
+ลองกดสลับตัวเลือกใน Lab ด้านล่าง แล้วดูว่าที่ Scan อ่านกี่คอลัมน์ และแถวที่ไม่ใช่ North ถูกทิ้งตรงไหน
+
+<PlanLab client:visible />
+
+ที่สำคัญ **คำตอบไม่เปลี่ยน** มีแต่งานที่ต้องทำเปลี่ยน
+
+```python
+a = query.collect()
+b = query.collect(optimizations=pl.QueryOptFlags.none())
+a.equals(b)        # True
+```
+
+Optimizer เปลี่ยนแค่เส้นทางที่ไปให้ถึงคำตอบเดียวกัน และกับไฟล์ CSV ก็ทำแบบเดียวกัน (`scan_csv(...).select("region", "qty").filter(pl.col("qty") > 5)` ได้ `PROJECT 2/7 COLUMNS` และ `SELECTION: col("qty") > 5`) ต่างกันแค่ว่า CSV ต้องแยกวิเคราะห์ทุกบรรทัดอยู่ดี เราจะเห็นตัวเลขเวลาใน [บท 9](/polars/performance/)
+
+</Step>
+
+<Step>
+
+## เรื่องอื่นที่ Optimizer ช่วย
+
+ไม่ได้มีแค่สองตัวข้างบน มีตัวอื่นอีกที่เห็นได้ชัดจากแผน
+
+```python
+two = big.lazy().with_columns(a=pl.col("qty") + 1).with_columns(b=pl.col("price") * 2)
+two.explain().count("WITH_COLUMNS")                                          # 1   สองคำสั่งถูกรวมเป็นหนึ่ง
+two.explain(optimizations=pl.QueryOptFlags.none()).count("WITH_COLUMNS")     # 2
+
+cse = big.lazy().select((pl.col("qty") * pl.col("price")).alias("x"), (pl.col("qty") * pl.col("price") + 1).alias("y"))
+"__POLARS_CSER" in cse.explain()                                             # True   ผลคูณถูกคำนวณครั้งเดียว
+
+pl.scan_parquet("o.parquet").head(5).explain()
+# Parquet SCAN [...]  PROJECT */7 COLUMNS  SLICE: Positive { offset: 0, len: 5 }
+```
+
+บรรทัดแรก ถ้า Expression สองตัวไม่ได้พึ่งกัน Polars รวม `with_columns` สองคำสั่งเป็นคำสั่งเดียว บรรทัดที่สอง `qty * price` โผล่ในสองคอลัมน์ Polars จึงตั้งชื่อชั่วคราวขึ้นมา (`__POLARS_CSER`) แล้วคำนวณครั้งเดียวใช้ซ้ำ เรียกว่า Common Subexpression Elimination ส่วนบรรทัดสุดท้าย `head(5)` ถูกดันลงไปที่ Scan เป็น `SLICE` เพื่ออ่านแค่ 5 แถว ไม่ได้อ่านทั้งไฟล์แล้วตัดทีหลัง
+
+รายชื่อกฎทั้งหมดอ่านได้จากไฟล์ `polars-plan/src/plans/optimizer/mod.rs` ใน Source ที่ Tag `py-2.1.0` ลำดับที่รันคือ Fused Arithmetic, Common Subplan Elimination, Slice Pushdown, Predicate Pushdown, กฎเกี่ยวกับการเรียงลำดับ, การจัดลำดับ Join, Projection Pushdown แล้วถึงการรวม Projection และกฎย่อยอื่น ๆ (ผู้เขียนอ่านลำดับจากโค้ดนั้น แต่ไม่ได้ไล่ว่าแต่ละกฎทำงานอย่างไรข้างใน)
+
+</Step>
+
+<Step>
+
+## ใครเป็นคนรัน: Streaming Engine
+
+หลังจากได้แผนที่ปรับแล้ว ต้องมี Engine ไปรันมัน ใน Polars 2.x ตัวเลือกคือ
+
+```python
+query.collect(engine="streaming").equals(query.collect(engine="in-memory"))     # True
+```
+
+Docstring ของ `explain` ใน `lazyframe/frame.py` เขียนว่า `engine="auto"` ใช้ค่าจาก `Config.set_engine_affinity` หรือตัวแปรสภาพแวดล้อม `POLARS_ENGINE_AFFINITY` และถ้าไม่ได้ตั้งอะไรเลยจะถอยกลับไปใช้ `"streaming"` นั่นแปลว่าใน 2.1.0 ค่าเริ่มต้นคือ **Streaming Engine** ซึ่งประมวลผลเป็นก้อนเล็ก ๆ ทีละก้อน ส่วน `"in-memory"` ยังใช้ได้และเป็นทางเลือกที่ Polars ถอยกลับไปใช้ถ้า Streaming รันคำถามนั้นไม่ได้ เราจะเปิดดูว่าก้อนเล็กนั้นคืออะไรใน [บท 10](/polars/inside/)
+
+อีกสิ่งที่เปลี่ยนใน 2.0 และเราลองเรียกแล้วเจอ คือ `LazyFrame.profile()` ถูกลบออก
+
+```python
+query.profile()
+# AttributeRemovedError: `profile` was removed in version 2.0; It was designed for the in-memory engine
+# and would give misleading per-node timings under the streaming engine (now the default).
+```
+
+ข้อความ Error บอกเหตุผลไว้เองว่าทำไม ถ้าอ่านบทความหรือ Stack Overflow เก่าที่ใช้ `profile()` ให้ระวังตรงนี้ เพราะ Polars 2.x ไม่มีแล้ว
+
+<Callout type="note" title="Eager ก็คือ Lazy ข้างใน">
+`big.filter(...)` แบบ Eager ให้ผลเหมือน `big.lazy().filter(...).collect()` เราตรวจแล้วว่าเท่ากัน ถ้าเราเขียนหลายคำสั่งต่อกัน Lazy ได้เปรียบตรงที่ Optimizer เห็นทั้งก้อน ส่วน Eager ต้องทำทีละคำสั่ง
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ในแผนหลังปรับ บรรทัดของ Scan เขียนว่า PROJECT 4/7 COLUMNS และ SELECTION: Col('region') == 'north' สองบรรทัดนี้บอกอะไร"
+  options={['อ่านคอลัมน์ 4 จาก 7 และกรองตอนอ่านไฟล์ ไม่ต้องอ่านทุกแถวขึ้นมากรองทีหลัง', 'อ่านทั้ง 7 คอลัมน์ แล้วเก็บ 4 แถวแรก', 'ข้อมูลถูกแบ่งเป็น 4 ส่วน แล้วส่งไปให้คอมพิวเตอร์ 7 เครื่องช่วยกันทำ']}
+  answer={0}
+  why="PROJECT n/m บอกว่า Scan อ่านกี่คอลัมน์จากทั้งหมดกี่คอลัมน์ ส่วน SELECTION คือ Predicate ที่ถูกดันลงมาทำตอนอ่าน ทั้งสองคือ Projection Pushdown และ Predicate Pushdown"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="ถ้าเราปิด Optimizer ทั้งหมดด้วย QueryOptFlags.none() แล้วเรียก Collect ผลที่ได้จะเป็นอย่างไร"
+  options={['ได้คำตอบเดียวกัน แต่แผนต้องอ่านทั้ง 7 คอลัมน์และกรองทีหลัง', 'ได้คำตอบที่ต่างกัน เพราะ Optimizer เปลี่ยนความหมายของ Query', 'เกิด Error เพราะ Polars ต้องใช้ Optimizer เสมอ']}
+  answer={0}
+  why="Optimizer ถูกออกแบบให้ไม่เปลี่ยนคำตอบ มันเปลี่ยนเฉพาะวิธีทำ แบบฝึกตรวจแล้วว่าผลเท่ากันเมื่อเทียบด้วย Equals"
+/>
+
+</Step>
+
+<Step>
+
+## ที่มาของบทนี้
+
+| ข้อความ | ที่มา |
+|---|---|
+| LazyFrame ไม่มีแถว แต่รู้ Schema จาก `collect_schema()` | รัน: `exercises/06_lazy_and_optimizer.py` |
+| แผนก่อนและหลังปรับ รวมถึง `PROJECT */7` เป็น `PROJECT 4/7` และ `SELECTION` | รัน: `explain()` ใน `exercises/06_lazy_and_optimizer.py` |
+| ปิด Predicate Pushdown, Projection Pushdown หรือทั้งหมดแล้วแผนเปลี่ยน คำตอบไม่เปลี่ยน | รัน: `exercises/06_lazy_and_optimizer.py` |
+| CSV Scan ได้ `PROJECT 2/7` และ `SELECTION` | รัน: `exercises/06_lazy_and_optimizer.py` |
+| รวม `with_columns`, Common Subexpression (`__POLARS_CSER`), `SLICE` ที่ Scan | รัน: `exercises/06_lazy_and_optimizer.py` |
+| `profile()` ถูกลบใน 2.0 | รัน: ได้ `AttributeRemovedError` |
+| ค่าเริ่มต้นของ `engine="auto"` คือ Streaming | Source: `py-polars/src/polars/lazyframe/frame.py` (Docstring ของ `explain`) |
+| ลำดับกฎของ Optimizer | Source: `crates/polars-plan/src/plans/optimizer/mod.rs` |
+| Eager ให้ผลเท่ากับ `lazy().collect()` | รัน: `exercises/06_lazy_and_optimizer.py` |
+
+</Step>

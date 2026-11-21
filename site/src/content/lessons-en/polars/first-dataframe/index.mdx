@@ -1,0 +1,200 @@
+---
+title: The First DataFrame
+summary: A Polars DataFrame is a set of Series of the same length. Each column has one dtype, there is no index, and every operation returns a new DataFrame. This lesson builds one, reads its dtypes, and shows that columns you do not touch share memory.
+facts:
+  - "Ran for real in exercises/01_first_dataframe.py with Polars 2.1.0 and asserted every result, including the error text of pl.Series([1, 2.5])."
+  - "The buffer addresses were compared with pyarrow's to_arrow(); they were not read from the Polars source."
+  - "That Polars is written in Rust and stores data in the Arrow format comes from the documentation. It is not traced in code in this lesson (lesson 10 does that)."
+order: 1
+phase: A
+level: 1
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+
+<Step>
+
+## An order table with 8 rows
+
+Through this whole path we use the orders of a small stationery shop. The table has only 8 rows so that you can check every number by eye. Row 7 has no `region` and row 8 has no `qty`. We plant these two gaps on purpose, because real data always has some (run: `exercises/01_first_dataframe.py`).
+
+```python
+import datetime as dt
+import polars as pl
+
+df = pl.DataFrame({
+    "order_id": [1, 2, 3, 4, 5, 6, 7, 8],
+    "customer": ["Ann", "Bob", "Ann", "Cat", "Bob", "Ann", "Dan", "Cat"],
+    "region": ["north", "south", "north", "east", "south", "north", None, "east"],
+    "product": ["pen", "ink", "pen", "book", "pen", "book", "ink", "pen"],
+    "qty": [2, 1, 5, 1, 3, 2, 4, None],
+    "price": [1.5, 8.0, 1.5, 12.0, 1.5, 12.0, 8.0, 1.5],
+    "ordered_at": [dt.date(2026, 1, d) for d in (3, 3, 5, 6, 8, 9, 9, 12)],
+})
+print(df)
+```
+
+```text
+shape: (8, 7)
+┌──────────┬──────────┬────────┬─────────┬──────┬───────┬────────────┐
+│ order_id ┆ customer ┆ region ┆ product ┆ qty  ┆ price ┆ ordered_at │
+│ ---      ┆ ---      ┆ ---    ┆ ---     ┆ ---  ┆ ---   ┆ ---        │
+│ i64      ┆ str      ┆ str    ┆ str     ┆ i64  ┆ f64   ┆ date       │
+╞══════════╪══════════╪════════╪═════════╪══════╪═══════╪════════════╡
+│ 1        ┆ Ann      ┆ north  ┆ pen     ┆ 2    ┆ 1.5   ┆ 2026-01-03 │
+│ 2        ┆ Bob      ┆ south  ┆ ink     ┆ 1    ┆ 8.0   ┆ 2026-01-03 │
+│ 3        ┆ Ann      ┆ north  ┆ pen     ┆ 5    ┆ 1.5   ┆ 2026-01-05 │
+│ 4        ┆ Cat      ┆ east   ┆ book    ┆ 1    ┆ 12.0  ┆ 2026-01-06 │
+│ 5        ┆ Bob      ┆ south  ┆ pen     ┆ 3    ┆ 1.5   ┆ 2026-01-08 │
+│ 6        ┆ Ann      ┆ north  ┆ book    ┆ 2    ┆ 12.0  ┆ 2026-01-09 │
+│ 7        ┆ Dan      ┆ null   ┆ ink     ┆ 4    ┆ 8.0   ┆ 2026-01-09 │
+│ 8        ┆ Cat      ┆ east   ┆ pen     ┆ null ┆ 1.5   ┆ 2026-01-12 │
+└──────────┴──────────┴────────┴─────────┴──────┴───────┴────────────┘
+```
+
+Look at the header. The `---` line is a slot for the type name, and the line under it (`i64`, `str`, `f64`, `date`) is the dtype of each column. Polars tells us what every column holds the moment we print the table, which is unlike a spreadsheet where any cell can be anything.
+
+</Step>
+
+<Step>
+
+## A Series is one column
+
+Before the whole table, look at the smallest piece. A `Series` is a named list of values, and it can have only one dtype.
+
+```python
+s = pl.Series("qty", [2, 1, 5])
+s.dtype        # Int64
+s.name         # 'qty'
+pl.Series(["a", None]).dtype      # String
+pl.Series([None, None]).dtype     # Null
+```
+
+The list `["a", None]` is still `String`, because here `None` means a missing value and does not change the type of the column. The only time the dtype comes out as `Null` is when every value is `None`, because then Polars has nothing to guess the type from.
+
+Now put an integer and a decimal together. If you have used pandas or NumPy you may expect `Float64`.
+
+```python
+pl.Series([1, 2.5])
+```
+
+```text
+TypeError: unexpected value while building Series of type Int64; found value of type Float64: 2.5
+Hint: Try setting `strict=False` to allow passing data with mixed types.
+```
+
+Why does Polars refuse to convert it for us? The first value is `1`, an integer, so Polars picks `Int64`. When it meets `2.5`, which cannot go into `Int64` without losing the fraction, it stops and tells us which value it found. You will meet this rule again and again: Polars would rather stop and tell you than convert quietly. If you do want it to accept, say so with `strict=False`, which gives `Float64` in this example.
+
+</Step>
+
+<Step>
+
+## A DataFrame is Series of equal length
+
+A `DataFrame` is several Series placed side by side, and they must all have the same length.
+
+```python
+df.shape        # (8, 7)
+df.columns      # ['order_id', 'customer', 'region', 'product', 'qty', 'price', 'ordered_at']
+df.schema       # Schema({'order_id': Int64, 'customer': String, ..., 'price': Float64, 'ordered_at': Date})
+df["qty"]       # a Series named qty
+```
+
+What people coming from pandas stumble on is that a Polars DataFrame has **no index**. The row numbers (0 to 7) you see when you print a table are only the order of the rows, not part of the data. So there is no `df.loc[3]`. If you want order number 3, you ask the column directly.
+
+```python
+df.filter(pl.col("order_id") == 3)["customer"].item()    # 'Ann'
+df.row(0)                                                 # (1, 'Ann', 'north', 'pen', 2, 1.5, datetime.date(2026, 1, 3))
+df.row(by_predicate=pl.col("order_id") == 4)[1]           # 'Cat'
+df["qty"].to_list()                                       # [2, 1, 5, 1, 3, 2, 4, None]
+```
+
+The last line shows that a missing value comes out as Python's `None`. Inside the table Polars calls it `null`. We cover `null` in [lesson 3](/en/polars/types-and-nulls/).
+
+<Callout type="note" title="Why there is no index">
+The pandas index makes you keep asking whether the row labels follow along after a filter, a join and a concat. Polars drops the whole question. A row is a position. If you want a value to identify a row, keep it as an ordinary column, like `order_id` in this table. (The designers' reasons are our guess from the shape of the API; we did not quote their documentation.)
+</Callout>
+
+</Step>
+
+<Step>
+
+## Nothing changes in place
+
+Every Polars operation returns a new DataFrame, and the old one is not touched. Let us add a column `total`.
+
+```python
+bigger = df.with_columns(total=pl.col("qty") * pl.col("price"))
+df.columns       # still 7 columns
+bigger.columns   # 8 columns, the last one is 'total'
+```
+
+If you try to assign directly as in pandas (`df["total"] = ...`), Polars refuses. We come back to this in [lesson 11](/en/polars/from-pandas/).
+
+You may wonder: if every call returns a new DataFrame, doesn't Polars copy the whole table each time? It does not, and we can prove it by comparing the address of the buffer that holds the numbers in memory, through `pyarrow`.
+
+```python
+def addr(s):
+    return s.to_arrow().buffers()[1].address
+
+addr(df["order_id"]) == addr(bigger["order_id"])                              # True
+addr(df.select(pl.col("order_id") + 0)["order_id"]) == addr(df["order_id"])   # False
+```
+
+The `order_id` column, which we did not touch, points to the same buffer in `df` and in `bigger`. The column we computed again (`order_id + 0`) gets a new buffer of its own. So "nothing changes in place" is not as expensive as it looks, because the parts that did not change are shared. We will see what that buffer looks like in [lesson 10](/en/polars/inside/).
+
+</Step>
+
+<Step>
+
+## A quick look at the data
+
+When you get a new table, these four calls are what you open most.
+
+```python
+df.head(2)                          # the first 2 rows
+df.tail(3)["order_id"].to_list()    # [6, 7, 8]
+df.describe()                       # count, null count, mean, std, min, quartiles, max for every column
+df.glimpse()                        # every column as a row, with its dtype and sample values
+```
+
+`describe()` has a `null_count` row that says `qty` has 1 null and `region` has 1 too. It is the fastest check of how clean a new file is. To take data out of a DataFrame into plain Python, use `rows()` (a list of tuples), `to_dicts()` (a list of dicts), or `iter_rows()` if you do not want to build the whole list.
+
+<Callout type="try" title="Try it yourself">
+Build `pl.Series([1, 2.5])` and read the error. Then add `strict=False` and call `.dtype`. You should get `Float64`, as the exercise checked.
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="df has 7 columns, and we build a new frame with df.with_columns(...) that adds one column. What happens?"
+  options={['df is changed to 8 columns, and the new frame is the same object as df', 'The new frame is a new DataFrame with 8 columns, df still has 7, and the old columns were not copied', 'The new frame is a new DataFrame with 8 columns, and Polars copies every column of df again']}
+  answer={1}
+  why="with_columns always returns a new value, so df does not change. But the columns we did not touch (like order_id) use the same buffer as before. We compared buffer addresses through pyarrow and got the same address, while a column computed again got a new buffer."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Claim | Source |
+|---|---|
+| `pl.Series([1, 2.5])` raises TypeError and `strict=False` gives Float64 | ran: `exercises/01_first_dataframe.py` |
+| The 8-row table has dtypes `Int64`, `String`, `Float64`, `Date` | ran: `exercises/01_first_dataframe.py` |
+| A DataFrame has no index and `row(by_predicate=...)` works | ran: `exercises/01_first_dataframe.py` |
+| Untouched columns share a buffer; a recomputed column gets a new one | ran: compared `buffers()[1].address` through pyarrow |
+| `describe()` has a `null_count` row | ran: `exercises/01_first_dataframe.py` |
+| Why Polars has no index | author (our summary, not quoted from the Polars documentation) |
+
+</Step>

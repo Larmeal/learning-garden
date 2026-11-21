@@ -1,0 +1,203 @@
+---
+title: Reading and Writing Files
+summary: A CSV has no types, so Polars has to guess, while Parquet keeps the types, per-row-group statistics and compressed data in the file. This lesson compares file sizes for 1 million rows, shows how a filter can skip row groups, reads a folder split by hive partitioning, and uses scan and sink so you never hold a whole file.
+facts:
+  - "Ran for real in exercises/07_reading_and_writing.py with Polars 2.1.0 and pyarrow 26. The file sizes are for 1,000,000 rows of synthetic data on Windows."
+  - "The row group statistics (min, max, null_count) were read with pyarrow.parquet. We did not look in the Polars code for how it uses them to skip, and the skipping itself is read from the plan and the documentation."
+  - "Cloud storage (S3, GCS, Azure), Delta Lake and Iceberg were not run in this lesson."
+order: 7
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [lazy]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import RowGroupLab from '../../../../components/labs/polars/RowGroupLab';
+
+<Step>
+
+## A CSV has no types
+
+Write the order table as a CSV and read it back (run: `exercises/07_reading_and_writing.py`).
+
+```python
+df.write_csv("s.csv")
+```
+
+```text
+order_id,customer,region,product,qty,price,ordered_at
+...
+7,Dan,,ink,4,8.0,2026-01-09
+8,Cat,east,pen,,1.5,2026-01-12
+```
+
+A `null` becomes an empty field, and there is no place to write what type a column has. So when reading it back, Polars has to guess from the data.
+
+```python
+back = pl.read_csv("s.csv")
+back.schema["qty"], back.schema["price"], back.schema["ordered_at"]
+# Int64, Float64, String
+```
+
+`qty` comes back as `Int64` and `price` as `Float64`, but `ordered_at` comes back as `String`, not `Date`. Polars does not convert text that looks like a date by itself. To get dates, pass `try_parse_dates=True` or set the type yourself with `schema_overrides={"ordered_at": pl.Date}`.
+
+The guess has a limit: Polars looks only at the first rows. If dirt hides deeper in the file, try a tiny file with an x among the numbers.
+
+```python
+late = "a\n1\n2\nx\n"
+pl.read_csv(io.StringIO(late), infer_schema_length=2)
+# ComputeError: could not parse `x` as dtype `i64` at column 'a' (column number 1)
+pl.read_csv(io.StringIO(late), infer_schema=False).schema["a"]     # String   no guessing, every column is text
+```
+
+Looking at only two rows it guesses `Int64` and then fails on the x. With the default (it looks at 100 rows) it sees the x in time and gives `String`. The safest way for data you do not trust is `infer_schema=False`, read everything as text, and then `cast(strict=False)` as in [lesson 3](/en/polars/types-and-nulls/). A value that stands for missing in the file, like `NA`, can be named with `null_values=["NA"]`.
+
+</Step>
+
+<Step>
+
+## Parquet keeps types, statistics and compression
+
+Parquet is a columnar file, and it carries its own schema, so nothing is guessed.
+
+```python
+df.write_parquet("s.parquet")
+pl.read_parquet_schema("s.parquet") == df.schema      # True
+```
+
+The file also stores the min, max and number of `null`s of every column in each **row group** (a block of rows written together). We can read them out through `pyarrow`.
+
+```python
+md = pq.ParquetFile("s.parquet").metadata
+stats = md.row_group(0).column(4).statistics      # the qty column
+(stats.min, stats.max, stats.null_count)          # (1, 5, 1)
+```
+
+The `(1, 5, 1)` matches our table: `qty` has a minimum of 1, a maximum of 5 and one `null`. We do not have to read the whole file to know this, because it sits at the end of the file, and it matters in the next part.
+
+Now compare the file sizes of the same data, 1,000,000 rows (the ones we generated), in four formats.
+
+| Format | Size |
+|---|---|
+| CSV | 40.5 MB |
+| Parquet (compressed, the default) | 6.3 MB |
+| Parquet, uncompressed | 21.4 MB |
+| Arrow IPC | 68.0 MB |
+
+Parquet is more than 6 times smaller than the CSV. Two reasons show in the table. **The first** is that numbers are stored as numbers and not as characters (even uncompressed Parquet is already half the size of the CSV). **The second** is that values in one column look alike and compress well. Arrow IPC is the largest because it keeps the layout that a program can read straight from memory, and it was not designed to be small. All these numbers belong to our synthetic data, and real data may give other ratios.
+
+</Step>
+
+<Step>
+
+## A filter can skip row groups when the statistics rule them out
+
+If a filter asks for `order_id` above 250,000 and the file says the first row group holds 1 to 100,000, there is no need to open that group at all. Let us write a file sorted by `order_id` with 100,000 rows per row group.
+
+```python
+sorted_big = big.sort("order_id")
+sorted_big.write_parquet("b_sorted.parquet", row_group_size=100_000)
+md = pq.ParquetFile("b_sorted.parquet").metadata
+[md.row_group(i).column(0).statistics.min for i in range(3)]   # [1, 100001, 200001]
+[md.row_group(i).column(0).statistics.max for i in range(3)]   # [100000, 200000, 300000]
+```
+
+The first group holds 1 to 100,000, the second holds 100,001 to 200,000, and so on. Drag the filter line in the lab below and see how many groups do not need opening.
+
+<RowGroupLab client:visible lang="en" />
+
+Notice that a file that is not sorted usually gets no benefit from this, because every group has low minimums and high maximums mixed together. The ranges overlap, and the statistics cannot say whether the answer is there. That is one reason we often write data sorted by the column we filter on most. (This lesson checks only the min and max values of the files we wrote. That Polars really uses them to skip groups when reading, we know from the plan and the documentation. We did not measure how many groups were skipped.)
+
+</Step>
+
+<Step>
+
+## Split into folders, then skip whole folders
+
+Another way to skip a whole file is hive partitioning: write the data into folders by the value of a column.
+
+```python
+big.write_parquet("hive", partition_by="region")
+sorted(p.name for p in Path("hive").iterdir())
+# ['region=east', 'region=north', 'region=south', 'region=west']
+
+plan = pl.scan_parquet("hive").filter(pl.col("region") == "north").explain()
+plan.count("Parquet SCAN")          # 1
+```
+
+There are four folders, but the plan for a filter on north has only one Parquet SCAN, and the path in the plan is the folder `region=north`. The other three are never opened. Another thing to notice is that the plan says `PROJECT 6/7 COLUMNS`, because the value of `region` is in the folder name and not in the file, yet Polars puts the `region` column back when it reads (counting the rows of the whole folder still gives 1,000,000).
+
+To read many files, one glob is enough, and you can ask Polars to add the path of the source file.
+
+```python
+pl.scan_csv("p*.csv", include_file_paths="path").collect()     # 20 rows from 2 files, with a path column
+```
+
+</Step>
+
+<Step>
+
+## Scan and sink: do not hold the whole file
+
+`read_*` reads the whole file into memory, while `scan_*` makes a LazyFrame that has read nothing (like [lesson 6](/en/polars/lazy/)). On the way out there is `sink_*`, which writes the result to a file without holding the whole result first.
+
+```python
+pl.scan_csv("b.csv").filter(pl.col("qty") > 8).sink_parquet("sink.parquet")
+pl.read_parquet("sink.parquet").height        # 111408
+```
+
+This reads a CSV of 1,000,000 rows, filters it down to 111,408 rows, and writes a Parquet file, all in one plan. We checked that 111,408 equals what an in-memory filter gives. Polars also reads and writes other formats, for example NDJSON (`write_ndjson` and `read_ndjson`) and Arrow IPC (`write_ipc` and `read_ipc`).
+
+<Callout type="note" title="What this lesson did not try">
+We worked with files on the disk of one computer. Polars can read from S3, GCS and Azure, and also from Delta Lake and Iceberg (for Iceberg, see [lesson 1 of the Iceberg path](/en/iceberg/what-is-iceberg/)), but we did not run any of these, so we confirm nothing about them.
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="A CSV of 1 million rows and exactly the same data in compressed Parquet. How do the file sizes compare?"
+  options={['Parquet is larger, because it also stores a schema and statistics', 'Parquet is several times smaller (in this data 6.3 MB against 40.5 MB)', 'The same size, because the data is the same']}
+  answer={1}
+  why="Parquet stores numbers as numbers and compresses columns whose values look alike. In our synthetic data we got 6.3 MB against 40.5 MB. Real data may not give these same numbers."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We scan data that is split into folders by region and filter for region equal to north. What does the plan show?"
+  options={['A scan of all four folders, with the filter applied afterwards', 'A scan of only the folder region=north, and the other three folders are not opened', 'An error, because the region column is not in the file']}
+  answer={1}
+  why="The value of region is in the folder name, so Polars chooses the folder while planning. The plan has one Parquet SCAN and reads 6 of the 7 columns of the file, then puts the region column back from the folder name."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Claim | Source |
+|---|---|
+| A CSV writes `null` as an empty field, `ordered_at` reads back as String, and `try_parse_dates` fixes it | ran: `exercises/07_reading_and_writing.py` |
+| `infer_schema_length=2` fails at the x, `infer_schema=False` gives String, `null_values` | ran: `exercises/07_reading_and_writing.py` |
+| Parquet keeps the schema and statistics (1, 5, 1) per row group | ran: `exercises/07_reading_and_writing.py` (read with pyarrow) |
+| File sizes: CSV 40.5 MB, Parquet 6.3 MB, uncompressed 21.4 MB, Arrow IPC 68.0 MB | ran: `exercises/07_reading_and_writing.py` |
+| A file sorted by `order_id` has row groups whose min and max ranges do not overlap; a shuffled file has groups that all span nearly the whole range | ran: `exercises/07_reading_and_writing.py` |
+| The plan of a hive partition has one Parquet SCAN and `PROJECT 6/7 COLUMNS` | ran: `explain()` in `exercises/07_reading_and_writing.py` |
+| `sink_parquet` gives 111,408 rows, and a glob gives 20 rows | ran: `exercises/07_reading_and_writing.py` |
+| Skipping row groups when reading really comes from the min and max statistics | author (read from the documentation, the number of skipped groups was not measured) |
+
+</Step>

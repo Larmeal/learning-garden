@@ -1,0 +1,66 @@
+---
+title: Check your understanding
+summary: Answer 4 questions to check how well you understood the look of a column in memory and the streaming engine.
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## Check yourself
+
+<Question
+  client:visible
+  lang="en"
+  q="How much memory do the values of an Int64 column of one million rows use without a null, and about how much more does a single null add?"
+  options={['8,000,000 bytes, plus about 125,000 bytes for the validity bitmap', '1,000,000 bytes, plus 8 bytes', '8,000,000 bytes, and nothing more, because the null uses a slot that is already there']}
+  answer={0}
+  why="Eight bytes per row is 8,000,000 bytes, and the bitmap uses one bit per row, a million bits being about 125,000 bytes. The exercise got 8,125,009 bytes with one null."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You call to_numpy and forbid copying, on a column without a null. What do you get?"
+  options={['An array that points directly at Polars memory, and cannot be written to', 'A new array that was always copied', 'An error always, because NumPy does not accept Polars data']}
+  answer={0}
+  why="A column without a null is a block of numbers side by side that NumPy can point into, so it is a read-only view. A column with a null needs a bitmap that NumPy has no place to keep, so it must be copied, and if you forbid copying you get an error."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="The streaming engine called our function 56 times on 5,000,000 rows, at most about 122,000 rows each time. What should the sum of the sizes of all the calls be?"
+  options={['More than 5,000,000, because Polars sends rows twice', 'Exactly 5,000,000, because each row passes each step once, only split into batches', 'Less than 5,000,000, because some batches are skipped']}
+  answer={1}
+  why="A morsel splits the data into batches to pass them one at a time, without adding or dropping rows. The exercise asserts that the sum is 5,000,000 on every run, whatever the morsel size."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="When the same query runs on the in-memory engine our function is called 41 times. What does 41 match?"
+  options={['The number of threads of the computer', 'The number of row groups of the Parquet file, each read as one chunk', 'The number of columns in the table']}
+  answer={1}
+  why="The file we wrote has 41 row groups (checked with PyArrow), and a function that works per chunk is called once per chunk, so we got 41."
+/>
+
+</Step>

@@ -1,0 +1,227 @@
+---
+title: Joins and Combining Tables
+summary: A join connects two tables on key columns. With a small order table and a small customer table this lesson shows how many rows inner, left, right, full, semi, anti and cross give, why duplicate keys add rows, how validate guards against it, and then join_where, join_asof and concat.
+facts:
+  - "Ran for real in exercises/05_joins.py with Polars 2.1.0, asserting row counts and error messages for every join."
+  - "The customer table and the asof example are small synthetic data written for the lesson, not from a real system."
+  - "That row order after a join is guaranteed only with maintain_order was read from the parameter documentation and not traced in the join code."
+order: 5
+phase: B
+level: 2
+stage: sprout
+format: steps
+requires: [expressions]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import JoinLab from '../../../../components/labs/polars/JoinLab';
+
+<Step>
+
+## The second table: customers
+
+The shop keeps each customer's tier in another table and wants to attach it to the orders. The customer table has 4 people: Ann, Bob, Cat and Eve. The orders have Ann, Bob, Cat and Dan. Notice that Dan ordered but is not in the customer table, and Eve is in the customer table but never ordered. These two mismatches are what make the kinds of join give different results (run: `exercises/05_joins.py`).
+
+```python
+orders = df.select("order_id", "customer", "qty")     # 8 rows
+cust = pl.DataFrame({"customer": ["Ann", "Bob", "Cat", "Eve"], "tier": ["gold", "silver", "silver", "gold"]})
+
+orders.join(cust, on="customer", how="left")
+```
+
+```text
+order_id  customer  qty   tier
+1         Ann       2     gold
+2         Bob       1     silver
+3         Ann       5     gold
+4         Cat       1     silver
+5         Bob       3     silver
+6         Ann       2     gold
+7         Dan       4     null
+8         Cat       null  silver
+```
+
+`on="customer"` says to match rows where `customer` is equal. `how="left"` says to keep every row of the left table (the orders), and when there is no match, fill the right-hand columns with `null`. So Dan gets a `null` `tier`.
+
+</Step>
+
+<Step>
+
+## How many rows each kind of join gives
+
+Change `how` one at a time and count the rows. The table below sums it up, and the lab lets you click to see which row matches which.
+
+| `how` | Result | Rows |
+|---|---|---|
+| `inner` | only rows that match on both sides (no Dan, no Eve) | 7 |
+| `left` | every order (Dan gets a null `tier`) | 8 |
+| `right` | every customer (Eve appears although she never ordered) | 8 |
+| `full` | every row of both sides | 9 |
+| `semi` | only the orders that have a match, and no new columns | 7 |
+| `anti` | only the orders that have no match (order 7, Dan) | 1 |
+| `cross` | every row paired with every row (no key) | 4 customers times 4 gives 16 |
+
+<JoinLab client:visible lang="en" />
+
+`semi` and `anti` are the two people forget, although they answer very common questions: how many orders belong to a customer we know (`semi`), and which orders have a customer we cannot find (`anti`), with no need to filter nulls afterwards.
+
+A `full` join leaves the key column of both sides for us.
+
+```python
+orders.join(cust, on="customer", how="full")
+# columns: order_id, customer, qty, customer_right, tier   (last row: Eve has customer null but customer_right 'Eve')
+orders.join(cust, on="customer", how="full", coalesce=True)    # merge the two key columns into one
+```
+
+`coalesce=True` gives a single column with whichever side's key is not `null`, which is usually what we want.
+
+</Step>
+
+<Step>
+
+## Duplicate keys add rows
+
+Imagine a phone number table that keeps two numbers for Ann, and we join on the name.
+
+```python
+dup = pl.DataFrame({"customer": ["Ann", "Ann", "Bob"], "phone": ["1", "2", "3"]})
+orders.join(dup, on="customer", how="left").height     # 11   (the orders had 8 rows)
+```
+
+Ann has 3 orders and 2 phone numbers, so we get 3 times 2, which is 6 rows, and the other 5 orders get one row each, for 11. This is the number one reason a total after a join differs from the total before it, and we often do not notice because a join never complains.
+
+We can ask Polars to check for us with `validate`.
+
+```python
+orders.join(dup, on="customer", how="left", validate="m:1")
+# ComputeError: join keys did not fulfill m:1 validation
+orders.join(cust, on="customer", how="left", validate="m:1").height    # 8
+```
+
+`m:1` says the left side may repeat a key but the right side must not (many orders per customer). If the data is not like that, Polars raises an error at once instead of letting the totals go wrong quietly. The other options are `1:1`, `1:m` and `m:m`. Put in `validate` every time you know what shape the join should have.
+
+</Step>
+
+<Step>
+
+## Null keys and clashing column names
+
+Keys that are `null` do not match each other, because `null == null` is not true (as in [lesson 3](/en/polars/types-and-nulls/)).
+
+```python
+a = pl.DataFrame({"k": [1, None], "x": ["a", "b"]})
+b = pl.DataFrame({"k": [1, None], "y": ["c", "d"]})
+a.join(b, on="k", how="inner").height                      # 1
+a.join(b, on="k", how="inner", nulls_equal=True).height    # 2
+```
+
+If you want `null` to match `null`, say `nulls_equal=True`.
+
+When two tables have a column of the same name that is not a key, Polars adds a suffix to the right-hand one.
+
+```python
+c2 = cust.rename({"customer": "name", "tier": "qty"})
+orders.join(c2, left_on="customer", right_on="name", how="left").columns
+# ['order_id', 'customer', 'qty', 'qty_right']
+orders.join(c2, left_on="customer", right_on="name", how="left", suffix="_cust").columns[-1]   # 'qty_cust'
+```
+
+`left_on` and `right_on` are for keys with different names, and `suffix` changes `_right` to something else.
+
+</Step>
+
+<Step>
+
+## Joining on a condition, and joining on time
+
+Sometimes the keys are not exactly equal. For example, we want to label orders by the range of `qty`. The range table has two rows: 0 to 5 is small and 5 to 100 is big.
+
+```python
+t = pl.DataFrame({"lo": [0, 5], "hi": [5, 100], "band": ["small", "big"]})
+bands = orders.join_where(t, pl.col("qty") >= pl.col("lo"), pl.col("qty") < pl.col("hi"))
+bands.filter(pl.col("order_id") == 3)["band"].item()    # 'big'
+bands.height                                             # 7   order 8 has no qty, so it falls in no range
+```
+
+`join_where` takes any number of conditions instead of matching on equality.
+
+Another join that is used a lot with time data finds the **latest row before**. `join_asof` is good for things like pairing the last published price with the time of a trade.
+
+```python
+trades.join_asof(quotes, on="t", strategy="backward")["px"].to_list()    # [100.0, 101.0]
+trades.join_asof(quotes, on="t", strategy="forward")["px"].to_list()     # [101.0, 102.0]
+trades.join_asof(quotes, on="t", strategy="backward", tolerance=dt.timedelta(seconds=6))["px"].to_list()   # [100.0, None]
+```
+
+The trade at 10:00:05 gets the price from 10:00:00, and the one at 10:00:20 would get the price from 10:00:10, which is 10 seconds old. With a `tolerance` of 6 seconds that price is too old, so we get `null` (both tables must be sorted by the time column first).
+
+</Step>
+
+<Step>
+
+## Stacking without a key: concat
+
+`pl.concat` places tables together.
+
+```python
+pl.concat([orders.head(2), orders.tail(2)], how="vertical").height    # 4 stacking rows needs identical columns
+pl.concat([orders, cust])
+# ShapeError: unable to append to a DataFrame of width 3 with a DataFrame of width 2
+pl.concat([orders.head(2), cust.head(2).rename({"customer": "x"})], how="diagonal").columns
+# ['order_id', 'customer', 'qty', 'x', 'tier']    stacks rows and fills null for missing columns
+pl.concat([orders.head(3), cust.head(3).rename({"customer": "c"})], how="horizontal").shape    # (3, 5)
+```
+
+`vertical` stacks rows and forces the schemas to match. `diagonal` stacks rows and fills `null` for columns that some tables lack. `horizontal` places columns side by side by position, with no key matching, and the column names must not repeat (otherwise you get a `DuplicateError`).
+
+<Callout type="warn" title="Row order after a join">
+In our `left` join the rows came out in the original order of the orders, but that is something we saw, not something Polars promises. If the order matters, pass `maintain_order="left"` or `sort` afterwards.
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="An orders table of 8 rows and a customer table of 4 people. We want to know which orders have no customer in the system. Which way answers most directly?"
+  options={['An inner join, then count', 'An anti join, then look at the rows', 'A full join, then count the 9 rows']}
+  answer={1}
+  why="anti returns only the rows of the left table that have no match. In the example that is one row, order 7 for Dan. An inner join gives the 7 rows that do match, and a full join gives 9 rows that include Eve, who has nothing to do with this question."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="8 orders are left-joined to a phone table where Ann has 2 numbers and Bob has 1. How many rows come out, and does Polars warn?"
+  options={['8 rows, because a left join never adds rows', '11 rows, and no warning at all if validate is not used', '11 rows, and an error always, because the key is duplicated']}
+  answer={1}
+  why="Ann's 3 orders matched with 2 numbers give 6 rows, and the rest give one each, for 11. Polars does not warn by itself. You need validate, for example m:1, to get a ComputeError."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Claim | Source |
+|---|---|
+| Row counts: inner 7, left 8, right 8, full 9, semi 7, anti 1, cross 16 | ran: `exercises/05_joins.py` |
+| `full` keeps `customer_right` and `coalesce=True` merges the keys | ran: `exercises/05_joins.py` |
+| Duplicate keys give 11 rows and `validate="m:1"` raises ComputeError | ran: `exercises/05_joins.py` |
+| `null` keys do not match unless `nulls_equal=True` | ran: `exercises/05_joins.py` |
+| Clashing columns get `_right` and `suffix` changes it | ran: `exercises/05_joins.py` |
+| `join_where` on ranges, and `join_asof` with all three strategies and `tolerance` | ran: `exercises/05_joins.py` |
+| `concat` vertical, diagonal, horizontal and the error messages | ran: `exercises/05_joins.py` |
+| Row order after a join is not guaranteed without `maintain_order` | author (read from the parameter documentation, not traced in code) |
+
+</Step>

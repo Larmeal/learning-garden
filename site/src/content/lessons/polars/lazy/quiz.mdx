@@ -1,0 +1,62 @@
+---
+title: เช็กความเข้าใจ
+summary: ตอบ 4 ข้อ เพื่อเช็กว่าเข้าใจ Lazy API และแผนจาก Optimizer แค่ไหน
+order: 99
+kind: quiz
+stage: sprout
+format: steps
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Question from '../../../../components/Question';
+
+<Step kind="question">
+
+## เช็กตัวเอง
+
+<Question
+  client:visible
+  q="LazyFrame ที่ยังไม่ได้ Collect เรารู้ชื่อและชนิดของคอลัมน์ผลลัพธ์ได้หรือไม่"
+  options={['ไม่ได้ ต้องรันก่อนถึงจะรู้', 'ได้ เพราะ Polars คำนวณ Schema ของผลจากกฎของแต่ละ Expression โดยไม่แตะข้อมูล', 'ได้ แต่ต้องอ่านไฟล์ 100 แถวแรกก่อนเสมอ']}
+  answer={1}
+  why="collect_schema บอก Schema ของผลโดยไม่รันอะไร ถ้าใช้คอลัมน์ที่ไม่มีหรือบวกข้อความกับตัวเลข Error ก็ออกมาตั้งแต่ตอนนี้ ก่อนจะเสียเวลาอ่านไฟล์ใหญ่"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เราเรียก Scan Parquet แล้วต่อ Head 5 แล้ว Explain จะเห็นอะไรที่ Scan"
+  options={['SLICE ที่ถูกดันลงมาที่ Scan เพื่ออ่านแค่ 5 แถว', 'ไม่มีอะไรต่างจากเดิม เพราะ Head ทำทีหลังเสมอ', 'FILTER ที่คัด 5 แถวแรกหลังอ่านครบ']}
+  answer={0}
+  why="Slice Pushdown ดัน Head ไปที่ Scan ในแผนจึงมีบรรทัด SLICE ที่ระบุว่าเริ่มจากแถวแรกและอ่าน 5 แถว ทำให้ไม่ต้องอ่านทั้งไฟล์แล้วตัดทีหลัง"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เรามีโค้ดเก่าที่เรียกผลวัดเวลาของแต่ละ Node ด้วยเมธอด Profile ของ LazyFrame แล้วอัปเกรดเป็น Polars 2.1 จะเกิดอะไรขึ้น"
+  options={['ใช้ได้เหมือนเดิม', 'เกิด AttributeRemovedError เพราะถูกลบใน 2.0 ด้วยเหตุที่ Streaming Engine เป็นค่าเริ่มต้น', 'ใช้ได้แต่ให้ผลว่างเปล่า']}
+  answer={1}
+  why="ข้อความ Error บอกไว้เองว่า Profile ออกแบบมาสำหรับ In-memory Engine และจะให้เวลาต่อ Node ที่เข้าใจผิดภายใต้ Streaming Engine ซึ่งเป็นค่าเริ่มต้นแล้ว"
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  q="เมื่อเราสั่ง Collect โดยไม่เลือก Engine เอง ใน Polars 2.1.0 ใครรันแผน"
+  options={['In-memory Engine เสมอ', 'Streaming Engine ถ้าไม่ได้ตั้ง Engine Affinity ไว้ และถอยกลับ In-memory ถ้ารันคำถามนั้นไม่ได้', 'GPU Engine ถ้าเครื่องมีการ์ดจอ']}
+  answer={1}
+  why="เราอ่านจาก Docstring ของเมธอด Explain ใน Source ที่ Tag py-2.1.0 ว่าตัวเลือก Auto ใช้ค่าจาก Config.set_engine_affinity หรือตัวแปร POLARS_ENGINE_AFFINITY และถ้าไม่ได้ตั้งจะใช้ Streaming ส่วน GPU ต้องขอเองและต้องมีไลบรารีเสริม"
+/>
+
+</Step>

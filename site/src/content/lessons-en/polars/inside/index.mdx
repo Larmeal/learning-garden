@@ -1,0 +1,240 @@
+---
+title: Inside Polars
+summary: Open up what one column looks like in memory (a values buffer and a validity bitmap), why joining tables does not copy because columns are kept in chunks, when NumPy can see the data without a copy, and how the streaming engine passes small batches (morsels, 100,000 rows by default) which we count through map_batches.
+facts:
+  - "Ran for real in exercises/10_inside_polars.py with Polars 2.1.0 and pyarrow 26, including counting the batch sizes the streaming engine passes to map_batches in a separate process."
+  - "The default morsel size (100,000) and the name POLARS_IDEAL_MORSEL_SIZE were read from crates/polars-config/src/lib.rs at tag py-2.1.0. The list of streaming nodes was read from the file names in polars-stream/src/nodes; we did not trace how each node works inside."
+  - "Not checked: the memory layout of nested types (List, Struct) and how Categorical is shared between Series (the string cache)."
+order: 10
+phase: D
+level: 4
+stage: sprout
+format: steps
+requires: [lazy]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import ColumnarLab from '../../../../components/labs/polars/ColumnarLab';
+import MorselLab from '../../../../components/labs/polars/MorselLab';
+
+<Step>
+
+## One column in memory
+
+In the earlier lessons we saw a DataFrame as a table. Now let us see what is really in memory. Take the `qty` column, `[2, 1, 5, 1, 3, 2, 4, null]`, and ask `pyarrow` to read out its buffers (run: `exercises/10_inside_polars.py`).
+
+```python
+qty = df["qty"].to_arrow()
+validity, values = qty.buffers()[0], qty.buffers()[1]
+np.frombuffer(values, dtype=np.int64, count=8)[:7].tolist()     # [2, 1, 5, 1, 3, 2, 4]
+format(validity.to_pybytes()[0], "08b")                          # '01111111'
+```
+
+So one column is made of two blocks. **The first is the values buffer**: the numbers laid end to end, eight bytes each (Int64). **The second is the validity bitmap**, which uses one bit per row to say whether that row has a value. Bit 0 (counting from the right) is the first row, so the byte `01111111` reads as: rows 1 to 7 have a value (the bit is 1) and row 8 has none (the bit is 0), which matches the `null` we planted in [lesson 1](/en/polars/first-dataframe/).
+
+So `null` is not stored as a special number like -1 or NaN, but as a separate bit. That is why `null` works for every data type (integers, text, dates), and why an `Int64` with a `null` is still `Int64` and does not turn into a float as it does in pandas ([lesson 11](/en/polars/from-pandas/)). Pick a column in the lab and see what these two blocks look like for each column of our table.
+
+<ColumnarLab client:visible lang="en" />
+
+A column with no `null` has no validity bitmap at all (the first entry of `buffers()` is `None` for `order_id`). So the bitmap is paid for only by the columns that need it.
+
+</Step>
+
+<Step>
+
+## The price of each type
+
+Once a column is a buffer, we can work out its size ourselves.
+
+```python
+pl.Series(range(1_000_000)).estimated_size()                  # 8000000   8 bytes per row
+pl.Series([1] * 1_000_000 + [None]).estimated_size()          # 8125009   plus about 125,000 bytes of bitmap
+pl.Series([1] * 1000, dtype=pl.Int8).estimated_size()         # 1000      Int8 uses 1 byte per row
+pl.Series([1] * 1000, dtype=pl.Int64).estimated_size()        # 8000
+pl.Series([True] * 1000).estimated_size()                     # 125       Bool uses 1 bit per row
+```
+
+A million rows of `Int64` is exactly eight million bytes (which matches the sizes we saw next to the files in [lesson 7](/en/polars/io/)). With a single `null` we add a bitmap of about 125,000 bytes (a million bits) plus a little header, and choosing a small type (`Int8`) saves 8 times, but do not forget that adding, subtracting and multiplying small types wrap around silently, as seen in [lesson 3](/en/polars/types-and-nulls/).
+
+</Step>
+
+<Step>
+
+## Text comes in two layouts
+
+Text has different lengths, so it cannot be laid out as plain numbers end to end. Arrow has two layouts.
+
+```python
+df["customer"].to_arrow().type                                              # large_string
+df["customer"].to_arrow(compat_level=pl.CompatLevel.newest()).type          # string_view
+```
+
+`large_string` is the classic layout, which keeps one block of offsets for each value and another block with the bytes of the text joined together (in our example there are 9 offsets of 8 bytes, which is 72 bytes, and the 8 names add up to 24 bytes). `string_view` is the newer layout, which keeps a fixed 16-byte view per value that points into a block of text.
+
+As for whether this Polars release really uses `string_view` as its internal layout, we did not trace the code. What we saw is that `to_arrow()` by default gives `large_string`, and when we ask for the newest compatibility level it can give `string_view`. Other details, such as how a view helps compare short strings, we did not check.
+
+</Step>
+
+<Step>
+
+## Zero copy and chunks
+
+If the numbers sit in one block, NumPy can point at that block directly without copying.
+
+```python
+arr = pl.Series([1, 2, 3]).to_numpy(allow_copy=False)
+arr.tolist(), arr.flags["WRITEABLE"]       # ([1, 2, 3], False)   a read-only view
+
+pl.Series([1, None]).to_numpy(allow_copy=False)
+# RuntimeError: copy not allowed: cannot convert to a NumPy array without copying data
+```
+
+A column with no `null` is a view directly onto Polars memory, so it cannot be written to. A column with a `null` needs a bitmap, which NumPy has no place for, so it must be copied into something else. If we forbid it with `allow_copy=False`, we get the error above.
+
+Another reason "no copy" works in many places is the **chunk**. A Polars column is not always one block; it is a list of arrays placed one after another.
+
+```python
+df["order_id"].n_chunks()                                     # 1
+two = pl.concat([df, df])
+two.n_chunks(), two["order_id"].chunk_lengths()               # 2, [8, 8]
+two.rechunk().n_chunks()                                      # 1
+```
+
+`concat` does not copy the data of the two `df`s into one block. It lays the two chunks next to each other, so joining tables is very fast. `rechunk()` copies all the chunks into a single block, which you do when you need contiguous memory, for example before handing the data to another library that wants one block (in Polars 2.1.0 `concat` does not rechunk by default; we checked from `n_chunks` being 2).
+
+</Step>
+
+<Step>
+
+## Categorical and Enum: numbers with a dictionary
+
+Text that repeats a lot (like `region`, with only 4 values across a million rows) is cheaper as numbers plus a dictionary.
+
+```python
+c = pl.Series(["b", "a", "b", "c"], dtype=pl.Categorical)
+c.to_physical().dtype                  # UInt32
+e = pl.Series(["b", "a"], dtype=pl.Enum(["a", "b", "c"]))
+e.to_physical().to_list()              # [1, 0]
+```
+
+`Categorical` stores a `UInt32` number that points into a dictionary of strings. For `Enum` the number is the position of the value in the list we declared (`"b"` is number 1 and `"a"` is number 0). We did not measure how much memory this really saves, because `estimated_size` of a text column did not count the views completely in our trial, so we do not use that number as evidence.
+
+</Step>
+
+<Step>
+
+## The streaming engine passes small batches
+
+[Lesson 6](/en/polars/lazy/) said the streaming engine is the default, and [lesson 9](/en/polars/performance/) showed no memory advantage on data that size. Now let us see what streaming really does. We peek with a function that records the size of the data every time it is called (through `map_batches`), and run it on a Parquet file of 5,000,000 rows.
+
+```python
+seen = []
+def f(s):
+    seen.append(len(s))
+    return s
+
+q = (
+    pl.scan_parquet("b.parquet")
+    .select(pl.col("order_id").map_batches(f, is_elementwise=True, return_dtype=pl.Int64))
+    .select(pl.col("order_id").sum())
+)
+q.collect(engine="streaming")
+len(seen), max(seen), sum(seen)
+```
+
+```text
+streaming, default morsel size:  calls 56   largest batch 121952
+streaming, ideal morsel 20000:   calls 256  largest batch 20326
+in-memory:                       calls 41   largest batch 121952
+```
+
+Our function was called **56 times** in streaming mode, each time with at most 121,952 rows, instead of once with all 5 million rows. The sizes of all the batches still add up to exactly 5,000,000. These batches are **morsels**, which the streaming engine passes through each step of the plan one at a time.
+
+The size it aims for is 100,000 rows. We see that number in `crates/polars-config/src/lib.rs` on the line `const DEFAULT_IDEAL_MORSEL_SIZE: u64 = 100_000;`, with the variable name `POLARS_IDEAL_MORSEL_SIZE`. We changed it to 20,000 through the environment and ran again: 256 calls, and the largest batch dropped to 20,326 (a little above 20,000). The largest batch of the default run is 121,952, above 100,000, because the Parquet we wrote has 41 row groups of about 121,951 rows each, and a batch that comes from the file passes through whole. In the in-memory engine the function is called 41 times, exactly the number of row groups, which means each row group was read as one chunk (we checked that the file has 41 row groups).
+
+Drag the morsel scenario in the lab to see how the batches pass through the steps.
+
+<MorselLab client:visible lang="en" />
+
+</Step>
+
+<Step>
+
+## A tour of the source
+
+Three places in the Polars source at tag `py-2.1.0` match what we saw in this lesson (each read from file names and lines, without tracing how it works inside).
+
+| What | Where |
+|---|---|
+| The order of the optimizer rules (slice, predicate, projection and more) | `crates/polars-plan/src/plans/optimizer/mod.rs` |
+| The default morsel size of 100,000 and the variable that changes it | `crates/polars-config/src/lib.rs` (`DEFAULT_IDEAL_MORSEL_SIZE`, `POLARS_IDEAL_MORSEL_SIZE`) |
+| One node of the streaming engine per kind, for example `filter.rs`, `select.rs`, `group_by/`, `joins/`, `sort/` | `crates/polars-stream/src/nodes/` |
+
+This list tells you that when `explain()` shows `FILTER` or `AGGREGATE`, code with a matching name lives there. If you want to go deeper, open those files.
+
+<Callout type="note" title="What this lesson has not answered">
+We have not checked how the streaming engine controls memory, why we saw no memory difference on data of that size, or how each node receives a morsel. These questions need a trace through the source of `polars-stream`.
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="An integer column holds one null. How does Arrow store the missing value?"
+  options={['A special number such as -1 or the minimum of the type stands in for it', 'A separate validity bitmap, one bit per row, and the matching slot of the values buffer has no meaning', 'An empty string in a separate list']}
+  answer={1}
+  why="In the exercise the qty column had a values buffer of numbers laid end to end and a one-byte bitmap 01111111, with the last row as bit 0. Because of this, null works for every type and an integer stays an integer."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="You concat two DataFrames and n_chunks gives 2. What does that mean?"
+  options={['Polars placed two chunks one after the other without copying the old data, and a later rechunk merges them into one block by copying', 'Polars made a mistake, and the answer should always be 1', 'The data was split across different threads']}
+  answer={0}
+  why="A concat without rechunking only joins the chunks. A rechunk afterwards copies them into one block, which you do when you need contiguous memory."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="We set POLARS_IDEAL_MORSEL_SIZE to 20000 and ran the same plan on the streaming engine. How did the number of calls to our function change?"
+  options={['It went down, because smaller batches run faster', 'It went up, from 56 to 256, because smaller batches must pass more often to cover the same 5,000,000 rows', 'It stayed the same, because the morsel has nothing to do with the number of calls']}
+  answer={1}
+  why="The sizes of all the batches still add up to 5,000,000 rows, so smaller batches mean more of them. In the exercise we got 256 calls and the largest batch was 20,326 rows."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Claim | Source |
+|---|---|
+| A column with a null has a values buffer and a validity bitmap `01111111`, and one without has no bitmap | ran: `exercises/10_inside_polars.py` (read through pyarrow) |
+| Int64 with 1,000,000 rows is 8,000,000 bytes, with a null 8,125,009, Int8 is 1 byte, Bool is 125 bytes per thousand rows | ran: `exercises/10_inside_polars.py` |
+| `to_arrow()` gives `large_string`, and `CompatLevel.newest()` gives `string_view` | ran: `exercises/10_inside_polars.py` |
+| `to_numpy(allow_copy=False)` gives a read-only view and raises an error with a null | ran: `exercises/10_inside_polars.py` |
+| `concat` gives 2 chunks and `rechunk()` gives 1 | ran: `exercises/10_inside_polars.py` |
+| `Categorical` is stored as `UInt32` and `Enum` as a position | ran: `exercises/10_inside_polars.py` |
+| Streaming calls the function 56 times with a largest batch of 121,952 rows; morsel 20,000 gives 256 calls and a largest batch of 20,326; in-memory gives 41 | ran: `exercises/10_inside_polars.py` (through `map_batches` in separate processes) |
+| The default morsel size of 100,000 and the variable name | source: `crates/polars-config/src/lib.rs` |
+| The optimizer rule order and the file names of the streaming nodes | source: `crates/polars-plan/src/plans/optimizer/mod.rs` and `crates/polars-stream/src/nodes/` |
+| Why the largest default batch is above 100,000 (it comes from the row group size) | author (inferred from 121,951 and 41 row groups, not traced in the source) |
+
+</Step>

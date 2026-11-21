@@ -1,0 +1,224 @@
+---
+title: The Lazy API and the Query Optimizer
+summary: A LazyFrame records a plan first and runs it only at collect, which lets the optimizer rewrite it. This lesson reads explain() plans before and after, shows what predicate pushdown, projection pushdown and merging do, switches them off one at a time, and shows that Polars 2.1 runs on the streaming engine by default.
+facts:
+  - "Ran for real in exercises/06_lazy_and_optimizer.py with Polars 2.1.0. Every plan line quoted comes from a real explain() on Windows (a 200,000-row Parquet file)."
+  - "The order of the optimizer rules and the streaming engine being the default were read from the source at tag py-2.1.0 (polars-plan/src/plans/optimizer/mod.rs and lazyframe/frame.py)."
+  - "How much faster lazy is than eager is measured in lesson 9. This lesson does not time anything."
+order: 6
+phase: C
+level: 3
+stage: sprout
+format: steps
+requires: [expressions, group-by-windows]
+updated: 2026-11-20
+---
+
+import Step from '../../../../components/Step.astro';
+import Callout from '../../../../components/Callout.astro';
+import Question from '../../../../components/Question';
+import PlanLab from '../../../../components/labs/polars/PlanLab';
+
+<Step>
+
+## A LazyFrame is a plan
+
+Since [lesson 1](/en/polars/first-dataframe/) we have used `DataFrame`, which runs every call at once. A `LazyFrame` is different: it runs nothing until we call `collect()`. It only writes down what we want (run: `exercises/06_lazy_and_optimizer.py`).
+
+```python
+lf = big.lazy()
+q = lf.with_columns(total=pl.col("qty") * pl.col("price")).filter(pl.col("region") == "north")
+isinstance(q, pl.LazyFrame)                  # True
+hasattr(q, "shape")                          # False   there are no rows to count yet
+q.collect_schema().names()[-1]               # 'total'
+q.collect_schema()["total"]                  # Float64
+q.collect()                                  # only here is anything calculated
+```
+
+`collect_schema()` gives the names and types of the result without running a single line, because Polars knows the rule of each expression (`Int64` times `Float64` is `Float64`) and so can work out what the final result looks like. If you use a column that does not exist, or add text to a number, the error comes out right now, before any time is spent reading a big file.
+
+Getting the whole plan before running anything is why people say Polars is fast: we get a chance to rewrite the plan into a better one.
+
+</Step>
+
+<Step>
+
+## Reading a plan before and after
+
+Let us write one question: the total sales of each product in the north region, reading from a Parquet file with 200,000 rows and 7 columns.
+
+```python
+query = (
+    pl.scan_parquet("o.parquet")
+    .with_columns(total=pl.col("qty") * pl.col("price"))
+    .filter(pl.col("region") == "north")
+    .group_by("product")
+    .agg(pl.col("total").sum())
+    .sort("product")
+)
+print(query.explain(optimized=False))   # the plan as written
+print(query.explain())                  # the plan after the optimizer
+```
+
+Start with the plan as written. Read it from the bottom up, because data flows from the bottom up.
+
+```text
+SORT BY [col("product")]
+  AGGREGATE[maintain_order: false]
+    [col("total").sum()] BY [col("product")]
+    FROM
+    FILTER col("region") == "north"
+    FROM
+       WITH_COLUMNS:
+       [(col("qty").cast(Float64) * col("price")).alias("total")]
+        Parquet SCAN [.../o.parquet]
+        PROJECT */7 COLUMNS
+        ESTIMATED ROWS: 200000
+```
+
+And now the plan after the optimizer.
+
+```text
+SORT BY [col("product")]
+  AGGREGATE[maintain_order: false]
+    [col("total").sum()] BY [col("product")]
+    FROM
+    simple π 2/2 ["product", "total"]
+       WITH_COLUMNS:
+       [(col("qty").cast(Float64) * col("price")).alias("total")]
+        simple π 3/3 ["product", "qty", "price"]
+          Parquet SCAN [.../o.parquet]
+          PROJECT 4/7 COLUMNS
+          SELECTION: col("region") == "north"
+          ESTIMATED ROWS: 200000
+```
+
+Compare the two plans and two things change at the scan at the bottom. **First**, `PROJECT */7 COLUMNS` became `PROJECT 4/7 COLUMNS`: Polars saw that the whole question uses only `product`, `qty`, `price` and `region`, so it reads 4 of the 7 columns from the file. This is called **projection pushdown**. **Second**, the `FILTER` line that used to sit above the scan is gone, and shows up at the scan as `SELECTION: col("region") == "north"`. The filter was pushed down into the reading of the file, which is called **predicate pushdown**. Rows that are not north are never passed upward.
+
+The `simple π` lines are column selections (π is the symbol of projection in relational algebra). The optimizer inserts them to drop columns we are done with, like `region`, which is not needed after filtering.
+
+</Step>
+
+<Step>
+
+## Switch them off one at a time
+
+The optimizer works from a list of rules, and we can switch them off one by one with `QueryOptFlags`.
+
+```python
+query.explain(optimizations=pl.QueryOptFlags(predicate_pushdown=False))      # no SELECTION, the FILTER is back
+query.explain(optimizations=pl.QueryOptFlags(projection_pushdown=False))     # PROJECT */7 COLUMNS
+query.explain(optimizations=pl.QueryOptFlags.none())                         # everything off
+```
+
+Flip the options in the lab below and see how many columns the scan reads, and where the rows that are not north are dropped.
+
+<PlanLab client:visible lang="en" />
+
+Importantly, **the answer does not change**. Only the work does.
+
+```python
+a = query.collect()
+b = query.collect(optimizations=pl.QueryOptFlags.none())
+a.equals(b)        # True
+```
+
+The optimizer changes only the route to the same answer. A CSV file works the same way (`scan_csv(...).select("region", "qty").filter(pl.col("qty") > 5)` gives `PROJECT 2/7 COLUMNS` and `SELECTION: col("qty") > 5`), except that a CSV must still be parsed line by line anyway. We will see the timings in [lesson 9](/en/polars/performance/).
+
+</Step>
+
+<Step>
+
+## Other things the optimizer helps with
+
+There are more than the two above, and some show clearly in the plan.
+
+```python
+two = big.lazy().with_columns(a=pl.col("qty") + 1).with_columns(b=pl.col("price") * 2)
+two.explain().count("WITH_COLUMNS")                                          # 1   two calls merged into one
+two.explain(optimizations=pl.QueryOptFlags.none()).count("WITH_COLUMNS")     # 2
+
+cse = big.lazy().select((pl.col("qty") * pl.col("price")).alias("x"), (pl.col("qty") * pl.col("price") + 1).alias("y"))
+"__POLARS_CSER" in cse.explain()                                             # True   the product is computed once
+
+pl.scan_parquet("o.parquet").head(5).explain()
+# Parquet SCAN [...]  PROJECT */7 COLUMNS  SLICE: Positive { offset: 0, len: 5 }
+```
+
+On the first line, when two expressions do not depend on each other, Polars merges two `with_columns` calls into one. On the second, `qty * price` appears in two columns, so Polars makes a temporary name (`__POLARS_CSER`) and computes it once and reuses it, which is called common subexpression elimination. On the last, `head(5)` is pushed down to the scan as a `SLICE`, so only 5 rows are read instead of reading the whole file and cutting afterwards.
+
+The full list of rules can be read in `polars-plan/src/plans/optimizer/mod.rs` in the source at tag `py-2.1.0`. The order they run in is: fused arithmetic, common subplan elimination, slice pushdown, predicate pushdown, rules about sorting, join ordering, projection pushdown, then merging projections and other small rules (we read the order from that code but did not trace how each rule works inside).
+
+</Step>
+
+<Step>
+
+## Who runs it: the streaming engine
+
+After the plan is optimized, an engine has to run it. In Polars 2.x the choices are:
+
+```python
+query.collect(engine="streaming").equals(query.collect(engine="in-memory"))     # True
+```
+
+The docstring of `explain` in `lazyframe/frame.py` says that `engine="auto"` takes the value from `Config.set_engine_affinity` or from the environment variable `POLARS_ENGINE_AFFINITY`, and if neither is set it falls back to `"streaming"`. So in 2.1.0 the default is the **streaming engine**, which processes data in small batches one after another. `"in-memory"` is still available, and it is also what Polars falls back to if streaming cannot run that query. We open up what those batches are in [lesson 10](/en/polars/inside/).
+
+Another thing that changed in 2.0, and that we ran into when calling it, is that `LazyFrame.profile()` was removed.
+
+```python
+query.profile()
+# AttributeRemovedError: `profile` was removed in version 2.0; It was designed for the in-memory engine
+# and would give misleading per-node timings under the streaming engine (now the default).
+```
+
+The error message gives the reason itself. If you read an old article or Stack Overflow answer that uses `profile()`, be careful: Polars 2.x does not have it.
+
+<Callout type="note" title="Eager is lazy inside">
+An eager `big.filter(...)` gives the same result as `big.lazy().filter(...).collect()`; we checked that they are equal. If you write several calls in a row, lazy has the advantage that the optimizer sees the whole thing, while eager has to do the calls one at a time.
+</Callout>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="In the optimized plan the scan lines say PROJECT 4/7 COLUMNS and SELECTION: col('region') == 'north'. What do these two lines say?"
+  options={['Read 4 of 7 columns and filter while reading the file, so not every row has to be read up and filtered later', 'Read all 7 columns, then keep the first 4 rows', 'The data is split into 4 parts and sent to 7 computers to share the work']}
+  answer={0}
+  why="PROJECT n/m says how many of the columns the scan reads, and SELECTION is a predicate that was pushed down to be applied while reading. They are projection pushdown and predicate pushdown."
+/>
+
+</Step>
+
+<Step kind="question">
+
+<Question
+  client:visible
+  lang="en"
+  q="If we switch off the whole optimizer with QueryOptFlags.none() and call collect, what do we get?"
+  options={['The same answer, but the plan reads all 7 columns and filters later', 'A different answer, because the optimizer changes the meaning of the query', 'An error, because Polars needs the optimizer']}
+  answer={0}
+  why="The optimizer is designed not to change the answer; it changes only how the work is done. The exercise checked that the results are equal with equals."
+/>
+
+</Step>
+
+<Step>
+
+## Where this lesson comes from
+
+| Claim | Source |
+|---|---|
+| A LazyFrame has no rows, but its schema is known from `collect_schema()` | ran: `exercises/06_lazy_and_optimizer.py` |
+| Plans before and after, including `PROJECT */7` becoming `PROJECT 4/7` and `SELECTION` | ran: `explain()` in `exercises/06_lazy_and_optimizer.py` |
+| With predicate pushdown, projection pushdown or both off the plan changes and the answer does not | ran: `exercises/06_lazy_and_optimizer.py` |
+| A CSV scan gets `PROJECT 2/7` and `SELECTION` | ran: `exercises/06_lazy_and_optimizer.py` |
+| Merged `with_columns`, common subexpression (`__POLARS_CSER`), `SLICE` at the scan | ran: `exercises/06_lazy_and_optimizer.py` |
+| `profile()` was removed in 2.0 | ran: it raises `AttributeRemovedError` |
+| The default of `engine="auto"` is streaming | source: `py-polars/src/polars/lazyframe/frame.py` (docstring of `explain`) |
+| The order of the optimizer rules | source: `crates/polars-plan/src/plans/optimizer/mod.rs` |
+| Eager gives the same result as `lazy().collect()` | ran: `exercises/06_lazy_and_optimizer.py` |
+
+</Step>
